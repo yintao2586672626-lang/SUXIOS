@@ -1,0 +1,1137 @@
+{
+  "schema": "suxios.integration_receipt.v1",
+  "received_on": "2026-10-02",
+  "verified_at": "2026-10-02T10:34:48.045Z",
+  "timezone": "Asia/Shanghai",
+  "package_id": "changqing-three-phase-31-20261002",
+  "status": "received_and_registered_not_merged_or_committed",
+  "source_thread": {
+    "id": "01a0f621-a613-7382-827e-ac02395f7693",
+    "title": "深度解析长青账户数据"
+  },
+  "source_worktree": {
+    "path": "D:\\桌面\\SUXIOS\\宿析OS初始版\\.active-worktrees\\HOTEL-clean-20260901",
+    "branch": "codex/save-all-20260903",
+    "head": "9fa781fc92baa66b410f4e5d6e8c8c3c1ebae81b",
+    "mixed_uncommitted_workspace": true
+  },
+  "target_worktree": {
+    "path": "D:\\桌面\\SUXIOS\\宿析OS初始版\\.active-worktrees\\HOTEL-integration-20260930",
+    "branch": "codex/integrate-suxios-20260930",
+    "head": "61b78d2e5cc243d391115468b41c251774d19bce",
+    "local_upstream": "61b78d2e5cc243d391115468b41c251774d19bce",
+    "local_origin_main": "703dd68db8908b23a8d084868196f72318e586d7",
+    "remote_not_refreshed": true,
+    "existing_dirty_paths": 10
+  },
+  "catalog": {
+    "modules": 31,
+    "phase_counts": [
+      16,
+      8,
+      7
+    ],
+    "items": [
+      {
+        "module_id": 24,
+        "name": "OTA数据",
+        "target": "online-data",
+        "tab": "",
+        "phase": 1,
+        "rank": 1
+      },
+      {
+        "module_id": 19,
+        "name": "收益期预订监测",
+        "target": "finance",
+        "tab": "booking",
+        "phase": 1,
+        "rank": 2
+      },
+      {
+        "module_id": 26,
+        "name": "广告数据",
+        "target": "ctrip-ebooking",
+        "tab": "ctrip-ads",
+        "phase": 1,
+        "rank": 3
+      },
+      {
+        "module_id": 25,
+        "name": "价格数据",
+        "target": "ctrip-ebooking",
+        "tab": "ctrip-market-competition",
+        "phase": 1,
+        "rank": 4
+      },
+      {
+        "module_id": 18,
+        "name": "收益驾驶舱",
+        "target": "trusted-revenue-analysis",
+        "tab": "",
+        "phase": 1,
+        "rank": 5
+      },
+      {
+        "module_id": 1,
+        "name": "工作台",
+        "target": "compass",
+        "tab": "",
+        "phase": 1,
+        "rank": 6
+      },
+      {
+        "module_id": 2,
+        "name": "酒店管理",
+        "target": "hotels",
+        "tab": "",
+        "phase": 1,
+        "rank": 7
+      },
+      {
+        "module_id": 15,
+        "name": "间夜与均价联动",
+        "target": "revenue-research-center",
+        "tab": "",
+        "phase": 1,
+        "rank": 8
+      },
+      {
+        "module_id": 17,
+        "name": "点评数据",
+        "target": "ctrip-ebooking",
+        "tab": "ctrip-review-match",
+        "phase": 1,
+        "rank": 9
+      },
+      {
+        "module_id": 30,
+        "name": "数据来源配置",
+        "target": "data-config",
+        "tab": "",
+        "phase": 1,
+        "rank": 10
+      },
+      {
+        "module_id": 6,
+        "name": "月任务与经营预算",
+        "target": "operating-targets",
+        "tab": "",
+        "phase": 1,
+        "rank": 11
+      },
+      {
+        "module_id": 7,
+        "name": "多店经营比较",
+        "target": "finance",
+        "tab": "portfolio",
+        "phase": 1,
+        "rank": 12
+      },
+      {
+        "module_id": 31,
+        "name": "操作日志",
+        "target": "operation-logs",
+        "tab": "",
+        "phase": 1,
+        "rank": 13
+      },
+      {
+        "module_id": 3,
+        "name": "用户管理",
+        "target": "users",
+        "tab": "",
+        "phase": 1,
+        "rank": 14
+      },
+      {
+        "module_id": 4,
+        "name": "角色管理",
+        "target": "roles",
+        "tab": "",
+        "phase": 1,
+        "rank": 15
+      },
+      {
+        "module_id": 27,
+        "name": "系统设置",
+        "target": "system-config",
+        "tab": "",
+        "phase": 1,
+        "rank": 16
+      },
+      {
+        "module_id": 29,
+        "name": "来源接口与字段映射",
+        "target": "source",
+        "tab": "",
+        "phase": 2,
+        "rank": 17
+      },
+      {
+        "module_id": 10,
+        "name": "酒店周报",
+        "target": "review",
+        "tab": "weekly_review",
+        "phase": 2,
+        "rank": 18
+      },
+      {
+        "module_id": 12,
+        "name": "店总周报",
+        "target": "review",
+        "tab": "manager_review",
+        "phase": 2,
+        "rank": 19
+      },
+      {
+        "module_id": 8,
+        "name": "复购率",
+        "target": "guests",
+        "tab": "repeat",
+        "phase": 2,
+        "rank": 20
+      },
+      {
+        "module_id": 9,
+        "name": "宾客舆情与客诉",
+        "target": "guests",
+        "tab": "feedback",
+        "phase": 2,
+        "rank": 21
+      },
+      {
+        "module_id": 23,
+        "name": "反馈跟进",
+        "target": "guests",
+        "tab": "feedback",
+        "phase": 2,
+        "rank": 22
+      },
+      {
+        "module_id": 22,
+        "name": "反馈二维码配置",
+        "target": "guests",
+        "tab": "entry",
+        "phase": 2,
+        "rank": 23
+      },
+      {
+        "module_id": 16,
+        "name": "OTA目标与措施复盘",
+        "target": "review",
+        "tab": "ota_review",
+        "phase": 2,
+        "rank": 24
+      },
+      {
+        "module_id": 14,
+        "name": "抖音与营销作品数据",
+        "target": "campaigns",
+        "tab": "campaign",
+        "phase": 3,
+        "rank": 25
+      },
+      {
+        "module_id": 20,
+        "name": "节日营销海报",
+        "target": "campaigns",
+        "tab": "poster",
+        "phase": 3,
+        "rank": 26
+      },
+      {
+        "module_id": 21,
+        "name": "酒店短视频",
+        "target": "campaigns",
+        "tab": "video",
+        "phase": 3,
+        "rank": 27
+      },
+      {
+        "module_id": 5,
+        "name": "必要日报与补录",
+        "target": "campaigns",
+        "tab": "daily",
+        "phase": 3,
+        "rank": 28
+      },
+      {
+        "module_id": 28,
+        "name": "日报接口适配",
+        "target": "source",
+        "tab": "daily",
+        "phase": 3,
+        "rank": 29
+      },
+      {
+        "module_id": 11,
+        "name": "班次交接",
+        "target": "campaigns",
+        "tab": "shift",
+        "phase": 3,
+        "rank": 30
+      },
+      {
+        "module_id": 13,
+        "name": "报表补录与记录核对",
+        "target": "campaigns",
+        "tab": "reconcile",
+        "phase": 3,
+        "rank": 31
+      }
+    ]
+  },
+  "source_verification_reused": {
+    "php": {
+      "workspace_tests": 8,
+      "workspace_assertions": 47,
+      "guest_tests": 13,
+      "guest_assertions": 88,
+      "campaign_tests": 18,
+      "campaign_assertions": 87,
+      "total_tests": 39,
+      "total_assertions": 222,
+      "passed": true,
+      "business_writes_use_temporary_sqlite": true
+    },
+    "core_browser_and_contract": {
+      "root_tests": 36,
+      "guest_campaign_tests": 6,
+      "total_tests": 42,
+      "passed": 42,
+      "failed": 0,
+      "skipped": 0
+    },
+    "rounds_completed": 3,
+    "entry_followup": {
+      "tests": 9,
+      "passed": 9,
+      "skipped": 0,
+      "evidence": "source task handoff report; source entry fingerprint checked, tests not rerun by receiver"
+    },
+    "snapshot_core_fingerprint_checks": [
+      {
+        "path": "public/components/system/business-feature-workspace.js",
+        "expected": "9189f8e70ddd744684a111a9c4d05955cc91386ea31d3541388503c902471223",
+        "current": "9189f8e70ddd744684a111a9c4d05955cc91386ea31d3541388503c902471223",
+        "match": true,
+        "scope": "unchanged_core_source"
+      },
+      {
+        "path": "app/service/GuestOperationsService.php",
+        "expected": "3ab7542b2f38de0f102c3605c76b9b1b75d5f878d09da6168ff91291dbfe8087",
+        "current": "3ab7542b2f38de0f102c3605c76b9b1b75d5f878d09da6168ff91291dbfe8087",
+        "match": true,
+        "scope": "unchanged_core_source"
+      },
+      {
+        "path": "public/components/system/guest-operations-panel.js",
+        "expected": "bc503590643df09037664bd0dbc21f534ca4b66f309f3c5c6729ab784437ac81",
+        "current": "bc503590643df09037664bd0dbc21f534ca4b66f309f3c5c6729ab784437ac81",
+        "match": true,
+        "scope": "unchanged_core_source"
+      },
+      {
+        "path": "public/components/system/campaign-operations-panel.js",
+        "expected": "7768f729977be62b4b728239e3cda9fb11f6e57fcf386fb17664e810015bbac0",
+        "current": "7768f729977be62b4b728239e3cda9fb11f6e57fcf386fb17664e810015bbac0",
+        "match": true,
+        "scope": "unchanged_core_source"
+      },
+      {
+        "path": "public/app-main.js",
+        "expected": "8a07f98eb362ff2089cfc0aabbc24f0b7444c7ef953980c8416aff12dbc9dff4",
+        "current": "53889c0186365a2c99c0838ec2a4e0ec17901f0a52b6d3affa090e3e59703bcf",
+        "match": false,
+        "scope": "historical_shared_entry_expected_to_change"
+      }
+    ],
+    "snapshot_asset_fingerprint_checks": [
+      {
+        "path": "public/app-main.min.js",
+        "expected": "e511e7edeafa3405d73d98f78ee39384ac93c4516cbd215c3df9a33ba6c983da",
+        "current": "c30842f2aa4804df1b8956e82f2e645096b5c98ed75bcd5af803c5c9c0d79eff",
+        "match": false,
+        "scope": "historical_shared_entry_expected_to_change"
+      },
+      {
+        "path": "public/components/system/operating-finance-control-center.min.js",
+        "expected": "5fc07e5c1e9936d4c39a47e11b89d2f03ea1eb2937ff7d93d5b9ebd97b14ff3c",
+        "current": "5fc07e5c1e9936d4c39a47e11b89d2f03ea1eb2937ff7d93d5b9ebd97b14ff3c",
+        "match": true,
+        "scope": "unchanged_compiled_asset"
+      },
+      {
+        "path": "public/app-startup-helpers.min.js",
+        "expected": "c43ce28a5bf015359aea76629d16705d9459f085d5ac9fccbcead4a14e6ac565",
+        "current": "c43ce28a5bf015359aea76629d16705d9459f085d5ac9fccbcead4a14e6ac565",
+        "match": true,
+        "scope": "unchanged_compiled_asset"
+      },
+      {
+        "path": "public/tailwind.min.css",
+        "expected": "4edf36348c3b588145378e798ac2c7f85813c4437e14ebac35e8eef25dfac46c",
+        "current": "4edf36348c3b588145378e798ac2c7f85813c4437e14ebac35e8eef25dfac46c",
+        "match": true,
+        "scope": "unchanged_compiled_asset"
+      }
+    ],
+    "handoff_current_entry_checks": [
+      {
+        "path": "public/app-main.js",
+        "expected": "53889c0186365a2c99c0838ec2a4e0ec17901f0a52b6d3affa090e3e59703bcf",
+        "current": "53889c0186365a2c99c0838ec2a4e0ec17901f0a52b6d3affa090e3e59703bcf",
+        "match": true
+      },
+      {
+        "path": "public/app-main.min.js",
+        "expected": "c30842f2aa4804df1b8956e82f2e645096b5c98ed75bcd5af803c5c9c0d79eff",
+        "current": "c30842f2aa4804df1b8956e82f2e645096b5c98ed75bcd5af803c5c9c0d79eff",
+        "match": true
+      }
+    ],
+    "changed_after_handoff": [],
+    "unmodified_evidence_reused": true
+  },
+  "receiver_verification": {
+    "scope_paths_located": 53,
+    "live_catalog_count_and_phases_checked": true,
+    "tests_run": 0,
+    "build_run": false,
+    "database_access": false,
+    "account_access": false,
+    "protected_existing_changes": [
+      {
+        "state": "M ",
+        "path": "pp/controller/ManagerCapability.php"
+      },
+      {
+        "state": " M",
+        "path": "app/service/AiDailyReportService.php",
+        "bytes": 242427,
+        "sha256": "62d31a03d3cf073bcc9f6e32a56b79c16554eaf82df0aecfa9ba841118955381"
+      },
+      {
+        "state": " M",
+        "path": "app/service/KnowledgeReferenceService.php",
+        "bytes": 19898,
+        "sha256": "d68327de6ead9ac50d44effa8eabba34aab651f705e064474cb20b1b4ad39ed5"
+      },
+      {
+        "state": " M",
+        "path": "app/service/ManagerCoachingService.php",
+        "bytes": 24803,
+        "sha256": "6dd806ad29385dcecbb3bcdfad0b4817356e759fa53d22c51330f4b75a7261c8"
+      },
+      {
+        "state": " M",
+        "path": "app/service/OperationManagementService.php",
+        "bytes": 279628,
+        "sha256": "94b4dcae2c5839bdd8fb61164ed426d8eab559c4c1f64852bb7c2f93b885c5b5"
+      },
+      {
+        "state": " M",
+        "path": "app/service/operation/OperationExecutionTenantConcern.php",
+        "bytes": 48966,
+        "sha256": "ec4dffe010f360c0347d6a9f047286ac140a5f3478671440bcddf8e7e4ddb196"
+      },
+      {
+        "state": " M",
+        "path": "docs/integration/suxios-integration-20260930.json",
+        "bytes": 260413,
+        "sha256": "e2d53d25ed9c4325714eb504334a649a6b344d01eaec10be24fbff4ad02ca6e4"
+      },
+      {
+        "state": " M",
+        "path": "tests/AiDailyReportPrefixStorageTest.php",
+        "bytes": 24894,
+        "sha256": "ea737e7cc2b4e6cc5ab6a837394b47db49c2328cc97aca5ad43047de0ad4e506"
+      },
+      {
+        "state": " M",
+        "path": "tests/KnowledgeReferenceSharedSnapshotTest.php",
+        "bytes": 16026,
+        "sha256": "44215229f8c581048eda8f569afce4abb30e94fc9e3662641248251be5f69db6"
+      },
+      {
+        "state": " M",
+        "path": "tests/ManagerCoachingIntegrationTest.php",
+        "bytes": 18527,
+        "sha256": "a74365b231259418384df620e4761eb8f0962c9942866fbf7e0fcf6d1362b470"
+      }
+    ]
+  },
+  "known_limits": {
+    "expanded_regression_failures": [
+      {
+        "file": "tests/automation/frontend_authenticated_bootstrap.test.mjs",
+        "test": "dual OTA loss-chain grid follows the actual node count",
+        "status": "not_fixed",
+        "user_impact": "not_verified"
+      },
+      {
+        "file": "tests/automation/access_tier_permissions.test.mjs",
+        "test": "市场评估页必须加载扩张历史筛选所依赖的模拟静态模块",
+        "status": "not_fixed"
+      },
+      {
+        "file": "tests/automation/access_tier_permissions.test.mjs",
+        "test": "市场评估兼容路由必须加载扩张历史筛选所依赖的模拟静态模块",
+        "status": "not_fixed"
+      }
+    ],
+    "transient_test_failure": {
+      "test": "authenticated asset loads share in-flight work and recover after error or timeout",
+      "first_parallel_attempt": "timeout",
+      "isolated_recheck": "passed",
+      "timeout_or_assertion_relaxed": false
+    },
+    "source_schema_count_224_is_historical_not_target_schema_proof": true,
+    "source_health_and_admin_readonly_are_reported_historical_not_receiver_field_verification": true,
+    "private_external_system_api_not_connected": true,
+    "anonymous_public_guest_feedback_not_enabled": true,
+    "video_is_text_scene_not_live_footage": true,
+    "no_real_ota_pms_or_financial_operating_effect_validation": true
+  },
+  "inventory": [
+    {
+      "group": "business_domain",
+      "path": "app/service/BusinessFeatureCatalog.php",
+      "source": {
+        "bytes": 5130,
+        "sha256": "ff0a3350c5f9bf1a95e04e1f5a4d40ad9faaf59742e93a62025f99947d6a1156"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "business_domain",
+      "path": "app/service/BusinessWorkspaceService.php",
+      "source": {
+        "bytes": 11156,
+        "sha256": "065eaf3dc84203bf338ffccf80489d66cf369bd3d03ab554e9c9d8cbff9c2818"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "business_domain",
+      "path": "app/service/GuestOperationsService.php",
+      "source": {
+        "bytes": 28470,
+        "sha256": "3ab7542b2f38de0f102c3605c76b9b1b75d5f878d09da6168ff91291dbfe8087"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "business_domain",
+      "path": "app/service/CampaignOperationsService.php",
+      "source": {
+        "bytes": 28560,
+        "sha256": "7a0648200edd31260a36a35009fb1b4f0edb5b7356844a8fa287a4fe1e54e7c0"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "business_domain",
+      "path": "app/controller/BusinessWorkspace.php",
+      "source": {
+        "bytes": 3448,
+        "sha256": "178a9caca76930de1ae0635695bf47fd1a3c5817af38c7e05889def3960f884a"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "business_domain",
+      "path": "app/controller/GuestOperations.php",
+      "source": {
+        "bytes": 3519,
+        "sha256": "81c2f6bff269294a370bd9fdb025a1db02023af1df735a722630c30c3cc3009f"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "business_domain",
+      "path": "app/controller/CampaignOperations.php",
+      "source": {
+        "bytes": 3555,
+        "sha256": "91bbb76136c25629bd917a3cd8548184955c11cd3135ef105323277c049d043b"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "business_domain",
+      "path": "route/domain/business_workspace.php",
+      "source": {
+        "bytes": 478,
+        "sha256": "345f72abdc4caf5acd7f49078cde882fc0e64d984bcdc66662f927bc56017c0a"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "business_domain",
+      "path": "route/domain/guest_operations.php",
+      "source": {
+        "bytes": 797,
+        "sha256": "9817ada28a785ee33bffd55a0674f54d60bf214a4b2cf02e3c6200d581f5a0cc"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "business_domain",
+      "path": "route/domain/campaign_operations.php",
+      "source": {
+        "bytes": 674,
+        "sha256": "2d0672e4444e38aa28f53184093e69e8d4066fedd46bd07038e982209273c4f9"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "route/app.php",
+      "source": {
+        "bytes": 47286,
+        "sha256": "5582995b61aebe7318c920a7a8d3d0ce6bb23a68cb33603f59600c792f978a6d"
+      },
+      "target": {
+        "bytes": 46560,
+        "sha256": "c203f5dc7ae80e3585ffdbfda5fcf838a9a807e6526a07bc167707866741f200"
+      },
+      "relation": "different",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "public/components/system/business-feature-workspace.js",
+      "source": {
+        "bytes": 25017,
+        "sha256": "9189f8e70ddd744684a111a9c4d05955cc91386ea31d3541388503c902471223"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "public/components/system/guest-operations-panel.js",
+      "source": {
+        "bytes": 26286,
+        "sha256": "bc503590643df09037664bd0dbc21f534ca4b66f309f3c5c6729ab784437ac81"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "public/components/system/campaign-operations-panel.js",
+      "source": {
+        "bytes": 30720,
+        "sha256": "7768f729977be62b4b728239e3cda9fb11f6e57fcf386fb17664e810015bbac0"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "public/components/system/guest-feedback-qr.js",
+      "source": {
+        "bytes": 4840,
+        "sha256": "47ec679dc1ec46b5fa9b695fe03003603d6c17ae9f100a42fc136ad469c1cdbf"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "public/components/system/operating-finance-control-center.js",
+      "source": {
+        "bytes": 65770,
+        "sha256": "5955947e0ccdf67596f4df1e7aa564b1fadda2f09f4cd9cc92c43d940c5571e8"
+      },
+      "target": {
+        "bytes": 98787,
+        "sha256": "319532bdf2ada37adadae78c2c76bd62f0f02f6a83cb29aa7c3ef803bd65e51f"
+      },
+      "relation": "different",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "public/components/system/booking-monitoring-panel.js",
+      "source": {
+        "bytes": 27704,
+        "sha256": "6e7c26fb96f6f0ad1116d051b99f3139f8c45cef6a24f15ce175ae7af8bcd3c8"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "resources/frontend/templates/fragments/19c-page-operating-finance.html",
+      "source": {
+        "bytes": 20395,
+        "sha256": "d219a9ab245628e5b140849cd900a10ba544b0665a195f8358018a5eac9f56e3"
+      },
+      "target": {
+        "bytes": 469,
+        "sha256": "1171998fee8a66f555b98af6992cc8f8465a04440e0228901f6052a42144b385"
+      },
+      "relation": "different",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "scripts/build_operating_finance_component.mjs",
+      "source": {
+        "bytes": 5765,
+        "sha256": "4957dbafbe572a234a722e7d8f1dd32e6d5eeda917d0df187165d44f886faaa0"
+      },
+      "target": {
+        "bytes": 5029,
+        "sha256": "4221adf639615a6d78511baad9e1a2ceb61f4fd20b121cd2d5284afe6e0f0307"
+      },
+      "relation": "different",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "public/components/system/app-main-components.js",
+      "source": {
+        "bytes": 192951,
+        "sha256": "ec6999b721c2e93ef9d56909abdf4f7b0b95f4674561b32fa638e33f7f988ce8"
+      },
+      "target": {
+        "bytes": 221083,
+        "sha256": "a488dcdfa0faa884ee548b84776ceadb54db9a73a758ac958ce6faefc0c5c00e"
+      },
+      "relation": "different",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "public/components/system/app-main-components-loader.js",
+      "source": {
+        "bytes": 11249,
+        "sha256": "e690302da5e13517070ebae0a4839233a1dacc49888904c28d62553ec8ed96d6"
+      },
+      "target": {
+        "bytes": 10781,
+        "sha256": "25a13fe784ae9016ba3a8bc575ae3f2612de09ceba55ab4002d36791704d2608"
+      },
+      "relation": "different",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "public/index.html",
+      "source": {
+        "bytes": 8588,
+        "sha256": "0c636b1692ebd2175c171cc1f9bff1488484222310c0134a6b000c23ff663754"
+      },
+      "target": {
+        "bytes": 8588,
+        "sha256": "1a042b404ade2c505c02f5232a86db58daaa5a09350252b4d40b581c2994a9be"
+      },
+      "relation": "different",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "scoped_shared_source",
+      "path": "public/app-main.js",
+      "source": {
+        "bytes": 3326543,
+        "sha256": "53889c0186365a2c99c0838ec2a4e0ec17901f0a52b6d3affa090e3e59703bcf"
+      },
+      "target": {
+        "bytes": 3422602,
+        "sha256": "8339047c884b23a611faccf6a527907486bc4b9d211cb7c9c00283bd2ddb6b1b"
+      },
+      "relation": "different",
+      "integration_policy": "merge_only_two_entry_fixes_preserve_concurrent_authentication"
+    },
+    {
+      "group": "build_direct_dependencies",
+      "path": "public/components/system/investment-operating-bridge-panel.js",
+      "source": {
+        "bytes": 5317,
+        "sha256": "1e6f61b1dc1a8245633ca8d824987f865eaa6f6d143b19dba4775bd1af429007"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "dependency_fingerprint_not_blanket_adoption"
+    },
+    {
+      "group": "build_direct_dependencies",
+      "path": "public/components/system/operating-economics-workbench.min.js",
+      "source": {
+        "bytes": 18202,
+        "sha256": "de5744c8f7a9975d36035406da20e32001d878d4f453887119eaa9dc52ba03b7"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "dependency_fingerprint_not_blanket_adoption"
+    },
+    {
+      "group": "schema_and_registry",
+      "path": "database/migrations/20261002_create_campaign_operation_versions.sql",
+      "source": {
+        "bytes": 1311,
+        "sha256": "14b8b42a053aa0dd5727f4179d08f5e36fdad4b4045358255bc700365b2dd4a7"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "schema_and_registry",
+      "path": "database/migrations/20261002_z_create_business_workspace.sql",
+      "source": {
+        "bytes": 835,
+        "sha256": "ac3790578902ebaee967679297a70b71a2fde42fc8c08d109ead6e80dc892bd5"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "schema_and_registry",
+      "path": "database/migrations/20261002_z_create_guest_operations.sql",
+      "source": {
+        "bytes": 4353,
+        "sha256": "55f3c81977025ebd84ac010cf7596a10afecf70936fe0805b684ed5bed9f76e8"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "schema_and_registry",
+      "path": "database/migration_checksums.lock.json",
+      "source": {
+        "bytes": 29065,
+        "sha256": "ec745b9f2163de4063a49b1cd79f82555941a0af2880dab076d0a667fafee00f"
+      },
+      "target": {
+        "bytes": 28496,
+        "sha256": "b9a88b20dd1530ddd2b4c14beaf4a92d334ca56824a19753db1ce6527cdc9082"
+      },
+      "relation": "different",
+      "integration_policy": "append_only_scoped_migration_entries_do_not_replace_whole_lock"
+    },
+    {
+      "group": "schema_and_registry",
+      "path": "scripts/cloud_hotel_id_column_registry.php",
+      "source": {
+        "bytes": 27058,
+        "sha256": "5ab9ab4c960bf39f5fd33ef1e759485037990e57d729a9890e6604eb0743540b"
+      },
+      "target": {
+        "bytes": 25511,
+        "sha256": "8d3bb82dbc6e78b756db5a64e69d724b3e9701fef50d581602734d61e36fb580"
+      },
+      "relation": "different",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/BusinessWorkspaceServiceTest.php",
+      "source": {
+        "bytes": 10908,
+        "sha256": "cb044901e3141b7b0be0beafd31c48af6819caa9a46ca788bfb460006cf44ef7"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/GuestOperationsServiceTest.php",
+      "source": {
+        "bytes": 18887,
+        "sha256": "ad40f0c68bbb792239804c59c3b12167d944262d555bf7580e688e28c6616ab3"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/CampaignOperationsServiceTest.php",
+      "source": {
+        "bytes": 21993,
+        "sha256": "b9dcd6f93e1735aea01da68db2f0034cadc455cf5e78562b9d281351ebb5214f"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/Support/business_workspace_fixture_rpc.php",
+      "source": {
+        "bytes": 3158,
+        "sha256": "0774bcde2cb1436da3812065b174e8f18a12e01d566bd96a2663cb528f4bc3b2"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/Support/GuestOperationsSqliteFixture.php",
+      "source": {
+        "bytes": 2660,
+        "sha256": "ced9df80934ac9809e30328f370024e11e90d6a01f5710aaea097ac0d05cf42c"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/fixtures/guest_operations_http_bridge.php",
+      "source": {
+        "bytes": 2593,
+        "sha256": "4e2b99065e7bae4fc44fa3abb7276d557d2ad4f40a63bd5a6fa2a2c517264673"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/automation/business_feature_workspace_browser.test.mjs",
+      "source": {
+        "bytes": 16970,
+        "sha256": "fc1d638f87c9cf8063b4f833bfc5b49f5a893c9f867bc3d6a01c2097cdbc1ef5"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/automation/business_feature_workspace_async_state.test.mjs",
+      "source": {
+        "bytes": 5005,
+        "sha256": "3f85e7acd445f07fab239f79c475cb33f614c8968235bb14d395ca38d8310db7"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/automation/frontend_login_destination.test.mjs",
+      "source": {
+        "bytes": 3193,
+        "sha256": "8cc7d949794fc6f097e670c5691cbcd6ba877606471d115ea564bdc04392ed2b"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/automation/guest_operations_panel.test.mjs",
+      "source": {
+        "bytes": 19353,
+        "sha256": "ef4618ed01b8ab42c839ef11ace75f8019e94298cc6111baba7e60c70db78ed4"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/automation/campaign_operations_browser.test.mjs",
+      "source": {
+        "bytes": 12315,
+        "sha256": "aed83cd0503e9fc6ac09a7fc838b4dacd221694aa77e9cf09fd3ec38c37d45b9"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/automation/business_workspace_migrations_contract.test.mjs",
+      "source": {
+        "bytes": 4405,
+        "sha256": "e597d318780e5919a532908d740064cfeb19c9fb19072ac8c6d5b87fd4f82bdd"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "tests_and_fixtures",
+      "path": "tests/automation/changqing_operating_hub.test.mjs",
+      "source": {
+        "bytes": 17280,
+        "sha256": "8a543dcc2621b0072c9b0afca6b617dcdf1a0dde4d77541301522525d4e97589"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "scoped_compare_before_merge"
+    },
+    {
+      "group": "generated_evidence_only",
+      "path": "public/components/system/operating-finance-control-center.min.js",
+      "source": {
+        "bytes": 121018,
+        "sha256": "5fc07e5c1e9936d4c39a47e11b89d2f03ea1eb2937ff7d93d5b9ebd97b14ff3c"
+      },
+      "target": {
+        "bytes": 72997,
+        "sha256": "faed748ae46cc8dd981a5ff9a4089a15081071e6cbefbfd048b95476526ee1d0"
+      },
+      "relation": "different",
+      "integration_policy": "rebuild_from_merged_source_do_not_copy"
+    },
+    {
+      "group": "generated_evidence_only",
+      "path": "public/app-main.min.js",
+      "source": {
+        "bytes": 1307426,
+        "sha256": "c30842f2aa4804df1b8956e82f2e645096b5c98ed75bcd5af803c5c9c0d79eff"
+      },
+      "target": {
+        "bytes": 1330100,
+        "sha256": "5a4dfd1431351ac79f3b78b5c1b3fce3c4f692562b4f1cd52ec73c3d09b88b76"
+      },
+      "relation": "different",
+      "integration_policy": "rebuild_from_merged_source_do_not_copy"
+    },
+    {
+      "group": "generated_evidence_only",
+      "path": "public/app-startup-helpers.min.js",
+      "source": {
+        "bytes": 241678,
+        "sha256": "c43ce28a5bf015359aea76629d16705d9459f085d5ac9fccbcead4a14e6ac565"
+      },
+      "target": {
+        "bytes": 270166,
+        "sha256": "3d85ac4fedccb04d47d7b526aa6433c22fa21f77e598edbba275a7981654e1cd"
+      },
+      "relation": "different",
+      "integration_policy": "rebuild_from_merged_source_do_not_copy"
+    },
+    {
+      "group": "generated_evidence_only",
+      "path": "public/tailwind.min.css",
+      "source": {
+        "bytes": 52196,
+        "sha256": "4edf36348c3b588145378e798ac2c7f85813c4437e14ebac35e8eef25dfac46c"
+      },
+      "target": {
+        "bytes": 54957,
+        "sha256": "646c40c2cb8867db36603ac25ecf140bdc6470d08ff86655531fb8ef6f243238"
+      },
+      "relation": "different",
+      "integration_policy": "rebuild_from_merged_source_do_not_copy"
+    },
+    {
+      "group": "handoff_and_evidence",
+      "path": "output/handoffs/changqing-main-thread-submission-20261002.md",
+      "source": {
+        "bytes": 6326,
+        "sha256": "971d37e3fb61eb1140ad8c486c4e665900e0c7eac6af8bffcdacc6cfd6f738c4"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "source_evidence_not_implementation"
+    },
+    {
+      "group": "handoff_and_evidence",
+      "path": "docs/capability-absorption/2026-10-02-three-round-hardening.md",
+      "source": {
+        "bytes": 7305,
+        "sha256": "05cca6c3355c5afb7fbc7d27eb86273e3bc8aeec80988ec1d9177fc0c96e4506"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "source_evidence_not_implementation"
+    },
+    {
+      "group": "handoff_and_evidence",
+      "path": "output/validation/three-round-hardening-20261002/verification.json",
+      "source": {
+        "bytes": 4080,
+        "sha256": "e7cf9d1206052e8f65281af218c43b9cc512fb65824ece256becee16d9f3d50d"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "source_evidence_not_implementation"
+    },
+    {
+      "group": "handoff_and_evidence",
+      "path": "output/handoffs/three-phase-custom-workspace-20261002.md",
+      "source": {
+        "bytes": 3310,
+        "sha256": "b19cb271ea5f3c003e25783f87ea5c6db4a6a721cadb6e75d48db372b85f5a76"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "source_evidence_not_implementation"
+    },
+    {
+      "group": "handoff_and_evidence",
+      "path": "docs/capability-absorption/2026-10-02-changqing-feature-priorities.md",
+      "source": {
+        "bytes": 19693,
+        "sha256": "b328b0a820b54c9768d4bd83a976e2cf662f069391b7f2433bb4a4f61467a100"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "source_evidence_not_implementation"
+    },
+    {
+      "group": "handoff_and_evidence",
+      "path": "docs/capability-absorption/2026-10-02-changqing-integration.md",
+      "source": {
+        "bytes": 6704,
+        "sha256": "e600ea424b79a3d8fda2134c7a64aedba1ec17511469f0305e3f8974b994753b"
+      },
+      "target": null,
+      "relation": "target_absent",
+      "integration_policy": "source_evidence_not_implementation"
+    }
+  ],
+  "next_step": "Within a separately executed integration step, compare only registered source paths, merge shared entry/build/router/registry dependencies, append only scoped migration checksums, rebuild generated assets and run affected tests; preserve existing local PR51 repairs and source concurrent authentication changes.",
+  "boundaries": {
+    "product_files_copied": false,
+    "source_worktree_modified": false,
+    "existing_target_changes_modified": false,
+    "tests_repeated": false,
+    "git_committed": false,
+    "github_pushed": false,
+    "pr_updated": false,
+    "merged": false,
+    "deployed": false,
+    "external_messages_sent": false
+  }
+}

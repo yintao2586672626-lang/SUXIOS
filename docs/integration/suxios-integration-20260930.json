@@ -95,8 +95,13 @@
     "explicit_metric_dimension_selection_for_analysis_and_details",
     "reference_selection_matches_shared_source_policy_without_edit_grant",
     "trusted_admin_and_tenant_context_for_reference_source_and_save",
+    "trusted_admin_context_for_coaching_snapshot_create_and_edit",
+    "authenticated_user_method_for_coaching_controller_admin_context",
+    "immutable_bounded_coaching_snapshot_on_title_only_edit",
     "existing_governance_permission_and_rate_limit_for_reference_writes",
     "physical_prefixed_report_and_execution_tables_with_connection_scoped_schema_cache",
+    "physical_prefixed_execution_intent_creation_and_idempotent_retry",
+    "positive_tenant_required_for_daily_report_intent_reuse",
     "fixed_reference_form_bindings_survive_only_typed_knowledge_redaction",
     "redaction_never_restores_sensitive_citation_indexes",
     "recurrence_evidence_observation_must_follow_latest_recurrence",
@@ -104,6 +109,46 @@
     "recorded_zero_ota_sales_distinct_from_missing_and_traffic_defaults"
   ],
   "verification": {
+    "local_followup_20261001": {
+      "baseline_head": "61b78d2e5cc243d391115468b41c251774d19bce",
+      "status": "local_committed_and_targeted_integration_verified_remote_acceptance_separate",
+      "environment": "isolated_synthetic_sqlite_real_controllers_and_orm",
+      "reproduced_product_defects": [
+        "Coaching controller returned HTTP 500 because its administrator helper called an undefined method.",
+        "Title-only edit changed a bounded explicit snapshot from truncated to complete when a selected segment was omitted by the byte budget.",
+        "Daily-report retry reused an existing zero-tenant execution intent while new intent creation required a positive tenant."
+      ],
+      "php": {
+        "command": "C:/xampp/php/php.exe vendor/bin/phpunit --colors=never tests/AiDailyReportPrefixStorageTest.php tests/ManagerCoachingIntegrationTest.php tests/KnowledgeReferenceAccessContextTest.php tests/DatabaseSchemaClassificationTest.php tests/KnowledgeReferenceSharedSnapshotTest.php tests/ManagerCoachingPersistenceTest.php tests/ManagerCoachingCaseLockRevalidationTest.php tests/OperationExecutionIdentityGuardTest.php tests/OperationExecutionLoopTest.php",
+        "tests": 107,
+        "assertions": 925,
+        "exit_code": 0
+      },
+      "node": {
+        "command": "node --test tests/automation/manager_coaching_knowledge_acceptance.test.mjs tests/automation/manager_coaching_read_ownership.test.mjs tests/automation/knowledge_reference_permission.test.mjs",
+        "tests": 17,
+        "passed": 17,
+        "exit_code": 0
+      },
+      "route_coverage": {
+        "controllers": 62,
+        "public_actions": 737,
+        "all_public_actions_covered": true,
+        "exit_code": 0
+      },
+      "php_syntax_files_passed": 9,
+      "diff_check": "passed",
+      "confirmed": [
+        "Authenticated administrator identity reaches coaching create/edit; submitted administrator flags cannot grant access.",
+        "Coaching controller create, idempotent retry, edit, list and exact detail readback agree on hotel 20, tenant 10 and manager 7.",
+        "Foreign hotel/tenant knowledge is rejected without plan or event writes.",
+        "Unchanged bounded snapshots remain identical in the plan, edit event and detail readback; explicit reselection still creates a new excerpt.",
+        "Prefixed daily-report controller creates one pending-approval intent and reuses it on retry with exact intent ID readback; zero-tenant execution reuse is rejected."
+      ],
+      "evidence_scope": "Current local candidate only; prior full-suite and GitHub evidence below remains historical.",
+      "boundaries": "Synthetic local repair acceptance and product commit only; live remote head/checks recorded separately. No deployment, real-account writes or field/business-effect validation.",
+      "product_fix_commit": "84d6520bce93dd16de21fc55a582d0e4269196cf"
+    },
     "php": {
       "command": "php vendor/bin/phpunit --colors=never --log-junit output/integration-20260930/phpunit-full-final-review.xml",
       "tests": 7436,
@@ -1370,6 +1415,26 @@
         },
         "hotspot_failures": 0
       }
+    },
+    "delivery_20261002": {
+      "prepared_against_head": "30cac6f8c37c66dbe14aecc87366e9c901b36dec",
+      "dos_introduction": {
+        "source_commit": "42dc614ddee58fc303072c80202c7da299e7bf9d",
+        "integrated_commit": "30cac6f8c37c66dbe14aecc87366e9c901b36dec",
+        "path": "docs/collaboration/dos-boss-introduction-20261001.md",
+        "sha256": "4599ea2850a4f3a9ef4de18e490a42a8b6cb6f5086829d4a8f7652fafd5bc08a",
+        "items": 18,
+        "lines": 59
+      },
+      "changqing_workspace": {
+        "status": "received_but_source_deep_review_in_progress_not_product_integrated",
+        "receipt": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
+        "modules": 31
+      },
+      "five_enhancements": {
+        "status": "source_preparing_scoped_isolated_delivery_not_integrated"
+      },
+      "remote_acceptance": "NOT RUN for new delivery head; exact-head CI and readback required after push"
     }
   },
   "evidence_fingerprints": [
@@ -1831,7 +1896,15 @@
     "remaining_local_php_database_cases": 4,
     "dormant_historical_helpers": "preserved_and_tested_unwired",
     "external_material": "reference_only_with_publication_limits",
-    "raw_material_and_runtime": "retained_locally_excluded_from_commit"
+    "raw_material_and_runtime": "retained_locally_excluded_from_commit",
+    "changed_file_accounting": {
+      "base_to_candidate_git_paths": 880,
+      "hashed_payload_files": 879,
+      "manifest_path": "docs/integration/suxios-integration-20260930.json",
+      "manifest_included_in_git_paths": true,
+      "manifest_excluded_from_payload_hashes": true,
+      "reconciliation": "880 = 879 payload files + 1 self-excluded manifest"
+    }
   },
   "files": [
     {
@@ -2035,8 +2108,8 @@
     {
       "state": "modified",
       "path": "app/controller/ManagerCapability.php",
-      "bytes": 13301,
-      "sha256": "63a084e08c2915d3eeb771090b034842db1a05ae41be187a59e86a4df5c4a160"
+      "bytes": 13962,
+      "sha256": "0e851cfc507294e692a708a78b27921ca42874331df720401b4ee137bce0a65b"
     },
     {
       "state": "modified",
@@ -2107,8 +2180,8 @@
     {
       "state": "modified",
       "path": "app/service/AiDailyReportService.php",
-      "bytes": 242165,
-      "sha256": "e5d6c41fbfbf72d8cad6a15f1613d1ef8263715f0d51b6d3e191cee9f4fd05a0"
+      "bytes": 242427,
+      "sha256": "62d31a03d3cf073bcc9f6e32a56b79c16554eaf82df0aecfa9ba841118955381"
     },
     {
       "state": "modified",
@@ -2280,8 +2353,8 @@
     },
     {
       "path": "app/service/KnowledgeReferenceService.php",
-      "bytes": 19809,
-      "sha256": "830ab909d73e63b59cd8fc721a48d44484db5608c774e2e2ef9b8ed62e5fbeb9",
+      "bytes": 19898,
+      "sha256": "d68327de6ead9ac50d44effa8eabba34aab651f705e064474cb20b1b4ad39ed5",
       "state": "added"
     },
     {
@@ -2328,8 +2401,8 @@
     },
     {
       "path": "app/service/ManagerCoachingService.php",
-      "bytes": 23575,
-      "sha256": "e94679aa24255e6cd626e2af8472f27684cc6f3fc304a3d15c5336652b4ecd08",
+      "bytes": 24803,
+      "sha256": "6dd806ad29385dcecbb3bcdfad0b4817356e759fa53d22c51330f4b75a7261c8",
       "state": "added"
     },
     {
@@ -2473,8 +2546,8 @@
     {
       "state": "modified",
       "path": "app/service/operation/OperationExecutionTenantConcern.php",
-      "bytes": 48899,
-      "sha256": "970973e052cd0c3473cdada712192d17daff8e4336451cd386fea585c33ffa92"
+      "bytes": 48966,
+      "sha256": "ec4dffe010f360c0347d6a9f047286ac140a5f3478671440bcddf8e7e4ddb196"
     },
     {
       "state": "added",
@@ -2509,8 +2582,8 @@
     {
       "state": "modified",
       "path": "app/service/OperationManagementService.php",
-      "bytes": 279458,
-      "sha256": "9edc4c553053ece9a4adbafafb162146f3099aa8d22990ee9e1f018bccd18cca"
+      "bytes": 279628,
+      "sha256": "94b4dcae2c5839bdd8fb61164ed426d8eab559c4c1f64852bb7c2f93b885c5b5"
     },
     {
       "state": "modified",
@@ -2765,6 +2838,12 @@
       "sha256": "c5f75a4362e78e72620ef2d7cc60f4ba138bbcf35e449860c67a88c10becaf07"
     },
     {
+      "path": "docs/collaboration/dos-boss-introduction-20261001.md",
+      "state": "added",
+      "bytes": 7317,
+      "sha256": "4599ea2850a4f3a9ef4de18e490a42a8b6cb6f5086829d4a8f7652fafd5bc08a"
+    },
+    {
       "state": "added",
       "path": "docs/data-return-reliability-20260905.md",
       "bytes": 7810,
@@ -2787,6 +2866,30 @@
       "path": "docs/home-data-repair-20260905.md",
       "bytes": 8185,
       "sha256": "6d310f8a81f84876979571aa84bfa9c63af3782a6e1106c4baed01da8efcc713"
+    },
+    {
+      "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.initial.json",
+      "state": "added",
+      "bytes": 36465,
+      "sha256": "6cd78c17a24bc265b85332eced84323f512fff6a08c738ee281b4f924b3e1b53"
+    },
+    {
+      "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
+      "state": "added",
+      "bytes": 38369,
+      "sha256": "f78eca3a68bcd653ea8f7cccd301bc89f7117752e957802845bd45ecc5e0da44"
+    },
+    {
+      "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.md",
+      "state": "added",
+      "bytes": 7291,
+      "sha256": "94f5593f4fd7b33f07f88e8cfed06839a60d81c0670f8c53ed52eccf9ab06af9"
+    },
+    {
+      "path": "docs/integration/receipts/changqing-source-progress-20261002.json",
+      "state": "added",
+      "bytes": 1596,
+      "sha256": "69352a239760e909053e306b2e9a7801de269db3b17839d3fb9f545690daa765"
     },
     {
       "path": "docs/integration/suxios-integration-20260930.md",
@@ -3900,8 +4003,8 @@
     },
     {
       "path": "tests/AiDailyReportPrefixStorageTest.php",
-      "bytes": 18345,
-      "sha256": "bdb6354905aa60f477d84781939edd3ee4808ea3f12d5cddc09dbfced548f32e",
+      "bytes": 24894,
+      "sha256": "ea737e7cc2b4e6cc5ab6a837394b47db49c2328cc97aca5ad43047de0ad4e506",
       "state": "added"
     },
     {
@@ -6415,8 +6518,8 @@
     {
       "path": "tests/KnowledgeReferenceSharedSnapshotTest.php",
       "state": "added",
-      "bytes": 13820,
-      "sha256": "a6be7d9510e490b8d221f390103145297f00f30c2dbf6a79513eebd38546c0bc"
+      "bytes": 16026,
+      "sha256": "44215229f8c581048eda8f569afce4abb30e94fc9e3662641248251be5f69db6"
     },
     {
       "state": "added",
@@ -6487,8 +6590,8 @@
     {
       "state": "added",
       "path": "tests/ManagerCoachingIntegrationTest.php",
-      "bytes": 10392,
-      "sha256": "9bb5baac05a09f57713d519db2f152b579860c6103e4e033c3b08b190d3d6184"
+      "bytes": 18527,
+      "sha256": "a74365b231259418384df620e4761eb8f0962c9942866fbf7e0fcf6d1362b470"
     },
     {
       "path": "tests/ManagerCoachingPersistenceTest.php",
