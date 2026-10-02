@@ -1364,8 +1364,8 @@
     "shared_files_and_generated_assets": "semantic integration and target rebuild still pending"
   },
   "composed_acceptance": {
-    "at": "2026-10-02T13:28:34.575Z",
-    "prepared_against_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e",
+    "at": "2026-10-02T13:40:11.591Z",
+    "prepared_against_head": "e91bb7110de1d7b957ff012b9fd4511886ac8daf",
     "receipt": "docs/integration/receipts/composed-main-thread-20261002.json",
     "verification": {
       "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
@@ -1379,20 +1379,20 @@
       "node": {
         "deduplicated": true,
         "skipped": 0,
-        "tests": 314,
-        "passed": 314,
-        "files": 28,
-        "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28; full-file runs, no repeated counting",
+        "tests": 317,
+        "passed": 317,
+        "files": 29,
+        "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28 + operating asset build3; repeats not counted",
         "runner_breakdown": {
           "playwright": {
             "tests": 1,
             "files": 1
           },
           "node": {
-            "tests": 313,
-            "files": 27
+            "tests": 316,
+            "files": 28
           },
-          "caliber": "28files314 automation tests; separate seven mounted probes; four ownership files36 pass, new two28 only added once"
+          "caliber": "29files317 automation tests; separate seven mounted probes; full focused runs deduplicated by file"
         }
       },
       "browser_probes": {

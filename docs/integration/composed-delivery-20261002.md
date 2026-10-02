@@ -4,7 +4,7 @@
 
 来源：投资基础定稿 `5386eadc610dbd469523fbfeb6ee48f1e37a90a6`，五项定稿 `deb01ee834c6da70b4adb15c69f7da1bd9391f0b`；长青最终指纹单独登记。DOS最新13个理解角度和11个语境示例已按61554d9a来源逐字更新；原PR控制器/前缀/可信管理员修复和Axios1.20.0安全修复保留。
 
-主线程当前目标实际验证：54个显式PHP文件的去重结果，856 tests / 7692 assertions；28个页面相关自动化文件，314 tests，0 fail / 0 skip。使用目标默认bootstrap和隔离SQLite，投资经营桥直接回读目标台账，新增类启用后的capabilities也已检查。4项“缺模块”测试在独立进程中保持原失败oracle。页面覆盖真实Vue挂载、临时PHP夹具、二维码独立ZXing扫描、切酒店清除旧值和导航。
+主线程当前目标实际验证：54个显式PHP文件的去重结果，856 tests / 7692 assertions；29个页面相关自动化文件，317 tests，0 fail / 0 skip。使用目标默认bootstrap和隔离SQLite，投资经营桥直接回读目标台账，新增类启用后的capabilities也已检查。4项“缺模块”测试在独立进程中保持原失败oracle。页面覆盖真实Vue挂载、临时PHP夹具、二维码独立ZXing扫描、切酒店清除旧值和导航。
 
 完整前端构建、整合门禁、公开入口通过，启动gzip619534 / 620000字节；69 controllers / 787 public actions全部有登记路由。没有放宽预算或用删空行替代模块边界；原投资决策路由归入已经加载的投资域。
 

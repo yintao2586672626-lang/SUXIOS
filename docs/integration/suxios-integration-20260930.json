@@ -1417,7 +1417,7 @@
       }
     },
     "delivery_20261002": {
-      "prepared_against_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e",
+      "prepared_against_head": "e91bb7110de1d7b957ff012b9fd4511886ac8daf",
       "dos_introduction": {
         "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",
         "source_blob": "72aca9496737bad552726935934d19cf2a0f4b12",
@@ -1490,20 +1490,20 @@
           "node": {
             "deduplicated": true,
             "skipped": 0,
-            "tests": 314,
-            "passed": 314,
-            "files": 28,
-            "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28; full-file runs, no repeated counting",
+            "tests": 317,
+            "passed": 317,
+            "files": 29,
+            "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28 + operating asset build3; repeats not counted",
             "runner_breakdown": {
               "playwright": {
                 "tests": 1,
                 "files": 1
               },
               "node": {
-                "tests": 313,
-                "files": 27
+                "tests": 316,
+                "files": 28
               },
-              "caliber": "28files314 automation tests; separate seven mounted probes; four ownership files36 pass, new two28 only added once"
+              "caliber": "29files317 automation tests; separate seven mounted probes; full focused runs deduplicated by file"
             }
           },
           "browser_probes": {
@@ -3397,7 +3397,7 @@
       "path": "docs/integration/composed-delivery-20261002.md",
       "state": "added",
       "bytes": 2581,
-      "sha256": "46226e9b5668f5a363cc5e10256b5da8e6e849e75bd6783041be8ff5987622b3",
+      "sha256": "7e966251848e2a4e97bb0ba284b8b44df5f80758e6a3e90c318826c44eecdc06",
       "previous_payloads": [
         {
           "sha256": "d933ea39c62b783342fa5b6c15d0f1e85cc8c0a8d7f6085899f1cf56388dfca0",
@@ -3422,6 +3422,10 @@
         {
           "sha256": "9e9e94f58e2b49e594fa2dc15f36de0d1c4af0d53d7e69221cc706b254a98713",
           "prepared_before_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e"
+        },
+        {
+          "sha256": "46226e9b5668f5a363cc5e10256b5da8e6e849e75bd6783041be8ff5987622b3",
+          "prepared_before_head": "e91bb7110de1d7b957ff012b9fd4511886ac8daf"
         }
       ]
     },
@@ -3446,8 +3450,8 @@
     {
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
       "state": "added",
-      "bytes": 50091,
-      "sha256": "e3807b8d6fdd1646f84b92cf7218a3e0b14f7a1235bf1750225c82c05a32a7d7",
+      "bytes": 50083,
+      "sha256": "ca9be67978cc4381906e56b3d5de9d23e6c36c00e8dedd61af9ab254766d7295",
       "previous_payloads": [
         {
           "sha256": "f78eca3a68bcd653ea8f7cccd301bc89f7117752e957802845bd45ecc5e0da44",
@@ -3480,6 +3484,10 @@
         {
           "sha256": "7b9e65f567811d9814159badf9ece0c6792015b186c9364578ae7a93eb209231",
           "prepared_before_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e"
+        },
+        {
+          "sha256": "e3807b8d6fdd1646f84b92cf7218a3e0b14f7a1235bf1750225c82c05a32a7d7",
+          "prepared_before_head": "e91bb7110de1d7b957ff012b9fd4511886ac8daf"
         }
       ]
     },
@@ -3487,7 +3495,7 @@
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.md",
       "state": "added",
       "bytes": 9018,
-      "sha256": "02b99b7e75778e76cefddc778d3f1429c5f3981fee57a17bcdce29781b97cdb3",
+      "sha256": "25b0f4125b95d6c38c7091cda4d68c33409fda7aebf3903fb80ce4a0b9a769a7",
       "previous_payloads": [
         {
           "sha256": "94f5593f4fd7b33f07f88e8cfed06839a60d81c0670f8c53ed52eccf9ab06af9",
@@ -3516,6 +3524,10 @@
         {
           "sha256": "12fd49f6ad290313fe00ea69e865716898787a6b2421bce5f1aa9b33955f953f",
           "prepared_before_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e"
+        },
+        {
+          "sha256": "02b99b7e75778e76cefddc778d3f1429c5f3981fee57a17bcdce29781b97cdb3",
+          "prepared_before_head": "e91bb7110de1d7b957ff012b9fd4511886ac8daf"
         }
       ]
     },
@@ -3528,8 +3540,8 @@
     {
       "path": "docs/integration/receipts/composed-main-thread-20261002.json",
       "state": "added",
-      "bytes": 50920,
-      "sha256": "8bbb482c5bf82a1307a2129b1de524faf5368767f2d83777e2eee3260618a662",
+      "bytes": 51166,
+      "sha256": "c3fe5c6e4d2f96dde98c9fcb3c9ba9703f1eb9fa9e538c097f1db9dd2ed7676b",
       "previous_payloads": [
         {
           "sha256": "5a94e1405242f2f7f93a58e2923dc09928031d55351f190d61d6a40ac276964b",
@@ -3558,6 +3570,10 @@
         {
           "sha256": "f5f0476206d7d61a421d89e56ea2b5b50d24c1ccac9784c2f09bf1ea3021da35",
           "prepared_before_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e"
+        },
+        {
+          "sha256": "8bbb482c5bf82a1307a2129b1de524faf5368767f2d83777e2eee3260618a662",
+          "prepared_before_head": "e91bb7110de1d7b957ff012b9fd4511886ac8daf"
         }
       ]
     },
@@ -6740,8 +6756,14 @@
     {
       "state": "added",
       "path": "tests/automation/operating_component_asset_build.test.mjs",
-      "bytes": 6326,
-      "sha256": "7037a599c43197f589f8d8eda20a413ecfb28e34e093f3389f1aa5ee172271ab"
+      "bytes": 7633,
+      "sha256": "fae8208180e1f0935ae442a6026bb83d93022c487ca2dfade3e51e98a429aeb4",
+      "previous_payloads": [
+        {
+          "sha256": "7037a599c43197f589f8d8eda20a413ecfb28e34e093f3389f1aa5ee172271ab",
+          "prepared_before_head": "e91bb7110de1d7b957ff012b9fd4511886ac8daf"
+        }
+      ]
     },
     {
       "path": "tests/automation/operating_consultant_dependency_order.test.mjs",

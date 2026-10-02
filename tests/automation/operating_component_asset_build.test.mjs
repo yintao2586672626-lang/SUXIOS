@@ -17,6 +17,13 @@ const runScript = new AsyncFunction('crypto', 'fs', 'path', 'fileURLToPath', 'mi
     '__buildScriptUrl', 'console', script);
 const names = {
     finance: 'components/system/operating-finance-control-center.js',
+    bridgePanel: 'components/system/investment-operating-bridge-panel.js',
+    guestQr: 'components/system/guest-feedback-qr.js',
+    guest: 'components/system/guest-operations-panel.js',
+    campaign: 'components/system/campaign-operations-panel.js',
+    workspace: 'components/system/business-feature-workspace.js',
+    economics: 'components/system/operating-economics-workbench.min.js',
+    booking: 'components/system/booking-monitoring-panel.js',
     artifact: 'components/system/operating-finance-control-center.min.js',
     lab: 'components/system/operating-opportunity-lab.js',
     component: 'components/system/app-main-components.js',
@@ -29,11 +36,20 @@ function fixture() {
     const tick = String.fromCharCode(96);
     const entries = {
         finance: 'x = {\n        template: ' + tick + '内容\n        ' + tick + ',\n    };',
+        bridgePanel: '// synthetic bridge panel source\n',
+        guestQr: '// synthetic guest QR source\n',
+        guest: '// synthetic guest panel source\n',
+        campaign: '// synthetic campaign panel source\n',
+        workspace: '// synthetic workspace source\n',
+        economics: '// synthetic economics artifact\n',
+        booking: '// synthetic booking panel source\n',
         artifact: 'compiled-finance;\n',
         lab: '// synthetic 今日事项 A\n',
         component: "const business = 'preserve';\n"
             + "const finance = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h0123456789';\n"
-            + "const lab = 'components/system/operating-opportunity-lab.js?v=20260831-impact-estimate-h0123456789';\n",
+            + "const lab = 'components/system/operating-opportunity-lab.js?v=20260831-impact-estimate-h0123456789';\n"
+            + "const economics = 'components/system/operating-economics-workbench.min.js?v=economics-h0123456789';\n"
+            + "const booking = 'components/system/booking-monitoring-panel.js?v=booking-h0123456789';\n",
         bridge: "const exposed = ['OperatingFinanceControlCenter'];\nconst full = 'components/system/app-main-components.js?v=20260830-operating-finance-h0123456789';",
         index: '<script src="components/system/app-main-components.js?v=20260830-operating-finance-h0123456789"></script>',
     };
@@ -58,7 +74,7 @@ function fixture() {
     const run = async () => {
         let output;
         await runScript(crypto, closedFs, path, fileURLToPath,
-            async () => ({ code: 'compiled-finance;' }), () => 'return null;', {},
+            async () => ({ code: 'compiled-finance;' }), () => 'return null;', { compress: {} },
             updateFrontendAssetVersion, pathToFileURL(path.join(repoRoot, 'scripts/build_operating_finance_component.mjs')).href,
             { log: value => { output = JSON.parse(value); } });
         return output;
@@ -70,6 +86,10 @@ function assertChain(f) {
     const child = readFrontendAssetVersion(f.get('component'), names.lab);
     assert.equal(child.hash, hash(f.get('lab')), 'nested URL follows exact child bytes');
     assert.equal(child.versionPrefix, '20260831-impact-estimate');
+    for (const name of ['economics', 'booking']) {
+        assert.equal(readFrontendAssetVersion(f.get('component'), names[name]).hash, hash(f.get(name)),
+            name + ' nested URL follows its exact dependency bytes');
+    }
     for (const name of ['bridge', 'index']) {
         assert.equal(readFrontendAssetVersion(f.get(name), names.component).hash, hash(f.get('component')),
             name + ' follows updated parent bytes');

@@ -1,8 +1,8 @@
 {
   "contract": "suxios.composed_delivery.v1",
-  "at": "2026-10-02T13:28:34.575Z",
+  "at": "2026-10-02T13:40:11.591Z",
   "phase": "final",
-  "prepared_against_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e",
+  "prepared_against_head": "e91bb7110de1d7b957ff012b9fd4511886ac8daf",
   "main_thread": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
   "target_branch": "codex/integrate-suxios-20260930",
   "baseline_main_integrated": "51a512e6bd552c9553dca81a0d1670fc116fd327",
@@ -903,6 +903,7 @@
     "verify installed reference capabilities in the composed target",
     "mount real Meituan stale-scope clearing helper in the navigation fixture",
     "inventory all four direct finance ownership fixtures and register unrelated composed sibling fixtures; all original save/readback/scope/error oracles retained; demand and settlement repairs add28 unique passing cases",
+    "closed operating-component build fixture explicitly provides composed source/dependency assets and compressor options; preserves original three asset identity, idempotency and fail-before-publish oracles and adds economics/booking hash assertions",
     "remove completed full-factory script only for matching origin/path when registration is absent, so authenticated deferred loading can recover on retry; preserve broker and manifest identity"
   ],
   "verification": {
@@ -917,20 +918,20 @@
     "node": {
       "deduplicated": true,
       "skipped": 0,
-      "tests": 314,
-      "passed": 314,
-      "files": 28,
-      "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28; full-file runs, no repeated counting",
+      "tests": 317,
+      "passed": 317,
+      "files": 29,
+      "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28 + operating asset build3; repeats not counted",
       "runner_breakdown": {
         "playwright": {
           "tests": 1,
           "files": 1
         },
         "node": {
-          "tests": 313,
-          "files": 27
+          "tests": 316,
+          "files": 28
         },
-        "caliber": "28files314 automation tests; separate seven mounted probes; four ownership files36 pass, new two28 only added once"
+        "caliber": "29files317 automation tests; separate seven mounted probes; full focused runs deduplicated by file"
       }
     },
     "browser_probes": {
