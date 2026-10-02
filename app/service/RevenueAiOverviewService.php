@@ -1127,9 +1127,10 @@ class RevenueAiOverviewService
                     $reason = 'online_daily_data_empty';
                 } elseif ($numericValue === null) {
                     $metricStatus = 'missing';
-                    $reason = $missingReason !== ''
+                    $reason = in_array('numeric_aggregate_nonfinite', (array)($trust['failure_reasons'] ?? []), true)
+                        ? 'numeric_aggregate_nonfinite' : ($missingReason !== ''
                         ? $missingReason
-                        : (string)$definition['missing_reasons'][0];
+                        : (string)$definition['missing_reasons'][0]);
                 } elseif ($scopeMismatch) {
                     $metricStatus = 'unverified';
                     $reason = 'metric_scope_mismatch';
@@ -1651,7 +1652,7 @@ class RevenueAiOverviewService
      */
     private function numeric(mixed $value): ?float
     {
-        return is_numeric($value) ? (float)$value : null;
+        return is_numeric($value) && is_finite((float)$value) ? (float)$value : null;
     }
 
     /**
@@ -1700,6 +1701,11 @@ class RevenueAiOverviewService
      */
     private function metric(string $key, string $label, ?float $value, string $unit, string $status, string $reason, array $context, string $format): array
     {
+        if (($context['calculation_failure_reason'] ?? '') === 'numeric_aggregate_nonfinite') {
+            $value = null;
+            $status = 'not_calculable';
+            $reason = 'numeric_aggregate_nonfinite';
+        }
         return [
             'key' => $key,
             'label' => $label,
@@ -1733,6 +1739,12 @@ class RevenueAiOverviewService
         $trust = is_array($metricsSummary['metric_trust'][$metricTrustKey] ?? null)
             ? $metricsSummary['metric_trust'][$metricTrustKey]
             : [];
+        $context['calculation_failure_reason'] = in_array('numeric_aggregate_nonfinite',
+            (array)($trust['failure_reasons'] ?? []), true) ? 'numeric_aggregate_nonfinite' : '';
+        if ($context['calculation_failure_reason'] !== '') {
+            $trust['saved_success'] = false;
+            $trust['truth'] = OnlineDataTrustStatusService::metricTruthEnvelope($trust);
+        }
         $existingTruth = is_array($trust['truth'] ?? null) ? $trust['truth'] : [];
         $context['truth'] = $existingTruth !== []
             ? $existingTruth
@@ -6176,6 +6188,7 @@ class RevenueAiOverviewService
             'target_platform' => $channel,
         ];
         $overrides = [
+            'numeric_aggregate_nonfinite' => ['severity' => 'high', 'category' => 'calculation', 'display_reason' => '同范围汇总超出有限数值范围，相关指标不可计算；原始事实和未受影响的指标保留。', 'next_action' => '核对原始金额和计数的量级，修正来源后重新计算；不要填零或沿用旧值。'],
             'AUTH_EXPIRED' => ['severity' => 'high', 'category' => 'auth', 'display_reason' => $platformLabel . '登录或授权已失效，Cookie/Profile 状态需复核。', 'next_action' => '进入数据健康面板复核登录/Cookie 状态，必要时重新登录。'],
             'CAPTCHA_REQUIRED' => ['severity' => 'high', 'category' => 'auth', 'display_reason' => $platformLabel . '需要验证码或人工登录确认。', 'next_action' => '进入平台账号状态处理验证码或人工登录。'],
             'PAGE_CHANGED' => ['severity' => 'high', 'category' => 'parser', 'display_reason' => $platformLabel . '页面结构变化，采集解析需复核。', 'next_action' => '复核最近一次采集证据和字段映射。'],

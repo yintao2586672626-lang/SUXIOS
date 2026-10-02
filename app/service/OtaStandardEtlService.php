@@ -653,10 +653,25 @@ class OtaStandardEtlService
         return ($trace['saved_success'] ?? false) === true;
     }
 
+    /** A finite read must not wrap into zero/negative when it exceeds the machine integer range. */
+    private function roundedCount(float $value): int|float
+    {
+        $rounded = round($value);
+        return $rounded >= (float)PHP_INT_MIN && $rounded < (float)PHP_INT_MAX ? (int)$rounded : $rounded;
+    }
+
     private function nonNegativeIntegerValue(mixed $value): ?int
     {
+        if (is_int($value)) return $value >= 0 ? $value : null;
         if (is_string($value)) {
             $value = trim($value);
+            if (preg_match('/^\+?[0-9]+$/D', $value) === 1) {
+                $digits = ltrim(ltrim($value, '+'), '0');
+                $digits = $digits === '' ? '0' : $digits;
+                $maximum = (string)PHP_INT_MAX;
+                return strlen($digits) < strlen($maximum)
+                    || (strlen($digits) === strlen($maximum) && strcmp($digits, $maximum) <= 0) ? (int)$digits : null;
+            }
         }
         if ($value === '' || $value === null || !is_numeric($value)) {
             return null;
@@ -665,7 +680,7 @@ class OtaStandardEtlService
         if (!is_finite($number)
             || $number < 0
             || floor($number) !== $number
-            || $number > PHP_INT_MAX
+            || $number >= (float)PHP_INT_MAX
         ) {
             return null;
         }
@@ -1385,7 +1400,7 @@ class OtaStandardEtlService
         if ($ctripEndpointId !== '' && $ctripEndpointId !== 'business_capacity') {
             $orderCountValue = null;
         }
-        $orders = $orderCountValue !== null ? (int)round($orderCountValue) : null;
+        $orders = $orderCountValue !== null ? $this->roundedCount($orderCountValue) : null;
         $cancelOrders = $this->nullableNumber($row, $raw, ['cancel_order_num', 'cancelOrderNum', 'cancel_orders', 'cancelOrders']);
         $grossOrderCountValue = $this->nullableNumber($row, $raw, [
             'gross_order_num',
@@ -1394,7 +1409,7 @@ class OtaStandardEtlService
             'grossOrderCount',
         ]);
         $grossOrderCount = $grossOrderCountValue !== null
-            ? (int)round($grossOrderCountValue)
+            ? $this->roundedCount($grossOrderCountValue)
             : null;
         $unknownStatusOrderCountValue = $this->nullableNumber($row, $raw, [
             'unknown_status_order_num',
@@ -1403,7 +1418,7 @@ class OtaStandardEtlService
             'unknownStatusOrderCount',
         ]);
         $unknownStatusOrderCount = $unknownStatusOrderCountValue !== null
-            ? (int)round($unknownStatusOrderCountValue)
+            ? $this->roundedCount($unknownStatusOrderCountValue)
             : null;
         $cancelRateBasis = $this->firstText($row, $raw, [
             'cancel_rate_basis',
@@ -1751,16 +1766,16 @@ class OtaStandardEtlService
             'hotel_key' => $hotelKey,
             'platform_key' => $source,
             'compare_type' => (string)($row['compare_type'] ?? $raw['compare_type'] ?? 'self'),
-            'list_exposure' => $listExposure !== null ? (int)round($listExposure) : null,
-            'detail_exposure' => $detailExposure !== null ? (int)round($detailExposure) : null,
+            'list_exposure' => $listExposure !== null ? $this->roundedCount($listExposure) : null,
+            'detail_exposure' => $detailExposure !== null ? $this->roundedCount($detailExposure) : null,
             'flow_rate' => $flowRate !== null ? round($flowRate, 2) : null,
             'stored_flow_rate' => $storedFlowRate !== null ? round($storedFlowRate, 2) : null,
             'flow_rate_source_value' => $ambiguousFlowRate,
             'flow_rate_basis' => $flowRateBasis,
             'flow_rate_validation_status' => $flowRateValidationStatus,
             'flow_rate_quality_flags' => array_values(array_unique($flowRateQualityFlags)),
-            'order_filling_num' => $orderFilling !== null ? (int)round($orderFilling) : null,
-            'order_submit_num' => $orderSubmit !== null ? (int)round($orderSubmit) : null,
+            'order_filling_num' => $orderFilling !== null ? $this->roundedCount($orderFilling) : null,
+            'order_submit_num' => $orderSubmit !== null ? $this->roundedCount($orderSubmit) : null,
             'submit_rate' => $submitRate,
             'submit_rate_validation_status' => $submitCountsInvalid ? 'counts_invalid'
                 : ($submitRate !== null ? 'verified_calculation' : 'missing'),
@@ -1783,9 +1798,9 @@ class OtaStandardEtlService
         $impressionsValue = $this->nullableNumber($row, $detail, ['list_exposure', 'listExposure', 'impressions', 'exposure_count', 'exposureCount']);
         $clicksValue = $this->nullableNumber($row, $detail, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount']);
         $bookingsValue = $this->nullableNumber($row, $detail, ['book_order_num', 'bookOrderNum', 'bookings', 'bookingCount', 'orderCount']);
-        $impressions = $impressionsValue !== null ? (int)round($impressionsValue) : null;
-        $clicks = $clicksValue !== null ? (int)round($clicksValue) : null;
-        $bookings = $bookingsValue !== null ? (int)round($bookingsValue) : null;
+        $impressions = $impressionsValue !== null ? $this->roundedCount($impressionsValue) : null;
+        $clicks = $clicksValue !== null ? $this->roundedCount($clicksValue) : null;
+        $bookings = $bookingsValue !== null ? $this->roundedCount($bookingsValue) : null;
         $roomNights = $this->nullableNumber($row, $detail, ['room_nights', 'roomNights', 'nights']);
         if ($roomNights === null && $source !== 'meituan') {
             $roomNights = $this->nullableNumber($row, $detail, ['quantity']);
@@ -1875,9 +1890,9 @@ class OtaStandardEtlService
             'platform_key' => $source,
             'keyword' => $keyword,
             'rank' => $rank !== null ? round($rank, 2) : null,
-            'impressions' => ($value = $this->nullableNumber($row, $detail, ['list_exposure', 'listExposure', 'impressions', 'exposure', 'exposure_count', 'exposureCount'])) !== null ? (int)round($value) : null,
-            'clicks' => ($value = $this->nullableNumber($row, $detail, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount'])) !== null ? (int)round($value) : null,
-            'order_contribution' => ($value = $this->nullableNumber($row, $detail, ['order_submit_num', 'orderSubmitNum', 'order_contribution', 'orderContribution', 'orders', 'orderCount'])) !== null ? (int)round($value) : null,
+            'impressions' => ($value = $this->nullableNumber($row, $detail, ['list_exposure', 'listExposure', 'impressions', 'exposure', 'exposure_count', 'exposureCount'])) !== null ? $this->roundedCount($value) : null,
+            'clicks' => ($value = $this->nullableNumber($row, $detail, ['detail_exposure', 'detailExposure', 'clicks', 'click_count', 'clickCount'])) !== null ? $this->roundedCount($value) : null,
+            'order_contribution' => ($value = $this->nullableNumber($row, $detail, ['order_submit_num', 'orderSubmitNum', 'order_contribution', 'orderContribution', 'orders', 'orderCount'])) !== null ? $this->roundedCount($value) : null,
             'raw_data' => $raw,
             'source_trace' => $this->rowTrace($row, $hotelKey, $source, 'search_keyword', $date),
         ];
@@ -2009,7 +2024,7 @@ class OtaStandardEtlService
             'period_start' => $this->dateValue($this->firstText($row, $detail, ['period_start', 'periodStart', 'start_date', 'startDate'])),
             'period_end' => $this->dateValue($this->firstText($row, $detail, ['period_end', 'periodEnd', 'end_date', 'endDate'])),
             'compare_type' => strtolower((string)($row['compare_type'] ?? $detail['compare_type'] ?? '')),
-            'flow_order_count' => $orderCount !== null ? max(0, (int)round($orderCount)) : null,
+            'flow_order_count' => $orderCount !== null ? max(0, $this->roundedCount($orderCount)) : null,
             'flow_room_nights' => $this->nullableNumber($row, $detail, ['room_nights', 'roomNights', 'lossTotalPayRoomNight']),
             'flow_amount' => $this->nullableNumber($row, $detail, ['amount', 'lossTotalPayAmount', 'lossSinglePayAmount']),
             'flow_ratio' => $this->nullablePercent($row, $detail, ['order_ratio', 'orderRatio', 'lossOrderRatio', 'data_value', 'dataValue']),
@@ -2888,11 +2903,11 @@ class OtaStandardEtlService
      * @param array<string, mixed> $row
      * @param array<string, mixed> $raw
      */
-    private function leadTimeDays(array $row, array $raw): ?int
+    private function leadTimeDays(array $row, array $raw): int|float|null
     {
         $explicit = $this->nullableNumber($row, $raw, ['lead_time_days', 'leadTimeDays', 'booking_window', 'bookingWindow']);
         if ($explicit !== null) {
-            $days = (int)round($explicit);
+            $days = $this->roundedCount($explicit);
             return $days >= 0 ? $days : null;
         }
 

@@ -982,14 +982,15 @@ final class RevenueFactLayerService
                     && (string)($row['data_date'] ?? '') === $businessDate
                     && ($row['readback_verified'] ?? false) === true
             ));
-            $revenue = $this->sumMetric($platformRows, 'amount');
+            $aggregateFailures = [];
+            $revenue = $this->sumMetric($platformRows, 'amount', $aggregateFailures['revenue']);
             $orders = $this->sumMetric(
                 $platformRows,
-                'book_order_num'
+                'book_order_num', $aggregateFailures['orders']
             );
             $roomNights = $this->sumMetric(
                 $platformRows,
-                'quantity'
+                'quantity', $aggregateFailures['room_nights']
             );
             $provenanceReady = $platformRows !== [];
             foreach ($platformRows as $row) {
@@ -1097,6 +1098,30 @@ final class RevenueFactLayerService
                     || !$this->metricStatusReady($currentStatus, $metricKey)
                 ) {
                     $coreFactStatuses[$metricKey] = $safeMetricStatus;
+                }
+            }
+            // A failed repository calculation must not fall back to a different
+            // snapshot and conceal the failure. Independent finite counts remain usable.
+            foreach ($aggregateFailures as $metricKey => $failure) {
+                if ($failure !== null) {
+                    $coreFactStatuses[$metricKey] = ['status' => 'not_calculable', 'reason' => $failure];
+                }
+            }
+            if ($aggregateFailures['revenue'] !== null) $resolvedRevenue = null;
+            if ($aggregateFailures['orders'] !== null) $resolvedOrders = null;
+            if ($aggregateFailures['room_nights'] !== null) $resolvedRoomNights = null;
+            if ($aggregateFailures['revenue'] !== null || $aggregateFailures['room_nights'] !== null) {
+                $resolvedAdr = null;
+                $coreFactStatuses['adr'] = ['status' => 'not_calculable', 'reason' => 'numeric_aggregate_nonfinite',
+                    'formula' => 'ota_room_revenue / ota_room_nights'];
+            }
+            if (in_array('numeric_aggregate_nonfinite', $aggregateFailures, true) && $repositoryReady && $provenanceReady) {
+                foreach (['orders' => $orders, 'room_nights' => $roomNights] as $metricKey => $count) {
+                    if ($count !== null) {
+                        $coreFactStatuses[$metricKey] = ['status' => 'readback_verified', 'reason' => ''];
+                        if ($metricKey === 'orders') $resolvedOrders = $this->wholeNumber($count);
+                        else $resolvedRoomNights = $this->wholeNumber($count);
+                    }
                 }
             }
             $operationalMetricProvenance = [];
@@ -1990,24 +2015,32 @@ final class RevenueFactLayerService
             && ($ota['meituan']['analysis_readiness']['allowed'] ?? false)
                 === true;
         $revenueReady = $revenueInputsReady && $revenueAnalysisReady;
+        $aggregateFailures = [];
         $revenue = $revenueReady
             ? $this->strictSum([
                 $ctripFacts['revenue'] ?? null,
                 $meituanFacts['revenue'] ?? null,
-            ])
+            ], $aggregateFailures['revenue'])
             : null;
         $orders = $ordersReady
             ? $this->strictSum([
                 $ctripFacts['orders'] ?? null,
                 $meituanFacts['orders'] ?? null,
-            ])
+            ], $aggregateFailures['orders'])
             : null;
         $roomNights = $roomNightsReady
             ? $this->strictSum([
                 $ctripFacts['room_nights'] ?? null,
                 $meituanFacts['room_nights'] ?? null,
-            ])
+            ], $aggregateFailures['room_nights'])
             : null;
+        foreach (['revenue', 'orders', 'room_nights'] as $metricKey) {
+            foreach (['ctrip', 'meituan'] as $platform) {
+                if (($ota[$platform]['fact_statuses'][$metricKey]['reason'] ?? '') === 'numeric_aggregate_nonfinite') {
+                    $aggregateFailures[$metricKey] = 'numeric_aggregate_nonfinite';
+                }
+            }
+        }
         $revenueReady = $revenueReady && $revenue !== null;
         $ordersReady = $ordersReady && $orders !== null;
         $roomNightsReady = $roomNightsReady && $roomNights !== null;
@@ -2063,6 +2096,15 @@ final class RevenueFactLayerService
                 'formula' => 'combined_ota_revenue / combined_ota_room_nights',
             ],
         ];
+
+        foreach ($aggregateFailures as $metricKey => $failure) {
+            if ($failure !== null) {
+                $factStatuses[$metricKey] = ['status' => 'not_calculable', 'reason' => $failure];
+                if (in_array($metricKey, ['revenue', 'room_nights'], true)) {
+                    $factStatuses['adr']['reason'] = $failure;
+                }
+            }
+        }
 
         return [
             'data_status' => $aggregateReady
@@ -3038,7 +3080,8 @@ final class RevenueFactLayerService
                 $otaTruth,
                 $combinedRevenueReady
                     ? ''
-                    : 'combined_ota_revenue_not_ready'
+                    : (($combinedFactStatuses['revenue']['reason'] ?? '') === 'numeric_aggregate_nonfinite'
+                        ? 'numeric_aggregate_nonfinite' : 'combined_ota_revenue_not_ready')
             ),
             'ota_room_nights' => $this->metricRow(
                 'ota_room_nights',
@@ -3051,7 +3094,8 @@ final class RevenueFactLayerService
                 $otaTruth,
                 $combinedRoomNightsReady
                     ? ''
-                    : 'combined_ota_room_nights_not_ready'
+                    : (($combinedFactStatuses['room_nights']['reason'] ?? '') === 'numeric_aggregate_nonfinite'
+                        ? 'numeric_aggregate_nonfinite' : 'combined_ota_room_nights_not_ready')
             ),
             'ota_adr' => $this->metricRow(
                 'ota_adr',
@@ -3064,7 +3108,8 @@ final class RevenueFactLayerService
                 $otaTruth,
                 $combinedAdrReady
                     ? ''
-                    : 'combined_ota_adr_not_ready'
+                    : (($combinedFactStatuses['adr']['reason'] ?? '') === 'numeric_aggregate_nonfinite'
+                        ? 'numeric_aggregate_nonfinite' : 'combined_ota_adr_not_ready')
             ),
             'whole_hotel_room_revenue' => $this->metricRow(
                 'whole_hotel_room_revenue',
@@ -3152,6 +3197,14 @@ final class RevenueFactLayerService
         string $reason
     ): array {
         $number = $this->number($value);
+        if ($reason === 'numeric_aggregate_nonfinite') {
+            $number = null;
+            $truth['status'] = 'unverified';
+            $truth['status_label'] = '未验证';
+            $truth['failure_reason'] = $reason;
+            $truth['evidence_gap_codes'] = array_values(array_unique(array_merge(
+                (array)($truth['evidence_gap_codes'] ?? []), [$reason])));
+        }
         return [
             'key' => $key,
             'label' => $label,
@@ -3474,8 +3527,9 @@ final class RevenueFactLayerService
     }
 
     /** @param array<int,array<string,mixed>> $rows */
-    private function sumMetric(array $rows, string $key): ?float
+    private function sumMetric(array $rows, string $key, ?string &$failureReason = null): ?float
     {
+        $failureReason = null;
         if ($rows === []) {
             return null;
         }
@@ -3486,13 +3540,18 @@ final class RevenueFactLayerService
                 return null;
             }
             $sum += $value;
+            if (!is_finite($sum)) {
+                $failureReason = 'numeric_aggregate_nonfinite';
+                return null;
+            }
         }
         return $sum;
     }
 
     /** @param array<int,mixed> $values */
-    private function strictSum(array $values): ?float
+    private function strictSum(array $values, ?string &$failureReason = null): ?float
     {
+        $failureReason = null;
         $sum = 0.0;
         foreach ($values as $value) {
             $number = $this->number($value);
@@ -3500,6 +3559,10 @@ final class RevenueFactLayerService
                 return null;
             }
             $sum += $number;
+            if (!is_finite($sum)) {
+                $failureReason = 'numeric_aggregate_nonfinite';
+                return null;
+            }
         }
         return $sum;
     }
@@ -3644,7 +3707,8 @@ final class RevenueFactLayerService
 
     private function wholeNumber(float $value): int|float
     {
-        return floor($value) === $value ? (int)$value : round($value, 2);
+        return floor($value) === $value && $value >= (float)PHP_INT_MIN && $value < (float)PHP_INT_MAX
+            ? (int)$value : round($value, 2);
     }
 
     private function positiveInt(mixed $value): ?int

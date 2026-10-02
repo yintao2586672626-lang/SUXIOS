@@ -129,11 +129,11 @@ trait RevenueAiOverviewMarketStructureConcern
             return [
                 'label' => '渠道预售窗口',
                 'value' => '--',
-                'status' => ($summary['aligned_row_count'] ?? 0) > 0 ? 'partial' : 'not_calculable',
+                'status' => ($summary['status'] ?? '') === 'not_calculable' ? 'not_calculable' : (($summary['aligned_row_count'] ?? 0) > 0 ? 'partial' : 'not_calculable'),
                 'reason' => $reason !== '' ? $reason : 'channel_booking_window_month_fields_missing',
-                'detail' => ($summary['aligned_row_count'] ?? 0) > 0
-                    ? '已有渠道、入住月和提前期交叉记录，但所有格子的订单量均低于最小样本门槛，暂不生成预售窗口信号。'
-                    : '需要同一 OTA 事实具备真实入住日期、提前预订天数、渠道和正数订单量；缺失时不生成月份交叉结论。',
+                'detail' => $reason === 'numeric_aggregate_nonfinite' ? '同范围预售计数或占比分母超出有限数值范围，相关信号不可计算；有效格子计数仍保留，不填零或沿用旧占比。'
+                    : (($summary['aligned_row_count'] ?? 0) > 0 ? '已有渠道、入住月和提前期交叉记录，但所有格子的订单量均低于最小样本门槛，暂不生成预售窗口信号。'
+                        : '需要同一 OTA 事实具备真实入住日期、提前预订天数、渠道和正数订单量；缺失时不生成月份交叉结论。'),
                 'scope' => 'ota',
                 'date_basis' => 'checkin_month',
                 'source_channels' => $sourceChannels,
@@ -176,8 +176,8 @@ trait RevenueAiOverviewMarketStructureConcern
         }
 
         usort($cells, static function (array $left, array $right): int {
-            return [(int)($right['order_count'] ?? 0), (float)($right['order_share'] ?? 0)]
-                <=> [(int)($left['order_count'] ?? 0), (float)($left['order_share'] ?? 0)];
+            return [(float)($right['order_count'] ?? 0), (float)($right['order_share'] ?? 0)]
+                <=> [(float)($left['order_count'] ?? 0), (float)($left['order_share'] ?? 0)];
         });
         $parts = array_map(function (array $cell): string {
             return (string)($cell['stay_month'] ?? '')
