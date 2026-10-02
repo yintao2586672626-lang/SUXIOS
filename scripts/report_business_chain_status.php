@@ -9,6 +9,8 @@ use app\service\RevenueFactLayerService;
 use think\App;
 use think\facade\Db;
 
+require_once __DIR__ . '/lib/business_chain_review_scope.php';
+
 if (!class_exists(\Composer\Autoload\ClassLoader::class, false)) {
     require __DIR__ . '/../vendor/autoload.php';
 }
@@ -1251,7 +1253,7 @@ function business_chain_revenue_to_ai_handoff(array $referenceScope, array $reve
     }
 
     $draftStatus = (string)($aiAdviceDraft['status'] ?? '');
-    $handoffReadyForReview = $sourcePlatforms !== [] && $draftStatus === 'ready_for_manual_review';
+    $handoffReadyForReview = $sourcePlatforms !== [] && $actionRows !== [] && $draftStatus === 'ready_for_manual_review';
     $handoffReferenceOnly = $sourcePlatforms !== [] && $draftStatus === 'draft_reference_only';
     $requiredBeforeExecution = $p0Ready
         ? ['manual_review_workflow_connected', 'approved_ai_advice', 'operation_execution_intent_created_by_human_review']
@@ -1474,11 +1476,9 @@ function business_chain_manual_review_packet(array $handoff, array $revenueDiagn
         ];
     }
 
-    $primaryBlocker = $blockers[0] ?? [];
     $actionReason = (string)($firstAction['reason'] ?? '');
-    $status = $blockers === [] && $actionReason === ''
-        ? 'ready_for_manual_review'
-        : 'blocked_ready_for_manual_review';
+    [$status, $blockers] = business_chain_manual_review_scope($handoff, $revenueDiagnosis, $firstAction, $blockers, $actionReason);
+    $primaryBlocker = $blockers[0] ?? [];
     $reviewContract = business_chain_ai_decision_review_contract(
         $handoff,
         $revenueDiagnosis,
@@ -1562,8 +1562,8 @@ function business_chain_ai_decision_review_contract(
         ];
     }
 
-    $hasBlockingInputs = $requiredInputs !== [];
-    $resolutionPlan = business_chain_ai_decision_resolution_plan($requiredInputs, (string)($handoff['source_scope'] ?? ''));
+    $hasBlockingInputs = $requiredInputs !== [] || $packetStatus === 'blocked_by_diagnosis_scope';
+    $resolutionPlan = business_chain_review_resolution_plan($requiredInputs, (string)($handoff['source_scope'] ?? ''), $hasBlockingInputs);
 
     return [
         'status' => $hasBlockingInputs ? 'blocked_by_review_inputs' : 'ready_for_human_ai_decision',

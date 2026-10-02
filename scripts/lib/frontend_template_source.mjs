@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from '@vue/compiler-dom';
 
+// Retired IDs remain blocked from runtime. Historical source lives only in the
+// pinned tests/fixtures/frontend-retired-20261002.zip regression fixture.
 export const FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_IDS = Object.freeze([
   'page-ai-strategy',
   'page-ai-feasibility',
@@ -23,18 +25,7 @@ const FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_ID_SET = new Set(FRONTEND_RUNTIME_EXCLU
 
 export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'app-shell', domain: 'shell', path: 'fragments/00-app-shell.html', anchor: '<!-- 登录页面 -->' },
-  { id: 'page-ai-strategy', domain: 'ai-decision', path: 'fragments/01-page-ai-strategy.html', anchor: '<div v-if="currentPage === \'ai-strategy\'">' },
   { id: 'page-ai-simulation', domain: 'ai-decision', path: 'fragments/02-page-ai-simulation.html', anchor: '<div v-if="currentPage === \'ai-simulation\'">' },
-  { id: 'page-ai-feasibility', domain: 'investment', path: 'fragments/03-page-ai-feasibility.html', anchor: '<div v-if="currentPage === \'ai-feasibility\'" class="feasibility-page">' },
-  { id: 'page-market-evaluation', domain: 'investment', path: 'fragments/04-page-market-evaluation.html', anchor: '<div v-if="currentPage === \'market-evaluation\' || currentPage === \'market-eval\'">' },
-  { id: 'page-benchmark-model', domain: 'investment', path: 'fragments/05-page-benchmark-model.html', anchor: '<div v-if="currentPage === \'benchmark-model\'">' },
-  { id: 'page-collaboration-efficiency', domain: 'operations', path: 'fragments/06-page-collaboration-efficiency.html', anchor: '<div v-if="currentPage === \'collaboration-efficiency\' || currentPage === \'sync-efficiency\'">' },
-  { id: 'shared-expansion-history', domain: 'shared-investment', path: 'fragments/07-shared-expansion-history.html', anchor: '<div v-if="[\'market-evaluation\', \'market-eval\', \'benchmark-model\', \'collaboration-efficiency\', \'sync-efficiency\'].includes(currentPage)" class="mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-5">' },
-  { id: 'shared-transfer-context', domain: 'shared-investment', path: 'fragments/08-shared-transfer-context.html', anchor: '<div v-if="[\'asset-pricing\', \'timing-strategy\', \'decision-board\'].includes(currentPage)" class="mb-6 bg-white rounded-xl shadow-sm border border-gray-100 p-5">' },
-  { id: 'page-asset-pricing', domain: 'investment', path: 'fragments/09-page-asset-pricing.html', anchor: '<div v-if="currentPage === \'asset-pricing\'">' },
-  { id: 'page-timing-strategy', domain: 'investment', path: 'fragments/10-page-timing-strategy.html', anchor: '<div v-if="currentPage === \'timing-strategy\'">' },
-  { id: 'page-decision-board', domain: 'investment', path: 'fragments/11-page-decision-board.html', anchor: '<div v-if="currentPage === \'decision-board\'">' },
-  { id: 'shared-transfer-history', domain: 'shared-investment', path: 'fragments/12-shared-transfer-history.html', anchor: '<div v-if="[\'asset-pricing\', \'timing-strategy\', \'decision-board\'].includes(currentPage)" class="mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-5">' },
   { id: 'page-opening-overview', domain: 'opening', path: 'fragments/13-page-opening-overview.html', anchor: '<div v-if="currentPage === \'opening-overview\'" class="max-w-7xl mx-auto space-y-6">' },
   { id: 'page-opening-checklist', domain: 'opening', path: 'fragments/14-page-opening-checklist.html', anchor: '<div v-if="currentPage === \'opening-checklist\'" class="max-w-7xl mx-auto space-y-6">' },
   { id: 'page-ops-source', domain: 'operations', path: 'fragments/15a-page-ops-source.html', anchor: '<div v-if="currentPage === \'ops-source\'" class="max-w-7xl mx-auto space-y-6">' },
@@ -58,7 +49,6 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'page-roles', domain: 'system-admin', path: 'fragments/22-page-roles.html', anchor: '<div v-if="currentPage === \'roles\'">' },
   { id: 'home-shell-open', domain: 'decision-workbench', path: 'fragments/23-page-home-shell-open.html', anchor: '<div v-if="currentPage === \'compass\'" class="compass-dashboard suxi-dashboard-scope">' },
   { id: 'page-compass-summary', domain: 'decision-workbench', path: 'fragments/23a-page-compass-summary.html', anchor: '<section v-if="currentPage === \'compass\'" class="compass-hero-bezel" data-testid="home-executive-answer">' },
-  { id: 'page-ai-workbench', domain: 'decision-workbench', path: 'fragments/23b-page-ai-workbench.html', anchor: '<div v-if="currentPage === \'ai-workbench\'" class="dual-ota-home order-first" data-testid="home-ai-workbench">' },
   { id: 'page-compass-detail', domain: 'decision-workbench', path: 'fragments/23c-page-compass-detail.html', anchor: '<details v-if="currentPage === \'compass\'" class="suxi-evidence-fold" data-testid="home-full-detail-fold">' },
   { id: 'home-shell-card-close', domain: 'decision-workbench', path: 'fragments/23d-home-shell-card-close.html', anchor: '                            </div>\n                        </div>\n\n                        <details class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="home-secondary-detail-fold">' },
   { id: 'home-shared-secondary', domain: 'decision-workbench', path: 'fragments/23e-home-shared-secondary.html', anchor: '<details class="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" data-testid="home-secondary-detail-fold">' },
@@ -66,8 +56,6 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'page-ctrip-fetch-settings', domain: 'ota-ctrip', path: 'fragments/25-page-ctrip-fetch-settings.html', anchor: '<div v-if="currentPage === \'ctrip-ebooking\' &amp;&amp; onlineDataTab === \'ctrip-fetch-settings\'" class="bg-white rounded-lg shadow mt-4">' },
   { id: 'page-meituan-ebooking', domain: 'ota-meituan', path: 'fragments/26-page-meituan-ebooking.html', anchor: '<div v-if="currentPage === \'meituan-ebooking\'">' },
   { id: 'page-agent-center', domain: 'agent-center', path: 'fragments/27-page-agent-center.html', anchor: '<div v-if="currentPage === \'agent-center\'">' },
-  { id: 'page-investment-decision', domain: 'investment', path: 'fragments/28-page-investment-decision.html', anchor: '<div v-if="currentPage === \'investment-decision\'" class="max-w-7xl mx-auto space-y-5">' },
-  { id: 'page-lifecycle', domain: 'lifecycle', path: 'fragments/29-page-lifecycle.html', anchor: '<div v-if="currentPage === \'lifecycle\'" class="suxi-lifecycle-view max-w-7xl mx-auto space-y-6">' },
   { id: 'page-operation-logs', domain: 'system-admin', path: 'fragments/30-page-operation-logs.html', anchor: '<div v-if="currentPage === \'operation-logs\'">' },
   { id: 'page-system-config', domain: 'system-admin', path: 'fragments/31-page-system-config.html', anchor: '<div v-if="currentPage === \'system-config\'">' },
   { id: 'page-ai-model-config', domain: 'ai-governance', path: 'fragments/32-page-ai-model-config.html', anchor: '<div v-if="currentPage === \'ai-model-config\'">' },

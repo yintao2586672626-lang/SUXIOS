@@ -1,28 +1,4 @@
 window.SUXI_OPERATION_STATIC = (() => {
-    const lifecycleMetricLabels = {
-        reports: '可研报告',
-        latest_grade: '最新评级',
-        latest_project: '最新项目',
-        projects: '开业项目',
-        open_tasks: '未完成任务',
-        overdue_tasks: '逾期任务',
-        avg_score: '平均评分',
-        unread_alerts: '未读预警',
-        active_actions: '执行动作',
-        ota_rows: 'OTA数据',
-        pending_prices: '待审价格',
-        applied_prices: '已应用价格',
-        future_forecasts: '未来预测',
-        strategy_simulations: '推演记录',
-        competitor_price_logs: '竞对价格',
-    };
-    const lifecycleStageTitles = {
-        investment: '筹建',
-        opening: '开业',
-        operation: '运营',
-        revenue: '收益',
-        transfer: '转让',
-    };
     const operationAlertFilters = [
         { key: 'all', label: '全部' },
         { key: 'high', label: '高风险' },
@@ -1656,8 +1632,6 @@ window.SUXI_OPERATION_STATIC = (() => {
     };
 
     return {
-        lifecycleMetricLabels,
-        lifecycleStageTitles,
         operationAlertFilters,
         operationStrategyTypes,
         buildOperationSummaryCards,

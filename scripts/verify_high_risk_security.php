@@ -1,7 +1,10 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../vendor/autoload.php';
+$loader = require_once __DIR__ . '/../vendor/autoload.php';
+if ($loader instanceof \Composer\Autoload\ClassLoader) {
+    $loader->setPsr4('app\\', dirname(__DIR__) . '/app');
+}
 
 use app\controller\OnlineData;
 use app\service\OtaCustomRequestService;
@@ -463,12 +466,65 @@ assert_true(str_contains($operationSource, 'withHotelTenantId'), 'hotel-scoped o
 assert_true(str_contains($operationSource, 'withExecutionTaskTenantId'), 'execution evidence writes must inherit and verify the task tenant scope');
 $transferSaveRecord = extract_method_source($transferSource, 'saveRecord');
 assert_true(
-    str_contains($transferSaveRecord, 'Db::transaction(')
-    && str_contains($transferSaveRecord, 'lockedHotelIdentity($hotelId, false)')
-    && str_contains($transferSaveRecord, "\$tenantId = (int)\$hotel['tenant_id']")
-    && str_contains($transferSaveRecord, 'assertTransferSnapshotBinding($input, $snapshot, $hotelId, $tenantId)')
-    && str_contains($transferSaveRecord, "'tenant_id' => \$tenantId"),
-    'transfer records must lock the authoritative hotel, revalidate snapshot binding, and persist that locked tenant_id in one transaction'
+    preg_replace('/\s+/', '', $transferSaveRecord) === "{thrownew\\RuntimeException('retired_read_only',410);}",
+    'retired transfer saveRecord must only throw 410, without input parsing, construction or database side effects'
+);
+$transferRef = new ReflectionClass(TransferDecisionService::class);
+assert_same(realpath(__DIR__ . '/../app/service/TransferDecisionService.php'), realpath($transferRef->getFileName()), 'retired transfer guard must execute the verified current worktree source');
+try {
+    $transferRef->newInstanceWithoutConstructor()->saveRecord('asset_pricing', [], [], [], 0, 0);
+    fail('retired transfer saveRecord must reject before accessing any dependency');
+} catch (RuntimeException $exception) {
+    assert_same(410, $exception->getCode(), 'retired transfer saveRecord must return 410');
+    assert_same('retired_read_only', $exception->getMessage(), 'retired transfer saveRecord must identify its read-only contract');
+}
+$transferCurrentQuery = extract_method_source($transferSource, 'currentTenantTransferRecordQuery');
+$transferRecords = extract_method_source($transferSource, 'records');
+$transferDetail = extract_method_source($transferSource, 'detail');
+$transferLock = extract_method_source($transferSource, 'lockExecutionTrackingSource');
+$transferHotelLock = extract_method_source($transferSource, 'lockedHotelIdentity');
+$transferAttach = extract_method_source($transferSource, 'attachExecutionTracking');
+$transferIntent = extract_method_source($transferSource, 'buildExecutionIntentInput');
+$sourceApproval = file_get_contents(__DIR__ . '/../app/service/SourceBackedExecutionIntentApprovalService.php');
+$sourceApprovalCurrent = extract_method_source($sourceApproval, 'assertCurrentAgainstLockedRows');
+$sourceApprovalTransfer = extract_method_source($sourceApproval, 'currentTransferInput');
+assert_true(
+    str_contains($transferCurrentQuery, 'transfer_hotel.id = transfer_record.hotel_id AND transfer_hotel.tenant_id = transfer_record.tenant_id')
+    && str_contains($transferCurrentQuery, "whereIn('transfer_record.hotel_id', \$hotelIds)")
+    && str_contains($transferCurrentQuery, "whereNull('transfer_record.deleted_at')")
+    && str_contains($transferRecords, 'currentTenantTransferRecordQuery($hotelIds)')
+    && str_contains($transferDetail, 'currentTenantTransferRecordQuery($hotelIds, $id)'),
+    'current transfer history reads must bind the authoritative hotel tenant, permitted hotel IDs and undeleted source rows'
+);
+assert_true(
+    str_contains($transferLock, 'Db::transaction(')
+    && str_contains($transferLock, 'lockedHotelIdentity($expectedHotelId, false)')
+    && str_contains($transferLock, 'currentTenantTransferRecordQuery([$expectedHotelId], $id)->lock(true)->find()')
+    && str_contains($transferLock, "(int)(\$row['tenant_id'] ?? 0) !== (int)\$hotel['tenant_id']")
+    && str_contains($transferLock, '!in_array($expectedHotelId, $hotelIds, true)')
+    && str_contains($transferHotelLock, "Db::name('hotels')->where('id', \$hotelId)->lock(true)->find()")
+    && str_contains($transferHotelLock, "(int)(\$hotel['tenant_id'] ?? 0) <= 0"),
+    'current transfer tracking must lock the authoritative hotel then the same-hotel source row and reject invalid tenant identity'
+);
+assert_true(
+    str_contains($transferAttach, 'Db::transaction(')
+    && str_contains($transferAttach, 'lockExecutionTrackingSource($id, $hotelIds, $trackingHotelId)')
+    && str_contains($transferAttach, "where('tenant_id', (int)\$row['tenant_id'])")
+    && str_contains($transferAttach, "where('hotel_id', \$trackingHotelId)"),
+    'existing transfer tracking writes must preserve the locked source tenant and hotel on update'
+);
+assert_true(
+    str_contains($transferIntent, "SourceBackedExecutionIntentIdentityService::snapshotDigest('transfer_decision'")
+    && str_contains($transferIntent, "'hotel_id' => \$hotelId")
+    && str_contains($transferIntent, "'input' => \$input")
+    && str_contains($transferIntent, "'result' => \$result")
+    && str_contains($transferIntent, "'snapshot' => \$snapshot")
+    && str_contains($sourceApprovalTransfer, '$service->detail($recordId, [$hotelId], $createdBy, true)')
+    && str_contains($sourceApprovalTransfer, '$service->buildExecutionIntentInput(')
+    && str_contains($sourceApprovalCurrent, '$intentTenantId !== $hotelTenantId')
+    && str_contains($sourceApprovalCurrent, '$sourceTenantId !== $hotelTenantId')
+    && str_contains($sourceApprovalCurrent, '!hash_equals($storedDigest, $currentDigest)'),
+    'existing transfer approvals must re-read same-hotel history, bind input/result/snapshot and reject changed source or tenant identity'
 );
 assert_true(str_contains($initFullSource, '20260529_add_tenant_security_fields.sql'), 'full database initialization must apply tenant security migration');
 assert_true(str_contains($hotelMergePreviewSource, '$this->checkPermission(true);'), 'hotel data merge preview must require super admin');

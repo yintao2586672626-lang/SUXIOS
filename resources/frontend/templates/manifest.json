@@ -11,87 +11,10 @@
       "anchor": "<!-- 登录页面 -->"
     },
     {
-      "id": "page-ai-strategy",
-      "domain": "ai-decision",
-      "path": "fragments/01-page-ai-strategy.html",
-      "anchor": "<div v-if=\"currentPage === 'ai-strategy'\">",
-      "runtime": false
-    },
-    {
       "id": "page-ai-simulation",
       "domain": "ai-decision",
       "path": "fragments/02-page-ai-simulation.html",
       "anchor": "<div v-if=\"currentPage === 'ai-simulation'\">"
-    },
-    {
-      "id": "page-ai-feasibility",
-      "domain": "investment",
-      "path": "fragments/03-page-ai-feasibility.html",
-      "anchor": "<div v-if=\"currentPage === 'ai-feasibility'\" class=\"feasibility-page\">",
-      "runtime": false
-    },
-    {
-      "id": "page-market-evaluation",
-      "domain": "investment",
-      "path": "fragments/04-page-market-evaluation.html",
-      "anchor": "<div v-if=\"currentPage === 'market-evaluation' || currentPage === 'market-eval'\">",
-      "runtime": false
-    },
-    {
-      "id": "page-benchmark-model",
-      "domain": "investment",
-      "path": "fragments/05-page-benchmark-model.html",
-      "anchor": "<div v-if=\"currentPage === 'benchmark-model'\">",
-      "runtime": false
-    },
-    {
-      "id": "page-collaboration-efficiency",
-      "domain": "operations",
-      "path": "fragments/06-page-collaboration-efficiency.html",
-      "anchor": "<div v-if=\"currentPage === 'collaboration-efficiency' || currentPage === 'sync-efficiency'\">",
-      "runtime": false
-    },
-    {
-      "id": "shared-expansion-history",
-      "domain": "shared-investment",
-      "path": "fragments/07-shared-expansion-history.html",
-      "anchor": "<div v-if=\"['market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency'].includes(currentPage)\" class=\"mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-5\">",
-      "runtime": false
-    },
-    {
-      "id": "shared-transfer-context",
-      "domain": "shared-investment",
-      "path": "fragments/08-shared-transfer-context.html",
-      "anchor": "<div v-if=\"['asset-pricing', 'timing-strategy', 'decision-board'].includes(currentPage)\" class=\"mb-6 bg-white rounded-xl shadow-sm border border-gray-100 p-5\">",
-      "runtime": false
-    },
-    {
-      "id": "page-asset-pricing",
-      "domain": "investment",
-      "path": "fragments/09-page-asset-pricing.html",
-      "anchor": "<div v-if=\"currentPage === 'asset-pricing'\">",
-      "runtime": false
-    },
-    {
-      "id": "page-timing-strategy",
-      "domain": "investment",
-      "path": "fragments/10-page-timing-strategy.html",
-      "anchor": "<div v-if=\"currentPage === 'timing-strategy'\">",
-      "runtime": false
-    },
-    {
-      "id": "page-decision-board",
-      "domain": "investment",
-      "path": "fragments/11-page-decision-board.html",
-      "anchor": "<div v-if=\"currentPage === 'decision-board'\">",
-      "runtime": false
-    },
-    {
-      "id": "shared-transfer-history",
-      "domain": "shared-investment",
-      "path": "fragments/12-shared-transfer-history.html",
-      "anchor": "<div v-if=\"['asset-pricing', 'timing-strategy', 'decision-board'].includes(currentPage)\" class=\"mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-5\">",
-      "runtime": false
     },
     {
       "id": "page-opening-overview",
@@ -232,13 +155,6 @@
       "anchor": "<section v-if=\"currentPage === 'compass'\" class=\"compass-hero-bezel\" data-testid=\"home-executive-answer\">"
     },
     {
-      "id": "page-ai-workbench",
-      "domain": "decision-workbench",
-      "path": "fragments/23b-page-ai-workbench.html",
-      "anchor": "<div v-if=\"currentPage === 'ai-workbench'\" class=\"dual-ota-home order-first\" data-testid=\"home-ai-workbench\">",
-      "runtime": false
-    },
-    {
       "id": "page-compass-detail",
       "domain": "decision-workbench",
       "path": "fragments/23c-page-compass-detail.html",
@@ -279,20 +195,6 @@
       "domain": "agent-center",
       "path": "fragments/27-page-agent-center.html",
       "anchor": "<div v-if=\"currentPage === 'agent-center'\">"
-    },
-    {
-      "id": "page-investment-decision",
-      "domain": "investment",
-      "path": "fragments/28-page-investment-decision.html",
-      "anchor": "<div v-if=\"currentPage === 'investment-decision'\" class=\"max-w-7xl mx-auto space-y-5\">",
-      "runtime": false
-    },
-    {
-      "id": "page-lifecycle",
-      "domain": "lifecycle",
-      "path": "fragments/29-page-lifecycle.html",
-      "anchor": "<div v-if=\"currentPage === 'lifecycle'\" class=\"suxi-lifecycle-view max-w-7xl mx-auto space-y-6\">",
-      "runtime": false
     },
     {
       "id": "page-operation-logs",

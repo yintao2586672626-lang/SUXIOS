@@ -1018,28 +1018,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
     };
     const revenueConcentration = (items, valueGetter) => getConcentrationLevel(calculateHhi(items, valueGetter), 500, 800, '寡头市场');
     const visitConcentration = (items, valueGetter) => getConcentrationLevel(calculateHhi(items, valueGetter), 400, 700, '高度内卷');
-    const isExpansionStaticPage = (page) => [
-        'ai-strategy',
-        'ai-feasibility',
-        'market-evaluation',
-        'market-eval',
-        'benchmark-model',
-        'collaboration-efficiency',
-        'sync-efficiency',
-    ].includes(page);
-    const isSimulationStaticPage = (page) => [
-        'ai-strategy',
-        'ai-feasibility',
-        'ai-simulation',
-        'market-evaluation',
-        'market-eval',
-        'benchmark-model',
-        'collaboration-efficiency',
-        'sync-efficiency',
-        'asset-pricing',
-        'timing-strategy',
-        'decision-board',
-    ].includes(page);
+    const isSimulationStaticPage = (page) => page === 'ai-simulation';
     const deferUiTask = (callback, delay = 0) => {
         const runner = () => {
             try {
@@ -2396,18 +2375,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
         return 'bg-gray-50 text-gray-600 border-gray-200';
     };
 
-    const transferRiskTextClass = (risk) => {
-        if (['高风险', '高', 'high'].includes(risk)) return 'text-red-600';
-        if (['中高风险', '中高', '中风险', '中', 'medium_high', 'medium'].includes(risk)) return 'text-amber-600';
-        if (['低风险', '低', 'low'].includes(risk)) return 'text-green-600';
-        return 'text-gray-500';
-    };
-
-    const transferDecisionClass = (decision) => {
-        if (decision === '适合转让') return 'text-green-600';
-        if (decision === '谨慎转让') return 'text-amber-600';
-        return 'text-red-600';
-    };
 
     const pricingReadinessBadgeClass = (stage) => {
         if (stage === 'pricing_ready' || stage === 'evidence_ready') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
@@ -2691,7 +2658,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
         calculateHhi,
         revenueConcentration,
         visitConcentration,
-        isExpansionStaticPage,
         isSimulationStaticPage,
         deferUiTask,
         scheduleDelayedPageTask,
@@ -2760,8 +2726,6 @@ window.SUXI_SYSTEM_STATIC = (() => {
         platformNextActionMeta,
         platformAccountStoreText,
         riskBadgeClass,
-        transferRiskTextClass,
-        transferDecisionClass,
         pricingReadinessBadgeClass,
         priceSuggestionReviewReadinessClass,
         agentClosureReadinessBadgeClass,

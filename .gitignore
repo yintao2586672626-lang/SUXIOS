@@ -65,6 +65,7 @@ Desktop.ini
 # Archives / duplicate package content
 *.rar
 *.zip
+!tests/fixtures/frontend-retired-20261002.zip
 *.7z
 /HOTEL/
 

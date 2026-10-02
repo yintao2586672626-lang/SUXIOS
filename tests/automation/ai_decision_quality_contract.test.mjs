@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
+import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 const read = (path) => fs.readFileSync(path, 'utf8');
 
 test('user-facing AI recommendation backends apply the decision quality contract', () => {
   for (const path of [
     'app/controller/Agent.php',
-    'app/controller/StrategySimulation.php',
     'app/service/AiDailyReportService.php',
     'app/service/ExpansionService.php',
     'app/service/FeasibilityReportService.php',
@@ -32,14 +32,9 @@ test('user-facing AI recommendation backends apply the decision quality contract
   assert.match(read('public/components/system/app-main-components.js'), /data-testid': 'ai-decision-quality-blocked'[\s\S]*质量门禁：不合格，不可执行/);
 });
 
-test('AI decision surfaces show basis priority action effect and risk', () => {
+test('active AI decision surfaces show basis priority action effect and risk', () => {
   const templates = [
-    'resources/frontend/templates/fragments/01-page-ai-strategy.html',
     'resources/frontend/templates/fragments/02-page-ai-simulation.html',
-    'resources/frontend/templates/fragments/03-page-ai-feasibility.html',
-    'resources/frontend/templates/fragments/04-page-market-evaluation.html',
-    'resources/frontend/templates/fragments/05-page-benchmark-model.html',
-    'resources/frontend/templates/fragments/09-page-asset-pricing.html',
     'resources/frontend/templates/fragments/13-page-opening-overview.html',
     'resources/frontend/templates/fragments/16-page-ai-daily-report.html',
     'resources/frontend/templates/fragments/19-page-revenue-research-center.html',
@@ -56,7 +51,6 @@ test('AI decision surfaces show basis priority action effect and risk', () => {
     assert.match(source, /ai-decision-quality-details|风险|risk/, `${path} must display risk`);
   }
 
-  assert.match(read('resources/frontend/templates/fragments/01-page-ai-strategy.html'), /ai_evaluation\.recommendations/);
   assert.match(read('resources/frontend/templates/fragments/13-page-opening-overview.html'), /openingOverview\.ai_recommendations/);
   assert.match(read('resources/frontend/templates/fragments/19-page-revenue-research-center.html'), /decision_recommendations/);
 
@@ -65,4 +59,28 @@ test('AI decision surfaces show basis priority action effect and risk', () => {
     assert.match(otaStatic, new RegExp(key), `OTA diagnosis action rows must expose ${key}`);
   }
   assert.match(read('resources/frontend/templates/fragments/27-page-agent-center.html'), /item\.decision_recommendation/);
+});
+
+test('retired strategy and feasibility have no active AI surface or generator and retain authenticated 410 protection', () => {
+  const entry = read('public/app-main.js');
+  const manifest = JSON.parse(read('resources/frontend/templates/manifest.json'));
+  for (const id of ['page-ai-strategy', 'page-ai-feasibility', 'page-market-evaluation', 'page-benchmark-model', 'page-asset-pricing']) assert.equal(manifest.fragments.some(fragment => fragment.id === id), false, id);
+  assert.doesNotMatch(entry, /handleStrategy|handleFeasibility|aiStrategyResult|aiFeasibilityResult|loadExpansionStaticOptions/);
+  const routes = readRouteContractSource();
+  const strategyStart = routes.indexOf("Route::group('api/strategy'");
+  const strategyEnd = routes.indexOf('\n', routes.indexOf('})->middleware', strategyStart));
+  assert.match(routes.slice(strategyStart, strategyEnd), /Auth::class\)->middleware\(\\app\\middleware\\RetiredFeatureReadOnly::class/);
+  for (const line of routes.split('\n').filter(line => /Route::(?:post|delete)\('\/feasibility-report/.test(line))) assert.match(line, /RetiredFeatureReadOnly::class/);
+  const strategy = read('app/controller/StrategySimulation.php');
+  assert.match(strategy, /public function simulate\(\): Response\s*\{\s*return \$this->retiredWriteResponse\(\);/);
+  assert.match(strategy, /RetiredFeatureReadOnly::response\('战略推演'\)/);
+  const middleware = read('app/middleware/RetiredFeatureReadOnly.php');
+  assert.match(middleware, /'code' => 410/);
+  assert.match(middleware, /'history_preserved' => true/);
+});
+
+test('feasibility historical evidence retains tenant hotel source financial and recommendation quality boundaries', () => {
+  const source = read('app/service/FeasibilityReportService.php');
+  for (const text of ['applyTenantScope', "where('tenant_id', $tenantId)", "where('created_by', $userId)", 'feasibility report hotel scope missing', 'feasibility report hotel scope conflict', 'feasibility report hotel scope mismatch', 'source_snapshot_digest', 'source_scope', 'normalizeReportFinancialScenarios', 'financialScenarioDataGaps', 'metric_truth', 'input_truth_context', 'ota_truth_context', 'recommendation_quality', 'AiDecisionQualityService']) assert.ok(source.includes(text), text);
+  assert.match(source, /throw new \\RuntimeException\('retired_read_only', 410\)/);
 });

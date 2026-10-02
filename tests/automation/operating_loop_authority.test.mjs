@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import vm from 'node:vm';
 import { readAppMainContractSource } from './helpers/frontend_source.mjs';
 import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 
@@ -14,10 +15,16 @@ const routes = readRouteContractSource(process.cwd());
 test('Compass is the only canonical landing surface while the old workbench remains an alias', () => {
   assert.match(appMain, /const currentPage = ref\(initialPageOverride \|\| 'compass'\)/);
   assert.match(appMain, /const landingPage = initialPageOverride \|\| 'compass'/);
-  assert.match(
-    appMain,
-    /const normalizeCanonicalPage = \(page\) => String\(page \|\| ''\)\.trim\(\) === 'ai-workbench'[\s\S]*?\? 'compass'/,
-  );
+  const start = appMain.indexOf('const normalizeCanonicalPage = (page) => {');
+  const end = appMain.indexOf('const ACTIVE_DISCOVERABLE_PAGE_PATHS', start);
+  assert.ok(start >= 0 && end > start);
+  const resolvePage = vm.runInNewContext(`${appMain.slice(start, end)}; normalizeCanonicalPage;`);
+  for (const retiredPage of ['ai-workbench', 'ai-strategy', 'ai-feasibility', 'market-evaluation', 'asset-pricing', 'investment-decision', 'lifecycle']) {
+    assert.equal(resolvePage(` ${retiredPage} `), 'compass');
+  }
+  for (const activePage of ['compass', 'online-data', 'ai-simulation', 'investment-payback', 'investment-scenarios', 'operation-execution']) {
+    assert.equal(resolvePage(activePage), activePage);
+  }
   assert.match(shell, /v-if="currentPage === 'compass'"/);
   assert.doesNotMatch(shell, /currentPage === 'ai-workbench'/);
   assert.equal((appMain.match(/sourcePath: 'compass'/g) || []).length, 1);
@@ -56,6 +63,8 @@ test('Professional drilldowns cannot label their component result as the authori
   assert.match(detail, /P1 收益分析诊断（不决定权威闭环）/);
   assert.doesNotMatch(detail, /P1 收益分析闭环/);
   assert.doesNotMatch(detail, /数据缺口闭环/);
-  assert.match(appMain, /investmentParams\.set\('business_date', operationYesterday\)/);
+  assert.doesNotMatch(appMain, /investmentParams\.set\(|loadInvestmentDecision|investmentDecisionResult/);
   assert.match(appMain, /closureParams\.set\('business_date', operationYesterday\)/);
+  assert.match(appMain, /const openOperationClosureModule = \(module\) =>/);
+  assert.match(appMain, /normalizeCanonicalPage\(module\?\.entry_page\)/);
 });
