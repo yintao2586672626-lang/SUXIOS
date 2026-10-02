@@ -25,14 +25,17 @@ final class ActualConsumablesScenarioReferenceService
         $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         if ($scope['period_month'] > substr($today, 0, 7)) throw new RuntimeException('实际耗材核算月尚未开始，不能采用未来实际证据', 409);
         $dates = [];
-        foreach ($saved['result']['items'] ?? [] as $row) {
-            if (($row['enabled'] ?? false) !== true) continue;
-            $date = (string)($row['source_date'] ?? '');
-            $parsed = \DateTimeImmutable::createFromFormat('!Y-m-d', $date);
-            if (!$parsed || $parsed->format('Y-m-d') !== $date) throw new RuntimeException('实际耗材来源日期无效，不能采用', 409);
+        foreach ($saved['result']['items'] ?? [] as $entry) {
+            if (!is_array($entry)) throw new RuntimeException('实际耗材证据计量项不完整，请重新核对',409);
+            if (($entry['enabled'] ?? false) !== true) continue;
+            $date = $entry['source_date'] ?? null;
+            $parsed = is_string($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date) ? \DateTimeImmutable::createFromFormat('!Y-m-d', $date) : false;
+            if ($parsed === false || $parsed->format('Y-m-d') !== $date) throw new RuntimeException('实际耗材证据来源日期与核算月不一致，请重新核对',409);
             if ($date > $today) throw new RuntimeException('实际耗材证据含未来来源日期，尚未发生的库存不能采用', 409);
+            if (substr($date,0,7) !== $scope['period_month']) throw new RuntimeException('实际耗材证据来源日期与核算月不一致，请重新核对',409);
             $dates[] = $date;
         }
+        if ($dates === []) throw new RuntimeException('实际耗材证据计量项不完整，请重新核对',409);
         $cost = $input['consumables_cost'] ?? [];
         $items = array_values(array_filter($cost['items'] ?? [],static fn($r):bool=>is_array($r) && ($r['enabled'] ?? false) === true));
         if (($cost['mode'] ?? '') !== 'derived' || count($items) !== 1) throw new InvalidArgumentException('实际耗材引用必须保持独立月度成本计量项');

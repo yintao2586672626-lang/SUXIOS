@@ -21,7 +21,7 @@
     const parseNumber = value => {
         const text = String(value ?? '').trim();
         if (text === '') return null;
-        if (!/^\d+(?:\.\d{1,4})?$/.test(text)) throw new Error('间夜和金额须为非负数，最多四位小数；未知请留空。');
+        if (!/^\d+(?:\.\d{1,4})?$/.test(text) || !Number.isFinite(Number(text))) throw new Error('间夜和金额须为有限非负数，最多四位小数；未知请留空。');
         return Number(text);
     };
     const metricFields = ['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'];
@@ -32,6 +32,8 @@
     };
     const normalizedMetric = value => value === null || value === undefined || value === '' ? null
         : ['number', 'string'].includes(typeof value) && Number.isFinite(Number(value)) && Number(value) >= 0 ? Math.round(Number(value) * 10000) / 10000 : NaN;
+    const storedMetric = value => value === null ? null : ['number', 'string'].includes(typeof value)
+        && String(value).trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : NaN;
     const expectedSnapshot = async row => {
         if (!window.crypto?.subtle) throw new Error('来源指纹核对不可用，请在本机安全页面重试。');
         // This source fingerprint contract is authored by BookingDemandPlanningService; content digests are read back from the server.
@@ -52,7 +54,7 @@
         && sha256(snapshot.content_digest) && sha256(snapshot.source_ref_hash) && sha256(snapshot.idempotency_key)
         && typeof snapshot.room_type_name === 'string' && expected.captured_at !== null
         && Object.entries(expected).every(([field, value]) => Object.hasOwn(snapshot, field)
-            && (metricFields.includes(field) ? normalizedMetric(snapshot[field]) === value
+            && (metricFields.includes(field) ? storedMetric(snapshot[field]) === value
                 : ['hotel_id', 'source_hotel_id', 'room_type_id'].includes(field) ? Number(snapshot[field]) === value
                     : field === 'supersedes_snapshot_id' ? (Number(snapshot[field] || 0) || null) === value
                         : field === 'captured_at' ? normalizedCapture(snapshot[field]) === value : snapshot[field] === value));
@@ -83,7 +85,10 @@
             } },
             hotels: { immediate: true, handler() {
                 const valid = this.selectedIds.filter(id => this.normalizedHotels.some(hotel => String(hotel.id) === String(id)));
-                if (valid.length === 0 && this.normalizedHotels.length) valid.push(String(this.normalizedHotels[0].id));
+                if (valid.length === 0 && this.normalizedHotels.length) {
+                    const preferred = this.normalizedHotels.find(hotel => String(hotel.id) === String(this.selectedHotelId)) || this.normalizedHotels[0];
+                    valid.push(String(preferred.id));
+                }
                 if (valid.join(',') !== this.selectedIds.join(',')) { this.selectedIds = valid; this.resetDrafts(); void this.load(); }
             } },
             scopeKey(value, previous) { if (value !== previous) { this.seq += 1; this.overview = null; this.resetDrafts(); void this.load(); } },
@@ -92,6 +97,11 @@
             resetDrafts() { this.writeSeq += 1; this.fileSeq += 1; this.correctionSeq += 1; this.form = blankForm(); this.form.hotelId = String(this.selectedIds[0] || '');
                 this.form.stayDate = this.businessDate ? dateAfter(this.businessDate, 1) : ''; this.importText = ''; this.importedFileName = '';
                 this.receipt = null; this.notice = ''; this.error = ''; this.expandedHistory = ''; },
+            changeFormScope(hotelId, roomTypeId = '0') {
+                this.correctionSeq += 1;
+                this.form = { ...blankForm(), hotelId: String(hotelId), roomTypeId: String(roomTypeId), stayDate: this.businessDate ? dateAfter(this.businessDate, 1) : '' };
+                this.notice = ''; this.error = '';
+            },
             statusText(value) { return statuses[value] || value || '未取得'; },
             gapText(value) {
                 if (gapLabels[value]) return gapLabels[value];
@@ -117,7 +127,11 @@
                         || JSON.stringify(data.hotel_ids) !== JSON.stringify(ids) || data.platform !== this.platform
                         || data.business_date !== this.businessDate || data.fixed_time !== this.fixedTime
                         || Number(data.horizon_days) !== Number(this.horizonDays) || data.timezone !== 'Asia/Shanghai'
-                        || data.boundaries?.external_write_count !== 0 || !Array.isArray(data.cells)) throw new Error('预订监测返回范围不匹配，请重试。');
+                        || data.boundaries?.external_write_count !== 0 || !Array.isArray(data.cells)
+                        || data.cells.some(cell => !ids.includes(cell?.hotel_id) || !Number.isInteger(cell.lead_time_days)
+                            || cell.lead_time_days < 1 || cell.lead_time_days > Number(this.horizonDays)
+                            || cell.stay_date !== dateAfter(this.businessDate, cell.lead_time_days))
+                        || !Array.isArray(data.room_types) || data.room_types.some(room => !ids.includes(room?.hotel_id))) throw new Error('预订监测返回范围不匹配，请重试。');
                     this.overview = data;
                 } catch (error) { if (seq === this.seq && key === this.scopeKey) { this.overview = null; this.error = error?.message || '预订监测读取失败'; } }
                 finally { if (seq === this.seq) this.loading = false; }
@@ -129,6 +143,7 @@
             async saveForm() {
                 try {
                     const f = this.form;
+                    if (f.correctionId && !f.correctionCapturedAt) throw new Error('请先按ID回读并载入更正快照，再保存更正。');
                     if (!f.capturedAt || !f.sourceRef.trim()) throw new Error('请填写实际捕获时间和来源引用；固定观察时点不能代填采集时间。');
                     const row = { hotel_id: Number(f.hotelId), room_type_id: Number(f.roomTypeId), platform: this.platform,
                         fact_scope: ['ctrip', 'meituan'].includes(this.platform) ? 'ota_channel' : 'accommodation_room_fee',
@@ -244,7 +259,8 @@
             const h = Vue.h;
             const input = (key, label, attrs = {}) => h('label', { class: 'grid gap-1 text-xs text-slate-600' }, [label,
                 h('input', { class: 'rounded-lg border p-2 text-sm', value: this.form[key], ...attrs,
-                    onInput: event => { this.form[key] = event.target.value; } })]);
+                    onInput: event => { this.form[key] = event.target.value;
+                        if (key === 'correctionId') { this.form.correctionCapturedAt = ''; this.form.attested = false; } } })]);
             const option = (value, label) => h('option', { value: String(value) }, label);
             const select = (label, value, change, options) => h('label', { class: 'grid gap-1 text-xs text-slate-600' }, [label,
                 h('select', { class: 'rounded-lg border p-2 text-sm', value, onChange: change, 'aria-label': label }, options)]);
@@ -289,8 +305,8 @@
                 this.canExecute ? h('details', { class: 'mt-5 border-t pt-4' }, [h('summary', { class: 'cursor-pointer font-semibold text-sm' }, '保存或导入真实快照'),
                     h('p', { class: 'mt-2 text-xs text-slate-500' }, '仅录入授权来源的实际观测；间夜和金额最多保留四位小数，未知留空。人工核对仍是人工来源。更正保留原快照，另存并回读。'),
                     h('form', { class: 'mt-3 grid gap-3 md:grid-cols-3', 'data-testid': 'booking-monitor-form', onSubmit: event => { event.preventDefault(); void this.saveForm(); } }, [
-                        select('快照酒店', this.form.hotelId, event => { this.form.hotelId = event.target.value; this.form.roomTypeId = '0'; this.form.correctionId = ''; }, this.normalizedHotels.filter(hotel => this.selectedIds.includes(String(hotel.id))).map(hotel => option(hotel.id, hotel.name))),
-                        select('房型（0保留汇总）', this.form.roomTypeId, event => { this.form.roomTypeId = event.target.value; }, [option(0, '酒店汇总'), ...this.selectedRoomTypes.map(room => option(room.id, `${room.name} · ID ${room.id}`))]),
+                        select('快照酒店', this.form.hotelId, event => this.changeFormScope(event.target.value), this.normalizedHotels.filter(hotel => this.selectedIds.includes(String(hotel.id))).map(hotel => option(hotel.id, hotel.name))),
+                        select('房型（0保留汇总）', this.form.roomTypeId, event => this.changeFormScope(this.form.hotelId, event.target.value), [option(0, '酒店汇总'), ...this.selectedRoomTypes.map(room => option(room.id, `${room.name} · ID ${room.id}`))]),
                         input('stayDate', '实际入住日', { type: 'date', required: true }), input('capturedAt', '实际捕获时间（上海）', { type: 'datetime-local', step: 1, required: true, disabled: Boolean(this.form.correctionId && this.form.correctionCapturedAt) }),
                         input('rooms', '在手间夜（必填，实际0可填写）', { inputmode: 'decimal', required: true }), input('revenue', '在手房费（未知留空）', { inputmode: 'decimal' }),
                         input('cancelled', '累计取消间夜（未知留空）', { inputmode: 'decimal' }), input('gross', '累计毛预订间夜（未知留空）', { inputmode: 'decimal' }),

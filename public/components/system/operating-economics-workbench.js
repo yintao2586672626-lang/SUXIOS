@@ -2,11 +2,12 @@
     'use strict';
     const registry = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
     const amount = value => value === null || value === undefined ? '未取得' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 6 });
+    const shanghaiToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
     const newItem = () => ({ id: crypto.randomUUID(), name: '', enabled: true, unit: 'piece', source_ref: '', source_date: '', valuation_method: 'confirmed_unit_cost', opening_quantity: '', purchased_quantity: '', transfer_in_quantity: '', closing_quantity: '', transfer_out_quantity: '', returned_quantity: '', written_off_quantity: '', unit_price: '', budget_unit_price: '', budget_usage_per_room_night: '' });
     registry.OperatingEconomicsWorkbench = {
         name: 'OperatingEconomicsWorkbench',
         props: { request: { type: Function, required: true }, hotelId: { type: [String, Number], required: true }, periodMonth: { type: String, required: true }, platform: { type: String, default: 'ctrip' }, canExecute: { type: Boolean, default: false } },
-        data() { return { kind: 'channel_economics', busy: false, error: '', notice: '', saved: null, overview: null, result: null, seq: 0, dirty: false, restoreRequested: null,
+        data() { return { kind: 'channel_economics', busy: false, error: '', notice: '', saved: null, overview: null, result: null, seq: 0, dirty: false, restoreRequested: null, saveIdentity: null,
             channel: { net_revenue: '', advertising_spend: '', attributed_order_amount: '', effective_order_amount: '', refund_amount: '', attribution_basis: '', advertising_included_in_net_revenue: false, advertising_in_direct_costs: false, cost_coverage_complete: false, operator_attested: false, source_refs: '', costs: [] },
             actual: { occupied_room_nights: '', occupied_room_nights_source_ref: '', denominator_scope: 'whole_hotel', operator_attested: false, items: [] } }; },
         computed: { scope() { return { hotel_id: Number(this.hotelId), period_month: this.periodMonth, platform: this.kind === 'consumables_actual' ? 'whole_hotel' : this.platform, kind: this.kind }; },
@@ -14,18 +15,65 @@
             query() { return new URLSearchParams(this.scope).toString(); },
             resultCurrent() { return this.result && !this.dirty; },
             marketingCoverageMessage() { const marketing = this.overview?.sources?.marketing; if (!marketing) return ''; if (marketing.reason === 'ctrip_marketing_period_requires_manual_evidence') return '携程广告账期：需提供同酒店同月人工资料，尚未取得完整账期。'; const complete = marketing.complete === true; const knownGaps = Array.isArray(marketing.missing_days) && (complete || marketing.missing_days.length > 0); return '广告完整账期：' + (complete ? '已取得' : '尚不完整') + '；' + (knownGaps ? '缺 ' + marketing.missing_days.length + ' 天。' : '缺失天数未取得。'); },
-            canAdopt() { return this.kind === 'consumables_actual' && !this.dirty && this.saved?.readback_verified === true && this.saved.source_quality === 'operator_attested' && this.result?.status === 'calculated' && !!this.result?.inputs?.occupied_room_nights_source_ref && this.result?.actual_consumables_cost_per_room_night != null; } },
-        watch: { scope: { deep: true, handler(next, previous) { this.seq++; this.saved = null; this.result = null; this.overview = null; this.error = ''; this.notice = ''; this.restoreRequested = null; this.dirty = false; if (previous && (next.hotel_id !== previous.hotel_id || next.period_month !== previous.period_month || (next.kind === 'channel_economics' && next.platform !== previous.platform))) { this.channel = { net_revenue: '', advertising_spend: '', attributed_order_amount: '', effective_order_amount: '', refund_amount: '', attribution_basis: '', advertising_included_in_net_revenue: false, advertising_in_direct_costs: false, cost_coverage_complete: false, operator_attested: false, source_refs: '', costs: [] }; this.actual = { occupied_room_nights: '', occupied_room_nights_source_ref: '', denominator_scope: 'whole_hotel', operator_attested: false, items: [] }; } this.load(); } } },
+            sourceDatesCurrent() { const items = this.result?.items; const today = shanghaiToday(); return this.periodMonth <= today.slice(0, 7) && Array.isArray(items) && items.some(row => row?.enabled === true) && items.every(row => { if (!row || typeof row !== 'object') return false; if (row.enabled !== true) return true; const value = row.source_date; if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value.slice(0, 7) !== this.periodMonth || value > today) return false; const date = new Date(value + 'T00:00:00Z'); return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value; }); },
+            canAdopt() { return this.kind === 'consumables_actual' && !this.dirty && this.saved?.readback_verified === true && Number.isSafeInteger(Number(this.saved.snapshot_id)) && Number(this.saved.snapshot_id) > 0 && /^[a-f0-9]{64}$/i.test(this.saved.content_digest || '') && this.saved.source_quality === 'operator_attested' && this.result?.status === 'calculated' && this.sourceDatesCurrent && !!this.result?.inputs?.occupied_room_nights_source_ref && this.result?.actual_consumables_cost_per_room_night != null; } },
+        watch: { scope: { deep: true, handler(next, previous) { this.seq++; this.saved = null; this.result = null; this.overview = null; this.error = ''; this.notice = ''; this.restoreRequested = null; this.saveIdentity = null; this.dirty = false; if (previous && (next.hotel_id !== previous.hotel_id || next.period_month !== previous.period_month || (next.kind === 'channel_economics' && next.platform !== previous.platform))) { this.channel = { net_revenue: '', advertising_spend: '', attributed_order_amount: '', effective_order_amount: '', refund_amount: '', attribution_basis: '', advertising_included_in_net_revenue: false, advertising_in_direct_costs: false, cost_coverage_complete: false, operator_attested: false, source_refs: '', costs: [] }; this.actual = { occupied_room_nights: '', occupied_room_nights_source_ref: '', denominator_scope: 'whole_hotel', operator_attested: false, items: [] }; } this.load(); } } },
         mounted() { this.load(); },
         methods: {
             amount, newItem,
-            edit() { this.seq++; this.busy = false; this.dirty = true; this.notice = ''; },
+            edit() { this.seq++; this.busy = false; this.dirty = true; this.notice = ''; this.saveIdentity = null; },
             async call(path, options = {}) { const response = await this.request(path, options); if (![0, 200].includes(response?.code)) throw new Error(response?.message || response?.msg || '请求失败'); return response.data; },
             assertScope(data, scope) { if (!data || Object.keys(scope).some(key => String(data.scope?.[key]) !== String(scope[key]))) throw new Error('响应范围不一致，请重新读取'); },
+            assertSaved(data, scope, expected = null) {
+                this.assertScope(data, scope);
+                if (data.readback_verified !== true || !Number.isSafeInteger(data.snapshot_id) || data.snapshot_id <= 0
+                    || typeof data.content_digest !== 'string' || data.content_digest.length !== 64 || !/^[a-f0-9]{64}$/i.test(data.content_digest)
+                    || !data.inputs || typeof data.inputs !== 'object' || Array.isArray(data.inputs)
+                    || !data.result || typeof data.result !== 'object' || Array.isArray(data.result)) throw new Error('保存版本或回读凭据不完整，请重新读取');
+                if (expected) {
+                    this.assertScope(data, expected.scope);
+                    if (data.snapshot_id !== expected.snapshot_id || data.content_digest !== expected.content_digest
+                        || ['inputs', 'result', 'source_quality', 'status'].some(field => JSON.stringify(data[field]) !== JSON.stringify(expected[field]))) throw new Error('独立回读版本或内容与保存结果不一致，请重试');
+                }
+            },
             async load() { const sequence = ++this.seq; this.overview = null; this.error = ''; if (!this.hotelId || !this.periodMonth) { this.busy = false; return; } const scope = { ...this.scope }; this.busy = true; try { const data = await this.call('/operating-finance/evidence/overview?' + this.query); if (sequence !== this.seq) return; this.assertScope(data, scope); this.overview = data; } catch (e) { if (sequence === this.seq) this.error = e.message; } finally { if (sequence === this.seq) this.busy = false; } },
-            async restore(id, confirmed = false) { if (this.dirty && !confirmed) { this.restoreRequested = id; return; } this.restoreRequested = null; const sequence = ++this.seq; const scope = { ...this.scope }; this.busy = true; this.error = ''; try { const data = await this.call('/operating-finance/evidence/snapshots/' + id + '?' + this.query); if (sequence !== this.seq) return; this.assertScope(data, scope); if (data.readback_verified !== true) throw new Error('回读验证未通过，请重新读取'); if (Number(data.snapshot_id) !== Number(id)) throw new Error('回读版本不一致，请重新读取'); const input = JSON.parse(JSON.stringify(data.inputs)); if (this.kind === 'channel_economics') { input.source_refs = input.source_refs.join('\n'); this.channel = input; } else this.actual = input; this.saved = data; this.result = data.result; this.dirty = false; this.notice = '已按记录ID精确回读'; } catch (e) { if (sequence === this.seq) this.error = e.message; } finally { if (sequence === this.seq) this.busy = false; } },
-            async calculate(save) { if (save && !this.canExecute) return; const sequence = ++this.seq; const scope = { ...this.scope }; const query = this.query; this.busy = true; this.error = ''; try { const data = await this.call('/operating-finance/evidence/' + (save ? 'snapshots' : 'preview'), { method: 'POST', body: JSON.stringify({ ...scope, inputs: this.input, idempotency_key: crypto.randomUUID() }) }); if (sequence !== this.seq) return; this.assertScope(data, scope); if (save && data.readback_verified !== true) throw new Error('保存回读验证未通过，请重新读取'); this.result = data.result; this.saved = save ? data : null; this.dirty = false; this.notice = save ? '新版本已保存并精确回读' : '预览未保存'; if (save) { this.overview = null; const overview = await this.call('/operating-finance/evidence/overview?' + query); if (sequence === this.seq) { this.assertScope(overview, scope); this.overview = overview; } } } catch (e) { if (sequence === this.seq) this.error = e.message; } finally { if (sequence === this.seq) this.busy = false; } },
-            exportSnapshot() { if (!this.resultCurrent) return; const blob = new Blob([JSON.stringify({ scope: this.scope, snapshot_id: this.saved?.snapshot_id || null, source_quality: this.saved?.source_quality || 'unverified', result: this.result }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = this.kind + '-' + this.periodMonth + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); },
+            async restore(id, confirmed = false) { if (this.dirty && !confirmed) { this.restoreRequested = id; return; } this.restoreRequested = null; const sequence = ++this.seq; const scope = { ...this.scope }; this.busy = true; this.error = ''; this.notice = ''; this.saved = null; this.result = null; try { const data = await this.call('/operating-finance/evidence/snapshots/' + id + '?' + this.query); if (sequence !== this.seq) return; this.assertScope(data, scope); if (data.readback_verified !== true) throw new Error('回读验证未通过，请重新读取'); if (Number(data.snapshot_id) !== Number(id)) throw new Error('回读版本不一致，请重新读取'); const input = JSON.parse(JSON.stringify(data.inputs)); if (this.kind === 'channel_economics') { input.source_refs = input.source_refs.join('\n'); this.channel = input; } else this.actual = input; this.saved = data; this.result = data.result; this.dirty = false; this.notice = '已按记录ID精确回读'; } catch (e) { if (sequence === this.seq) this.error = e.message; } finally { if (sequence === this.seq) this.busy = false; } },
+            async calculate(save) {
+                if (save && !this.canExecute) return;
+                const sequence = ++this.seq; const scope = { ...this.scope }; const query = this.query;
+                this.busy = true; this.error = ''; this.notice = ''; this.saved = null; this.result = null;
+                let saveResponded = false; let readbackCompleted = false;
+                try {
+                    const inputs = this.input;
+                    const signature = JSON.stringify({ scope, inputs });
+                    if (save && this.saveIdentity?.signature !== signature) this.saveIdentity = { signature, key: crypto.randomUUID() };
+                    const data = await this.call('/operating-finance/evidence/' + (save ? 'snapshots' : 'preview'),
+                        { method: 'POST', body: JSON.stringify({ ...scope, inputs, idempotency_key: save ? this.saveIdentity.key : crypto.randomUUID() }) });
+                    if (sequence !== this.seq) return;
+                    this.assertScope(data, scope);
+                    let current = data;
+                    if (save) {
+                        saveResponded = true;
+                        this.assertSaved(data, scope);
+                        current = await this.call('/operating-finance/evidence/snapshots/' + data.snapshot_id + '?' + query);
+                        if (sequence !== this.seq) return;
+                        this.assertSaved(current, scope, data);
+                        readbackCompleted = true;
+                        this.saveIdentity = null;
+                    }
+                    this.result = current.result; this.saved = save ? current : null; this.dirty = false;
+                    this.notice = save ? '新版本已保存并独立精确回读' : '预览未保存';
+                    if (save) {
+                        this.overview = null;
+                        const overview = await this.call('/operating-finance/evidence/overview?' + query);
+                        if (sequence === this.seq) { this.assertScope(overview, scope); this.overview = overview; }
+                    }
+                } catch (e) {
+                    if (sequence === this.seq) this.error = e.message + (saveResponded && !readbackCompleted
+                        ? ' 保存已响应，但独立回读未通过；当前输入保留，重试会核对同一保存请求。' : '');
+                } finally { if (sequence === this.seq) this.busy = false; }
+            },
+            exportSnapshot() { if (!this.resultCurrent) return; const blob = new Blob([JSON.stringify({ scope: this.scope, snapshot_id: this.saved?.snapshot_id || null, source_quality: this.saved?.source_quality || this.result.source_quality || 'unverified', result: this.result }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = this.kind + '-' + this.periodMonth + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); },
             adopt() { if (!this.canAdopt) return; const dates = (this.result.items || []).filter(row => row.enabled).map(row => row.source_date).filter(Boolean).sort(); const reference = { hotel_id: Number(this.hotelId), snapshot_id: this.saved.snapshot_id, content_digest: this.saved.content_digest, business_month: this.periodMonth, as_of: dates.at(-1) || '', source_label: '人工核对耗材月度证据 #' + this.saved.snapshot_id, actual_consumables_cost_per_room_night: this.result.actual_consumables_cost_per_room_night }; window.SUXI_PENDING_ACTUAL_CONSUMABLES_REFERENCE = Object.freeze({ ...reference }); window.dispatchEvent(new CustomEvent('suxi:actual-consumables-reference', { detail: reference })); this.notice = '本页会话已保留采用参考；打开同酒店投资项目后继续确认。'; },
         },
         template: `
@@ -54,7 +102,7 @@
                         <div class="mt-2 grid grid-cols-2 gap-2"><label v-for="field in [['opening_quantity','期初数量'],['purchased_quantity','采购入库数量'],['transfer_in_quantity','调入'],['closing_quantity','期末数量'],['transfer_out_quantity','调出'],['returned_quantity','退货'],['written_off_quantity','单列报损'],['unit_price','已确认单位成本'],['budget_unit_price','预算单位成本'],['budget_usage_per_room_night','预算每间夜用量']]" :key="field[0]" class="text-xs">{{ field[1] }}<input v-model="row[field[0]]" inputmode="decimal" class="mt-1 w-full rounded border p-2"></label><input v-model="row.source_ref" placeholder="盘点/领用/计价来源" class="rounded border p-2"><input v-model="row.source_date" type="date" class="rounded border p-2"></div></fieldset>
                         <button v-if="canExecute" type="button" @click="actual.items.push(newItem());edit()" class="mt-3 rounded border p-2">添加耗材</button><label class="mt-3 block text-xs"><input v-model="actual.operator_attested" :disabled="!canExecute" type="checkbox">我已核对同酒店同月库存平衡、计价、损耗及全酒店间夜</label>
                     </div>
-                    <div class="mt-4 flex flex-wrap gap-2"><button type="submit" :disabled="busy" class="rounded border px-4 py-3">计算预览</button><button v-if="canExecute" type="button" @click="calculate(true)" :disabled="busy" class="rounded bg-emerald-700 px-4 py-3 text-white">保存新版本并回读</button><button type="button" @click="exportSnapshot" :disabled="!resultCurrent" class="rounded border px-4 py-3">导出当前结果</button><button v-if="kind==='consumables_actual'" type="button" @click="adopt" :disabled="!canAdopt" class="rounded border px-4 py-3">采用为投资测算参考</button></div>
+                    <div class="mt-4 flex flex-wrap gap-2"><button type="submit" :disabled="busy" class="rounded border px-4 py-3">计算预览</button><button v-if="canExecute" type="button" @click="calculate(true)" :disabled="busy" class="operating-finance-primary-action rounded px-4 py-3 text-white">保存新版本并回读</button><button type="button" @click="exportSnapshot" :disabled="!resultCurrent" class="rounded border px-4 py-3">导出当前结果</button><button v-if="kind==='consumables_actual'" type="button" @click="adopt" :disabled="!canAdopt" class="rounded border px-4 py-3">采用为投资测算参考</button></div>
                 </form>
                 <p v-if="resultCurrent" class="mt-3 text-xs">来源质量：{{ result.source_quality === 'operator_attested' ? '人工已核对，非独立审计' : '尚未核验' }} · {{ saved?.readback_verified ? '已保存并按版本回读' : '预览，尚未保存' }}</p>
                 <p v-if="resultCurrent && kind==='channel_economics'" class="mt-2 text-xs">同口径广告 ROAS {{ amount(result.attributed_roas) }} · 订单与净收入差 {{ amount(result.order_to_settlement_difference) }} 元。差额需核对账期、退款、佣金和调整，归因收入不代表增量收益。</p>

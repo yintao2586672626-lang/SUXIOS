@@ -122,7 +122,9 @@ final class ActualConsumablesScenarioReferenceTest extends TestCase
         return ['cross hotel' => ['hotel', 404], 'cross tenant' => ['tenant', 404], 'wrong digest' => ['digest', 409],
             'changed adopted price' => ['price', 409], 'operator not attested' => ['unattested', 409],
             'incomplete inventory' => ['partial', 409], 'adoption not confirmed' => ['unconfirmed', 422],
-            'changed conversion' => ['conversion', 422], 'manual mode' => ['mode', 422]];
+            'changed conversion' => ['conversion', 422], 'manual mode' => ['mode', 422],
+            'legacy source outside snapshot month' => ['source_month', 409],
+            'legacy source contains internal NUL' => ['source_nul', 409]];
     }
 
     #[DataProvider('invalidReferences')]
@@ -133,7 +135,16 @@ final class ActualConsumablesScenarioReferenceTest extends TestCase
         elseif ($variant === 'tenant') $snapshot = $this->evidence([], 20, 90);
         elseif ($variant === 'unattested') $snapshot = $this->evidence(['operator_attested' => false]);
         elseif ($variant === 'partial') $snapshot = $this->evidence(['occupied_room_nights' => null]);
+        elseif ($variant === 'source_month') {
+            $actual = $this->actualInput(); $actual['items'][0]['source_date'] = '2026-08-20';
+            $snapshot = $this->evidence(['items' => $actual['items']]);
+        }
         else $snapshot = $this->evidence();
+        if ($variant === 'source_nul') {
+            $result = $snapshot['result']; $result['items'][0]['source_date'] = '2026-09-' . chr(0) . '3';
+            $snapshot = (new OperatingEvidenceSnapshotStore())->save($snapshot['scope'],
+                ['source_quality' => 'operator_attested', 'inputs' => $snapshot['inputs'], 'result' => $result], 'synthetic-legacy-source-nul', 7);
+        }
         $input = $this->scenario($snapshot);
         if ($variant === 'digest') $input['cost_evidence_digest'] = str_repeat('0', 64);
         if ($variant === 'price') $input['consumables_cost']['items'][0]['package_price'] += 1;

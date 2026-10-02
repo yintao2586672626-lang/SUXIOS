@@ -18,6 +18,7 @@ final class OperatingEvidenceSnapshotStore
             || !Db::name('hotels')->where('id', $hotel)->where('tenant_id', $tenant)->find()) {
             throw new RuntimeException('operating_evidence_hotel_forbidden', 403);
         }
+        if (!preg_match('/^\d{4}-\d{2}$/D', $month)) throw new InvalidArgumentException('period_month_invalid');
         $date = DateTimeImmutable::createFromFormat('!Y-m', $month, new DateTimeZone('Asia/Shanghai'));
         if (!$date || $date->format('Y-m') !== $month) throw new InvalidArgumentException('period_month_invalid');
         if (!in_array($kind, ['channel_economics', 'consumables_actual'], true)

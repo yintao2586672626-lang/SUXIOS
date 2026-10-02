@@ -2043,12 +2043,12 @@
     "external_material": "reference_only_with_publication_limits",
     "raw_material_and_runtime": "retained_locally_excluded_from_commit",
     "changed_file_accounting": {
-      "base_to_candidate_git_paths": 1062,
-      "hashed_payload_files": 1061,
+      "base_to_candidate_git_paths": 1066,
+      "hashed_payload_files": 1065,
       "manifest_path": "docs/integration/suxios-integration-20260930.json",
       "manifest_included_in_git_paths": true,
       "manifest_excluded_from_payload_hashes": true,
-      "reconciliation": "1062 = 1061 payloads + 1 self-excluded manifest",
+      "reconciliation": "1066 = 1065 payloads + 1 self-excluded manifest",
       "coverage": "all original mappings retained; every current base-to-HEAD/owned dirty payload reconciled; exact committed coverage verified after commit"
     }
   },
@@ -2140,8 +2140,14 @@
     {
       "path": "app/controller/BookingMonitoring.php",
       "state": "added",
-      "bytes": 6458,
-      "sha256": "3c79d1f7dda93d68079b463986b939b6a114658b41fb213a8583561c7d3dcd0b"
+      "bytes": 6786,
+      "sha256": "aa6870506ba6ae3c02e5001fce6754832fb63eada029aacd4242fc6cebcb7dbc",
+      "previous_payloads": [
+        {
+          "sha256": "3c79d1f7dda93d68079b463986b939b6a114658b41fb213a8583561c7d3dcd0b",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "path": "app/controller/BusinessWorkspace.php",
@@ -2326,12 +2332,16 @@
     {
       "state": "modified",
       "path": "app/controller/OperatingFinance.php",
-      "bytes": 35225,
-      "sha256": "6c9bea6a4d6b4fca60c9740b45c859daa90de0e5a4e810751f8775eaad4b88e0",
+      "bytes": 35482,
+      "sha256": "4ddead91e6c4d052206f6005a9065ec1a9ee594a9c14295ac3a1830b9bbe1300",
       "previous_payloads": [
         {
           "sha256": "c3d32f47c6a06eaf9d0f1e7de56027487d9904d0422f06ba75cd6916d81ebf7b",
           "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        },
+        {
+          "sha256": "6c9bea6a4d6b4fca60c9740b45c859daa90de0e5a4e810751f8775eaad4b88e0",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
         }
       ]
     },
@@ -2368,12 +2378,16 @@
     {
       "path": "app/service/ActualConsumablesScenarioReferenceService.php",
       "state": "added",
-      "bytes": 4475,
-      "sha256": "92f9f3bf67758e5e25a2715115ceb7797e9587708136fc06808e68b611ab4f47",
+      "bytes": 4988,
+      "sha256": "ace60a06545f5c87ba9ba96099c26ddb78ddd46a24aa5ea906daff390201cbfe",
       "previous_payloads": [
         {
           "sha256": "70934e48e66774a9fa848a4c379862c86682c2a3e2ccf9e46288f5add39a83d5",
           "prepared_before_head": "b4116a62480342ad26e97dc16f51e374b16e458a"
+        },
+        {
+          "sha256": "92f9f3bf67758e5e25a2715115ceb7797e9587708136fc06808e68b611ab4f47",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
         }
       ]
     },
@@ -2410,8 +2424,14 @@
     {
       "path": "app/service/AiDailyReportPresentationReviewService.php",
       "state": "added",
-      "bytes": 15882,
-      "sha256": "07665e62de2c4838a160980f89f98d0ccae63ff0c16ed98de17d39204c89e7b5"
+      "bytes": 16707,
+      "sha256": "91ddf359b8e264fcba1dfde7eaac0a9e624de1caa264ff2e8aea562c18f92f51",
+      "previous_payloads": [
+        {
+          "sha256": "07665e62de2c4838a160980f89f98d0ccae63ff0c16ed98de17d39204c89e7b5",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -2464,8 +2484,14 @@
     {
       "path": "app/service/BookingMonitoringService.php",
       "state": "added",
-      "bytes": 22043,
-      "sha256": "0b5ab41ff77f36dfdcf22b1d9fd67fa99ef5635d0d038fe56bfe57bcfba5c3ee"
+      "bytes": 22501,
+      "sha256": "fea4f9696b44e1d61e2f6e8edec0936c12b420bbc7da0dd03f2a8e7e02850774",
+      "previous_payloads": [
+        {
+          "sha256": "0b5ab41ff77f36dfdcf22b1d9fd67fa99ef5635d0d038fe56bfe57bcfba5c3ee",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "path": "app/service/BusinessFeatureCatalog.php",
@@ -2494,8 +2520,14 @@
     {
       "path": "app/service/ChannelEconomicsService.php",
       "state": "added",
-      "bytes": 10227,
-      "sha256": "a38403f12b8b6cf99f7b566ff09398227f5962aeaaaf1d95e507193be53992bc"
+      "bytes": 10460,
+      "sha256": "441940aa8b9d1d0b84b50eeaf56b439268c626b1ad9dd7ee3eb1b837175808e6",
+      "previous_payloads": [
+        {
+          "sha256": "a38403f12b8b6cf99f7b566ff09398227f5962aeaaaf1d95e507193be53992bc",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "state": "added",
@@ -2566,12 +2598,16 @@
     {
       "path": "app/service/ConsumablesActualCostService.php",
       "state": "added",
-      "bytes": 8287,
-      "sha256": "50f0913e090884d07f7b1b5822260f2e0e3cbd8fdc65e0d6869b0d6e86f5b43b",
+      "bytes": 8532,
+      "sha256": "9d5fa91b5b3f0717dec40e0aa91ce57b81a03a9c827d0bd5f544e654840100d0",
       "previous_payloads": [
         {
           "sha256": "ddd26918f8b1e42c1636bf61b6f721d6a72424600b413f52d6cfb1b76cf44561",
           "prepared_before_head": "b4116a62480342ad26e97dc16f51e374b16e458a"
+        },
+        {
+          "sha256": "50f0913e090884d07f7b1b5822260f2e0e3cbd8fdc65e0d6869b0d6e86f5b43b",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
         }
       ]
     },
@@ -2728,14 +2764,26 @@
     {
       "path": "app/service/InvestmentScenarioCalculator.php",
       "state": "added",
-      "bytes": 28582,
-      "sha256": "6e62161cab781811c1c32955edfed645f7f5743cdce5eaf82934aeea6dbb22bf"
+      "bytes": 28917,
+      "sha256": "abbe6999452a9079abb15a5583d363adb7a6fd8e1b21e3b4fae3cad3eab2da12",
+      "previous_payloads": [
+        {
+          "sha256": "6e62161cab781811c1c32955edfed645f7f5743cdce5eaf82934aeea6dbb22bf",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "path": "app/service/InvestmentScenarioCashPlanner.php",
       "state": "added",
-      "bytes": 17280,
-      "sha256": "02d489640b94f4da142380e57f945076b89c21404e028ae3cb1e7cca50ec5f29"
+      "bytes": 17476,
+      "sha256": "d8891ca50923c0e12d5772cfefa81805c02a3726ce8864c9cc13dfa138d3952a",
+      "previous_payloads": [
+        {
+          "sha256": "02d489640b94f4da142380e57f945076b89c21404e028ae3cb1e7cca50ec5f29",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "path": "app/service/InvestmentScenarioService.php",
@@ -2896,8 +2944,14 @@
     {
       "path": "app/service/OperatingEvidenceSnapshotStore.php",
       "state": "added",
-      "bytes": 5205,
-      "sha256": "b16bb06e922bbab7b8221042c812fa13c522b80b8a3f50cd0fd110dc890ce4b1"
+      "bytes": 5318,
+      "sha256": "3f9522e8a352438999c100dc1a1450f66e617f061bb156210e7d308e4c5633f4",
+      "previous_payloads": [
+        {
+          "sha256": "b16bb06e922bbab7b8221042c812fa13c522b80b8a3f50cd0fd110dc890ce4b1",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -3470,8 +3524,14 @@
     {
       "path": "docs/integration/functional-hardening-20261003.md",
       "state": "added",
-      "bytes": 9409,
-      "sha256": "92d950a66aa6c9e9bc82a91b7e35814e681e4e9dccee985b71459261eff9df62"
+      "bytes": 10524,
+      "sha256": "9b1380c84b2dd27fa15439b1442bd6a5c385da045bdf5c0466827b0bebccffb4",
+      "previous_payloads": [
+        {
+          "sha256": "92d950a66aa6c9e9bc82a91b7e35814e681e4e9dccee985b71459261eff9df62",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "path": "docs/integration/receipts/changqing-deep-hardening-source-evidence-20261002.json",
@@ -3648,8 +3708,14 @@
     {
       "path": "docs/integration/receipts/functional-hardening-20261003.json",
       "state": "added",
-      "bytes": 11461,
-      "sha256": "12fe4468f3a40f68ec14749ba70841d8940bfedd8144ef81bb19f3cc3cd6c308"
+      "bytes": 25871,
+      "sha256": "9c32e987bbb21c225a7c008f1f8c38b4b7609be207ce718f8cb7154d673717d6",
+      "previous_payloads": [
+        {
+          "sha256": "12fe4468f3a40f68ec14749ba70841d8940bfedd8144ef81bb19f3cc3cd6c308",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "path": "docs/integration/suxios-integration-20260930.md",
@@ -4000,6 +4066,12 @@
       "sha256": "5d121bd7cc520643a8cbe8c858ad7bc6572f6040fcdfd4e04c2d5ce9d317838c"
     },
     {
+      "path": "docs/qa/five-function-hardening-20261003.md",
+      "state": "added",
+      "bytes": 5066,
+      "sha256": "20979c5ee2c5868967cb89f1db55b7e7349a7ceabff2e1a497b053ca3c63a72b"
+    },
+    {
       "state": "added",
       "path": "docs/report-formats/occupancy-analysis-template.md",
       "bytes": 6120,
@@ -4137,7 +4209,7 @@
       "path": "public/app-startup-helpers.min.js",
       "state": "modified",
       "bytes": 270805,
-      "sha256": "b47e07c4ad41ea0eee3bfb8477d349ca642e9576b6c53bdf025f9b36205ce8e2",
+      "sha256": "f0c4ba05eaf40196c81b44ab3a8fc8e94fb99de993e08c0479b922b2d719154b",
       "previous_payloads": [
         {
           "sha256": "3d85ac4fedccb04d47d7b526aa6433c22fa21f77e598edbba275a7981654e1cd",
@@ -4158,6 +4230,10 @@
         {
           "sha256": "ad428db08edc4f234342b4e846794e0e0b3b206a5ac9c88ca5f514fa27a704d9",
           "prepared_before_head": "b4116a62480342ad26e97dc16f51e374b16e458a"
+        },
+        {
+          "sha256": "b47e07c4ad41ea0eee3bfb8477d349ca642e9576b6c53bdf025f9b36205ce8e2",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
         }
       ]
     },
@@ -4219,7 +4295,7 @@
       "state": "modified",
       "path": "public/components/system/app-main-components-loader.js",
       "bytes": 12140,
-      "sha256": "e1b92d1ba09227c15473a04fcb740b61f5aace92cab2e788101e5d49ce1f6af0",
+      "sha256": "ed05e4f120016e51e169771e46473b4d39bc88dd27a034cb6cffda58ad668be6",
       "previous_payloads": [
         {
           "sha256": "25a13fe784ae9016ba3a8bc575ae3f2612de09ceba55ab4002d36791704d2608",
@@ -4240,6 +4316,10 @@
         {
           "sha256": "b4d48a8eb238aaa27a22bc1ab9ae11aae0c84b7b8b848ea985965566593e7571",
           "prepared_before_head": "b4116a62480342ad26e97dc16f51e374b16e458a"
+        },
+        {
+          "sha256": "e1b92d1ba09227c15473a04fcb740b61f5aace92cab2e788101e5d49ce1f6af0",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
         }
       ]
     },
@@ -4247,7 +4327,7 @@
       "state": "modified",
       "path": "public/components/system/app-main-components.js",
       "bytes": 221858,
-      "sha256": "95878c1bf6bb82f819ca0b309aa1bae448a6db50bb7b21ea7f11bc140fb795c7",
+      "sha256": "ac24a418e1493a2db59bcc7eec2cda72a74984f34e96b6bf40e5a0e33133c9e2",
       "previous_payloads": [
         {
           "sha256": "a488dcdfa0faa884ee548b84776ceadb54db9a73a758ac958ce6faefc0c5c00e",
@@ -4260,18 +4340,26 @@
         {
           "sha256": "786d5902d62ab6180c2e9ed28009423103f7de5119aeb5fd991d9df1e39c76af",
           "prepared_before_head": "b4116a62480342ad26e97dc16f51e374b16e458a"
+        },
+        {
+          "sha256": "95878c1bf6bb82f819ca0b309aa1bae448a6db50bb7b21ea7f11bc140fb795c7",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
         }
       ]
     },
     {
       "path": "public/components/system/booking-monitoring-panel.js",
       "state": "added",
-      "bytes": 33468,
-      "sha256": "2031838e484241727a3e845edbaab4ca4642274704fcecdbfaffcd24072d9d1f",
+      "bytes": 34913,
+      "sha256": "63a380bb7c6e24e75cd6b8a6f7fea7c6485aac232e043f5b5fa8a3c5963c37b7",
       "previous_payloads": [
         {
           "sha256": "c1723e52752f1e3d02ccd961909659c653c5830db91290d78c610c711ffbe31e",
           "prepared_before_head": "b4116a62480342ad26e97dc16f51e374b16e458a"
+        },
+        {
+          "sha256": "2031838e484241727a3e845edbaab4ca4642274704fcecdbfaffcd24072d9d1f",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
         }
       ]
     },
@@ -4422,14 +4510,26 @@
     {
       "path": "public/components/system/operating-economics-workbench.js",
       "state": "added",
-      "bytes": 18562,
-      "sha256": "af1b580105b605bc115c62cc4311daf705b09ee3cace18614e12e55ee01fd192"
+      "bytes": 22183,
+      "sha256": "29e7f115963f5ed298d1adda83a1f4b9d5650000a4b1c09daedf74d4dc6a973b",
+      "previous_payloads": [
+        {
+          "sha256": "af1b580105b605bc115c62cc4311daf705b09ee3cace18614e12e55ee01fd192",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "path": "public/components/system/operating-economics-workbench.min.js",
       "state": "added",
-      "bytes": 18814,
-      "sha256": "bbff37786c38cd78b8c893a4362cdb847152e2e2bab8412f5ca831ec444b3446"
+      "bytes": 20822,
+      "sha256": "9f3cdd4dd58e6fce41d7c5357d007dcf62a98a3472cf1f8882aabf6635990dbe",
+      "previous_payloads": [
+        {
+          "sha256": "bbff37786c38cd78b8c893a4362cdb847152e2e2bab8412f5ca831ec444b3446",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "state": "added",
@@ -4522,7 +4622,7 @@
     {
       "path": "public/index.html",
       "bytes": 8588,
-      "sha256": "53a14eadc5b88b5e287044461e026d3c5fcc0cb9800990b5ac70c6a195900fa8",
+      "sha256": "48b362b229de658e0db47837b71fb8120df7bfb64ccb3ba486b7990c92a319ac",
       "state": "modified",
       "previous_payloads": [
         {
@@ -4544,6 +4644,10 @@
         {
           "sha256": "02c8fc7e0d2b7016d52b9ccb3056ae3b5ceaf8f8009d4d4e8fcef2a2b4d30e93",
           "prepared_before_head": "b4116a62480342ad26e97dc16f51e374b16e458a"
+        },
+        {
+          "sha256": "53a14eadc5b88b5e287044461e026d3c5fcc0cb9800990b5ac70c6a195900fa8",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
         }
       ]
     },
@@ -5356,12 +5460,16 @@
     {
       "path": "tests/ActualConsumablesScenarioReferenceTest.php",
       "state": "added",
-      "bytes": 16484,
-      "sha256": "9c0fc34385e0bc37cac0cc895f46864288b9e758e2f263e0b5f88bb70be955a5",
+      "bytes": 17254,
+      "sha256": "55e036e74a250c758fa5881576f4b8e8dcfdd3982cd9f52976b80a019bce4f33",
       "previous_payloads": [
         {
           "sha256": "56d3ffd15f194bdff4482e2f19021443c878bfd22d5b04cbc1d278d7bc604f26",
           "prepared_before_head": "b4116a62480342ad26e97dc16f51e374b16e458a"
+        },
+        {
+          "sha256": "9c0fc34385e0bc37cac0cc895f46864288b9e758e2f263e0b5f88bb70be955a5",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
         }
       ]
     },
@@ -5434,8 +5542,14 @@
     {
       "path": "tests/AiDailyReportPresentationReviewServiceTest.php",
       "state": "added",
-      "bytes": 20580,
-      "sha256": "dc9adbff36026696207256d456ae7eb59f52a13877d4d48345a7b37e76caf50d"
+      "bytes": 23126,
+      "sha256": "d3f4fa063bc2aa47ef7514b25e95ef9a7c5a2c820b69a39d16e5b3325fc375bc",
+      "previous_payloads": [
+        {
+          "sha256": "dc9adbff36026696207256d456ae7eb59f52a13877d4d48345a7b37e76caf50d",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "path": "tests/AiDailyReportReadFailureTest.php",
@@ -5632,12 +5746,16 @@
     {
       "path": "tests/automation/booking_monitoring_panel.test.mjs",
       "state": "added",
-      "bytes": 17512,
-      "sha256": "5e708df4cfecf1317d4efcd1b49be44d13fd62a05830b285089350aa7ea6ba12",
+      "bytes": 24959,
+      "sha256": "2f4541834561974d5009586b26b8277661c80984475e0c4e6c5151a52b8c4a0f",
       "previous_payloads": [
         {
           "sha256": "f39e29eca375fe27edc7980943fcb620afa146c3ce4e234f51899490f3726743",
           "prepared_before_head": "b4116a62480342ad26e97dc16f51e374b16e458a"
+        },
+        {
+          "sha256": "5e708df4cfecf1317d4efcd1b49be44d13fd62a05830b285089350aa7ea6ba12",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
         }
       ]
     },
@@ -6112,6 +6230,12 @@
       "path": "tests/automation/five_feature_review_browser.mjs",
       "bytes": 15840,
       "sha256": "ad671227a27646d4f8fd210aea956801c4e66ff98a2d9d745545e2b35256aeb4"
+    },
+    {
+      "path": "tests/automation/five_hardening_browser.mjs",
+      "state": "added",
+      "bytes": 26521,
+      "sha256": "b6ea208087b1fbaac624000adac203155a5cf35b60b2bcc1cf57181e9acf816c"
     },
     {
       "state": "modified",
@@ -6960,8 +7084,14 @@
     {
       "path": "tests/automation/operating_economics_workbench.test.mjs",
       "state": "added",
-      "bytes": 7491,
-      "sha256": "11e211457edccda174a703557aeb9c5bc7fff108a0c9050b50b2a00960c5c6a4"
+      "bytes": 21377,
+      "sha256": "38a6f9708f018e0d0b8d519be46092aae0fdc0d24d0406bab3e38beadd9ce4c2",
+      "previous_payloads": [
+        {
+          "sha256": "11e211457edccda174a703557aeb9c5bc7fff108a0c9050b50b2a00960c5c6a4",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -7818,8 +7948,14 @@
     {
       "path": "tests/BookingMonitoringServiceTest.php",
       "state": "added",
-      "bytes": 20361,
-      "sha256": "450271d65cd6187d3f324aa55b28a54e709512780ad9c30c25b34cf59665f094"
+      "bytes": 24434,
+      "sha256": "1960e91d8c186a6042a95b17233c3d9a886c556098ee9db467d3f3f8381fc803",
+      "previous_payloads": [
+        {
+          "sha256": "450271d65cd6187d3f324aa55b28a54e709512780ad9c30c25b34cf59665f094",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "path": "tests/BusinessChainDownstreamQualityScopeTest.php",
@@ -8338,6 +8474,12 @@
       "sha256": "ccde509afa7c4260ea1ae98096ff3e8d08e54a388615c115385d60e471b9ace6"
     },
     {
+      "path": "tests/InvestmentScenarioNumericalBoundaryTest.php",
+      "state": "added",
+      "bytes": 2513,
+      "sha256": "a89736bd0fbfd4f32db2ecbb9201f2869293677fe1b605a7ccaa6cc50169f868"
+    },
+    {
       "path": "tests/InvestmentScenarioPersistenceTest.php",
       "state": "added",
       "bytes": 31176,
@@ -8662,6 +8804,12 @@
       "sha256": "69d454399a42f7107c5c8158054127f66851c5305b66fc8611130b0d0b7130a8"
     },
     {
+      "path": "tests/OperatingEconomicsHardeningTest.php",
+      "state": "added",
+      "bytes": 4167,
+      "sha256": "894e1b2b6335d3a44be6ae3f686d86a80b8abfd0d2aaf5294f370ff1d4600d39"
+    },
+    {
       "path": "tests/OperatingEvidenceChainTest.php",
       "state": "added",
       "bytes": 15803,
@@ -8676,8 +8824,14 @@
     {
       "path": "tests/OperatingEvidenceRoutingTest.php",
       "state": "added",
-      "bytes": 17954,
-      "sha256": "79581fd6a65cefafa10a940a60771feeca0e4ee9386b186fd0ab0b8580b8b722"
+      "bytes": 19550,
+      "sha256": "8710563675d9cd048f285c9c13818d813361b75aed673863174d92f440e64cfd",
+      "previous_payloads": [
+        {
+          "sha256": "79581fd6a65cefafa10a940a60771feeca0e4ee9386b186fd0ab0b8580b8b722",
+          "prepared_before_head": "d7d0370a70f776028727339192f530167820f3e7"
+        }
+      ]
     },
     {
       "state": "modified",
@@ -9205,6 +9359,9 @@
   "latest_functional_hardening": {
     "baseline": "b4116a62480342ad26e97dc16f51e374b16e458a",
     "receipt": "docs/integration/receipts/functional-hardening-20261003.json",
-    "evidence": "scoped current acceptance; exact committed hashes verified after commit"
+    "evidence": "scoped current acceptance; exact committed hashes verified after commit",
+    "additional_committed_source": "7c77dd64bf9cd6c56fc4672d749808c5c4ce6874",
+    "root_checkpoint": "d7d0370a70f776028727339192f530167820f3e7",
+    "final_combined_acceptance": true
   }
 }
