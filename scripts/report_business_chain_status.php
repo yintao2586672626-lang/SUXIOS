@@ -493,9 +493,9 @@ function business_chain_stage_rows(
         [
             'key' => 'ota_data',
             'label' => 'OTA data',
-            'status' => $diagnosisBlocked ? 'blocked_by_diagnosis_scope' : ($skipP0
-                ? 'reference_only'
-                : ($p0Blocked ? 'blocked_by_p0_ota_gate' : ($counts['accepted'] > 0 ? 'ready' : 'data_gap'))),
+            'status' => $p0Blocked && !$skipP0 ? 'blocked_by_p0_ota_gate' : ($diagnosisBlocked
+                ? 'blocked_by_diagnosis_scope'
+                : ($skipP0 ? 'reference_only' : ($counts['accepted'] > 0 ? 'ready' : 'data_gap'))),
             'claim_allowed' => $otaClaimAllowed,
             'evidence' => $counts,
         ],
@@ -1102,7 +1102,10 @@ function business_chain_manual_review_blocker_rank(array $blocker): int
  */
 function business_chain_manual_review_packet(array $handoff, array $revenueDiagnosis, array $aiAdviceDraft): array
 {
-    $actions = business_chain_list($aiAdviceDraft['actions'] ?? []);
+    $diagnosisQualified = business_chain_list($handoff['source_platforms'] ?? []) !== []
+        && in_array((string)($revenueDiagnosis['status'] ?? ''),
+            ['ok', 'ready', 'partial', 'reference_only', 'partial_reference_only'], true);
+    $actions = $diagnosisQualified ? business_chain_list($aiAdviceDraft['actions'] ?? []) : [];
     $firstAction = [];
     foreach ($actions as $action) {
         if (is_array($action)) {
@@ -1130,6 +1133,16 @@ function business_chain_manual_review_packet(array $handoff, array $revenueDiagn
         $seenBlockers[$dedupeKey] = true;
         $blockers[] = $blocker;
     };
+    foreach ([
+        'diagnosis_scope' => !$diagnosisQualified ? 'diagnosis_scope_unverified' : '',
+        'upstream_gate' => ($handoff['status'] ?? '') !== 'handoff_ready_for_manual_review' ? 'upstream_manual_review_not_ready' : '',
+        'ai_action' => $firstAction === [] ? 'scoped_ai_action_missing' : '',
+    ] as $key => $reason) {
+        if ($reason === '') continue;
+        $addBlocker(['key' => $key, 'reason' => $reason, 'status' => 'blocked', 'severity' => 'high',
+            'label' => '补齐同酒店、来源和日期的诊断证据及审核前置条件',
+            'category' => 'upstream_gate', '_order' => -1]);
+    }
     foreach (business_chain_list($basis['items'] ?? []) as $index => $item) {
         if (!is_array($item) || (string)($item['status'] ?? '') === 'ok') {
             continue;
@@ -1148,7 +1161,10 @@ function business_chain_manual_review_packet(array $handoff, array $revenueDiagn
             '_order' => $index,
         ]);
     }
-    foreach (business_chain_list($firstAction['blocking_reasons'] ?? []) as $index => $reasonValue) {
+    $actionReason = trim((string)($firstAction['reason'] ?? ''));
+    $reasonOnlyBlockers = business_chain_manual_review_input_key_for_reason($actionReason, '') !== '' ? [$actionReason] : [];
+    foreach (array_unique(array_merge(business_chain_list($firstAction['blocking_reasons'] ?? []),
+        $reasonOnlyBlockers)) as $index => $reasonValue) {
         $reason = trim((string)$reasonValue);
         if ($reason === '') {
             continue;
@@ -1213,7 +1229,7 @@ function business_chain_manual_review_packet(array $handoff, array $revenueDiagn
     }, $blockers);
 
     $metrics = [];
-    foreach (is_array($revenueDiagnosis['metrics'] ?? null) ? $revenueDiagnosis['metrics'] : [] as $key => $metric) {
+    foreach ($diagnosisQualified && is_array($revenueDiagnosis['metrics'] ?? null) ? $revenueDiagnosis['metrics'] : [] as $key => $metric) {
         if (!is_array($metric)) {
             continue;
         }
@@ -1229,7 +1245,7 @@ function business_chain_manual_review_packet(array $handoff, array $revenueDiagn
 
     $primaryBlocker = $blockers[0] ?? [];
     $actionReason = (string)($firstAction['reason'] ?? '');
-    $status = $blockers === [] && $actionReason === ''
+    $status = $blockers === []
         ? 'ready_for_manual_review'
         : 'blocked_ready_for_manual_review';
     $reviewContract = business_chain_ai_decision_review_contract(
@@ -1260,7 +1276,7 @@ function business_chain_manual_review_packet(array $handoff, array $revenueDiagn
         'revenue_metrics' => $metrics,
         'ai_decision_review_contract' => $reviewContract,
         'ready_count' => (int)($basis['ready_count'] ?? 0),
-        'blocked_count' => (int)($basis['blocked_count'] ?? count($blockers)),
+        'blocked_count' => max((int)($basis['blocked_count'] ?? 0), count($blockers)),
         'required_before_execution' => business_chain_list($handoff['required_before_execution'] ?? []),
         'forbidden_actions' => [
             'auto_write_ota',

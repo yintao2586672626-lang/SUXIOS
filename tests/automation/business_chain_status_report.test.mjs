@@ -129,7 +129,7 @@ test('Business-chain source rows never label accepted non-traffic evidence as re
   }
 });
 
-test('Business-chain report keeps operator-skipped Meituan read-only and action-free', (t) => {
+test('Business-chain report keeps operator-skipped Meituan read-only and collection-free', (t) => {
   const result = spawnSync(php, [
     'scripts/report_business_chain_status.php',
     '--date=2026-06-28',
@@ -165,10 +165,12 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
   assert.equal(workflow.ai_advice_draft.auto_write_ota, false);
   assert.equal(workflow.revenue_to_ai_handoff.manual_review_packet.review_mode, 'manual_review_only');
   assert.equal(workflow.revenue_to_ai_handoff.manual_review_packet.primary_action.auto_write_ota, false);
-  assert.equal(workflow.revenue_to_ai_handoff.ai_action_count, 1);
+  // This invocation intentionally has no hotel scope; do not invent a usable diagnosis.
+  assert.equal(workflow.revenue_to_ai_handoff.ai_action_count, 0);
   assert.equal(workflow.revenue_to_ai_handoff.can_auto_write_ota, false);
   assert.equal(workflow.revenue_to_ai_handoff.can_create_operation_execution, false);
-  assert(workflow.revenue_to_ai_handoff.revenue_metric_keys.includes('ota_adr'));
+  assert.deepEqual(workflow.revenue_to_ai_handoff.revenue_metric_keys, []);
+  assert.equal(workflow.revenue_to_ai_handoff.manual_review_packet.ai_decision_review_contract.approval_allowed, false);
   assert(workflow.revenue_to_ai_handoff.required_before_execution.includes('all_required_p0_platforms_ready'));
   assert.deepEqual(
     readyCtripSequenceHotelIds,
@@ -197,10 +199,14 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
     assert.notEqual(workflow.revenue_diagnosis.status, 'partial_reference_only');
     assert.equal(workflow.ai_advice_draft.status, 'requires_p0');
     assert.equal(workflow.revenue_to_ai_handoff.status, 'handoff_blocked');
-    assert.equal(workflow.revenue_to_ai_handoff.source_scope, 'ota_channel_reference');
+    assert.equal(workflow.revenue_to_ai_handoff.source_scope, 'ota_channel_blocked_unverified');
     assert.deepEqual([...workflow.revenue_to_ai_handoff.target_blocked_platforms].sort(), ['ctrip', 'meituan']);
     assert.equal(workflow.revenue_to_ai_handoff.ai_draft_status, 'requires_p0');
-    assert(sequence.every((item) => !item.startsWith('meituan:') || item === 'meituan:operator_skip'));
+    assert.deepEqual(
+      sequence.filter((item) => item.startsWith('meituan:')),
+      ['meituan:operator_skip', 'meituan:single_scope_verifier'],
+      'operator skip may retain its read-only verifier but must not emit login or sync actions',
+    );
   }
   assert.doesNotMatch(output, /\/api\/online-data\/capture-meituan-browser/);
   assert.doesNotMatch(output, /\/api\/online-data\/profile-login-trigger\/meituan/);
@@ -287,6 +293,12 @@ test('Business-chain report keeps the Ctrip path truthful at either ready or blo
     assert.equal(payload.p0_downstream_gate.status, 'blocked_by_p0_ota_gate');
     assert.equal(payload.p0_execution_plan.status, 'incomplete');
     assert.equal(handoff.can_auto_write_ota, false);
+    assert.equal(packet.status, 'blocked_ready_for_manual_review');
+    assert.equal(reviewContract.approval_allowed, false);
+    assert.equal(reviewContract.operation_intake_allowed, false);
+    assert.equal(resolutionPlan.approval_allowed_after_resolution, false);
+    assert(packet.blockers.some((item) => item.reason === 'diagnosis_scope_unverified'));
+    assert.deepEqual(packet.revenue_metrics, []);
     assert.equal(operationHandoff.operation_intake_packet.operation_intake_preflight_contract.would_call_create_endpoint, false);
     const stages = Object.fromEntries(payload.stages.map((stage) => [stage.key, stage]));
     assert.equal(stages.ota_data.status, 'blocked_by_p0_ota_gate');
@@ -468,9 +480,10 @@ test('Business-chain markdown exposes Ctrip manual review packet without hiding 
   assert.match(output, /release_ready: `not_evaluated`/);
   assert.match(output, /manual_review_packet: `blocked_ready_for_manual_review`/);
   assert.match(output, /mode=`manual_review_only`/);
-  assert.match(output, /primary_action=`(?:available_room_nights_missing|ota_room_nights_zero|ota_revenue_metrics_missing|online_daily_data_empty)`/);
-  assert.match(output, /primary_blocker=`available_room_nights_missing`/);
-  assert.match(output, /manual_review_next_blockers: `available_room_nights_missing/);
+  // Without --system-hotel-id, the upstream scope must be repaired before metric advice exists.
+  assert.match(output, /primary_action=``/);
+  assert.match(output, /primary_blocker=`diagnosis_scope_unverified`/);
+  assert.match(output, /manual_review_next_blockers: `diagnosis_scope_unverified,upstream_manual_review_not_ready,scoped_ai_action_missing`/);
   assert.match(output, /manual_review_forbidden_actions: `auto_write_ota/);
   assert.match(output, /create_operation_execution_without_human_approval/);
   const reviewCount = output.match(/ai_decision_review_contract: `blocked_by_review_inputs`, approval_allowed=`false`, operation_intake_allowed=`false`, required_inputs=`(\d+)`/);
@@ -480,9 +493,9 @@ test('Business-chain markdown exposes Ctrip manual review packet without hiding 
   assert(Number(reviewCount[1]) > 0, 'blocked AI review must expose at least one required input');
   assert.equal(Number(resolutionCount[1]), Number(reviewCount[1]));
   assert.equal(Number(resolutionCount[2]), Number(reviewCount[1]));
-  assert.match(output, /ai_decision_required_inputs: `revpar_denominator:available_room_nights_missing,floor_price:floor_price_missing,manual_review_workflow:manual_review_workflow_not_connected/);
+  assert.match(output, /ai_decision_required_inputs: `diagnosis_scope:diagnosis_scope_unverified,upstream_gate:upstream_manual_review_not_ready,ai_action:scoped_ai_action_missing`/);
   assert.match(output, /ai_decision_allowed_outputs: `request_revenue_metric_evidence:allowed,record_manual_review_note:allowed,reject_ai_advice:allowed,approve_ai_advice_for_operation_intake:blocked`/);
-  assert.match(output, /ai_decision_resolution_items: `revpar_denominator:provide_available_room_nights_or_mark_metric_unusable,floor_price:provide_floor_price_or_min_rate_guard,manual_review_workflow:persist_or_attach_manual_review_record/);
+  assert.match(output, /ai_decision_resolution_items: `diagnosis_scope:resolve_diagnosis_scope,upstream_gate:resolve_upstream_gate,ai_action:resolve_ai_action`/);
   assert.match(output, /ai_to_operation_handoff: `operation_intake_blocked_by_manual_review`/);
   assert.match(output, /target=`\/api\/operation\/execution-intents`/);
   assert.match(output, /persisted=`false`/);
@@ -490,11 +503,11 @@ test('Business-chain markdown exposes Ctrip manual review packet without hiding 
   assert.match(output, /operation_intake_packet: `blocked_by_manual_review_packet`/);
   assert.match(output, /source_module=`ota_revenue_ai_manual_review`/);
   assert.match(output, /object_type=`ota_pricing`/);
-  assert.match(output, /blocked_reason=`available_room_nights_missing`/);
-  assert.match(output, /operation_intake_preflight_contract: `blocked_by_ai_review_contract`, create_allowed=`false`, would_call_create=`false`, missing_fields=`9`/);
+  assert.match(output, /blocked_reason=`diagnosis_scope_unverified`/);
+  assert.match(output, /operation_intake_preflight_contract: `blocked_by_ai_review_contract`, create_allowed=`false`, would_call_create=`false`, missing_fields=`10`/);
   assert.match(output, /operation_intake_missing_fields: `approved_ai_advice:ai_decision_review_inputs_pending,operation_intake_allowed:operation_intake_gate_closed,hotel_id:operator_selected_hotel_missing/);
   assert.match(output, /ctrip_chain_action_queue: `has_blocking_actions`, items=`4`, blocking=`4`/);
-  assert.match(output, /ctrip_chain_next_action: action=`resolve_revenue_metric_gap`, stage=`revenue_analysis`, evidence=`available_room_nights_missing`/);
+  assert.match(output, /ctrip_chain_next_action: action=`resolve_revenue_metric_gap`, stage=`revenue_analysis`, evidence=`diagnosis_scope_unverified`/);
   assert.match(output, /ctrip_chain_next_action: action=`approve_ai_manual_review`, stage=`ai_decision`, evidence=`blocked_ready_for_manual_review`/);
   assert.match(output, /ctrip_chain_next_action: action=`create_operation_intent_after_review`, stage=`operation_management`, evidence=`operation_intake_blocked_by_manual_review`, target=`\/api\/operation\/execution-intents`/);
   assert.match(output, /ctrip_chain_next_action: action=`attach_operation_execution_evidence`, stage=`operation_management`, evidence=`operation_execution\.evidence_and_effect_review`, target=`ops-track`/);
