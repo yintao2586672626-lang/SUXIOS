@@ -14,14 +14,21 @@ class ManagerCoachingService
     private const METHODS = ['unknown' => '补充原因证据', 'knowledge' => '标准学习与复述',
         'skill' => '示范与实操', 'execution' => '责任标准与行为复查', 'objective' => '流程资源整改'];
 
-    public function create(int $tenantId, int $hotelId, int $managerId, int $actorId, array $input): array
+    public function create(
+        int $tenantId,
+        int $hotelId,
+        int $managerId,
+        int $actorId,
+        array $input,
+        array $knowledgeAccessContext = []
+    ): array
     {
         $caseId = (int)($input['case_id'] ?? 0);
         $case = $this->caseForScope($tenantId, $hotelId, $managerId, $caseId);
         if (($case['is_voided'] ?? false) === true) throw new InvalidArgumentException('已作废案例不能发起带教计划');
         $key = $this->text($input['idempotency_key'] ?? '', '重试标识', 100);
         $inputDigest = $this->digest([$tenantId, $hotelId, $managerId, $actorId, $input]);
-        return Db::transaction(function () use ($tenantId, $hotelId, $managerId, $actorId, $input, $caseId, $key, $inputDigest) {
+        return Db::transaction(function () use ($tenantId, $hotelId, $managerId, $actorId, $input, $caseId, $key, $inputDigest, $knowledgeAccessContext) {
             $lockedCase = Db::name('manager_capability_cases')->where('id', $caseId)->where('tenant_id', $tenantId)
                 ->where('hotel_id', $hotelId)->where('manager_user_id', $managerId)->lock(true)->find();
             if (!$lockedCase) throw new RuntimeException('店长评分案例不存在');
@@ -39,7 +46,7 @@ class ManagerCoachingService
             $plan['case_snapshot'] = ['id' => $caseId, 'business_date' => $case['business_date'],
                 'problem_facts' => $case['problem_facts'], 'source_quality_status' => 'manual_declared'];
             $plan['schema_version'] = self::VERSION;
-            $plan['knowledge_snapshots'] = $this->knowledgeSnapshots($input, $hotelId, $actorId);
+            $plan['knowledge_snapshots'] = $this->knowledgeSnapshots($input, $hotelId, $actorId, [], $knowledgeAccessContext);
             if ($plan['cause'] === 'knowledge' && !$plan['knowledge_snapshots']) throw new InvalidArgumentException('知识问题需要引用至少一个知识版本');
             $status = $plan['cause'] === 'unknown' ? 'pending_diagnosis' : 'planned';
             $now = date('Y-m-d H:i:s');
@@ -75,12 +82,21 @@ class ManagerCoachingService
                 'updates_capability_score' => false, 'automatic_execution' => false, 'external_send' => false]];
     }
 
-    public function mutate(int $tenantId, int $hotelId, int $managerId, int $actorId, int $id, string $kind, array $input): array
+    public function mutate(
+        int $tenantId,
+        int $hotelId,
+        int $managerId,
+        int $actorId,
+        int $id,
+        string $kind,
+        array $input,
+        array $knowledgeAccessContext = []
+    ): array
     {
         if (!in_array($kind, ['edit', 'evidence', 'review', 'defer', 'cancel', 'recur', 'knowledge'], true)) throw new InvalidArgumentException('不支持的带教操作');
         $key = $this->text($input['idempotency_key'] ?? '', '重试标识', 100);
         $inputDigest = $this->digest([$kind, $input]);
-        return Db::transaction(function () use ($tenantId, $hotelId, $managerId, $actorId, $id, $kind, $input, $key, $inputDigest) {
+        return Db::transaction(function () use ($tenantId, $hotelId, $managerId, $actorId, $id, $kind, $input, $key, $inputDigest, $knowledgeAccessContext) {
             $row = $this->row($tenantId, $hotelId, $managerId, $id, true);
             $replay = Db::name('manager_coaching_events')->where('plan_id', $id)->where('actor_id', $actorId)->where('idempotency_key', $key)->find();
             if ($replay) {
@@ -101,7 +117,13 @@ class ManagerCoachingService
                     if (array_filter($state['events'], static fn($e) => $e['event_type'] === 'evidence')) throw new InvalidArgumentException('已有实操证据，目标标准已冻结；请通过复查或新计划调整');
                     $updated = $this->normalizePlan($input, $hotelId, $actorId);
                     if ($updated['business_date'] < $case['business_date']) throw new InvalidArgumentException('计划起始日期不能早于来源案例日期');
-                    $snapshots = $this->knowledgeSnapshots($input, $hotelId, $actorId, $plan['knowledge_snapshots'] ?? []);
+                    $snapshots = $this->knowledgeSnapshots(
+                        $input,
+                        $hotelId,
+                        $actorId,
+                        $plan['knowledge_snapshots'] ?? [],
+                        $knowledgeAccessContext
+                    );
                     if ($updated['cause'] === 'knowledge' && !$snapshots) throw new InvalidArgumentException('知识问题需要引用知识版本');
                     $plan = array_merge($plan, $updated, ['knowledge_snapshots' => $snapshots]);
                     $status = $plan['cause'] === 'unknown' ? 'pending_diagnosis' : 'planned';
@@ -205,14 +227,22 @@ class ManagerCoachingService
     protected function caseForScope(int $tenantId, int $hotelId, int $managerId, int $caseId): array
     { return (new ManagerCapabilityScoringService())->readCase($tenantId, $hotelId, $managerId, $caseId); }
 
-    private function knowledgeSnapshots(array $input, int $hotelId, int $actorId, array $previousSnapshots = []): array
+    private function knowledgeSnapshots(
+        array $input,
+        int $hotelId,
+        int $actorId,
+        array $previousSnapshots = [],
+        array $accessContext = []
+    ): array
     {
         $refs = array_values(array_unique(array_map('intval', (array)($input['knowledge_chunk_ids'] ?? []))));
         if (count($refs) > 8) throw new InvalidArgumentException('每个计划最多引用 8 个知识版本');
         $selections = $input['knowledge_excerpt_segment_ids'] ?? [];
         if (!is_array($selections)) throw new InvalidArgumentException('知识摘录选择格式无效');
+        $previousByChunk = [];
         if (!array_key_exists('knowledge_excerpt_segment_ids', $input)) {
             foreach ($previousSnapshots as $snapshot) {
+                $previousByChunk[(int)$snapshot['chunk_id']] = $snapshot;
                 if (($snapshot['excerpt_selection'] ?? '') === 'explicit_segment_selection') {
                     $selections[(int)$snapshot['chunk_id']] = array_column($snapshot['source_segments'] ?? [], 'id');
                 }
@@ -223,7 +253,17 @@ class ManagerCoachingService
         foreach ($refs as $chunkId) {
             $selected = $selections[$chunkId] ?? null;
             if (array_key_exists($chunkId, $selections) && !is_array($selected)) throw new InvalidArgumentException('知识摘录选择格式无效');
-            $snapshots[] = $reference->coachingSnapshot($chunkId, $hotelId, $actorId, $selected);
+            $snapshot = $reference->coachingSnapshot($chunkId, $hotelId, $actorId, $selected, $accessContext);
+            $previous = $previousByChunk[$chunkId] ?? null;
+            // Validate access and the current version first, then retain the immutable
+            // bounded excerpt when this edit did not request a new selection.
+            if (is_array($previous)
+                && ($previous['snapshot_schema_version'] ?? '') === 'manager_coaching.knowledge_excerpt.v1'
+                && ($previous['digest'] ?? '') === $snapshot['digest']
+                && strlen($this->json($previous)) <= 16384) {
+                $snapshot = $previous;
+            }
+            $snapshots[] = $snapshot;
         }
         if (strlen($this->json($snapshots)) > 131072) throw new InvalidArgumentException('知识引用快照超过保存上限');
         return $snapshots;

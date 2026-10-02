@@ -21,6 +21,7 @@ final class AiDailyReportPrefixStorageTest extends TestCase
     private array $testConfig;
     private array $databasePaths = [];
     private string $connection;
+    private mixed $originalRequestUser;
 
     public static function setUpBeforeClass(): void
     {
@@ -30,6 +31,7 @@ final class AiDailyReportPrefixStorageTest extends TestCase
     protected function setUp(): void
     {
         $this->originalConfig = Config::get('database', []);
+        $this->originalRequestUser = request()->user ?? null;
         $this->testConfig = ['default' => '', 'connections' => []];
         $this->connection = $this->addConnection('sux_');
         $this->activate($this->connection);
@@ -44,6 +46,7 @@ final class AiDailyReportPrefixStorageTest extends TestCase
         }
         Config::set($this->originalConfig, 'database');
         Db::connect(null, true);
+        request()->user = $this->originalRequestUser;
     }
 
     private function addConnection(string $prefix): string
@@ -301,6 +304,98 @@ final class AiDailyReportPrefixStorageTest extends TestCase
         self::assertSame(1, Db::name('ai_daily_reports')->count());
         self::assertSame(9004, (int)Db::name('ai_daily_reports')->value('tenant_id'));
         self::assertSame('synthetic', $saved['evidence_snapshot']['fact_pack']['dataset_kind']);
+    }
+
+    public function testPrefixedExecutionIntentCreationAndRetryUsePhysicalTables(): void
+    {
+        Db::execute('CREATE TABLE sux_operation_execution_intents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+            source_module TEXT NOT NULL, source_record_id INTEGER NOT NULL,
+            idempotency_key TEXT UNIQUE, hotel_id INTEGER NOT NULL,
+            platform TEXT, object_type TEXT, action_type TEXT, date_start TEXT,
+            date_end TEXT, current_value_json TEXT, target_value_json TEXT,
+            evidence_json TEXT, expected_metric TEXT, expected_delta REAL,
+            risk_level TEXT, blocked_reason TEXT, status TEXT,
+            created_by INTEGER, approved_by INTEGER, approved_at TEXT,
+            review_remark TEXT, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
+        Db::execute('CREATE TABLE sux_operation_execution_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+            intent_id INTEGER, hotel_id INTEGER, execution_mode TEXT,
+            operator_id INTEGER, target_value_json TEXT, current_value_json TEXT,
+            blocked_reason TEXT, action_track_id INTEGER, result_status TEXT,
+            result_summary TEXT, status TEXT, executed_at TEXT,
+            created_at TEXT, updated_at TEXT, deleted_at TEXT)');
+        Db::execute('CREATE TABLE sux_operation_execution_evidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER NOT NULL,
+            task_id INTEGER, evidence_type TEXT, before_json TEXT, after_json TEXT,
+            attachment_path TEXT, platform_response_json TEXT, remark TEXT,
+            created_by INTEGER, created_at TEXT, updated_at TEXT, deleted_at TEXT)');
+        $today = (new \DateTimeImmutable('today', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $tomorrow = (new \DateTimeImmutable($today, new \DateTimeZone('Asia/Shanghai')))
+            ->modify('+1 day')->format('Y-m-d');
+        $action = [
+            'title' => 'SYNTHETIC prefixed intent',
+            'action' => '复核同酒店携程订单并保留前后证据',
+            'reason' => '隔离测试的可信来源已完成精确回读',
+            'platform' => 'ctrip', 'object_type' => 'campaign', 'action_type' => 'promotion_review',
+            'execution_time' => $tomorrow, 'expected_metric' => 'orders',
+            'target_value' => ['campaign_type' => 'promotion_review', 'target_metric' => 'orders', 'target_orders' => 20],
+            'current_value' => ['orders' => 10], 'expected_delta' => 10, 'risk_level' => 'medium',
+        ];
+        $sourceRefs = [[
+            'ref' => 'online_daily_data#904', 'source' => 'online_daily_data',
+            'system_hotel_id' => 904, 'platform' => 'ctrip', 'data_date' => $today,
+            'metric_scope' => 'ota_channel', 'quality_status' => 'available', 'readback_verified' => true,
+        ]];
+        $reportId = $this->seed($today, [
+            'status' => 'completed', 'recommended_actions_json' => json_encode([$action], JSON_THROW_ON_ERROR),
+            'data_gaps_json' => '[]', 'source_refs_json' => json_encode($sourceRefs, JSON_THROW_ON_ERROR),
+            'snapshot_json' => json_encode(['input_trust' => ['readback_verified' => true],
+                'report_scope' => ['hotel_id' => 904, 'report_date' => $today, 'source_scope' => 'ota_channel']], JSON_THROW_ON_ERROR),
+        ]);
+        $service = new AiDailyReportService();
+        $read = $service->enrichReportRows([
+            Db::name('ai_daily_reports')->where('id', $reportId)->find(),
+        ], [904], 904)[0];
+        self::assertTrue($read['recommended_actions'][0]['can_create_execution_intent'] ?? false,
+            $read['recommended_actions'][0]['blocked_reason'] ?? 'recommendation not ready');
+
+        Db::execute('ALTER TABLE sux_hotels ADD COLUMN status INTEGER DEFAULT 1');
+        $controller = $this->controller($service, ['hotel_id' => 904]);
+        $actor = new class extends \app\model\User {
+            public function isSuperAdmin(): bool { return true; }
+            public function getPermittedHotelIds(): array { return [904]; }
+        };
+        $actor->id = 4;
+        $actor->tenant_id = 9004;
+        request()->user = $actor;
+        (new \ReflectionClass(AiDailyReport::class))->getProperty('currentUser')->setValue($controller, $actor);
+        $createdResponse = $controller->createExecutionIntent($reportId, 0);
+        self::assertSame(200, $createdResponse->getCode(), json_encode($createdResponse->getData()));
+        $created = $createdResponse->getData()['data'];
+        $retriedResponse = $controller->createExecutionIntent($reportId, 0);
+        self::assertSame(200, $retriedResponse->getCode(), json_encode($retriedResponse->getData()));
+        $retried = $retriedResponse->getData()['data'];
+        self::assertSame($created['execution_intent']['id'], $retried['execution_intent']['id']);
+        self::assertTrue($retried['reused_existing_intent']);
+        self::assertSame('pending_approval', $created['execution_intent']['status']);
+        self::assertSame(1, Db::table('sux_operation_execution_intents')->count());
+        self::assertSame(9004, (int)Db::table('sux_operation_execution_intents')->value('tenant_id'));
+        $readResponse = $controller->read($reportId);
+        self::assertSame(200, $readResponse->getCode());
+        self::assertSame($created['execution_intent']['id'],
+            $readResponse->getData()['data']['recommended_actions'][0]['execution_flow']['intent_id']);
+
+        // Read-only legacy equality is retained, but execution requires a positive tenant.
+        Db::name('hotels')->where('id', 904)->update(['tenant_id' => 0]);
+        Db::name('ai_daily_reports')->where('id', $reportId)->update(['tenant_id' => 0]);
+        Db::name('operation_execution_intents')->where('id', $created['execution_intent']['id'])->update(['tenant_id' => 0]);
+        $failure = null;
+        try { $service->createExecutionIntentFromAction($reportId, 0, [904], 4); }
+        catch (\RuntimeException $error) { $failure = $error; }
+        self::assertInstanceOf(\RuntimeException::class, $failure, 'A zero-tenant intent must not be reused for execution.');
+        self::assertStringContainsString('tenant_id', $failure->getMessage());
+        self::assertSame(1, Db::name('operation_execution_intents')->count());
     }
 
     public function testPrefixedExecutionReadbackKeepsOnlySameTenantHotelAndReport(): void

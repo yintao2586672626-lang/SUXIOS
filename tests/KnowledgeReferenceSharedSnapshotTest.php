@@ -193,4 +193,38 @@ final class KnowledgeReferenceSharedSnapshotTest extends TestCase
         $this->rejects(fn() => $service->create(10, 20, 7, 7, $input), '摘录片段不存在');
         self::assertSame(1, Db::name('manager_coaching_plans')->count());
     }
+
+    public function testTitleOnlyEditPreservesExplicitSnapshotWhenBudgetOmitsASelectedSegment(): void
+    {
+        $first = str_repeat('原', 1365) . 'a';
+        $id = $this->seed(content: ['raw_text' => $first . "\nSecond selected synthetic line", 'lifecycle_status' => 'active']);
+        $source = (new KnowledgeReferenceService())->source($id, 20, 7);
+        $selected = array_column($source['source_segments'], 'id');
+        $service = new ManagerCoachingService();
+        $input = array_replace(CoachingKnowledgeFixture::planInput((int)$this->case['id']), [
+            'knowledge_chunk_ids' => [$id], 'knowledge_excerpt_segment_ids' => [$id => $selected],
+        ]);
+        $saved = $service->create(10, 20, 7, 7, $input);
+        $snapshot = $saved['plan']['content']['knowledge_snapshots'][0];
+        self::assertCount(2, $selected);
+        self::assertCount(1, $snapshot['source_segments']);
+        self::assertTrue($snapshot['excerpt_truncated']);
+        self::assertSame(4096, strlen($snapshot['source_segments'][0]['quote']));
+
+        unset($input['knowledge_excerpt_segment_ids']);
+        $edited = $service->mutate(10, 20, 7, 7, (int)$saved['plan']['id'], 'edit', array_replace($input, [
+            'expected_revision' => 1, 'idempotency_key' => 'truncated-title-edit', 'title' => 'Synthetic title-only edit',
+        ]));
+        self::assertSame($snapshot, $edited['plan']['content']['knowledge_snapshots'][0]);
+        self::assertSame($snapshot, $edited['events'][1]['payload']['plan']['knowledge_snapshots'][0]);
+        self::assertSame($snapshot, $service->read(10, 20, 7, (int)$saved['plan']['id'])['plan']['content']['knowledge_snapshots'][0]);
+
+        $reselected = $service->mutate(10, 20, 7, 7, (int)$saved['plan']['id'], 'edit', array_replace($input, [
+            'expected_revision' => 2, 'idempotency_key' => 'explicit-reselect',
+            'knowledge_excerpt_segment_ids' => [$id => [$selected[1]]],
+        ]));
+        $newSnapshot = $reselected['plan']['content']['knowledge_snapshots'][0];
+        self::assertFalse($newSnapshot['excerpt_truncated']);
+        self::assertSame([$selected[1]], array_column($newSnapshot['source_segments'], 'id'));
+    }
 }

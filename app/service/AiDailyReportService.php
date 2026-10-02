@@ -887,11 +887,15 @@ class AiDailyReportService
                 && self::sameExecutionBasis($persistedBasis, $action);
         };
         $linkedId = (int)($action['execution_intent_id'] ?? 0);
+        $intentTable = '`' . str_replace('`', '', Db::name('operation_execution_intents')->getTable()) . '`';
+        $hotelTable = '`' . str_replace('`', '', Db::name('hotels')->getTable()) . '`';
         $query = Db::name('operation_execution_intents')
             ->where('source_module', 'ai_daily_report')
             ->where('source_record_id', $reportId)
             ->where('hotel_id', $hotelId)
-            ->whereRaw('operation_execution_intents.tenant_id = (SELECT tenant_id FROM hotels WHERE hotels.id = operation_execution_intents.hotel_id)')
+            ->where('tenant_id', '>', 0)
+            ->whereRaw($intentTable . '.tenant_id = (SELECT tenant_id FROM ' . $hotelTable
+                . ' WHERE ' . $hotelTable . '.id = ' . $intentTable . '.hotel_id)')
             ->whereNull('deleted_at');
         if ($linkedId > 0) {
             $linked = (clone $query)->where('id', $linkedId)->find();

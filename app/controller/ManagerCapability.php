@@ -60,17 +60,36 @@ final class ManagerCapability extends Base
             if (!in_array($managerId, array_map('intval', $allowed), true)) throw new RuntimeException('所选店长不属于当前租户和酒店');
             $service = new ManagerCoachingService();
             $actorId = (int)$this->currentUser->id;
+            $knowledgeAccessContext = $this->knowledgeReferenceAccessContext();
             $result = match ($action) {
                 'list' => $service->listing($tenantId, $hotelId, $managerId),
                 'read' => $service->read($tenantId, $hotelId, $managerId, $id),
-                'create' => $service->create($tenantId, $hotelId, $managerId, $actorId, $input),
-                default => $service->mutate($tenantId, $hotelId, $managerId, $actorId, $id, $action, $input),
+                'create' => $service->create($tenantId, $hotelId, $managerId, $actorId, $input, $knowledgeAccessContext),
+                default => $service->mutate(
+                    $tenantId,
+                    $hotelId,
+                    $managerId,
+                    $actorId,
+                    $id,
+                    $action,
+                    $input,
+                    $knowledgeAccessContext
+                ),
             };
             $result['permissions'] = $permissions;
             return $this->success($result);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '带教请求失败，请稍后重试'), str_contains($e->getMessage(), '版本冲突') ? 409 : $this->statusCode($e));
         }
+    }
+
+    /** Trusted authenticated identity only; request fields never grant knowledge access. */
+    private function knowledgeReferenceAccessContext(): array
+    {
+        return [
+            'tenant_id' => (int)($this->currentUser->tenant_id ?? 0),
+            'super_admin' => $this->currentUser && $this->currentUser->isSuperAdmin(),
+        ];
     }
 
     public function profile(): Response

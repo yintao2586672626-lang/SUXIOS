@@ -85,9 +85,15 @@ final class KnowledgeReferenceService
     }
 
     /** Immutable, bounded citation material; the complete source remains in its knowledge chunk. */
-    public function coachingSnapshot(int $chunkId, int $hotelId, int $actorId, ?array $selectedSegmentIds = null): array
+    public function coachingSnapshot(
+        int $chunkId,
+        int $hotelId,
+        int $actorId,
+        ?array $selectedSegmentIds = null,
+        array $accessContext = []
+    ): array
     {
-        $source = $this->source($chunkId, $hotelId, $actorId);
+        $source = $this->source($chunkId, $hotelId, $actorId, $accessContext);
         $segments = $source['source_segments'];
         if ($selectedSegmentIds !== null) {
             if (!$selectedSegmentIds || count($selectedSegmentIds) > 4

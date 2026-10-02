@@ -859,9 +859,10 @@ trait OperationExecutionTenantConcern
     private function executionTenantSchemaHasColumn(string $table, string $column): bool
     {
         try {
+            $physicalTable = Db::name($table)->getTable();
             Db::query(
                 'SELECT `' . str_replace('`', '', $column) . '` FROM `'
-                . str_replace('`', '', $table) . '` LIMIT 0'
+                . str_replace('`', '', $physicalTable) . '` LIMIT 0'
             );
             return true;
         } catch (\Throwable) {

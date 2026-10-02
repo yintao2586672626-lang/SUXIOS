@@ -2,11 +2,15 @@
 declare(strict_types=1);
 namespace Tests;
 
+use app\controller\ManagerCapability;
+use app\service\ManagerCapabilityScoringService;
 use app\service\ManagerCoachingService;
+use app\service\KnowledgeContentDigestService;
 use app\service\KnowledgeReferenceService;
 use app\service\KnowledgeSourceImportService;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\CoachingKnowledgeFixture;
+use think\Request;
 use think\facade\Db;
 
 final class ManagerCoachingIntegrationTest extends TestCase
@@ -33,6 +37,41 @@ final class ManagerCoachingIntegrationTest extends TestCase
     }
     private function rejects(callable $run, string $message): void
     { try { $run(); self::fail('Expected failure: ' . $message); } catch (\InvalidArgumentException|\RuntimeException $e) { self::assertStringContainsString($message, $e->getMessage()); } }
+
+    private function controller(bool $superAdmin, array $post = [], array $get = []): ManagerCapability
+    {
+        $reflection = new \ReflectionClass(ManagerCapability::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $reflection->getProperty('service')->setValue($controller, new ManagerCapabilityScoringService());
+        $reflection->getProperty('request')->setValue($controller, (new Request())->withPost($post)
+            ->withGet($get + ['hotel_id' => 20, 'manager_user_id' => 7]));
+        $reflection->getProperty('currentUser')->setValue($controller, new class($superAdmin) {
+            public int $id = 7;
+            public int $tenant_id = 10;
+            public function __construct(private bool $admin) {}
+            public function isSuperAdmin(): bool { return $this->admin; }
+            public function getPermittedHotelIds(): array { return [20]; }
+            public function hasHotelPermission(int $hotelId, string $capability): bool { return $hotelId === 20; }
+        });
+        return $controller;
+    }
+
+    private function privateKnowledgeChunk(int $hotelId = 20): int
+    {
+        $content = ['raw_text' => "隔离私有知识\n仅供管理员按当前门店范围引用", 'lifecycle_status' => 'active'];
+        $unitId = (int)Db::name('knowledge_units')->insertGetId([
+            'hotel_id' => $hotelId, 'name' => '其他作者的隔离私有知识', 'source' => 'manual', 'status' => 'done',
+            'description' => 'synthetic only', 'tags' => '[]', 'created_by' => 8,
+            'stable_key' => 'synthetic-private-' . bin2hex(random_bytes(5)), 'lifecycle_status' => 'active',
+        ]);
+        $chunkId = (int)Db::name('knowledge_chunks')->insertGetId([
+            'unit_id' => $unitId, 'type' => 'manual', 'content' => json_encode($content, JSON_THROW_ON_ERROR),
+            'content_digest' => (new KnowledgeContentDigestService())->digest($content),
+            'lifecycle_status' => 'active', 'created_by' => 8,
+        ]);
+        Db::name('knowledge_units')->where('unit_id', $unitId)->update(['current_chunk_id' => $chunkId]);
+        return $chunkId;
+    }
 
     public function testCompleteReviewRecurrenceAndKnowledgeReadbackWithoutChangingScore(): void
     {
@@ -106,6 +145,97 @@ final class ManagerCoachingIntegrationTest extends TestCase
         $this->rejects(fn() => $this->action($unknown, 'evidence', ['stage' => 'independent']), '核实原因');
         $objective = $this->create(['cause' => 'objective']);
         self::assertSame('流程资源整改', $objective['plan']['content']['method']);
+    }
+
+    public function testTrustedSuperAdminContextFlowsThroughCoachingCreateAndEditOnly(): void
+    {
+        $chunkId = $this->privateKnowledgeChunk();
+        $forged = ['super_admin' => true, 'is_super_admin' => true,
+            'access_context' => ['tenant_id' => 10, 'super_admin' => true]];
+        $input = array_replace(CoachingKnowledgeFixture::planInput((int)$this->case['id']), [
+            'cause' => 'knowledge', 'knowledge_chunk_ids' => [$chunkId],
+            'idempotency_key' => 'private-create-' . bin2hex(random_bytes(5)),
+        ], $forged);
+        $this->rejects(fn() => $this->service()->create(10, 20, 7, 7, $input), '无权');
+        self::assertSame(0, Db::name('manager_coaching_plans')->count());
+
+        $trusted = ['tenant_id' => 10, 'super_admin' => true];
+        $created = $this->service()->create(10, 20, 7, 7, $input, $trusted);
+        self::assertSame($chunkId, $created['plan']['content']['knowledge_snapshots'][0]['chunk_id']);
+        self::assertSame('reference_only_human_adaptation_not_verified_hotel_fact',
+            $created['plan']['content']['knowledge_snapshots'][0]['policy']);
+
+        $edit = array_replace($input, [
+            'title' => '管理员修订后的私有知识带教计划',
+            'expected_revision' => $created['plan']['revision'],
+            'idempotency_key' => 'private-edit-' . bin2hex(random_bytes(5)),
+        ]);
+        $this->rejects(fn() => $this->service()->mutate(10, 20, 7, 7,
+            (int)$created['plan']['id'], 'edit', $edit), '无权');
+        $edited = $this->service()->mutate(10, 20, 7, 7,
+            (int)$created['plan']['id'], 'edit', $edit, $trusted);
+        self::assertSame('管理员修订后的私有知识带教计划', $edited['plan']['content']['title']);
+        self::assertSame($chunkId, $edited['plan']['content']['knowledge_snapshots'][0]['chunk_id']);
+        self::assertSame('readback_verified', $edited['persistence_status']);
+    }
+
+    public function testCoachingControllerAdminCreateEditListAndExactReadbackUseAuthenticatedIdentity(): void
+    {
+        $chunkId = $this->privateKnowledgeChunk();
+        $source = (new KnowledgeReferenceService())->source($chunkId, 20, 8);
+        $selected = [$source['source_segments'][1]['id']];
+        $input = array_replace(CoachingKnowledgeFixture::planInput((int)$this->case['id']), [
+            'hotel_id' => 20, 'manager_user_id' => 7, 'cause' => 'knowledge',
+            'knowledge_chunk_ids' => [$chunkId], 'knowledge_excerpt_segment_ids' => [$chunkId => $selected],
+            'super_admin' => false, 'access_context' => ['tenant_id' => 11, 'super_admin' => false],
+        ]);
+        $response = $this->controller(true, $input)->coachingCreate();
+        self::assertSame(200, $response->getCode(), json_encode($response->getData()));
+        $created = $response->getData()['data'];
+        $id = (int)$created['plan']['id'];
+        self::assertSame(10, $created['plan']['tenant_id']);
+        self::assertSame(20, $created['plan']['hotel_id']);
+        self::assertSame($selected, array_column($created['plan']['content']['knowledge_snapshots'][0]['source_segments'], 'id'));
+        $retry = $this->controller(true, $input)->coachingCreate();
+        self::assertSame(200, $retry->getCode());
+        self::assertSame($id, (int)$retry->getData()['data']['plan']['id']);
+        self::assertSame(1, Db::name('manager_coaching_plans')->count());
+
+        unset($input['knowledge_excerpt_segment_ids']);
+        $edit = array_replace($input, ['title' => '控制器修订的带教计划', 'expected_revision' => 1,
+            'idempotency_key' => 'controller-edit-' . bin2hex(random_bytes(5))]);
+        $response = $this->controller(true, $edit)->coachingAction($id, 'edit');
+        self::assertSame(200, $response->getCode(), json_encode($response->getData()));
+        $edited = $response->getData()['data'];
+        self::assertSame('控制器修订的带教计划', $edited['plan']['content']['title']);
+        self::assertSame(2, $edited['plan']['revision']);
+        self::assertSame($created['plan']['content']['knowledge_snapshots'], $edited['plan']['content']['knowledge_snapshots']);
+        $read = $this->controller(true)->coachingRead($id);
+        self::assertSame(200, $read->getCode(), json_encode($read->getData()));
+        self::assertSame($edited['plan'], $read->getData()['data']['plan']);
+        $list = $this->controller(false)->coachingList();
+        self::assertSame(200, $list->getCode(), json_encode($list->getData()));
+        self::assertSame($edited['plan'], $list->getData()['data']['list'][0]);
+    }
+
+    public function testCoachingControllerRejectsForgedAdminAndForeignKnowledgeWithoutWriting(): void
+    {
+        $input = array_replace(CoachingKnowledgeFixture::planInput((int)$this->case['id']), [
+            'hotel_id' => 20, 'manager_user_id' => 7, 'cause' => 'knowledge',
+            'knowledge_chunk_ids' => [$this->privateKnowledgeChunk()],
+            'super_admin' => true, 'is_super_admin' => true,
+            'access_context' => ['tenant_id' => 10, 'super_admin' => true],
+        ]);
+        $response = $this->controller(false, $input)->coachingCreate();
+        self::assertSame(403, $response->getCode(), json_encode($response->getData()));
+        self::assertStringContainsString('无权', $response->getData()['message']);
+        foreach ([21, 30] as $hotelId) {
+            $input['knowledge_chunk_ids'] = [$this->privateKnowledgeChunk($hotelId)];
+            $response = $this->controller(true, $input)->coachingCreate();
+            self::assertSame(403, $response->getCode(), json_encode($response->getData()));
+        }
+        self::assertSame(0, Db::name('manager_coaching_plans')->count());
+        self::assertSame(0, Db::name('manager_coaching_events')->count());
     }
 
     public function testSourceDedupRetriesExactCitationsAndReferenceVersionConflicts(): void
