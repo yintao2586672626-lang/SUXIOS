@@ -56,6 +56,7 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'page-ctrip-fetch-settings', domain: 'ota-ctrip', path: 'fragments/25-page-ctrip-fetch-settings.html', anchor: '<div v-if="currentPage === \'ctrip-ebooking\' &amp;&amp; onlineDataTab === \'ctrip-fetch-settings\'" class="bg-white rounded-lg shadow mt-4">' },
   { id: 'page-meituan-ebooking', domain: 'ota-meituan', path: 'fragments/26-page-meituan-ebooking.html', anchor: '<div v-if="currentPage === \'meituan-ebooking\'">' },
   { id: 'page-agent-center', domain: 'agent-center', path: 'fragments/27-page-agent-center.html', anchor: '<div v-if="currentPage === \'agent-center\'">' },
+  { id: 'page-investment-payback', domain: 'investment', path: 'fragments/28a-page-investment-payback.html', anchor: '<div v-if="currentPage === \'investment-payback\'" class="max-w-7xl mx-auto" data-testid="investment-payback-page">' },
   { id: 'page-operation-logs', domain: 'system-admin', path: 'fragments/30-page-operation-logs.html', anchor: '<div v-if="currentPage === \'operation-logs\'">' },
   { id: 'page-system-config', domain: 'system-admin', path: 'fragments/31-page-system-config.html', anchor: '<div v-if="currentPage === \'system-config\'">' },
   { id: 'page-ai-model-config', domain: 'ai-governance', path: 'fragments/32-page-ai-model-config.html', anchor: '<div v-if="currentPage === \'ai-model-config\'">' },

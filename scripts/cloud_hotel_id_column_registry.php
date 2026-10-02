@@ -173,6 +173,7 @@ function cloudHotelIdColumnRegistry(): array
         ['hotel_on_books_snapshots', 'hotel_id', 'hotel_id'],
         ['hotel_demand_event_facts', 'hotel_id', 'hotel_id'],
         ['hotel_monthly_operating_finance_snapshots', 'hotel_id', 'hotel_id'],
+        ['investment_payback_projects', 'hotel_id', 'hotel_id'],
         ['hotel_operating_evidence_snapshots', 'hotel_id', 'hotel_id'],
 
         // Both sides of a controlled SOP replication are system-hotel aliases.

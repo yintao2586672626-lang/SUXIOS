@@ -52,6 +52,30 @@
   },
   "surfaces": [
     {
+      "id": "investment-payback",
+      "product_chain_stage": "投资人实际资金回本与测算假设",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-investment-payback"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "独立实际资金台账，情景测算不计入实际实收。",
+      "scope_dimensions": ["hotel", "tenant", "project", "business_date", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "partial", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {"path": "resources/frontend/templates/fragments/28a-page-investment-payback.html", "includes": ["investment-payback-page", "investment-payback-view", "managerCapabilityRequest"]},
+        {"path": "public/components/system/investment-payback.js", "includes": ["listError", "detailError", "changeAsOf", "moveCardByKey", "client_request_id"]},
+        {"path": "app/service/InvestmentPaybackService.php", "includes": ["tenant_id", "client_request_id", "expected_version"]}
+      ],
+      "regression_checks": [
+        {"path": "tests/automation/investment_payback_workbench.test.mjs", "includes": ["changing cutoff", "client_request_id", "mainline template registry"]},
+        {"path": "tests/automation/investment_payback_import.test.mjs", "includes": ["selected", "review_token"]},
+        {"path": "tests/automation/investment_scenario_workbench.test.mjs", "includes": ["capabilities", "readback"]}
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "聚焦测试和独立合成账本证明代码范围、失败恢复与保存回读，不证明真实账号、生产部署或经营效果。"
+    },
+    {
       "id": "decision-workbench",
       "product_chain_stage": "AI决策工作台",
       "availability": "active",

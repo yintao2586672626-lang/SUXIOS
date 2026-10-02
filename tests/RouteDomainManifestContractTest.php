@@ -154,6 +154,7 @@ final class RouteDomainManifestContractTest extends TestCase
             'route/domain/online_data_order_analysis.php',
             'route/domain/revenue_ai.php',
             'route/domain/ai_governance.php',
+            'route/domain/investment_payback.php',
             'route/domain/operations.php',
             'route/domain/wecom_admin.php',
             'route/domain/wecom_api.php',

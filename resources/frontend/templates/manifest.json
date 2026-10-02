@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "2ed1097921f370ea8baa822a7bbedaf7945866233f19a6a6995bf8513c4b3032",
-  "source_snapshot_bytes": 1968743,
+  "source_snapshot_sha256": "5151e9cc97cf09a189388ff255ea23ab5425e680e87ecb1599f81f6f4001315b",
+  "source_snapshot_bytes": 1969033,
   "fragments": [
     {
       "id": "app-shell",
@@ -195,6 +195,12 @@
       "domain": "agent-center",
       "path": "fragments/27-page-agent-center.html",
       "anchor": "<div v-if=\"currentPage === 'agent-center'\">"
+    },
+    {
+      "id": "page-investment-payback",
+      "domain": "investment",
+      "path": "fragments/28a-page-investment-payback.html",
+      "anchor": "<div v-if=\"currentPage === 'investment-payback'\" class=\"max-w-7xl mx-auto\" data-testid=\"investment-payback-page\">"
     },
     {
       "id": "page-operation-logs",
