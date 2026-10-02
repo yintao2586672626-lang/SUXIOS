@@ -96,19 +96,70 @@ test('overview rejects cross-scope or non-v2 responses and clears stale scope', 
   assert.match(context.error, /当前酒店、日期和唯一选择合同/);
 });
 
+test('overview ignores a response from a previous login session', async () => {
+  const definition = componentDefinition();
+  let resolveRequest;
+  let sessionEpoch = 1;
+  const context = {
+    ...definition.data(), ...definition.methods,
+    hotelId: '80', businessDate: '2026-08-26',
+    $root: { assistantSessionEpoch: () => sessionEpoch },
+    request: () => new Promise(resolve => { resolveRequest = resolve; }),
+  };
+  const pending = context.loadOverview.call(context);
+  sessionEpoch = 2;
+  resolveRequest({
+    code: 200,
+    data: {
+      system_hotel_id: 80,
+      business_date: '2026-08-26',
+      today_preview: {
+        contract_version: 'daily_one_thing.v2',
+        selection_policy: { full_candidate_list_exposed: false },
+      },
+    },
+  });
+  assert.equal(await pending, null);
+  assert.equal(context.overview, null);
+  assert.equal(context.loadedScope, '');
+  assert.equal(context.loading, false);
+  assert.match(context.error, /登录状态已变化/);
+});
+
+test('overview clears same-scope data from a prior login before refresh', async () => {
+  const definition = componentDefinition();
+  let rejectRequest;
+  const context = {
+    ...definition.data(), ...definition.methods,
+    hotelId: '80', businessDate: '2026-08-26',
+    overview: { stale: true }, loadedScope: '80|2026-08-26', loadedSessionEpoch: 1,
+    $root: { assistantSessionEpoch: () => 2 },
+    request: () => new Promise((resolve, reject) => { rejectRequest = reject; }),
+  };
+  const pending = context.loadOverview.call(context);
+  assert.equal(context.overview, null);
+  assert.equal(context.loadedScope, '');
+  rejectRequest(new Error('读取失败'));
+  assert.equal(await pending, null);
+  assert.equal(context.overview, null);
+  assert.match(context.error, /读取失败/);
+});
+
 test('save requires run, intent, v2 lifecycle, zero writes and exact refresh recovery', async () => {
   const definition = componentDefinition();
   const run = {
-    id: 901, system_hotel_id: 80, business_date: '2026-08-26', feature_key: 'daily_one_thing',
+    id: 901, tenant_id: 7, system_hotel_id: 80, business_date: '2026-08-26', feature_key: 'daily_one_thing',
     input_digest: 'a'.repeat(64), result_digest: 'b'.repeat(64),
+    record_readback_status: 'readback_verified',
   };
   const intent = {
-    id: 301, source_module: 'daily_one_thing', tasks: [],
+    id: 301, tenant_id: 7, hotel_id: 80, source_record_id: 901, source_module: 'daily_one_thing', tasks: [],
     action_management: { contract_version: 'operation_action_card.v2' },
   };
   const context = {
     ...definition.data(), ...definition.methods,
     hotelId: '80', businessDate: '2026-08-26', canSave: true,
+    overview: { tenant_id: 7 },
     request: async () => ({
       code: 200,
       data: {
@@ -117,7 +168,7 @@ test('save requires run, intent, v2 lifecycle, zero writes and exact refresh rec
       },
     }),
     loadOverview: async () => ({
-      today_saved_run: run, today_execution_intent_id: 301, today_state: 'saved_current',
+      tenant_id: 7, today_saved_run: run, today_execution_intent: intent, today_execution_intent_id: 301, today_state: 'saved_current',
     }),
     notify: () => {},
   };

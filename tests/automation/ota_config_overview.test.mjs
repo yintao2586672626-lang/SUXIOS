@@ -1,10 +1,11 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
 const context = { window: {} };
-vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context, {
+vm.runInNewContext(readStaticContractSource('public/data-health-static.js'), context, {
   filename: 'public/data-health-static.js',
 });
 const helpers = context.window.SUXI_DATA_HEALTH_STATIC;

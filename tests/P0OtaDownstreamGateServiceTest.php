@@ -133,6 +133,28 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
         self::assertSame(str_repeat('a', 64), $gate['verifier_report_hash']);
     }
 
+    public function testRuntimeGateRejectsUntrustedStandardTrafficDespiteOldVerifierReceipt(): void
+    {
+        $dataset = $this->dataset(['meituan']);
+        $dataset['fact_ota_traffic'][0]['source_trace'] = [
+            'stored' => true,
+            'readback_verified' => true,
+            'saved_success' => false,
+            'failure_reasons' => ['traffic_date_source_not_authoritative'],
+        ];
+        $gate = (new P0OtaDownstreamGateService())->fromContinuousTrust(
+            '2026-07-22',
+            7,
+            $dataset,
+            $this->continuousTrust([$this->platformTrust('meituan', 'verified', 'ready')]),
+            ['meituan'],
+            $this->authorityReceipt(['meituan'])
+        );
+
+        self::assertSame('blocked_by_p0_ota_gate', $gate['status']);
+        self::assertContains('meituan_target_date_traffic_rows', $gate['blocking_missing_inputs']);
+    }
+
     public function testRuntimeGateRejectsCoreStatusTamperEvenWhenVerifierKeepsTheOldAnchor(): void
     {
         $receipt = $this->authorityReceipt(['ctrip']);
@@ -352,6 +374,7 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
                     'hotel_key' => 'system:7',
                     'platform_key' => $platform,
                     'metric_scope' => 'ota_channel',
+                    'source_trace' => ['stored' => true, 'readback_verified' => true, 'saved_success' => true],
                 ],
                 $platforms
             ),
@@ -360,6 +383,7 @@ final class P0OtaDownstreamGateServiceTest extends TestCase
                     'date_key' => '2026-07-22',
                     'hotel_key' => 'system:7',
                     'platform_key' => $platform,
+                    'source_trace' => ['stored' => true, 'readback_verified' => true, 'saved_success' => true],
                 ],
                 $platforms
             ),

@@ -157,6 +157,15 @@ final class OtaTrafficAttributionServiceTest extends TestCase
             'platform' => 'meituan',
             'compare_type' => 'self',
             'raw_data' => json_encode([
+                'date_source' => 'capture_context.default_data_date',
+                'row' => ['_capture_source' => 'xhr:traffic:traffic'],
+            ]),
+        ], 'meituan'));
+
+        self::assertFalse(OtaTrafficAttributionService::rowBelongsToAuthoritativeP0Traffic([
+            'platform' => 'meituan',
+            'compare_type' => 'self',
+            'raw_data' => json_encode([
                 'date_source' => 'response.rtDataUpdateTime',
                 'row' => ['_capture_source' => 'xhr:traffic:traffic'],
             ]),

@@ -106,6 +106,11 @@ final class OtaCredentialResponseTest extends TestCase
                 return $this->sanitizeStoredOtaConfigListForRuntime($list);
             }
 
+            public function isMeituanMetadata(array $config): bool
+            {
+                return $this->isMeituanOtaConfigMetadata($config);
+            }
+
             public function storedConfigList(string $platform): array
             {
                 return $platform === 'meituan'
@@ -2703,6 +2708,20 @@ final class OtaCredentialResponseTest extends TestCase
         self::assertTrue($sanitized['has_cookies']);
         self::assertArrayNotHasKey('missing_fields', $sanitized);
         self::assertArrayNotHasKey('credential_requirement', $sanitized);
+    }
+
+    public function testMeituanMetadataKeepsLegacyStoreIdsWithoutTreatingRoomCountsAsPlatformIdentity(): void
+    {
+        $harness = $this->otaConfigHarness();
+
+        self::assertTrue($harness->isMeituanMetadata(['store_id' => 'legacy-store-58']));
+        self::assertTrue($harness->isMeituanMetadata(['storeId' => 'legacy-store-58']));
+        self::assertTrue($harness->isMeituanMetadata(['platform' => 'meituan']));
+        self::assertTrue($harness->isMeituanMetadata(['scope' => 'meituan_ota_config']));
+        self::assertFalse($harness->isMeituanMetadata([
+            'hotel_room_count' => 16,
+            'competitor_room_count' => 200,
+        ]));
     }
 
     public function testRuntimeConfigListCacheIsMetadataOnlyAndBlocksLegacySecretRows(): void

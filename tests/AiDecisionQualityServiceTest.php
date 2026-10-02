@@ -155,6 +155,25 @@ final class AiDecisionQualityServiceTest extends TestCase
         self::assertContains('data_basis_verification', $item['decision_quality']['missing_fields']);
     }
 
+    public function testExplicitFailedMeituanReadbackCannotBeOverriddenByTrustedStatus(): void
+    {
+        $item = (new AiDecisionQualityService())->enrichRecommendations([[
+            'title' => '复核美团收益',
+            'action' => '按同店同日的美团渠道口径复核收入，再决定是否调整报价',
+            'expected_effect' => '核对渠道收入事实',
+        ]], [
+            'scope' => 'ota_channel', 'hotel_id' => 7, 'platform' => 'meituan', 'data_date' => '2026-09-26',
+            'evidence_sources' => [[
+                'ref' => 'online_daily_data#901', 'source' => 'online_daily_data',
+                'hotel_id' => 7, 'platform' => 'meituan', 'data_date' => '2026-09-26',
+                'quality_status' => 'readback_verified', 'readback_verified' => false,
+            ]],
+        ])[0];
+        self::assertSame('unverified', $item['data_basis']['status']);
+        self::assertSame('unverified', $item['data_basis']['refs'][0]['quality_status']);
+        self::assertFalse($item['can_create_execution_intent']);
+    }
+
     public function testRecommendationCannotSelfAssertVerifiedEvidence(): void
     {
         $service = new AiDecisionQualityService();

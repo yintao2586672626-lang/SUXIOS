@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import { readSourceAggregate } from './lib/source_aggregate.mjs';
+import { inspectPlatformSyncLogRefreshContract, inspectHomeTrendSamplesContract } from './lib/public_entry_interaction_contract.mjs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import vm from 'node:vm';
@@ -12,7 +14,7 @@ const sourceCache = new Map();
 sourceCache.set(FROZEN_AI_WORKBENCH_SOURCE, readRetiredFrontendFragment('23b-page-ai-workbench.html'));
 const readRaw = (file) => {
   if (!sourceCache.has(file)) {
-    sourceCache.set(file, fs.readFileSync(path.join(root, file), 'utf8'));
+    sourceCache.set(file, readSourceAggregate(file, { repoRoot: root }));
   }
   return sourceCache.get(file);
 };
@@ -687,7 +689,7 @@ requireText('public/index.html', 'scheduleDelayedPageTask(() => {\n             
 requireText('public/index.html', 'loadCompetitorSummary({\n                            includeByHotel: true,\n                            force: options.force === true,\n                            cacheMs: options.force ? 0 : PLATFORM_SOURCE_PANEL_CACHE_TTL_MS,', 'platform source panel short-caches by-hotel competitor summaries during normal tab returns');
 requireText('public/index.html', '}, PLATFORM_SOURCE_SECONDARY_REFRESH_DELAY_MS);\n            };\n\n            const savePlatformDataSource = async () => {', 'platform source panel secondary refreshes use the shared delay constant');
 requireNoText('public/index.html', 'deferUiTask(() => {\n                    if (!shouldRefreshPlatformDataSourcesPanel()) return null;\n                    return Promise.allSettled([\n                        loadPlatformSyncTasks({', 'platform source panel must not use requestIdleCallback for secondary sync/log/resource refreshes');
-requireText('public/index.html', '@click="schedulePlatformSyncLogPanelRefresh({ force: true })"', 'platform source log button uses the non-blocking sync-log scheduler');
+checks.push(inspectPlatformSyncLogRefreshContract(read('public/index.html')));
 requireNoText('public/index.html', "onlineDataTab = 'platform-sources'; loadPlatformDataSourcePanel()", 'platform source tab switches do not double-trigger the heavy data-source panel load');
 requireNoText('public/index.html', 'await loadPlatformDataSourcePanel();', 'platform source mutations do not block on full panel reload');
 requireNoText('public/index.html', 'await Promise.all([loadPlatformDataSources(), loadPlatformSyncTasks(), loadPlatformSyncLogs(), loadPlatformCollectionResources(), loadOnlineDataList()]);', 'platform import completion defers heavy follow-up panel and list refreshes');
@@ -939,7 +941,8 @@ requireText('public/index.html', 'const HOME_SECONDARY_PANEL_DELAY_MS = 4200;', 
 requireText('public/index.html', 'const homeSecondaryPanelsReady = ref(false);', 'home lower panel rendering is gated behind an explicit readiness flag');
 requireText('public/index.html', 'const scheduleHomeSecondaryPanelsReady = (delayMs = HOME_SECONDARY_PANEL_DELAY_MS) => {', 'home lower panel readiness is scheduled and cancellable');
 requireText('public/index.html', 'clearHomeSecondaryPanelsReadyTimer();\n                    clearDualOtaSystemMetricDrilldownHydrationTimer();\n                    homeSecondaryPanelsReady.value = false;\n                    destroyHomeTrendChart();', 'leaving the home page cancels delayed lower-panel rendering');
-requireText('public/index.html', "homeSecondaryPanelsReady.value = false;\n                    scheduleHomeSecondaryPanelsReady();\n                    scheduleDualOtaWorkbenchAutoFetch();\n                    scheduleDualOtaSystemMetricDrilldownHydration();", 'entering the workbench delays lower-panel rendering and schedules OTA collection outside the first interaction window');
+requirePattern('public/index.html', /const scheduleHomeSecondaryPanelsReady = \(delayMs = HOME_SECONDARY_PANEL_DELAY_MS\) => \{[\s\S]*?homeSecondaryPanelsReady\.value = false;\s*if \(!isCompassDataPage\(\)\) return;/, 'lower-panel scheduling closes previously rendered panels before the hydration delay');
+requirePattern('public/index.html', /if \(isCompassDataPage\(newPage\)\) \{\s*scheduleHomeSecondaryPanelsReady\(\);\s*scheduleDualOtaWorkbenchAutoFetch\(\);\s*scheduleDualOtaSystemMetricDrilldownHydration\(\);/, 'entering the workbench schedules delayed panels and OTA collection outside the first interaction window');
 requireText('public/index.html', 'const scheduleDualOtaWorkbenchAutoFetch = (delayMs = 9000) => {', 'dashboard OTA collection waits nine seconds beyond the first measured interaction window');
 requireNoText('public/index.html', "runPageLoadOnce(newPage, 'auto-fetch-static', () => ensureAutoFetchStaticReady())", 'home page first paint must not prewarm auto-fetch-static.js');
 requireNoText('public/index.html', "runPageLoadOnce('compass', 'auto-fetch-static', () => ensureAutoFetchStaticReady(), runOptions)", 'initial compass reload must not prewarm auto-fetch-static.js');
@@ -1625,7 +1628,7 @@ requireText('public/index.html', 'data-testid="data-health-full-diagnostics-deta
 requireText('public/index.html', '<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="data-health-drilldown"', 'data-health drilldown waits for explicit full diagnostics');
 requireText('public/index.html', '<div v-if="dataHealthDetailPanelsReady && dataHealthFullDiagnosticsLoaded" data-testid="mixed-collection-lifecycle-panel"', 'data-health lifecycle diagnostics wait for explicit full diagnostics');
 requireText('public/index.html', 'dataHealthSecondaryPanelsReady, dataHealthDetailPanelsReady, dataHealthEmployeePanelsReady, ctripEbookingModuleCardsReady, ctripEbookingSecondaryPanelsReady, ctripEbookingDeepPanelsReady, ctripEbookingBusinessDetailsReady, ctripEbookingDiagnosticsPanelsReady, handleCtripEbookingDiagnosticsToggle, dashboardHotelId', 'data-health readiness flags are returned for template gating');
-requireText('public/index.html', "currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                dataHealthSecondaryPanelsReady.value = false;\n                scheduleDataHealthSecondaryPanelsReady();\n                dataHealthDetailPanelsReady.value = false;\n                scheduleDataHealthDetailPanelsReady();\n                dataHealthEmployeePanelsReady.value = false;\n                scheduleDataHealthEmployeePanelsReady();\n                scheduleDataHealthPanelRefresh('light');", 'AI daily report data-gap navigation schedules data-health refresh and readiness after the route switch');
+requireText('public/index.html', "currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                dataHealthSecondaryPanelsReady.value = false;\n                scheduleDataHealthSecondaryPanelsReady();\n                dataHealthDetailPanelsReady.value = false;\n                scheduleDataHealthDetailPanelsReady();\n                dataHealthEmployeePanelsReady.value = false;\n                scheduleDataHealthEmployeePanelsReady();\n                scheduleDataHealthPanelRefresh('light', { force: true });", 'AI daily report data-gap navigation schedules a fresh data-health refresh and readiness after the route switch');
 requireNoText('public/index.html', "currentPage.value = 'online-data';\n                onlineDataTab.value = 'data-health';\n                await loadDataHealthPanel('light');", 'AI daily report data-gap navigation must not wait on light data-health refresh');
 requireText('public/index.html', 'const scheduleLatestCtripRefresh', 'entry defers latest Ctrip snapshot refresh after manual collection');
 requireText('public/index.html', 'const scheduleDataHealthPanelRefresh', 'entry defers data-health refresh after manual collection');
@@ -2119,7 +2122,7 @@ requireNoText('public/index.html', 'const normalizePhase1EmployeeMetricDomainSum
 requireText('public/index.html', 'let onlineHistoryHotelListLoadingPromise = null;', 'online history hotel filter options deduplicate in-flight hotel list loads');
 requireText('public/index.html', 'const onlineHistoryHotelListLoaded = ref(false);', 'online history hotel filter options track loaded state');
 requireText('public/index.html', 'const refreshOnlineHistory = async (options = {}) => {', 'online history refresh supports skipping hotel filter reloads');
-requirePattern('public/index.html', /const scheduleOnlineHistoryRefresh = \(\) => schedulePostFetchRefresh\('online-history',[\s\S]{0,240}?refreshOnlineHistory\(\{ refreshHotels: false \}\)[\s\S]{0,100}?, 340\);/, 'post-fetch history refresh does not reload the hotel filter list');
+requirePattern('public/index.html', /const scheduleOnlineHistoryRefresh = \(isCurrent = \(\) => true\) => schedulePostFetchRefresh\('online-history',[\s\S]{0,360}?refreshOnlineHistory\(\{ refreshHotels: false \}\)[\s\S]{0,140}?, 340, isCurrent\);/, 'post-fetch history refresh keeps the session hotel selector cached while preserving request ownership');
 requireNoText('public/index.html', 'await Promise.all([loadOnlineHistory(), loadOnlineHistoryHotelList()]);', 'online history refresh must not always reload the hotel filter list');
 requireNoText('public/index.html', "schedulePostFetchRefresh('online-history', () => refreshOnlineHistory(), 340)", 'post-fetch history refresh must skip hotel filter reloads');
 requireNoText('public/index.html', "params.append('hotel_id', filter.hotel_scope);", 'online history hotel scope query construction is not re-inlined');
@@ -2391,7 +2394,7 @@ requireText('public/index.html', "const formOperationSupportScript = 'form-opera
 requireText('public/index.html', 'const shouldDeferFormOperationSupportLoad = () => isCompassDataPage() || isCoreOtaPageVisible();', 'form operation support does not prewarm on home or core OTA pages');
 requireText('public/index.html', 'const pageDelay = shouldDeferFormOperationSupportLoad() ? 6400 : 5200;', 'form operation support loads after the first core OTA interaction window');
 requireText('public/index.html', 'if (shouldDeferFormOperationSupportLoad()) return;', 'queued form operation support load rechecks page visibility before loading');
-requireText('public/index.html', "const renderHomeTrendChart = (retryCount = 0) => {\n                if (!homeTrendHasSamples.value) {\n                    destroyHomeTrendChart();\n                    return;\n                }\n                const ChartLib = window.Chart;", 'home trend chart does not load Chart.js until usable trend samples exist');
+checks.push(inspectHomeTrendSamplesContract(readRaw('public/app-main.js')));
 requireText('public/index.html', 'const pageTestId = (page) =>', 'entry keeps page test id available before helper loads');
 requireText('public/testid-static.js', 'assignPageControlTestIds', 'page controls receive generated stable test ids');
 requireText('public/testid-static.js', 'normalizeTestIdSegment', 'test id helper keeps stable segment normalization');

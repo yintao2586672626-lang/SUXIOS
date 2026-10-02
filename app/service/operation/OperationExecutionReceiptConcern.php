@@ -289,4 +289,85 @@ trait OperationExecutionReceiptConcern
 
         return false;
     }
+
+    /**
+     * Keep a non-sensitive receipt visible after protected-response redaction removes
+     * the raw evidence payload for non-super-admin operators.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return array{count: int, types: array<int, string>, latest_type: string, latest_at: string}
+     */
+    private function buildSafeExecutionEvidenceSummary(array $rows, array $task = [], array $intent = []): array
+    {
+        return $this->executionFlowReadService->buildSafeEvidenceSummary($rows, $task, $intent);
+    }
+
+    private function normalizeExecutionIntentRow(array $row): array
+    {
+        $row['id'] = (int)$row['id'];
+        $row['source_module'] = $this->canonicalExecutionSourceModule($row['source_module'] ?? '');
+        $row['hotel_id'] = (int)$row['hotel_id'];
+        $row['source_record_id'] = (int)($row['source_record_id'] ?? 0);
+        $row['expected_delta'] = ($row['expected_delta'] ?? null) === null
+            ? null
+            : (float)$row['expected_delta'];
+        $row['current_value'] = $this->decodeJson((string)($row['current_value_json'] ?? ''));
+        $row['target_value'] = $this->decodeJson((string)($row['target_value_json'] ?? ''));
+        $row['evidence'] = $this->decodeJson((string)($row['evidence_json'] ?? ''));
+        unset($row['idempotency_key'], $row['current_value_json'], $row['target_value_json'], $row['evidence_json']);
+
+        $sanitized = $this->sanitizeLegacyExecutionValue($row);
+        return is_array($sanitized) ? $sanitized : [];
+    }
+
+    private function normalizeExecutionTaskRow(array $row): array
+    {
+        $rawSummary = is_string($row['result_summary'] ?? null) ? $row['result_summary'] : null;
+        unset($row['result_summary_sha256']);
+        $row['id'] = (int)$row['id'];
+        $row['intent_id'] = (int)$row['intent_id'];
+        $row['hotel_id'] = (int)$row['hotel_id'];
+        $row['operator_id'] = (int)($row['operator_id'] ?? 0);
+        $row['action_track_id'] = (int)($row['action_track_id'] ?? 0);
+        $row['current_value'] = $this->decodeJson((string)($row['current_value_json'] ?? ''));
+        $row['target_value'] = $this->decodeJson((string)($row['target_value_json'] ?? ''));
+        unset($row['current_value_json'], $row['target_value_json']);
+
+        $sanitized = $this->sanitizeLegacyExecutionValue($row);
+        if (is_array($sanitized) && $rawSummary !== null) {
+            try {
+                $this->assertExecutionPayloadHasNoCredentialMaterial($rawSummary);
+                $decodedSummary = json_decode($rawSummary, true);
+                if (is_array($decodedSummary)) {
+                    $this->assertExecutionPayloadHasNoCredentialMaterial($decodedSummary);
+                }
+                $displaySummary = $sanitized['result_summary'] ?? null;
+                $unchangedValues = is_array($decodedSummary)
+                    ? $this->sanitizeLegacyExecutionValue($decodedSummary, 2) === $decodedSummary
+                    : $displaySummary === $rawSummary;
+                // Attest stored text only when existing safety filtering changed no field values.
+                if ($unchangedValues) {
+                    $sanitized['result_summary_sha256'] = hash('sha256', $rawSummary);
+                }
+            } catch (\InvalidArgumentException) {
+                // Historical credential material remains redacted and must expose no raw-text digest.
+            }
+        }
+        return is_array($sanitized) ? $sanitized : [];
+    }
+
+    private function normalizeExecutionEvidenceRow(array $row): array
+    {
+        $row['id'] = (int)$row['id'];
+        $row['task_id'] = (int)$row['task_id'];
+        $row['created_by'] = (int)($row['created_by'] ?? 0);
+        $row['before'] = $this->decodeJson((string)($row['before_json'] ?? ''));
+        $row['after'] = $this->decodeJson((string)($row['after_json'] ?? ''));
+        $row['platform_response'] = $this->decodeJson((string)($row['platform_response_json'] ?? ''));
+        unset($row['before_json'], $row['after_json'], $row['platform_response_json']);
+
+        $sanitized = $this->sanitizeLegacyExecutionValue($row);
+        return is_array($sanitized) ? $sanitized : [];
+    }
+
 }

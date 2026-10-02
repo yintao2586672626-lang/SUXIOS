@@ -74,8 +74,8 @@ final class DailyReportTest extends TestCase
     {
         $controller = $this->controller();
         $reports = [
-            (object)['report_data' => ['xb_revenue' => '1,200', 'mt_revenue' => 'bad', 'xb_rooms' => 3]],
-            (object)['report_data' => ['xb_revenue' => 800, 'mt_revenue' => '100.5', 'xb_rooms' => '2']],
+            (object)['status' => DailyReportModel::STATUS_SUBMITTED, 'report_data' => ['xb_revenue' => '1,200', 'mt_revenue' => 'bad', 'xb_rooms' => 3]],
+            (object)['status' => DailyReportModel::STATUS_SUBMITTED, 'report_data' => ['xb_revenue' => 800, 'mt_revenue' => '100.5', 'xb_rooms' => '2']],
         ];
 
         $sum = $this->invokeNonPublic($controller, 'calculateMonthSum', [$reports]);
@@ -88,16 +88,39 @@ final class DailyReportTest extends TestCase
         self::assertSame(1, $sum['__evidence']['field_counts']['mt_revenue']);
 
         $invalidOnly = $this->invokeNonPublic($controller, 'calculateMonthSum', [[
-            (object)['report_data' => ['xb_revenue' => '']],
+            (object)['status' => DailyReportModel::STATUS_SUBMITTED, 'report_data' => ['xb_revenue' => '']],
         ]]);
         self::assertArrayNotHasKey('xb_revenue', $invalidOnly);
+    }
+
+    public function testMonthlyHelpersRejectDraftAndUnknownStatusWithoutZeroFilling(): void
+    {
+        $controller = $this->controller();
+        $reports = [
+            (object)['status' => 2, 'report_date' => '2026-11-01', 'report_data' => ['revenue' => 100]],
+            (object)['status' => '2', 'report_date' => '2026-11-02', 'report_data' => '{"revenue":50}'],
+            (object)['status' => 1, 'report_date' => '2026-11-03', 'report_data' => ['revenue' => 900]],
+            (object)['report_date' => '2026-11-04', 'report_data' => ['revenue' => 800]],
+            (object)['status' => '2oops', 'report_date' => '2026-11-05', 'report_data' => ['revenue' => 700]],
+        ];
+        $sum = $this->invokeNonPublic($controller, 'calculateMonthSum', [$reports]);
+        self::assertSame(150.0, $sum['revenue']);
+        self::assertSame(2, $sum['__evidence']['report_count']);
+        $coverage = $this->invokeNonPublic($controller, 'calculateMonthCoverage', [$reports, '2026-11-05']);
+        self::assertSame(2, $coverage['observed_days']);
+        self::assertSame(['2026-11-03', '2026-11-04', '2026-11-05'], $coverage['missing_dates']);
+        self::assertSame('partial', $coverage['data_status']);
+        $unsubmitted = array_slice($reports, 2);
+        $empty = $this->invokeNonPublic($controller, 'calculateMonthSum', [$unsubmitted]);
+        self::assertArrayNotHasKey('revenue', $empty);
+        self::assertSame(0, $empty['__evidence']['report_count']);
     }
 
     public function testLegacyJsonReportDataFeedsMonthSumAndExportTotals(): void
     {
         $controller = $this->controller();
         $reports = [
-            (object)['report_data' => json_encode([
+            (object)['status' => DailyReportModel::STATUS_SUBMITTED, 'report_data' => json_encode([
                 'xb_revenue' => '1,200',
                 'xb_rooms' => 3,
                 'online_revenue' => 1200,
@@ -113,7 +136,7 @@ final class DailyReportTest extends TestCase
                 'hourly_rooms' => 0,
                 'salable_rooms' => 10,
             ], JSON_UNESCAPED_UNICODE)],
-            (object)['report_data' => (object)[
+            (object)['status' => DailyReportModel::STATUS_SUBMITTED, 'report_data' => (object)[
                 'mt_revenue' => 800,
                 'mt_rooms' => '2',
                 'online_revenue' => 800,
@@ -460,13 +483,13 @@ final class DailyReportTest extends TestCase
     {
         $controller = $this->controller();
         $monthSum = $this->invokeNonPublic($controller, 'calculateMonthSum', [[
-            (object)['report_data' => [
+            (object)['status' => DailyReportModel::STATUS_SUBMITTED, 'report_data' => [
                 'revenue' => 100,
                 'room_revenue' => 100,
                 'total_rooms' => 1,
                 'salable_rooms' => 10,
             ]],
-            (object)['report_data' => [
+            (object)['status' => DailyReportModel::STATUS_SUBMITTED, 'report_data' => [
                 'room_revenue' => 100,
                 'total_rooms' => 1,
                 'salable_rooms' => 10,

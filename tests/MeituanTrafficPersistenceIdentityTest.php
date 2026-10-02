@@ -92,6 +92,65 @@ final class MeituanTrafficPersistenceIdentityTest extends TestCase
                 $platformIdentity->invoke(new TrustedOtaFactRepository(), $row, is_array($raw) ? $raw : [])
             );
 
+            // A legacy row carrying another tenant's id must not be reassigned
+            // when this hotel's traffic is collected again.
+            $foreignId = (int)$row['id'];
+            Db::name('online_daily_data')->where('id', $foreignId)->update([
+                'tenant_id' => 9, 'list_exposure' => 999, 'readback_verified' => 0,
+            ]);
+            self::assertSame(1, $service->parseAndSaveTrafficData(
+                $response, '2026-08-26', '2026-08-26', 'meituan', 80,
+                'meituan', '1029642156589279', 'manual_cookie_api'
+            ));
+            $foreign = Db::name('online_daily_data')->where('id', $foreignId)->find();
+            self::assertSame(9, (int)$foreign['tenant_id']);
+            self::assertSame(999, (int)$foreign['list_exposure']);
+            $trusted = Db::name('online_daily_data')
+                ->where('tenant_id', 8)->where('data_date', '2026-08-26')->find();
+            self::assertIsArray($trusted);
+            self::assertNotSame($foreignId, (int)$trusted['id']);
+            self::assertSame(1, (int)$trusted['readback_verified']);
+
+            $wrongDateResponse = $response;
+            $wrongDateResponse['data']['list'][0]['dataDate'] = '2026-08-27';
+            self::assertSame(0, $service->parseAndSaveTrafficData(
+                $wrongDateResponse,
+                '2026-08-26',
+                '2026-08-26',
+                'meituan',
+                80,
+                'meituan',
+                '1029642156589279',
+                'manual_cookie_api'
+            ));
+            self::assertSame(0, Db::name('online_daily_data')->where('data_date', '2026-08-27')->count());
+            self::assertSame(1, $service->parseAndSaveTrafficData(
+                $wrongDateResponse,
+                '2026-08-26',
+                '2026-08-27',
+                'meituan',
+                80,
+                'meituan',
+                '1029642156589279',
+                'manual_cookie_api'
+            ));
+            self::assertSame(1, (int)Db::name('online_daily_data')
+                ->where('data_date', '2026-08-27')->value('readback_verified'));
+
+            $undatedResponse = $response;
+            unset($undatedResponse['data']['list'][0]['dataDate']);
+            self::assertSame(0, $service->parseAndSaveTrafficData(
+                $undatedResponse,
+                '2026-08-25',
+                '2026-08-27',
+                'meituan',
+                80,
+                'meituan',
+                '1029642156589279',
+                'manual_cookie_api'
+            ));
+            self::assertSame(0, Db::name('online_daily_data')->where('data_date', '2026-08-25')->count());
+
             try {
                 $service->parseAndSaveTrafficData(
                     $response,

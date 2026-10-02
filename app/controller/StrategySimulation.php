@@ -28,14 +28,23 @@ class StrategySimulation extends Base
                 return $this->error('战略推演数据表缺失: ' . implode(', ', $missingTables), 500);
             }
 
-            $query = StrategySimulationRecord::whereNull('deleted_at');
-            $this->applyTenantScope($query);
-            if (!$this->currentUser->isSuperAdmin()) {
-                $query->where('created_by', (int)($this->currentUser->id ?? 0));
-            }
-
-            $rows = $query->order('id', 'desc')->limit(30)->select()->toArray();
-            $list = array_values(array_map(fn(array $row): array => $this->formatRecord($row, false), $rows));
+            $list = [];
+            $beforeId = null;
+            do {
+                $query = StrategySimulationRecord::whereNull('deleted_at');
+                $this->applyTenantScope($query);
+                if (!$this->currentUser->isSuperAdmin()) {
+                    $query->where('created_by', (int)($this->currentUser->id ?? 0));
+                }
+                if ($beforeId !== null) $query->where('id', '<', $beforeId);
+                $rows = $query->order('id', 'desc')->limit(100)->select()->toArray();
+                foreach ($rows as $row) {
+                    $beforeId = (int)$row['id'];
+                    if (!$this->canReadHistoryHotel($row)) continue;
+                    $list[] = $this->formatRecord($row, false);
+                    if (count($list) >= 30) break 2;
+                }
+            } while (count($rows) === 100 && $beforeId > 0);
             $list = (new SimulationExecutionBridgeService())->attachToRecords(
                 $list,
                 'strategy_simulation',
@@ -68,7 +77,11 @@ class StrategySimulation extends Base
                 return $this->error('战略推演记录不存在或无权访问', 404);
             }
 
-            $record = $this->formatRecord($row->toArray(), true);
+            $row = $row->toArray();
+            if (!$this->canReadHistoryHotel($row)) {
+                return $this->error('战略推演记录不存在或无权访问', 404);
+            }
+            $record = $this->formatRecord($row, true);
             $record = (new SimulationExecutionBridgeService())->attachToRecord(
                 $record,
                 'strategy_simulation',
@@ -198,6 +211,36 @@ class StrategySimulation extends Base
         ))));
     }
 
+    /** Historical unbound plans retain tenant/creator access; explicit hotel identity must be authorized. */
+    private function canReadHistoryHotel(array $row): bool
+    {
+        $record = ['input' => $this->decodeJson($row['input_json'] ?? []),
+            'data_snapshot' => $this->decodeJson($row['data_snapshot_json'] ?? [])];
+        $hasHotel = false;
+        foreach ($record as $container) {
+            foreach (['hotel_id', 'system_hotel_id', 'target_hotel_id'] as $field) {
+                $value = $container[$field] ?? null;
+                if (in_array($value, [null, '', 0, '0'], true)) continue;
+                if ((!is_int($value) && !is_string($value))
+                    || filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
+                    return false;
+                }
+                $hasHotel = true;
+            }
+        }
+        if (!$hasHotel) return true;
+        try {
+            $hotelId = (new SimulationExecutionReadinessService())->strategyExecutionHotelId($record);
+            $requestedHotelId = (int)$this->request->param('hotel_id', 0);
+            if ($requestedHotelId > 0 && $requestedHotelId !== $hotelId) return false;
+            if ($this->currentUser->isSuperAdmin()) return true;
+            return in_array($hotelId, $this->executionBridgeHotelIds(), true)
+                && $this->currentUser->hasHotelPermission($hotelId, 'can_use_investment');
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
     private function tenantIdForCurrentUser(): ?int
     {
         $userId = (int)($this->currentUser->id ?? 0);
@@ -234,7 +277,6 @@ class StrategySimulation extends Base
     {
         $requiredTables = [
             'strategy_simulation_records',
-            'strategy_data_snapshots',
         ];
 
         return array_values(array_filter($requiredTables, fn (string $table): bool => !$this->tableExists($table)));

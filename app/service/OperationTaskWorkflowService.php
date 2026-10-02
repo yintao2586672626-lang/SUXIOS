@@ -227,6 +227,7 @@ final class OperationTaskWorkflowService
             $s['task_status'] = $action === 'return' ? 'returned' : 'reopened';
             $s['blocked_reason'] = $this->text($in['reason'] ?? '', '退回或重开原因');
             $s['cycle']++;
+            unset($s['completed_at']);
             $s['execution_records'] = [];
             $s['verification'] = ['status' => 'pending', 'reason' => '新轮次需要重新核实'];
             $s['review'] = ['status' => 'pending', 'effect_status' => 'unestablished', 'causality_claimed' => false];
@@ -453,12 +454,17 @@ final class OperationTaskWorkflowService
 
     private function assertDependencies(array $s, array $hotels): void
     {
-        foreach ($s['dependencies'] as $id) {
-            $d = $this->dependencyState($id, $s);
+        $states = [];
+        $visit = function (int $id, array $path) use (&$visit, &$states, $s): void {
+            if ($id === $s['task_id'] || in_array($id, $path, true)) throw new InvalidArgumentException('任务依赖形成循环');
+            if (count($path) > 60) throw new InvalidArgumentException('依赖层级过深');
+            $d = $states[$id] ??= $this->dependencyState($id, $s);
             if ($d['approval_status'] !== 'approved' || $d['task_status'] !== 'completed' || $d['verification']['status'] !== 'manual_verified') {
                 throw new InvalidArgumentException('前置任务 #' . $id . ' 尚未完成并核实');
             }
-        }
+            foreach ($d['dependencies'] as $child) $visit($child, [...$path, $id]);
+        };
+        foreach ($s['dependencies'] as $id) $visit($id, []);
     }
 
     private function nextStep(array $s, array $hotels, bool $live): array

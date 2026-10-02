@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const source = readFileSync('public/app-main.js', 'utf8');
+const source = readFileSync(process.env.SUXI_AUTH_DASHBOARD_SOURCE || 'public/app-main.js', 'utf8');
 const systemSource = readFileSync('public/system-static.js', 'utf8');
 const onlineDataTemplate = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
 const hotelManagementTemplate = readFileSync('resources/frontend/templates/fragments/18-page-hotels.html', 'utf8');
@@ -647,7 +647,7 @@ test('hotel management ignores a delayed response after its auth session and req
 test('platform data sources preserve only a verified snapshot when refresh fails', async () => {
   const loaderSource = sliceBetween(
     'const loadPlatformDataSources = async (options = {}) => {',
-    'const loadPlatformSyncTasks = async (options = {}) => {',
+    'const loadPlatformSyncHistoryPage = async (kind, options = {}) => {',
   );
   const createHarness = (request) => {
     const sessionState = { epoch: 1, token: 'token-a' };
@@ -857,7 +857,9 @@ test('Agent and OTA diagnosis async results reject stale sessions and hotels', (
   assert.match(profilePoll, /if \(!isPlatformProfilePollCurrent\(requestSession, requestHotelId\)\) return;/);
   assert.match(revenueActions, /const generatePriceSuggestions = async \(\) => \{[\s\S]*const requestContext = captureAgentRevenueRequestContext/);
   assert.match(revenueActions, /const createPriceSuggestionExecutionIntent = async \(id\) => \{[\s\S]*if \(!isAgentRevenueRequestCurrent\(requestContext\)\) return;/);
-  assert.match(revenueActions, /const reviewPriceSuggestion = async \(id\) => \{[\s\S]*if \(!isAgentRevenueRequestCurrent\(requestContext\)\) return;/);
+  const priceReview = sliceBetween('const reviewPriceSuggestion = async (id) => {', '// 加载Agent日志');
+  assert.match(priceReview, /const isCurrentRequest = \(\) =>[\s\S]*isAgentRevenueRequestCurrent\(requestContext\)/);
+  assert.match(priceReview, /if \(!isCurrentRequest\(\)\) return;/);
 });
 
 test('revenue loader failures clear old values and expose a persistent failure or empty state', () => {
@@ -885,8 +887,21 @@ test('revenue loader failures clear old values and expose a persistent failure o
   assert.match(loaders, /revenueDashboard\.value = createEmptyRevenueDashboard\(\);/);
   assert.match(loaders, /demandForecasts\.value = \[\];/);
   assert.match(loaders, /priceSuggestions\.value = \[\];/);
-  assert.match(loaders, /setRevenueLoadState\('analysis', 'failed'/);
-  assert.match(loaders, /if \(!isAgentRevenueRequestCurrent\(requestContext\)\) return/);
+  assert.match(loaders, /applyRevenueAnalysisReadback\(null, 'failed'/);
+  const analysis = { value: { statistics: { stale: 99 } } };
+  const states = [];
+  const applyAnalysis = compileScopedFunction(sliceBetween(
+    'const applyRevenueAnalysisReadback =', 'const loadRevenueDashboard =',
+  ), 'applyRevenueAnalysisReadback', {
+    revenueAnalysisData: analysis,
+    createEmptyRevenueAnalysisData: () => ({ statistics: {}, revpar_trend: [], pricing_strategies: [], room_types: [] }),
+    setRevenueLoadState: (...args) => states.push(args),
+  });
+  applyAnalysis(null, 'failed', 'synthetic failure');
+  assert.deepEqual(analysis.value.statistics, {});
+  assert.deepEqual(states, [['analysis', 'failed', 'synthetic failure']]);
+  assert.match(loaders, /const isCurrentRequest = \(\) => isAgentRevenueRequestCurrent\(requestContext\)/);
+  assert.match(loaders, /if \(!isCurrentRequest\(\)\) return/);
   assert.match(notice, /收益数据读取失败/);
   assert.match(notice, /已清除上一会话或上一酒店数据/);
   assert.match(notice, /收益数据读取中/);

@@ -215,11 +215,40 @@ test('daily one thing shows explainable personal preview and keeps feedback non-
 
   await page.route('**/api/operating-opportunities/daily-preview/feedback', async route => {
     const payload = route.request().postDataJSON();
+    const personal = selected(Number(payload.hotel_id), 'gap:meituan:core_facts', 'meituan');
+    expect(payload.business_date).toBe(businessDate);
+    expect(payload.expected_selection_digest).toBe(personal.content_digest);
+    expect(payload.expected_context_digest).toBe('e'.repeat(64));
+    expect(payload.expected_decision_digest).toBe('f'.repeat(64));
     feedbackCalls.push(payload);
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ code: 200, message: 'ok', data: {
+        contract_version: 'daily_one_thing_personalization_feedback.v1',
+        selected_candidate_key: personal.candidate_key,
+        selection_digest: personal.content_digest,
+        context_digest: 'e'.repeat(64),
+        decision_digest: 'f'.repeat(64),
+        feedback: {
+          id: 1901,
+          suggestion_id: 1801,
+          tenant_id: personal.scope.tenant_id,
+          user_id: 1,
+          hotel_id: personal.scope.hotel_id,
+          feedback_status: payload.feedback_status,
+          reason_code: payload.reason_code,
+          feedback_payload: { business_date: businessDate },
+          readback_verified: true,
+        },
+        snapshot: {
+          id: 1801,
+          suggestion_payload: {
+            business_date: businessDate,
+            candidate_key: personal.candidate_key,
+            candidate_material_digest: personal.material_identity_digest,
+          },
+        },
         readback_verified: true,
         system_hotel_id: Number(payload.hotel_id),
         business_date: payload.business_date,
@@ -254,6 +283,8 @@ test('daily one thing shows explainable personal preview and keeps feedback non-
   await expect.poll(() => feedbackCalls.length).toBe(1);
   expect(feedbackCalls[0].feedback_status).toBe('accepted');
   expect(feedbackCalls[0].reason_code).toBe('useful');
+  await expect(page.getByTestId('daily-one-thing-preview-feedback').getByRole('status')).toContainText('已记录：这个重点合适');
+  await expect(page.getByTestId('daily-one-thing-feedback-useful')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('daily-one-thing-feedback-wrong-focus')).toBeDisabled();
 
   const overflow = await page.getByTestId('daily-one-thing-workbench').evaluate(node => node.scrollWidth - node.clientWidth);

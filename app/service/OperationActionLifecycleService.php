@@ -1336,7 +1336,9 @@ final class OperationActionLifecycleService
         }
         $card = $this->cardFromIntent($intent);
         $metricKey = strtolower(trim((string)($intent['expected_metric'] ?? '')));
-        $metricUnit = trim((string)($card['metric_contract']['unit'] ?? ''));
+        $targetValue = is_array($intent['target_value'] ?? null)
+            ? $intent['target_value'] : $this->decodeJson($intent['target_value_json'] ?? null);
+        $metricUnit = trim((string)($targetValue['metric_definition']['unit'] ?? $card['metric_contract']['unit'] ?? ''));
         $sourceEvidence = null;
         $executionRefs = [];
         foreach ($evidenceRows as $row) {
@@ -1364,10 +1366,15 @@ final class OperationActionLifecycleService
             $after = is_array($sourceEvidence['after'] ?? null) ? $sourceEvidence['after'] : [];
             $sourceMetric = strtolower(trim((string)($sourceContext['metric_key'] ?? '')));
             $sourceUnit = trim((string)($sourceContext['metric_unit'] ?? ''));
+            $unitMatches = $sourceUnit === $metricUnit
+                || ($sourceUnit === 'visitor_count' && $metricUnit === 'unique_users'
+                    && \app\service\operation\OperationMetricUnitCompatibilityService::matches(
+                        $intent, (array)($targetValue['metric_definition'] ?? []), $sourceUnit
+                    ));
             if (($sourceContext['readback_verified'] ?? false) === true
                 && ($sourceContext['database_written'] ?? false) === true
                 && $sourceMetric === $metricKey
-                && $sourceUnit === $metricUnit
+                && $unitMatches
                 && is_numeric($before[$metricKey] ?? null)
                 && is_numeric($after[$metricKey] ?? null)
                 && $metricUnit !== ''
@@ -1376,7 +1383,7 @@ final class OperationActionLifecycleService
                 $afterValue = round((float)$after[$metricKey], 6);
                 $sufficiency = 'sufficient';
             } elseif (($sourceMetric !== '' && $sourceMetric !== $metricKey)
-                || ($sourceUnit !== '' && $sourceUnit !== $metricUnit)
+                || ($sourceUnit !== '' && !$unitMatches)
             ) {
                 $sufficiency = 'mismatched';
                 $reasons[] = $sourceMetric !== $metricKey

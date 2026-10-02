@@ -187,6 +187,30 @@ SQL);
         self::assertSame(400.0, $dataset['fact_ota_daily'][0]['revenue']);
     }
 
+    public function testStrictReadbackRejectsCrossChannelIdentityButKeepsQunarSubchannel(): void
+    {
+        $conflict = $this->row(4, 400, 1, 'verified');
+        $conflict['history_status'] = 'success';
+        $conflict['platform'] = 'meituan';
+        $qunar = $this->row(5, 500, 1, 'verified');
+        $qunar['history_status'] = 'success';
+        $qunar['platform'] = 'qunar';
+        Db::name('online_daily_data')->insertAll([$conflict, $qunar]);
+
+        $meituanDataset = (new OtaStandardEtlService())->buildDataset([
+            'system_hotel_id' => 80, 'source' => 'meituan',
+            'start_date' => '2026-07-18', 'end_date' => '2026-07-18',
+            'strict_readback_only' => true,
+        ]);
+        $qunarDataset = (new OtaStandardEtlService())->buildDataset([
+            'system_hotel_id' => 80, 'source' => 'qunar',
+            'start_date' => '2026-07-18', 'end_date' => '2026-07-18',
+            'strict_readback_only' => true,
+        ]);
+        self::assertSame([], $meituanDataset['fact_ota_daily']);
+        self::assertSame([5], array_column(array_column($qunarDataset['fact_ota_daily'], 'source_trace'), 'row_id'));
+    }
+
     /** @return array<string, mixed> */
     private function row(int $id, float $amount, int $readbackVerified, string $validationStatus): array
     {

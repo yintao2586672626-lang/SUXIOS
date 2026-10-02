@@ -22,6 +22,8 @@ const {
   normalizeGrowthMetric,
   OperatingGrowthArchive,
 } = context.window.SUXI_OPERATING_GROWTH_STATIC;
+const componentDefaults = Object.fromEntries(Object.entries(OperatingGrowthArchive.props).map(([key, prop]) => [key,
+  typeof prop.default === 'function' ? prop.default() : prop.default]));
 
 const verifiedSummary = {
   archive_count: { value: 3, available: true },
@@ -195,11 +197,13 @@ test('missing event facts remain explicitly missing and never become empty succe
 test('component exposes the page header, truthful timeline actions and callback-driven filters', () => {
   const emitted = [];
   const vnode = OperatingGrowthArchive.render.call({
+    ...componentDefaults,
     model: build(),
     showEventForm: false,
     eventDraft: {},
     saving: false,
     busyActionId: '',
+    annotationStates: {}, milestoneStates: {}, annotationSaving: false, milestoneSaving: false,
     $emit: (...args) => emitted.push(args),
   });
 
@@ -225,6 +229,7 @@ test('component exposes the page header, truthful timeline actions and callback-
 test('manual event form locks hotel context and emits every required field without claiming save success', () => {
   const emitted = [];
   const vnode = OperatingGrowthArchive.render.call({
+    ...componentDefaults,
     model: build(),
     showEventForm: true,
     eventDraft: {
@@ -236,6 +241,7 @@ test('manual event form locks hotel context and emits every required field witho
       ownerJudgment: '',
     },
     saving: false,
+    annotationStates: {}, milestoneStates: {}, annotationSaving: false, milestoneSaving: false,
     busyActionId: '',
     $emit: (...args) => emitted.push(args),
   });

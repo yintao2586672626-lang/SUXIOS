@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ vm.runInNewContext(revenueCockpitStaticSource, context, {
 vm.runInNewContext(readFileSync('public/revenue-ai-static.js', 'utf8'), context, {
   filename: 'public/revenue-ai-static.js',
 });
-vm.runInNewContext(readFileSync('public/data-health-static.js', 'utf8'), context, {
+vm.runInNewContext(readStaticContractSource('public/data-health-static.js'), context, {
   filename: 'public/data-health-static.js',
 });
 
@@ -51,6 +52,7 @@ const createRevenueAiGapNavigationHarness = (initialFilter = {}, harnessOptions 
     "  const agentTab = { value: '' };",
     "  const revenueAgentTab = { value: '' };",
     '  const events = [];',
+    '  let revenueAiGapNavigationSeq = 0;',
     '  const scopeSnapshot = () => ({',
     '    hotel_id: onlineDataFilter.value.hotel_id,',
     '    source: onlineDataFilter.value.source,',
@@ -60,6 +62,10 @@ const createRevenueAiGapNavigationHarness = (initialFilter = {}, harnessOptions 
     "  const ensureRevenueAiStaticReady = async () => true;",
     "  const showToast = () => {};",
     "  const resetCoreOperationsScopedState = () => events.push({ kind: 'reset-core-scope' });",
+    '  let coreOperationsRequestSeq = 0, dailyWorkbenchRequestSeq = 0, dailyWorkbenchPatrolRequestSeq = 0, phase3OperationEffectLoopRequestSeq = 0, competitorSummaryRequestSeq = 0;',
+    '  const dailyWorkbenchLoading = {value:false}, dailyWorkbenchPatrolLoading = {value:false}, phase3OperationEffectLoopLoading = {value:false}, competitorSummaryLoading = {value:false};',
+    appMain.slice(appMain.indexOf('const invalidateCoreOperationsScopedState ='), appMain.indexOf('const refreshCoreOperationsLoop =', appMain.indexOf('const invalidateCoreOperationsScopedState ='))),
+    appMain.slice(appMain.indexOf('const applyRevenueAiEvidenceScope ='), appMain.indexOf('let revenueAiGapNavigationSeq =', appMain.indexOf('const applyRevenueAiEvidenceScope ='))),
     '  const applyGeneralHotelToPlatformContext = async (platform, hotelId) => {',
     "    events.push({ kind: 'platform-context', platform, hotelId, scope: scopeSnapshot(), page: currentPage.value });",
     '    if (harnessOptions.platformContextResult === false) return false;',
@@ -233,7 +239,7 @@ test('Revenue AI entry lazy-loads the versioned helper outside the startup chain
   assert.match(appMain, /buildAiDailyFactGate: \(\) => \(\{[\s\S]*status: 'not_loaded'[\s\S]*configuredCount: null/);
   assert.match(appMain, /aiDailyReportActionExecutionReady: \(\) => false/);
   assert.match(appMain, /const HOME_SECONDARY_PANEL_DELAY_MS = 4200;/);
-  assert.match(appMain, /ensureHomeSecondaryStaticRuntimeReady\(\)[\s\S]*ensureRevenueAiStaticReady\(\)[\s\S]*homeSecondaryPanelsReady\.value = isCompassDataPage\(\);[\s\S]*homeSecondaryPanelsReady\.value \? loadRevenueAiOverview\(\) : null/);
+  assert.match(appMain, /await ensureHomeSecondaryStaticRuntimeReady\(\);\s*if \(!isCurrent\(\)\) return;\s*await ensureRevenueAiStaticReady\(\);\s*if \(!isCurrent\(\)\) return;\s*homeSecondaryPanelsReady\.value = true;\s*await loadRevenueAiOverview\(\);/);
   assert.match(appMain, /if \(newPage === 'agent-center'\) \{[\s\S]*runPageLoadOnce\(newPage, 'revenue-ai-static', \(\) => ensureRevenueAiStaticReady\(\)\)/);
   assert.match(appMain, /if \(newPage === 'ai-daily-report'\) \{[\s\S]*await ensureRevenueAiStaticReady\(\);[\s\S]*return loadAiDailyReport\(\);/);
   assert.match(html, /requireRevenueAiStatic\('buildRevenueAiBusinessClosure'\)/);
@@ -343,17 +349,22 @@ test('AI daily explanation stays optional and separate from the rule summary', (
 });
 
 test('AI daily report metric cards bind per-metric truth without global OTA promotion', () => {
-  const truthStart = appMain.indexOf('const aiDailyReportTruthStatusLabel');
-  const truthEnd = appMain.indexOf('const aiDailyReportActions', truthStart);
+  const presentationSource = readFileSync('public/ai-daily-report-static.js', 'utf8');
+  const truthStart = presentationSource.indexOf('const aiDailyReportTruthStatusLabel');
+  const truthEnd = presentationSource.indexOf('const aiDailyReportActions', truthStart);
   assert.ok(truthStart >= 0 && truthEnd > truthStart, 'AI daily metric truth block must exist');
-  const truthBlock = appMain.slice(truthStart, truthEnd);
+  const truthBlock = presentationSource.slice(truthStart, truthEnd);
+  const scopeStart = revenueAiStaticSource.indexOf('const aiDailyReportExpandScope');
+  const scopeEnd = revenueAiStaticSource.indexOf('const aiDailyReportActionSources', scopeStart);
+  assert.ok(scopeStart >= 0 && scopeEnd > scopeStart, 'AI daily source scope helpers must exist in the lazy module');
+  const scopeBlock = revenueAiStaticSource.slice(scopeStart, scopeEnd);
 
   assert.match(truthBlock, /metric\.truth[\s\S]*metric\.truth_context/);
   assert.match(truthBlock, /aiDailyReport\.value\?\.source_refs/);
   assert.match(truthBlock, /metric_keys/);
-  assert.match(truthBlock, /metric\.metric_scopes/);
-  assert.match(truthBlock, /daily_reports#\\d\+/);
-  assert.match(truthBlock, /online_daily_data#\\d\+/);
+  assert.match(scopeBlock, /metric\.metric_scopes/);
+  assert.match(scopeBlock, /daily_reports#\\d\+/);
+  assert.match(scopeBlock, /online_daily_data#\\d\+/);
   assert.match(truthBlock, /readback_verified/);
   assert.doesNotMatch(truthBlock, /snapshot\?\.(?:source_trust|input_trust)|snapshot\[['"](?:source_trust|input_trust)['"]\]/);
 
@@ -361,11 +372,11 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
     assert.match(truthBlock, new RegExp(label));
   }
   for (const scope of ['ota_channel', 'whole_hotel', 'mixed', 'user_input', 'derived']) {
-    assert.match(truthBlock, new RegExp(scope));
+    assert.match(truthBlock + scopeBlock, new RegExp(scope));
   }
   assert.match(appMain, /const onlineTruthDetailText = requireDataHealthStatic\('onlineTruthDetailText'\);/);
   assert.match(truthBlock, /truthDetailText: onlineTruthDetailText\(truth\)/);
-  assert.match(appMain, /const aiDailyReportMetricValue = \(metric\) => \{[\s\S]*?return '—';/);
+  assert.match(presentationSource, /const aiDailyReportMetricValue = \(metric\) => \{[\s\S]*?return '—';/);
   assert.doesNotMatch(truthBlock, /\|\|\s*0/);
 
   assert.match(aiDailyReportFragment, /ai-daily-report-metric-\$\{metric\.key\}-truth-status/);
@@ -389,6 +400,8 @@ test('AI daily report metric cards bind per-metric truth without global OTA prom
     return { aiDailyReport, aiDailyReportMetricTruth, aiDailyReportMetricCards };
   })()`, {
     onlineTruthDetailText: dataHealthHelpers.onlineTruthDetailText,
+    requireRevenueAiStatic: key => helpers[key],
+    revenueAiStaticReady: { value: true },
   }, { filename: 'ai-daily-report-metric-truth.js' });
   metricHelpers.aiDailyReport.value = {
     hotel_id: 7,
@@ -535,8 +548,9 @@ test('AI daily report task helpers keep hotel scope and terminal truthfulness', 
   assert.equal(aiDailyTaskHelpers.resolveAiDailyReportGenerationOutcome({
     status: 'succeeded', stage: 'completed', modelStatus: 'invalid_output', resultReportId: 88,
   }).kind, 'limited');
-  assert.match(appMain, /数据或模型受限，规则版仅供核验/);
-  assert.match(appMain, /aiDailyReportModelIsLimited\(report\.model_status\).*bg-amber-50 text-amber-700/s);
+  const presentationSource = readFileSync('public/ai-daily-report-static.js', 'utf8');
+  assert.match(presentationSource, /数据或模型受限，规则版仅供核验/);
+  assert.match(presentationSource, /aiDailyReportModelIsLimited\(report\.model_status\).*bg-amber-50 text-amber-700/s);
 });
 
 test('AI daily report polling stops on a terminal task without real timers', async () => {
@@ -756,8 +770,7 @@ test('AI daily report page exposes the read-only OTA fact gate and source endpoi
 test('Agent pricing suggestion workbench exposes manual room type pricing guard input', () => {
   assert.match(html, /\/agent\/room-types\?\$\{params\}/);
   assert.match(html, /request\('\/agent\/room-types'/);
-  assert.match(html, /const loadPriceSuggestionWorkbench = async \(\) => \{/);
-  assert.match(html, /const loadPriceSuggestionWorkbench = async \(\) => \{\s*return loadRevenueAnalysisBundle\(\);\s*\}/s);
+  assert.match(html, /const loadPriceSuggestionWorkbench = \(\) => loadRevenueAnalysisBundle\(\);/);
   assert.match(html, /request\(`\/agent\/revenue-bundle\?\$\{params\}`\)/);
   assert.match(html, /人工配置项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。/);
 });
@@ -765,7 +778,7 @@ test('Agent pricing suggestion workbench exposes manual room type pricing guard 
 test('Agent pricing suggestion workbench exposes manual Ctrip demand and competitor inputs', () => {
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
   assert.match(html, /agentPricingGenerationPreflightSummary/);
-  assert.match(html, /revenueAiBuildPricingGenerationPreflightSummary\(\{\s*overview: revenueAiOverview\.value,\s*\}\)/s);
+  assert.match(html, /revenueAiBuildPricingGenerationPreflightSummary\(\{\s*overview: revenueAiOverview\.value,\s*overviewError: revenueAiOverviewError\.value,\s*overviewLoading: revenueAiOverviewLoading\.value,\s*\}\)/s);
   assert.match(html, /agentPricingGenerationPreflightSummary\.autoWriteOta/);
   assert.match(html, /agentPricingGenerationPreflightSummary\.candidateSkipReasons/);
   assert.match(html, /agentPricingGenerationPreflightSummary\.candidateDataGaps/);
@@ -794,8 +807,8 @@ test('Agent pricing suggestion workbench exposes manual Ctrip demand and competi
   assert.match(html, /最多 31 天/);
   assert.match(html, /demandForecastForm\.value\.forecast_date = date/);
   assert.match(html, /competitorPriceForm\.value\.analysis_date = date/);
-  assert.match(html, /syncRevenuePricingInputDate\(forecastDate\)/);
-  assert.match(html, /syncRevenuePricingInputDate\(analysisDate\)/);
+  assert.match(html, /syncRevenuePricingInputDate\(forecastDate, \{ syncDraftDates: false \}\)/);
+  assert.match(html, /syncRevenuePricingInputDate\(analysisDate, \{ syncDraftDates: false \}\)/);
 });
 
 test('Agent pricing suggestion workbench uses Revenue AI manual review bridge', () => {
@@ -870,6 +883,22 @@ test('Revenue AI overview endpoint builder keeps query scope explicit', () => {
   assert.equal(success.ok, true);
   assert.equal(success.overview.data_status, 'ok');
   assert.equal(success.errorMessage, '');
+  for (const [scope, expected] of [
+    [{ businessDate: '2026-06-25', hotelId: '58' }, /业务日期/],
+    [{ businessDate: '2026-06-27', hotelId: '59' }, /酒店/],
+  ]) {
+    const mismatched = helpers.resolveRevenueAiOverviewResponse({
+      response: { code: 200, data: {
+        business_date: '2026-06-27', hotel_id: 58,
+        as_of_date: '2026-06-27',
+        as_of_date_contract_version: 'revenue_overview_as_of_date.v1',
+      } },
+      expectedScope: scope,
+    });
+    assert.equal(mismatched.ok, false);
+    assert.equal(mismatched.overview, null);
+    assert.match(mismatched.errorMessage, expected);
+  }
   assert.deepEqual(
     { ...helpers.resolveRevenueOverviewAsOfDate(success.overview) },
     {
@@ -1675,7 +1704,59 @@ test('Revenue AI metric cards expose the complete four-state truth envelope for 
     },
   }).find((card) => card.key === 'ota_room_revenue');
   assert.equal(partial.statusLabel, '部分数据');
-  assert.equal(partial.reasonText, 'collected_at_missing');
+  assert.equal(partial.reasonText, '缺少来源采集时间，请重新采集并回读对应记录。');
+});
+
+const metricFailureTexts = {
+  collected_at_missing: '缺少来源采集时间，请重新采集并回读对应记录。',
+  source_update_time_invalid: '来源更新时间格式无效，请核对时间后重新回读记录。',
+  source_collection_time_missing: '部分来源未记录采集时间，请补齐对应记录的采集与回读证据。',
+  source_collection_time_invalid: '来源采集时间格式无效，请重新采集并回读对应记录。',
+  cancel_room_nights_invalid: '取消间夜或间夜总数无效，请核对同范围计数；取消间夜不能为负或超过间夜总数。',
+  cancel_room_nights_denominator_zero: '间夜总数已确认为 0，无法计算取消间夜率；请核对所选业务日期的间夜记录。',
+};
+
+for (const [code, text] of Object.entries(metricFailureTexts)) {
+  test(`Revenue AI metric failure text translates ${code} without changing evidence`, () => {
+    const truth = Object.freeze({
+      status: 'partial', failure_reason: code, evidence_gap_codes: Object.freeze([code]),
+    });
+    const card = helpers.buildRevenueAiMetricCards({
+      overview: { metrics: { ota_room_revenue: { display: '--', status: 'missing', truth } } },
+    }).find((item) => item.key === 'ota_room_revenue');
+    assert.equal(helpers.revenueAiReasonText(code), text);
+    assert.equal(card.reasonText, text);
+    assert.equal(card.truthLines.find((line) => line.label === '失败原因').value, text);
+    assert.strictEqual(card.truth, truth);
+    assert.equal(truth.failure_reason, code);
+    assert.deepEqual(truth.evidence_gap_codes, [code]);
+  });
+}
+
+test('Revenue AI metric failure text preserves every mixed reason and its original truth', () => {
+  const raw = 'collected_at_missing; source_update_time_invalid；请人工核对渠道记录；upstream_new_reason; cancel_room_nights_denominator_zero';
+  const expected = `${metricFailureTexts.collected_at_missing}; ${metricFailureTexts.source_update_time_invalid}；请人工核对渠道记录；upstream_new_reason; ${metricFailureTexts.cancel_room_nights_denominator_zero}`;
+  const truth = Object.freeze({ status: 'partial', failure_reason: raw });
+  const card = helpers.buildRevenueAiMetricCards({
+    overview: { metrics: { ota_room_revenue: { display: '--', status: 'missing', truth } } },
+  }).find((item) => item.key === 'ota_room_revenue');
+  assert.equal(helpers.revenueAiReasonText(raw), expected);
+  assert.equal(card.reasonText, expected);
+  assert.equal(card.truthLines.find((line) => line.label === '失败原因').value, expected);
+  assert.strictEqual(card.truth, truth);
+  assert.equal(card.truth.failure_reason, raw);
+});
+
+test('Revenue AI metric failure text preserves Chinese and unknown text and keeps empty failures absent', () => {
+  for (const text of ['采集任务失败；请人工确认后重试。', 'upstream_new_reason', 'toString']) {
+    assert.equal(helpers.revenueAiReasonText(text), text);
+    assert.equal(helpers.revenueAiMetricTruthLines({ failure_reason: text })
+      .find((line) => line.label === '失败原因').value, text);
+  }
+  for (const failure_reason of ['', null, undefined, '   ']) {
+    assert.equal(helpers.revenueAiMetricTruthLines({ failure_reason })
+      .find((line) => line.label === '失败原因').value, '无');
+  }
 });
 
 test('Revenue AI gap rows expose request failures and source quality issues', () => {
@@ -1809,6 +1890,30 @@ test('Revenue AI status rows preserve OTA and whole-hotel scope boundaries', () 
   assert.match(businessDate.detail, /不等于入住日/);
   assert.equal(meituan.status, '未授权');
   assert.match(meituan.detail, /登录或授权已失效/);
+});
+
+test('Revenue AI demand signal quality keeps partial values and readable pricing blockers', () => {
+  for (const [reason, expected] of [
+    ['demand_forecasts_invalid_metrics', /无效/],
+    ['demand_forecasts_partial_metrics', /部分/],
+    ['demand_forecasts_confidence_missing', /置信度/],
+  ]) {
+    const overview = {
+      signals: { demand_7d: { value: '有效样本：预测需求 0间夜', status: 'partial', reason } },
+      pricing_readiness: { gates: [{ key: 'demand_signal_7d', label: '需求信号', status: 'blocked', reason }] },
+    };
+    const row = helpers.buildRevenueAiSignalRows({ overview }).find(item => item.key === 'demand_7d');
+    assert.equal(row.value, '有效样本：预测需求 0间夜');
+    assert.equal(row.statusLabel, '部分可用');
+    assert.match(row.reasonText, expected);
+    const [gate] = helpers.buildRevenueAiPricingGateRows({ overview });
+    assert.match(gate.reasonText, expected);
+    assert.doesNotMatch(gate.reasonText, /demand_forecasts_/);
+    overview.signals.demand_7d = { value: '--', status: 'not_calculable', reason };
+    const unavailable = helpers.buildRevenueAiSignalRows({ overview }).find(item => item.key === 'demand_7d');
+    assert.equal(unavailable.value, '--');
+    assert.equal(unavailable.statusLabel, '不可计算');
+  }
 });
 
 test('Revenue AI signal rows display competitor price position without pricing advice', () => {
@@ -2686,6 +2791,12 @@ test('pricing input date sync preserves the selected future ledger range', () =>
   const end = appMain.indexOf('            const priceSuggestionRangeError =', start);
   assert.ok(start >= 0 && end > start, 'pricing input date sync source must remain extractable');
   const source = appMain.slice(start, end);
+  const readbackSource = ['applyDemandForecastReadback', 'setRevenueLoadState'].map(name => {
+    const a = appMain.indexOf('            const ' + name + ' =');
+    const boundary = /\r?\n            (?:const|let) /.exec(appMain.slice(a + 1));
+    assert.ok(a >= 0 && boundary, name);
+    return appMain.slice(a, a + 1 + boundary.index);
+  }).join('\n');
   const run = vm.runInNewContext([
     '() => {',
     "  const priceSuggestionFilter = { value: { date: '2026-08-12', end_date: '2026-08-20' } };",
@@ -2693,6 +2804,8 @@ test('pricing input date sync preserves the selected future ledger range', () =>
     "  const competitorPriceForm = { value: { analysis_date: '2026-08-12' } };",
     "  const competitorFilter = { value: { date: '2026-08-12' } };",
     "  const forecastFilter = { value: { start_date: '2026-08-12', end_date: '2026-08-20' } };",
+    "  const demandForecasts = { value: [{ forecast_date: '2026-08-12' }] }, forecastAccuracy = { value: { sample_count: 1 } }, highDemandDates = { value: ['2026-08-12'] }, revenueLoadState = { value: { forecasts: { status: 'ready', error: '' } } };",
+    readbackSource,
     source,
     "  syncRevenuePricingInputDate('2026-08-15');",
     '  return {',
@@ -3653,6 +3766,27 @@ test('daily revenue cockpit accepts only the exact server-issued canonical model
   assert.equal(loading.visibleSections.length, 0);
 });
 
+test('a verified empty date scope remains a data gap without a contract error or endless loading', () => {
+  const empty = helpers.buildRevenueCockpitModel({ overview: null, loadStatus: 'empty' });
+  assert.equal(empty.status, 'empty');
+  assert.equal(empty.statusLabel, '待补数据');
+  assert.match(empty.headline, /暂无严格回读/);
+  assert.match(empty.dateNotice, /尚无严格可用业务日期/);
+  assert.doesNotMatch(empty.summary, /合同|正在/);
+  assert.equal(empty.canSaveSnapshot, false);
+  assert.equal(empty.canCreatePendingApproval, false);
+  assert.equal(empty.canAskQuestion, false);
+  assert.equal(empty.visibleSections.length, 0);
+  assert.equal(empty.opportunities.length, 0);
+
+  const failed = helpers.buildRevenueCockpitModel({ loadStatus: 'empty', error: '范围读取失败' });
+  assert.equal(failed.status, 'blocked');
+  assert.equal(failed.summary, '范围读取失败');
+  const malformed = helpers.buildRevenueCockpitModel({ overview: {}, loadStatus: 'empty' });
+  assert.equal(malformed.status, 'blocked');
+  assert.match(malformed.summary, /合同/);
+});
+
 test('revenue decision snapshot posts and reads back the same canonical model digest', async () => {
   const digest = 'b'.repeat(64);
   const model = {
@@ -3735,6 +3869,31 @@ test('revenue decision snapshot posts and reads back the same canonical model di
     asOfDateContractVersion: 'revenue_overview_as_of_date.v1',
     visibleModelDigest: 'e'.repeat(64),
   }).ok, false);
+
+  const restored = await helpers.restoreRevenueDecisionSnapshotWithReadback({
+    request,
+    model,
+    modelDigest: 'e'.repeat(64),
+    hotelId: 80,
+  });
+  assert.equal(restored.ok, true);
+  assert.equal(restored.status, 'stale_current_model');
+  assert.equal(restored.snapshot.evidence_identity_status, 'stale_current_model');
+  const current = await helpers.restoreRevenueDecisionSnapshotWithReadback({
+    request,
+    model,
+    modelDigest: digest,
+    hotelId: 80,
+  });
+  assert.equal(current.status, 'matched_current');
+  assert.equal(current.snapshot.evidence_identity_status, 'matched_current');
+  const missingDigest = await helpers.restoreRevenueDecisionSnapshotWithReadback({
+    request,
+    model,
+    hotelId: 80,
+  });
+  assert.equal(missingDigest.ok, false);
+  assert.equal(missingDigest.status, 'invalid');
 });
 
 test('daily revenue cockpit template exposes unified context, evidence, download and human-gated handoffs', () => {

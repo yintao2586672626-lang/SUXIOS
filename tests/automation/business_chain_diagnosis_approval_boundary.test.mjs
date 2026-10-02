@@ -8,13 +8,14 @@ test('actual report requires a diagnosis and action from the same hotel, date an
   assert.ok(php, 'PHP is required for the report regression');
   const source = String.raw`
     require_once 'scripts/lib/business_chain_review_scope.php';
+    require_once 'scripts/lib/business_chain_p0_scope.php';
     $source = file_get_contents('scripts/report_business_chain_status.php');
     $start = strpos($source, 'function parse_business_chain_args(');
     $end = strrpos($source, 'if (realpath(');
     if ($start === false || $end === false) throw new RuntimeException('report definition boundary missing');
     // Load actual function definitions without booting the application, Composer or a database.
     eval(substr($source, $start, $end - $start));
-    $handoff = ['source_scope'=>'ctrip_target_date_ota_channel','source_platforms'=>['ctrip'],
+    $handoff = ['status'=>'handoff_ready_for_manual_review','source_scope'=>'ctrip_target_date_ota_channel','source_platforms'=>['ctrip'],
       'business_date'=>'2026-10-02','system_hotel_id'=>80];
     $diagnosis = ['status'=>'ready','source_channels'=>['ctrip'],
       'business_date'=>'2026-10-02','system_hotel_id'=>80,'metrics'=>[]];

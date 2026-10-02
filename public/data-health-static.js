@@ -592,6 +592,11 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const manualOneClickFetchCanRetryRow = (row = {}) => manualOneClickFetchRowHasHotel(row)
         && manualOneClickFetchActionableStatus(row?.status);
 
+    const manualOneClickFetchCanVerifyRow = (row = {}) => manualOneClickFetchRowHasHotel(row)
+        && Array.isArray(row?.taskIds) && row.taskIds.some(id => typeof id === 'string' && id.trim() !== '')
+        && (row.taskPending === true || ['queued', 'running', 'unknown', 'result_unknown', 'readback_unverified', 'no_saved', 'partial', 'failed']
+            .includes(String(row?.status || '').trim()));
+
     const manualOneClickFetchCanDeleteRow = (row = {}, canManage = false) => Boolean(canManage)
         && manualOneClickFetchRowHasHotel(row)
         && ['failed', 'no_saved'].includes(String(row?.status || '').trim());
@@ -1171,6 +1176,10 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             : payload;
         const status = String(data?.status || 'queued').trim().toLowerCase();
         const terminalStatuses = ['success', 'partial_success', 'failed', 'no_data', 'unverified'];
+        const count = value => value === null || value === undefined || value === '' || typeof value === 'boolean'
+            || !Number.isSafeInteger(Number(value)) || Number(value) < 0 ? null : Number(value);
+        const savedCount = data?.saved_count_known === false || data?.savedCountKnown === false ? null : count(data?.saved_count ?? data?.savedCount);
+        const readbackCount = data?.readback_count_known === false || data?.readbackCountKnown === false ? null : count(data?.readback_count ?? data?.readbackCount);
         return {
             taskId: String(data?.task_id || data?.taskId || '').trim(),
             hotelId: String(data?.hotel_id || data?.hotelId || '').trim(),
@@ -1181,8 +1190,8 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             statusText: String(data?.status_text || data?.statusText || '').trim(),
             message: String(data?.message || '').trim(),
             progressPercent: Math.max(0, Math.min(100, Number(data?.progress_percent ?? data?.progressPercent ?? 0) || 0)),
-            savedCount: Math.max(0, Number(data?.saved_count ?? data?.savedCount ?? 0) || 0),
-            readbackCount: Math.max(0, Number(data?.readback_count ?? data?.readbackCount ?? 0) || 0),
+            savedCount, savedCountKnown: savedCount !== null,
+            readbackCount, readbackCountKnown: readbackCount !== null,
             readbackVerified: data?.readback_verified === true || data?.readbackVerified === true,
             qualityStatus: String(data?.quality_status || data?.qualityStatus || '').trim().toLowerCase(),
             qualitySummary: data?.quality_summary && typeof data.quality_summary === 'object'
@@ -1209,9 +1218,36 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const delayMs = Math.max(0, Number(intervalMs || 0));
         let lastProgressSignature = '';
         for (let attempt = 1; attempt <= attempts; attempt += 1) {
-            const response = await requestStatus(normalizedTaskId);
-            if (response?.code !== undefined && Number(response.code) !== 200) {
-                throw new Error(String(response?.message || '手动获取任务状态读取失败'));
+            let response = null;
+            let statusReadError = null;
+            try {
+                response = await requestStatus(normalizedTaskId);
+            } catch (error) {
+                const errorStatus = Number(error?.status);
+                const retryableTransportError = error?.name === 'TypeError';
+                const retryableHttpError = error?.expectedHttpStatus !== true
+                    && (errorStatus === 408 || errorStatus === 429 || errorStatus >= 500);
+                if (error?.name === 'AbortError' || (!retryableTransportError && !retryableHttpError)) {
+                    throw error;
+                }
+                statusReadError = error;
+            }
+            const responseCode = Number(response?.code);
+            const retryableResponseError = response?.code !== undefined
+                && responseCode !== 200
+                && (responseCode === 408 || responseCode === 429 || responseCode >= 500);
+            if (!statusReadError && response?.code !== undefined && responseCode !== 200) {
+                const responseError = new Error(String(response?.message || '手动获取任务状态读取失败'));
+                if (retryableResponseError) {
+                    statusReadError = responseError;
+                } else {
+                    throw responseError;
+                }
+            }
+            if (statusReadError) {
+                if (attempt >= attempts) throw statusReadError;
+                await wait(delayMs);
+                continue;
             }
             const status = normalizeManualFetchTaskStatus(response);
             if (status.taskId !== normalizedTaskId) {
@@ -1228,19 +1264,36 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         throw new Error('手动获取任务等待超时，请稍后刷新任务状态');
     };
 
+    const manualFetchTaskStatusAfterPollingError = ({ taskId = '', error, lastKnownStatus } = {}) => {
+        const requestedTaskId = String(taskId || '').trim();
+        const last = normalizeManualFetchTaskStatus(lastKnownStatus || {});
+        const sameTask = requestedTaskId && last.taskId === requestedTaskId;
+        return normalizeManualFetchTaskStatus({
+            ...(sameTask ? last : {}), task_id: requestedTaskId, status: 'unknown', done: false,
+            stage: 'status_read_failed', status_text: '原任务状态未核验', readback_verified: false, readbackVerified: false,
+            message: `原任务状态读取失败：${String(error?.message || '状态服务暂不可访问').slice(0, 160)}；请核验原任务，勿重复提交`,
+        });
+    };
+
     const summarizeManualFetchTaskStatuses = (statuses = []) => {
         const rows = (Array.isArray(statuses) ? statuses : []).map(normalizeManualFetchTaskStatus);
-        const savedCount = rows.reduce((sum, row) => sum + row.savedCount, 0);
-        const readbackCount = rows.reduce((sum, row) => sum + row.readbackCount, 0);
+        const savedCountKnown = rows.length > 0 && rows.every(row => row.savedCountKnown);
+        const readbackCountKnown = rows.length > 0 && rows.every(row => row.readbackCountKnown);
+        const savedConfirmed = rows.reduce((sum, row) => sum + (row.savedCount ?? 0), 0);
+        const readbackConfirmed = rows.reduce((sum, row) => sum + (row.readbackCount ?? 0), 0);
+        const savedCount = savedCountKnown || savedConfirmed > 0 ? savedConfirmed : null;
+        const readbackCount = readbackCountKnown || readbackConfirmed > 0 ? readbackConfirmed : null;
         const successCount = rows.filter(row => row.status === 'success').length;
         const partialCount = rows.filter(row => row.status === 'partial_success').length;
         const failedCount = rows.filter(row => row.status === 'failed').length;
         const noDataCount = rows.filter(row => ['no_data', 'unverified'].includes(row.status)).length;
         const pendingCount = rows.filter(row => !row.done).length;
+        const completeReadback = rows.length > 0 && rows.every(row => row.savedCountKnown && row.readbackCountKnown
+            && row.savedCount === row.readbackCount && row.readbackVerified === true);
         let status = 'queued';
         if (rows.length > 0 && pendingCount === 0) {
             if (successCount === rows.length) {
-                status = 'success';
+                status = !completeReadback ? 'unverified' : (savedCount > 0 ? 'success' : 'no_saved');
             } else if (savedCount > 0 || successCount > 0 || partialCount > 0) {
                 status = 'partial';
             } else if (failedCount > 0) {
@@ -1249,12 +1302,19 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
                 status = 'no_saved';
             }
         }
-        const message = pendingCount > 0
+        const unknown = rows.some(row => row.status === 'unknown' || row.stage === 'status_read_failed');
+        if (unknown) status = 'result_unknown';
+        const partialCountText = savedCountKnown ? `入库 ${savedCount} 条`
+            : (savedConfirmed > 0 ? `已知至少入库 ${savedConfirmed} 条（其余条数待核验）` : '入库条数待核验');
+        const message = unknown ? '原任务状态暂无法核验；请刷新原任务状态，勿重复提交'
+            : status === 'unverified' ? '原任务报告已完成，但入库条数或精确回读证据未核验；请核验原任务，勿重复提交'
+            : status === 'no_saved' && completeReadback ? '原任务已完成，确认没有新增入库；未标记为入库成功'
+            : pendingCount > 0
             ? `后台任务执行中：${rows.length - pendingCount}/${rows.length} 已完成`
             : (status === 'success'
                 ? `后台任务已完成并通过回读，共入库 ${savedCount} 条`
                 : (status === 'partial'
-                    ? `后台任务部分完成：入库 ${savedCount} 条，成功 ${successCount} 项，部分 ${partialCount} 项，失败 ${failedCount} 项`
+                    ? `后台任务部分完成：${partialCountText}，成功 ${successCount} 项，部分 ${partialCount} 项，失败 ${failedCount} 项`
                     : (status === 'failed'
                         ? (rows.find(row => row.message)?.message || '后台任务获取失败')
                         : `后台任务已完成，但未确认入库（${noDataCount} 项）`)));
@@ -1262,8 +1322,10 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
             status,
             message,
             savedCount,
+            savedCountKnown,
             readbackCount,
-            readbackVerified: rows.length > 0 && rows.every(row => row.readbackVerified === true),
+            readbackCountKnown,
+            readbackVerified: completeReadback,
             successCount,
             partialCount,
             failedCount,
@@ -1427,114 +1489,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const platformBatchHealthSourceActive = (source) => source?.enabled !== false && Number(source?.enabled ?? 1) !== 0 && String(source?.status || '') !== 'disabled';
     const platformBatchHealthSourceTime = (source) => String(source?.last_sync_time || source?.last_capture_time || source?.update_time || '').trim();
 
-    const buildPlatformBatchHealthRows = ({
-        hotelPool = [],
-        platformDataSources = [],
-        hotelCompetitorSummaries = {},
-        getHotelNameById = () => '',
-        competitorSummaryReadiness = () => ({}),
-        hotelCompetitorSummaryMeta = () => '',
-    } = {}) => {
-        const safeHotelName = typeof getHotelNameById === 'function' ? getHotelNameById : () => '';
-        const safeCompetitorReadiness = typeof competitorSummaryReadiness === 'function' ? competitorSummaryReadiness : () => ({});
-        const safeCompetitorMeta = typeof hotelCompetitorSummaryMeta === 'function' ? hotelCompetitorSummaryMeta : () => '';
-        const sources = (Array.isArray(platformDataSources) ? platformDataSources : [])
-            .filter(platformBatchHealthSourceActive);
-        const sourceMap = new Map();
-        for (const source of sources) {
-            const hotelId = platformBatchHealthSourceHotelId(source);
-            if (!hotelId) continue;
-            if (!sourceMap.has(hotelId)) sourceMap.set(hotelId, []);
-            sourceMap.get(hotelId).push(source);
-        }
-
-        return (Array.isArray(hotelPool) ? hotelPool : [])
-            .filter(hotel => hotel && hotel.id)
-            .slice(0, 50)
-            .map((hotel) => {
-                const hotelId = String(hotel.id || '').trim();
-                const hotelName = hotel.name || hotel.hotel_name || safeHotelName(hotelId) || `酒店 ${hotelId}`;
-                const hotelSources = sourceMap.get(hotelId) || [];
-                const failedSource = hotelSources.find(source => String(source.last_sync_status || source.status || '') === 'failed');
-                const partialSource = hotelSources.find(source => String(source.last_sync_status || source.status || '') === 'partial_success');
-                const readySource = hotelSources.find(source => ['success', 'ready'].includes(String(source.last_sync_status || source.status || '')));
-                const profileCount = hotelSources.filter(source => String(source.ingestion_method || '') === 'browser_profile').length;
-                const apiCount = hotelSources.filter(source => String(source.ingestion_method || '') === 'api').length;
-                const latestSyncTime = hotelSources
-                    .map(platformBatchHealthSourceTime)
-                    .filter(Boolean)
-                    .sort()
-                    .pop() || '';
-
-                let bindingLevel = 'unknown';
-                let bindingText = '待绑定';
-                let bindingDetail = '未发现该门店的有效平台数据源';
-                if (hotelSources.length > 0) {
-                    bindingLevel = profileCount > 0 || apiCount > 0 ? 'ok' : 'medium';
-                    bindingText = profileCount > 0 || apiCount > 0 ? '已绑定' : '仅手工/导入';
-                    bindingDetail = `Profile ${profileCount} / API ${apiCount} / 数据源 ${hotelSources.length}`;
-                }
-
-                let collectionLevel = 'unknown';
-                let collectionText = '未采集';
-                let collectionDetail = '暂无最近采集证据';
-                if (failedSource) {
-                    collectionLevel = 'high';
-                    collectionText = '采集失败';
-                    collectionDetail = failedSource.last_error || failedSource.message || '最近同步失败，需查看同步日志';
-                } else if (partialSource) {
-                    collectionLevel = 'medium';
-                    collectionText = '部分模块成功';
-                    collectionDetail = partialSource.last_error || latestSyncTime || '有模块成功，但仍有模块缺失或未入库，需复核字段和日志';
-                } else if (readySource || latestSyncTime) {
-                    collectionLevel = 'ok';
-                    collectionText = '已采集';
-                    collectionDetail = latestSyncTime || '有成功状态，但未返回采集时间';
-                } else if (hotelSources.length > 0) {
-                    collectionLevel = 'medium';
-                    collectionText = '待试采';
-                    collectionDetail = '已绑定数据源，暂无试采集结果';
-                }
-
-                const competitorSummaryForHotel = hotelCompetitorSummaries?.[hotelId] || null;
-                const competitorReadiness = safeCompetitorReadiness(competitorSummaryForHotel, hotel) || {};
-                const competitorDetail = competitorReadiness.detail || safeCompetitorMeta(hotel);
-                const competitorOk = ['ok', 'success'].includes(String(competitorReadiness.status || ''));
-
-                let actionLevel = 'ok';
-                let nextAction = '暂无处理动作';
-                if (!hotelSources.length) {
-                    actionLevel = 'medium';
-                    nextAction = '配置平台账号绑定';
-                } else if (failedSource) {
-                    actionLevel = 'high';
-                    nextAction = '查看同步日志并重试采集';
-                } else if (collectionLevel === 'medium') {
-                    actionLevel = 'medium';
-                    nextAction = '执行一次试采集';
-                } else if (!competitorOk) {
-                    actionLevel = competitorReadiness.status === 'missing' ? 'medium' : 'high';
-                    nextAction = competitorReadiness.next_action || '复核竞对榜单';
-                }
-
-                return {
-                    key: `platform-batch-health-${hotelId}`,
-                    hotelId,
-                    hotelName,
-                    bindingLevel,
-                    bindingText,
-                    bindingDetail,
-                    collectionLevel,
-                    collectionText,
-                    collectionDetail,
-                    competitorReadiness,
-                    competitorDetail,
-                    nextAction,
-                    actionLevel,
-                    evidenceText: latestSyncTime ? `最近采集 ${latestSyncTime}` : '缺少最近采集证据',
-                };
-            });
-    };
+    const buildPlatformBatchHealthRows = (...args) => window.SUXI_OTA_FETCH_FLOW_STATIC.createPlatformBatchHealthRows({ platformBatchHealthSourceActive, platformBatchHealthSourceHotelId, platformBatchHealthSourceTime })(...args);
 
     const buildPlatformBatchHealthSummaryCards = (rows = []) => {
         const safeRows = Array.isArray(rows) ? rows : [];
@@ -6679,11 +6634,11 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const hotels = Array.isArray(truth.hotels)
             ? truth.hotels
             : (truth.hotel && typeof truth.hotel === 'object' ? [truth.hotel] : []);
-        if (!hotels.length) return '未绑定';
+        if (!hotels.length) return '门店证据未返回';
         const labels = hotels.map(hotel => {
             const name = String(hotel?.name || '').trim();
             const id = hotel?.system_hotel_id ?? hotel?.id ?? hotel?.hotel_id;
-            return name ? `${name}${id ? `（ID ${id}）` : ''}` : (id ? `门店 ID ${id}` : '未绑定');
+            return name ? `${name}${id ? `（ID ${id}）` : ''}` : (id ? `门店 ID ${id}` : '门店证据未返回');
         });
         return labels.slice(0, 3).join('、') + (labels.length > 3 ? ` 等 ${labels.length} 家` : '');
     };
@@ -6758,31 +6713,26 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
 
     const onlineTruthFailureCodeText = (reason = '') => {
         const value = String(reason || '').trim();
-        const normalized = value.toLowerCase();
-        const direct = ({
-            source_rows_missing: '目标日没有可用数据',
-            target_date_source_rows_missing: '目标日没有可用数据',
-            source_update_time_missing: '采集时间未记录',
-            collected_at_missing: '采集时间未记录',
-            hotel_missing: '门店、平台或日期信息不完整',
-            platform_missing: '门店、平台或日期信息不完整',
-            data_date_missing: '门店、平台或日期信息不完整',
-            source_method_or_trace_missing: '来源凭证不完整',
-            source_trace_missing: '来源凭证不完整',
-            readback_unverified: '入库回读尚未验证',
-            binding_missing: '门店绑定不完整',
-            hotel_binding_missing: '门店绑定不完整',
-            current_session_unverified: '当天登录状态未验证',
-            login_required: '需要先验证平台登录',
-            collection_failed: '采集失败',
-            adr_denominator_zero: '缺少间夜，无法计算平均房价',
-            available_room_nights_missing: '缺少可售房量，无法计算 RevPAR',
-        })[normalized];
-        if (direct) return direct;
-        if (/target_date.*rows_missing|no_rows_for_target_date/.test(normalized)) return '目标日没有可用数据';
-        if (/hotel.*missing|platform.*missing|data_date.*missing/.test(normalized)) return '门店、平台或日期信息不完整';
-        if (/source.*(?:trace|method).*missing/.test(normalized)) return '来源凭证不完整';
-        if (/login|session|unauthorized|forbidden/.test(normalized)) return '平台登录状态未就绪';
+        const matched = [
+            [/^(source_update_time_missing|collected_at_missing)$/i, '采集时间未记录'],
+            [/^source_update_time_invalid$/i, '来源更新时间格式无效'],
+            [/^source_collection_time_missing$/i, '部分来源采集时间未记录'],
+            [/^source_collection_time_invalid$/i, '来源采集时间格式无效'],
+            [/^readback_unverified$/i, '入库回读尚未验证'],
+            [/^(hotel_)?binding_missing$/i, '门店绑定不完整'],
+            [/^current_session_unverified$/i, '当天登录状态未验证'],
+            [/^login_required$/i, '需要先验证平台登录'],
+            [/^collection_failed$/i, '采集失败'],
+            [/^adr_denominator_zero$/i, '缺少间夜，无法计算平均房价'],
+            [/^cancel_room_nights_invalid$/i, '取消间夜或间夜总数无效'],
+            [/^cancel_room_nights_denominator_zero$/i, '间夜总数为 0，无法计算取消间夜率'],
+            [/^available_room_nights_missing$/i, '缺少可售房量，无法计算 RevPAR'],
+            [/^source_rows_missing$|target_date.*rows_missing|no_rows_for_target_date/i, '目标日没有可用数据'],
+            [/hotel.*missing|platform.*missing|data_date.*missing/i, '门店、平台或日期信息不完整'],
+            [/source.*(?:trace|method).*missing/i, '来源凭证不完整'],
+            [/login|session|unauthorized|forbidden/i, '平台登录状态未就绪'],
+        ].find(([pattern]) => pattern.test(value));
+        if (matched) return matched[1];
         if (/^[a-z0-9_.:-]+$/i.test(value) || (!/[\u4e00-\u9fff]/.test(value) && /[a-z]/i.test(value))) {
             return '采集或入库信息不完整';
         }
@@ -6834,7 +6784,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         const persistence = onlineTruthPersistenceText(subject);
         const failure = onlineTruthFailureText(subject);
         const parts = [status];
-        if (!['未绑定', '未记录', '未提供'].includes(hotel)) parts.push(hotel);
+        if (!['未绑定', '未记录', '未提供', '门店证据未返回'].includes(hotel)) parts.push(hotel);
         if (!['未记录', '未提供'].includes(date)) parts.push(date);
         if (!['未记录', '未提供'].includes(source)) parts.push(source);
         if (status === '已验证' && /回读已验证|回读 \d+\/\d+/.test(persistence)) parts.push('入库已验证');
@@ -6863,10 +6813,15 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         if (/current_session|login|session|unauthorized|forbidden/.test(reason)) return '先完成平台登录验证';
         if (/binding_missing|hotel_missing|platform_missing|data_date_missing/.test(reason)) return '补齐门店、平台和目标日期';
         if (/target_date.*rows_missing|source_rows_missing|no_rows_for_target_date/.test(reason)) return '重新采集目标日期数据';
+        const reasonCodes = reason.split(/[;,；，]+/).map(code => code.trim());
+        if (reasonCodes.includes('cancel_room_nights_invalid')) return '核对同范围取消间夜与总间夜，取消间夜不能为负或超过总间夜';
+        if (reasonCodes.includes('cancel_room_nights_denominator_zero')) return '核对所选业务日期的间夜记录，分母为 0 时不计算比率';
         if (/available_room_nights_missing/.test(reason)) return '补齐可售房量后重新计算';
         if (/adr_denominator_zero|room_nights_missing/.test(reason)) return '补齐间夜后重新计算';
         if (/readback_unverified/.test(reason)) return '完成入库回读验证';
         if (/source.*(?:trace|method).*missing/.test(reason)) return '补齐来源和采集凭证';
+        if (reasonCodes.some(code => /^source_(update|collection)_time_invalid$/.test(code))) return '核对来源时间格式后重新采集并回读对应记录';
+        if (reasonCodes.includes('source_collection_time_missing')) return '补齐对应记录的采集时间和回读证据';
         if (/source_update_time_missing|collected_at_missing/.test(reason)) return '补齐采集时间';
         if (status === 'collection_failed') return '查看采集记录并重试';
         return '补齐缺失信息后重新验证';
@@ -7141,6 +7096,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         manualOneClickFetchRowHasHotel,
         manualOneClickFetchCanEditRow,
         manualOneClickFetchCanRetryRow,
+        manualOneClickFetchCanVerifyRow,
         manualOneClickFetchCanDeleteRow,
         manualOneClickFetchCanSupplementRow,
         sortManualOneClickFetchRows,
@@ -7168,6 +7124,7 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
         manualFetchImmediateStatusesFromResult,
         normalizeManualFetchTaskStatus,
         pollManualFetchTaskStatus,
+        manualFetchTaskStatusAfterPollingError,
         summarizeManualFetchTaskStatuses,
         paginateManualOneClickFetchRows,
         buildOnlineHistoryQueryParams,

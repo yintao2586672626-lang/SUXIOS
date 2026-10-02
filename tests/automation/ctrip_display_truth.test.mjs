@@ -60,6 +60,37 @@ test('Ctrip result state never presents an exception as a green success', async 
   assert.equal(visibleResult.ui_flow_status, 'exception');
 });
 
+test('Ctrip overview readback failure replaces prior shared success for returned and thrown errors', async () => {
+  const api = loadCtripStaticApi();
+  const failedData = { saved_count: 2, row_count: 3, readback_verified: false,
+    persistence_status: 'readback_not_verified', data_date: '2026-07-14' };
+  for (const throws of [false, true]) {
+    let sharedResult = { ui_flow_status: 'success', saved_count: 5, readback_verified: true };
+    let visibleResult = null;
+    let rawVisible = true;
+    const failure = { code: 500, message: '数据库回读不完整；请核对历史记录', data: failedData };
+    const outcome = await api.runCtripOverviewFetchFlow({
+      getSystemHotelId: () => 7,
+      getActiveCtripConfig: () => ({ id: 11, has_cookies: true, credential_status: 'ready' }),
+      getForm: () => ({ requestUrls: 'https://ebooking.ctrip.com/api/example', dataDate: '2026-07-14' }),
+      setResult: value => { visibleResult = value; },
+      setOnlineDataResult: value => { sharedResult = value; },
+      setShowRawData: value => { rawVisible = value; },
+      requestFetch: async () => {
+        if (!throws) return failure;
+        throw Object.assign(new Error(failure.message), { data: failure });
+      },
+    });
+    assert.equal(outcome.status, throws ? 'exception' : 'failed');
+    assert.equal(sharedResult.ui_flow_status, throws ? 'exception' : 'failed');
+    assert.equal(sharedResult.readback_verified, false);
+    assert.equal(sharedResult.saved_count, 2);
+    assert.match(sharedResult.error, /回读不完整/);
+    assert.equal(visibleResult.ui_flow_status, sharedResult.ui_flow_status);
+    assert.equal(rawVisible, false);
+  }
+});
+
 test('Ctrip overview uses a visible business date and refuses an empty date', async () => {
   const api = loadCtripStaticApi();
   assert.match(api.createCtripOverviewForm().dataDate, /^\d{4}-\d{2}-\d{2}$/);

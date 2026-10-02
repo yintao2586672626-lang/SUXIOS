@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -9,7 +10,7 @@ const systemStaticSource = readFileSync('public/system-static.js', 'utf8');
 const ctripTemplate = readFileSync('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html', 'utf8');
 const appMain = readFileSync('public/app-main.js', 'utf8');
 const styleSource = readFileSync('public/style.css', 'utf8');
-const dataHealthStaticSource = readFileSync('public/data-health-static.js', 'utf8');
+const dataHealthStaticSource = readStaticContractSource('public/data-health-static.js');
 
 const context = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(ctripStaticSource, context, { filename: 'public/ctrip-static.js' });

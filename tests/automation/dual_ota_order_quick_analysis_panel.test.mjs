@@ -77,6 +77,32 @@ const mountRenderContext = (component, detailMode) => {
   return instance;
 };
 
+for (const [name,from,to,retain,lateFailure] of [
+  ['missing end','2026-09-01','',true,false],
+  ['missing start','','2026-09-02',false,false],
+  ['inverted retained','2026-09-03','2026-09-02',true,true],
+  ['inverted first load','2026-09-03','2026-09-02',false,true],
+]) test('Meituan auto refresh releases invalid quick range: '+name, async () => {
+  let finish; let calls=0;
+  const oldRequest=new Promise(resolve=>{finish=resolve;});
+  const final={contract_version:'synthetic-new-read',status:'data_missing',metric_scope:'ota_channel',hotel:{id:80},date_range:{from:'2026-09-01',to:'2026-09-02',requested_from:'2026-09-01',requested_to:'2026-09-02'},platforms:{ctrip:{platform:'ctrip',metric_scope:'ota_channel'},meituan:{platform:'meituan',metric_scope:'ota_channel'}}};
+  const {component}=loadPanelComponent({fetch:()=>++calls===1?oldRequest:Promise.resolve({ok:true,json:async()=>({code:200,data:final})})});
+  const s=mountRenderContext(component,'summary'); if(!retain)s.quickAnalysis=null;
+  const previous=s.quickAnalysis;
+  s.quickDateFrom='2026-09-01';s.quickDateTo='2026-09-02';
+  const reading=s.loadQuickAnalysis();assert.equal(s.quickLoading,true);
+  s.quickDateFrom=from;s.quickDateTo=to;
+  component.watch.meituanRefreshKey.call(s,'new-saved-meituan-receipt','old-saved-meituan-receipt');
+  assert.equal(s.quickLoading,false,'invalid automatic refresh must release the older loading owner');
+  assert.equal(s.quickStale,retain);
+  assert.match(s.quickError,/同时填写|不能晚于/);
+  finish(lateFailure?{ok:false,status:503,json:async()=>({message:'old network failure'})}:{ok:true,json:async()=>({code:200,data:{contract_version:'old-ignored'}})});
+  await reading;
+  assert.equal(s.quickAnalysis,previous);assert.equal(s.quickLoading,false);assert.match(s.quickError,/同时填写|不能晚于/);
+  s.quickDateFrom='2026-09-01';s.quickDateTo='2026-09-02';await s.loadQuickAnalysis();
+  assert.equal(s.quickAnalysis,final);assert.equal(s.quickError,'');assert.equal(s.quickStale,false);assert.equal(s.quickLoading,false);assert.equal(calls,2);
+});
+
 test('dual-OTA quick analysis uses one authenticated persisted-read endpoint and four ranges', () => {
   assert.match(panel, /fetch\(`\/api\/online-data\/dual-ota\/order-analysis\?\$\{params\.toString\(\)}`/);
   assert.match(panel, /new URLSearchParams\(\{ system_hotel_id: String\(hotelId\) \}\)/);

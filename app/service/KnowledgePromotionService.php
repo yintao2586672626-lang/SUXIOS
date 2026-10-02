@@ -216,6 +216,7 @@ final class KnowledgePromotionService
                 );
             }
 
+            $this->assertExpectedVersion($candidateRow, $input);
             $created = $this->sopService->createCandidate(
                 (int)$candidateRow['tenant_id'],
                 (int)$candidateRow['hotel_id'],
@@ -407,6 +408,7 @@ final class KnowledgePromotionService
             if (!in_array($fromStatus, ['draft', 'in_review', 'changes_requested', 'approved'], true)) {
                 throw new InvalidArgumentException('当前候选状态不能撤回或停用');
             }
+            $this->assertExpectedVersion($candidateRow, $input);
 
             $now = date('Y-m-d H:i:s');
             $retired = null;
@@ -579,6 +581,7 @@ final class KnowledgePromotionService
             if (($candidateRow['workflow_status'] ?? '') !== 'in_review') {
                 throw new InvalidArgumentException('只有审核中的候选可以批准');
             }
+            $this->assertExpectedVersion($candidateRow, $input);
 
             $revision = $this->revisionRow((int)$candidateRow['current_revision_id'], $candidateId);
             $this->assertRevisionIntegrity($revision);
@@ -685,6 +688,16 @@ final class KnowledgePromotionService
      * @param list<string> $allowedFrom
      * @return array<string,mixed>
      */
+    private function assertExpectedVersion(array $candidate, array $input): void
+    {
+        // HTTP writes require these fields; old in-process producers remain compatible.
+        if (array_key_exists('expected_row_version', $input)
+            && ((int)$input['expected_row_version'] !== (int)$candidate['row_version']
+                || (int)($input['expected_revision_id'] ?? 0) !== (int)$candidate['current_revision_id'])) {
+            throw new RuntimeException('版本冲突：候选已被更新，请读取最新版本比较；当前草稿已保留');
+        }
+    }
+
     private function transition(
         int $candidateId,
         int $tenantId,
@@ -738,6 +751,7 @@ final class KnowledgePromotionService
             if (!in_array($fromStatus, $allowedFrom, true)) {
                 throw new InvalidArgumentException('当前候选状态不能执行该操作');
             }
+            $this->assertExpectedVersion($candidateRow, $input);
 
             $now = date('Y-m-d H:i:s');
             $update = [

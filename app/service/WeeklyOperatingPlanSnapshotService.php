@@ -70,16 +70,17 @@ final class WeeklyOperatingPlanSnapshotService
             $generationTrigger,
             $createdBy
         );
-        $existing = $this->readSnapshot('by_source', [
+        $sourceScope = [
             'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,
             'week_start' => $weekStart,
             'week_end' => $weekEnd,
             'generation_trigger' => $generationTrigger,
             'source_digest' => $draft['source_digest'],
-        ]);
+        ];
+        $existing = $this->readSnapshot('by_source', $sourceScope);
         if (is_array($existing)) {
-            return $this->normalizeStored($existing, false, true);
+            return $this->normalizeStored($existing, false, true, $sourceScope);
         }
 
         for ($attempt = 1; $attempt <= 3; $attempt++) {
@@ -117,16 +118,9 @@ final class WeeklyOperatingPlanSnapshotService
             try {
                 return $this->persistAndVerifySnapshot($row);
             } catch (\Throwable $error) {
-                $winner = $this->readSnapshot('by_source', [
-                    'tenant_id' => $tenantId,
-                    'hotel_id' => $hotelId,
-                    'week_start' => $weekStart,
-                    'week_end' => $weekEnd,
-                    'generation_trigger' => $generationTrigger,
-                    'source_digest' => $draft['source_digest'],
-                ]);
+                $winner = $this->readSnapshot('by_source', $sourceScope);
                 if (is_array($winner)) {
-                    return $this->normalizeStored($winner, false, true);
+                    return $this->normalizeStored($winner, false, true, $sourceScope);
                 }
                 if ($attempt === 3) {
                     if (str_starts_with($error->getMessage(), 'weekly_plan_snapshot_readback_')) {
@@ -144,12 +138,13 @@ final class WeeklyOperatingPlanSnapshotService
     {
         [$weekStart, $weekEnd] = $this->week($weekEnd);
         $this->assertScope($tenantId, $hotelId);
-        $row = $this->readSnapshot('latest', [
+        $scope = [
             'tenant_id' => $tenantId,
             'hotel_id' => $hotelId,
             'week_start' => $weekStart,
             'week_end' => $weekEnd,
-        ]);
+        ];
+        $row = $this->readSnapshot('latest', $scope);
         if (!is_array($row)) {
             return [
                 'contract_version' => self::CONTRACT_VERSION,
@@ -161,7 +156,7 @@ final class WeeklyOperatingPlanSnapshotService
                 'readback_verified' => false,
             ];
         }
-        return $this->normalizeStored($row, false, false);
+        return $this->normalizeStored($row, false, false, $scope);
     }
 
     /** Read availability without interpreting a missing latest plan as an infrastructure failure.
@@ -197,6 +192,7 @@ final class WeeklyOperatingPlanSnapshotService
         }
         $row = $this->readSnapshot('exact', ['id' => $snapshotId]);
         if (!is_array($row)
+            || (int)($row['id'] ?? 0) !== $snapshotId
             || (int)($row['tenant_id'] ?? 0) !== $tenantId
             || (int)($row['hotel_id'] ?? 0) !== $hotelId
         ) {
@@ -497,6 +493,8 @@ final class WeeklyOperatingPlanSnapshotService
         $summary = [
             'pending_approval' => 0,
             'approved_or_executing' => 0,
+            'pending_execute' => 0,
+            'executing' => 0,
             'review_pending' => 0,
             'reviewed' => 0,
             'blocked' => 0,
@@ -508,6 +506,8 @@ final class WeeklyOperatingPlanSnapshotService
             elseif (in_array($status, ['blocked', 'rejected', 'cancelled'], true)) $summary['blocked']++;
         }
         foreach ($tasks as $task) {
+            $status = strtolower(trim((string)($task['status'] ?? '')));
+            if (in_array($status, ['pending_execute', 'executing'], true)) $summary[$status]++;
             $result = strtolower(trim((string)($task['result_status'] ?? '')));
             $review = $task['_weekly_review_completion'] ?? null;
             if (is_array($review)
@@ -664,6 +664,22 @@ final class WeeklyOperatingPlanSnapshotService
                 'boundary' => '任务完成、执行核实与复盘分别计数，前后变化不声明因果效果',
             ];
         }
+        $unfinished = array_values(array_filter($tasks, static fn(array $task): bool =>
+            in_array(strtolower(trim((string)($task['status'] ?? ''))), ['pending_execute', 'executing'], true)));
+        if ($unfinished !== []) {
+            $task = $unfinished[0];
+            $status = strtolower(trim((string)$task['status']));
+            return [
+                'type' => 'execution_pending',
+                'key' => $status,
+                'title' => '推进原任务 #' . (int)$task['id'],
+                'reason' => $status === 'executing'
+                    ? '该任务仍在执行中，请回到原任务补齐执行记录，再进行复盘。'
+                    : '该任务已批准但尚未执行，请回到原任务查看执行安排。',
+                'evidence_refs' => ['operation_execution_tasks#' . (int)$task['id']],
+                'boundary' => '已批准不等于已执行，执行记录与复盘结论分别核实。',
+            ];
+        }
         if ((int)$lifecycle['review_pending'] > 0) {
             $task = array_values(array_filter($tasks, fn(array $row): bool => $this->taskNeedsReview($row)))[0] ?? [];
             return [
@@ -742,7 +758,7 @@ final class WeeklyOperatingPlanSnapshotService
     }
 
     /** @return array<string,mixed> */
-    private function normalizeStored(array $row, bool $created, bool $replayed): array
+    private function normalizeStored(array $row, bool $created, bool $replayed, array $expected = []): array
     {
         $selectedFocus = $this->decode($row['selected_focus_json'] ?? '{}');
         $normalized = [
@@ -803,6 +819,11 @@ final class WeeklyOperatingPlanSnapshotService
         ) {
             throw new \RuntimeException('weekly_plan_snapshot_readback_failed');
         }
+        foreach ($expected as $field => $value) {
+            if (!array_key_exists($field, $normalized) || $normalized[$field] !== $value) {
+                throw new \RuntimeException('weekly_plan_snapshot_readback_failed');
+            }
+        }
         return $normalized;
     }
 
@@ -851,7 +872,10 @@ final class WeeklyOperatingPlanSnapshotService
             if (!is_array($stored)) {
                 throw new \RuntimeException('weekly_plan_snapshot_readback_failed');
             }
-            return $this->normalizeStored($stored, true, false);
+            return $this->normalizeStored($stored, true, false, [
+                'snapshot_id' => $id,
+                'snapshot_fingerprint' => $row['snapshot_fingerprint'],
+            ]);
         };
         if ($this->snapshotTransaction !== null) {
             return (array)call_user_func($this->snapshotTransaction, $operation);
@@ -882,6 +906,8 @@ final class WeeklyOperatingPlanSnapshotService
             '周期：' . $weekStart . ' 至 ' . $weekEnd,
             '自动事项覆盖：' . $dailyCoverage . '/7；可信播报覆盖：' . $broadcastCoverage . '/7。',
             '待审批：' . (int)$lifecycle['pending_approval']
+                . '；待执行：' . (int)$lifecycle['pending_execute']
+                . '；执行中：' . (int)$lifecycle['executing']
                 . '；待复盘：' . (int)$lifecycle['review_pending']
                 . '；已复盘：' . (int)$lifecycle['reviewed'] . '。',
             ($lifecycle['task_workflow']['status'] ?? '') === 'ready'

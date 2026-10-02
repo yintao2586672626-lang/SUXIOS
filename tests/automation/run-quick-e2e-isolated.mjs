@@ -681,6 +681,10 @@ try {
   const databaseSafety = runHelper('guard');
   databaseGuardPassed = true;
   console.log(`[e2e-isolation] database-guard mode=${databaseSafety.mode} host_scope=${databaseSafety.database_host_scope} schema=${databaseSafety.schema_contract}`);
+  if (businessOnly || otaOnly) {
+    const columnCompatibility = runHelper('verify-generated-column-compatibility');
+    console.log(`[e2e-isolation] generated-column-compatibility cases=${columnCompatibility.schema_cases.length} remaining_test_tables=${columnCompatibility.remaining_test_tables}`);
+  }
   assertRunContinues();
   if (selfHosted) {
     isolatedServer = await startIsolatedServer();

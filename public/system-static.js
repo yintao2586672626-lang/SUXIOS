@@ -17,24 +17,38 @@ window.SUXI_SYSTEM_STATIC = (() => {
         if (!chartJsLoadPromise) {
             chartJsLoadPromise = new Promise((resolve, reject) => {
                 const existing = document.querySelector('script[data-suxi-chartjs="1"]');
-                if (existing) {
-                    existing.addEventListener('load', () => resolve(window.Chart), { once: true });
-                    existing.addEventListener('error', () => reject(new Error('Chart.js加载失败')), { once: true });
-                    return;
-                }
-                const script = document.createElement('script');
-                script.src = CHART_JS_SRC;
-                script.async = true;
-                script.dataset.suxiChartjs = '1';
-                script.onload = () => {
+                const script = existing || document.createElement('script');
+                const cleanup = () => {
+                    script.removeEventListener('load', onLoad);
+                    script.removeEventListener('error', onError);
+                };
+                const fail = (error) => {
+                    cleanup();
+                    // A settled failed script will never fire again; retries need a fresh request.
+                    script.remove();
+                    reject(error);
+                };
+                const onLoad = () => {
                     if (window.Chart) {
+                        cleanup();
                         resolve(window.Chart);
                     } else {
-                        reject(new Error('Chart.js加载后未暴露Chart对象'));
+                        fail(new Error('Chart.js加载后未暴露Chart对象'));
                     }
                 };
-                script.onerror = () => reject(new Error('Chart.js加载失败'));
-                document.head.appendChild(script);
+                const onError = () => fail(new Error('Chart.js加载失败'));
+                script.addEventListener('load', onLoad, { once: true });
+                script.addEventListener('error', onError, { once: true });
+                if (!existing) {
+                    script.src = CHART_JS_SRC;
+                    script.async = true;
+                    script.dataset.suxiChartjs = '1';
+                    try {
+                        document.head.appendChild(script);
+                    } catch (error) {
+                        fail(error);
+                    }
+                }
             }).catch((error) => {
                 chartJsLoadPromise = null;
                 console.warn(error.message || 'Chart.js加载失败');
@@ -1523,7 +1537,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         'ctrip-cookie-api': {
             description: '用于携程 Cookie API 临时诊断，支持接口清单、单个 Request URL、Cookie 或已验证 Profile。',
             requiredText: 'Request URL 清单 / Cookie 或 Profile',
-            outputText: '经营、流量、广告、商旅、质量等诊断行',
+            outputText: '已接入的经营、流量、广告和平台质量记录',
         },
         'meituan-traffic': {
             description: '用于美团流量接口抓取，支持接口地址、平台接口标识、门店标识、Cookie/API 辅助、日期范围和额外参数。',
@@ -2399,7 +2413,95 @@ window.SUXI_SYSTEM_STATIC = (() => {
         return 'bg-gray-50 text-gray-600 border-gray-200';
     };
 
-    const operationDataStatusText = (status) => status === 'ok' ? '已返回来源记录' : (status || '待接入可验证来源数据');
+    const buildOnlineHistoryRecordDetail = (record = {}) => {
+        const columns = [
+            ['id', '保存记录编号'], ['hotel_name', '酒店'], ['system_hotel_id', '系统酒店编号'],
+            ['source', '平台来源'], ['data_date', '业务日期'], ['data_type', '记录类型'],
+            ['dimension', '来源维度'], ['metric_key', '来源指标'], ['data_value', '来源记录值'],
+            ['amount', '来源金额'], ['quantity', '来源数量'], ['book_order_num', '来源订单数'],
+            ['list_exposure', '列表曝光'], ['detail_exposure', '详情访问'], ['flow_rate', '来源转化率'],
+            ['order_amount', '来源订单金额'], ['comment_score', '平台点评分'], ['review_count', '点评数量'],
+            ['validation_status', '验证状态'], ['data_quality_status', '数据质量状态'],
+            ['readback_verified', '保存回读核验'], ['snapshot_time', '快照时间'],
+            ['collected_at', '取得时间'], ['created_at', '保存时间'], ['create_time', '保存时间'],
+        ];
+        return columns.filter(([key]) => Object.prototype.hasOwnProperty.call(record, key))
+            .map(([key, label]) => {
+                const raw = record[key];
+                const value = raw === null || raw === undefined || raw === '' ? '未提供'
+                    : key === 'readback_verified' ? (raw === true || raw === 1 || raw === '1' ? '已核验' : '尚未核验')
+                    : typeof raw === 'object' ? '结构化内容，请查看对应业务表格' : String(raw);
+                return { key, label, value };
+            });
+    };
+    const assertOnlineHistoryRowScope = (row, query) => {
+        // OTA hotel_id identifies the external property, not our internal hotel scope.
+        const hotelId = Number(row?.system_hotel_id);
+        const types = [query.data_type, ...String(query.data_types || '').split(',')].filter(Boolean);
+        const businessDate = String(row?.data_date || '');
+        const createdDate = String(row?.create_time || '').slice(0, 10);
+        const createStart = query.create_start || query.create_end;
+        const createEnd = query.create_end || query.create_start;
+        if ((query.source && String(row?.source) !== String(query.source))
+            || (query.system_hotel_id && hotelId !== Number(query.system_hotel_id))
+            || (types.length && !types.includes(String(row?.data_type || '')))
+            || ((query.start_date || query.end_date) && !/^\d{4}-\d{2}-\d{2}$/.test(businessDate))
+            || (query.start_date && businessDate < query.start_date)
+            || (query.end_date && businessDate > query.end_date)
+            || (createStart && (!/^\d{4}-\d{2}-\d{2}$/.test(createdDate) || createdDate < createStart))
+            || (createEnd && createdDate > createEnd)) {
+            throw new Error('历史导出记录不属于当前查询范围，请重新查询');
+        }
+    };
+    const readOnlineHistoryExportRows = async ({ query, requestPage, isCurrent, maxRows = 2000 } = {}) => {
+        const rows = [], seen = new Set();
+        let expectedTotal = null;
+        for (let page = 1; page <= Math.ceil(maxRows / 100); page += 1) {
+            if (!isCurrent()) throw new Error('查询结果或登录范围已变化，导出已取消');
+            const response = await requestPage({ ...query, page, page_size: 100 });
+            if (!isCurrent()) throw new Error('查询结果或登录范围已变化，导出已取消');
+            const data = response?.data;
+            const rawTotal = data?.pagination?.total;
+            const total = Number(rawTotal);
+            if (response?.code !== 200 || !Array.isArray(data?.list)
+                || rawTotal === null || rawTotal === undefined || rawTotal === '' || typeof rawTotal === 'boolean'
+                || !Number.isSafeInteger(total) || total < 0
+                || Number(data?.pagination?.page) !== page) throw new Error(response?.message || '历史导出分页返回不完整');
+            if (total > maxRows) throw new Error(`筛选结果超过 ${maxRows} 条，请缩小日期或酒店范围后导出`);
+            if (expectedTotal !== null && total !== expectedTotal) throw new Error('导出期间记录发生变化，请重新查询后导出');
+            expectedTotal = total;
+            for (const row of data.list) {
+                const id = Number(row?.id);
+                if (!Number.isSafeInteger(id) || id <= 0 || seen.has(id)) throw new Error('历史导出记录重复或编号不完整，请重新查询');
+                assertOnlineHistoryRowScope(row, query);
+                seen.add(id); rows.push(row);
+            }
+            if (rows.length === total) return rows;
+            if (!data.list.length || rows.length > total) throw new Error('历史导出记录数量与分页不一致');
+        }
+        throw new Error('历史导出未取得完整筛选结果，请缩小范围后重试');
+    };
+    const operationDataStatusText = (status) => ({
+        ok: '已返回来源记录',
+        ready: '来源记录可查看',
+        readback_verified: '已核验保存记录',
+        loading: '正在读取',
+        partial: '部分数据可用，待补齐',
+        empty: '当前范围暂无记录',
+        missing: '缺少所需数据',
+        insufficient_data: '数据不足，暂不判断',
+        data_gap: '待补齐数据',
+        stale: '历史记录，需核对日期',
+        unverified: '尚未核验',
+        manual: '人工录入，待核验',
+        imported: '人工导入，待核验',
+        blocked: '条件未满足，暂不可分析',
+        error: '读取失败，请重试',
+        failed: '读取失败，请重试',
+        read_failed: '读取失败，请重试',
+        migration_required: '数据结构待维护',
+        not_applicable: '当前门店不适用',
+    }[status] || (/[\u3400-\u9fff]/.test(String(status || '')) ? status : '状态待核对'));
     const operationProblemLevelLabel = (level) => ({
         high: '高风险',
         medium: '中风险',
@@ -2430,7 +2532,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         cancelled: '已取消',
     }[status] || '状态待核验');
     const operationEffectStatusLabel = (status) => ({
-        ready: '已形成闭环',
+        ready: '复盘数据可核对',
         partial: '部分可验证',
         data_gap: '待补齐数据',
     }[status] || '待验证');
@@ -2613,7 +2715,283 @@ window.SUXI_SYSTEM_STATIC = (() => {
         }]));
     };
 
+    const buildInvestmentDecisionActionQueueRows = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildInvestmentDecisionActionQueueRows', '页面展示工具尚未加载');
+
+    const buildManualNotificationThreeSourceSummary = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildManualNotificationThreeSourceSummary', '页面展示工具尚未加载');
+
+    const buildManualNotificationAutomaticTaskRows = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildManualNotificationAutomaticTaskRows', '页面展示工具尚未加载');
+
+    const buildEmployeeOtaChecklistRows = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildEmployeeOtaChecklistRows', '页面展示工具尚未加载');
+
+    const buildMeituanStaticFallbackFor = ({ meituanDeferredRuntimePending, meituanStaticUnavailableResult, showToast }, key) => {
+        const unavailable = () => {
+            const result = meituanStaticUnavailableResult(key);
+            if (meituanDeferredRuntimePending()) return result;
+            console.warn('[meituan-static]', result.message);
+            try {
+                if (typeof showToast === 'function') showToast(result.message, 'warning');
+            } catch (toastError) { console.warn('[meituan-static] 缺少工具提示未显示:', toastError?.message || toastError); }
+            return result;
+        };
+        if (key === 'defaultMeituanAdsUrl') return () => 'https://ebmidas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-merchant-product-menu/html/index.html';
+        if (key === 'createEmptyMeituanConfigForm') return () => ({ id: null, name: '', hotel_id: '', partner_id: '', poi_id: '', cookies: '', hotel_room_count: '', competitor_room_count: '' });
+        if (key === 'createEmptyMeituanBusinessSummary') return () => ({ status: 'static_helper_missing', source_notice: '美团静态工具缺失，当前仅保留系统入口。' });
+        if (key === 'buildMeituanConfigDeleteUrl') return (id = '') => `/online-data/delete-meituan-config?id=${encodeURIComponent(String(id ?? '').trim())}`;
+        if (key === 'buildMeituanConfigDeleteSuccessState') return (id = '') => ({ toastMessage: '删除成功', toastLevel: 'success', clearConfigDetailId: id, shouldReloadConfigList: true, reloadOptions: {} });
+        if (key === 'buildMeituanConfigDeleteFailureState') return ({ response = null, error = null } = {}) => ({ toastMessage: error ? `删除失败: ${error?.message || '未知错误'}` : (response?.message || '删除失败'), toastLevel: 'error' });
+        if (key === 'resolveMeituanExecutionConfigId') return (config = null) => String(config?.config_id || config?.id || '').trim();
+        if (key === 'buildMeituanRankingFormPatchFromConfig') return (config = {}, fallbackHotelId = '') => ({ hotelId: config?.hotel_id || config?.system_hotel_id || fallbackHotelId || '', partnerId: config?.partner_id || '', poiId: config?.poi_id || '', hotelRoomCount: config?.hotel_room_count || '', competitorRoomCount: config?.competitor_room_count || '' });
+        if (key === 'buildMeituanConfigUseState') return ({ config = {}, fallbackHotelId = '' } = {}) => ({ formPatch: { hotelId: config?.hotel_id || config?.system_hotel_id || fallbackHotelId || '', partnerId: config?.partner_id || '', poiId: config?.poi_id || '', hotelRoomCount: config?.hotel_room_count || '', competitorRoomCount: config?.competitor_room_count || '' }, toastMessage: `已应用配置: ${config?.name || ''}`, targetTab: 'meituan-ranking' });
+        if (key === 'buildMeituanConfigEditForm') return (config = {}) => ({ id: config?.id ?? null, name: config?.name || '', hotel_id: config?.hotel_id || config?.system_hotel_id || '', partner_id: config?.partner_id || '', poi_id: config?.poi_id || '', cookies: '', hotel_room_count: config?.hotel_room_count || '', competitor_room_count: config?.competitor_room_count || '' });
+        if (key === 'buildMeituanConfigFormForHotel') return ({ hotelId = '', hotelName = '', configs = [] } = {}) => {
+            const targetHotelId = String(hotelId || '').trim();
+            const config = (Array.isArray(configs) ? configs : []).find(item => (
+                String(item?.hotel_id || item?.system_hotel_id || '').trim() === targetHotelId
+            )) || null;
+            return config
+                ? {
+                    id: config?.id ?? config?.config_id ?? null,
+                    name: config?.name || `${String(hotelName || '').trim()}美团数据源`,
+                    hotel_id: targetHotelId,
+                    partner_id: config?.partner_id || '',
+                    poi_id: config?.poi_id || '',
+                    cookies: '',
+                    has_cookies: config?.has_cookies === true,
+                    credential_status: config?.credential_status || '',
+                    hotel_room_count: config?.hotel_room_count || '',
+                    competitor_room_count: config?.competitor_room_count || '',
+                }
+                : {
+                    id: null,
+                    name: targetHotelId && String(hotelName || '').trim() ? `${String(hotelName).trim()}美团数据源` : '',
+                    hotel_id: targetHotelId,
+                    partner_id: '',
+                    poi_id: '',
+                    cookies: '',
+                    has_cookies: false,
+                    credential_status: '',
+                    hotel_room_count: '',
+                    competitor_room_count: '',
+                };
+        };
+        if (key === 'buildMeituanConfigEditState') return ({ config = {} } = {}) => ({ form: { id: config?.id ?? null, name: config?.name || '', hotel_id: config?.hotel_id || config?.system_hotel_id || '', partner_id: config?.partner_id || '', poi_id: config?.poi_id || '', cookies: '', hotel_room_count: config?.hotel_room_count || '', competitor_room_count: config?.competitor_room_count || '' } });
+        if (key === 'buildMeituanBookmarkletSuccessState') return (response = {}) => ({ bookmarklet: response?.data?.bookmarklet || '', toastMessage: response?.data?.message || '旧版美团 Cookie 书签已禁用', toastLevel: 'warning' });
+        if (key === 'buildMeituanBookmarkletFailureState') return ({ error = null } = {}) => ({ toastMessage: `生成失败: ${error?.message || '未知错误'}`, toastLevel: 'error' });
+        if (key === 'findMeituanConfigForHotel') return () => null;
+        if (key === 'resolveMeituanConfigStatus') return () => ({ hasConfig: false, configured: false, name: '', missingFields: [], missingText: '' });
+        if (key === 'isMeituanExecutionConfigReady') return (config = null) => Boolean(config && (config.config_id || config.id) && config.has_cookies === true && String(config.credential_status || '') === 'ready');
+        if (key === 'buildMeituanManualCredentialState') return (config = null) => {
+            const status = String(config?.credential_status || '').trim().toLowerCase();
+            if (config && (config.config_id || config.id) && config.has_cookies === true && status === 'ready') return { key: 'ready', canFetch: true, label: '美团凭据已就绪', detail: config.configuration_verified === true ? '凭据已就绪，且当前门店 Profile 登录验证成功。' : '凭据已就绪，可以直接获取数据验证；Profile 自动采集仍需单独完成登录验证。', tone: 'success' };
+            if (config && (config.migration_required === true || config.migration_required === 1 || status === 'migration_required')) return { key: 'migration_required', canFetch: false, label: '旧版美团凭据待安全迁移', detail: '完成凭据安全迁移或重新保存授权后，才能获取数据。', tone: 'warning' };
+            if (!config) return { key: 'missing_config', canFetch: false, label: '未配置美团数据源', detail: '请先保存美团授权配置。', tone: 'warning' };
+            return { key: status || 'not_ready', canFetch: false, label: '美团凭据未就绪', detail: '请重新登录、更新授权或完成凭据迁移后再获取数据。', tone: 'warning' };
+        };
+        if (key === 'resolveCanFetchMeituanRankingData') return ({ form = {}, selectedConfig = null } = {}) => {
+            const safeForm = form && typeof form === 'object' ? form : {};
+            return !!String(safeForm.hotelId || '').trim() && Boolean(selectedConfig && (selectedConfig.config_id || selectedConfig.id) && selectedConfig.has_cookies === true && String(selectedConfig.credential_status || '') === 'ready');
+        };
+        if (key === 'resolveMeituanManualFetchConfigProofPending') return ({ form = {}, selectedConfig = null } = {}) => {
+            const safeForm = form && typeof form === 'object' ? form : {};
+            return !!String(safeForm.hotelId || '').trim() && Boolean(selectedConfig && (selectedConfig.config_id || selectedConfig.id) && selectedConfig.has_cookies === true && String(selectedConfig.credential_status || '') === 'ready');
+        };
+        if (key === 'resolveMeituanManualFetchConfigCandidate') return ({ config = null, form = {}, selectedConfig = null } = {}) => {
+            if (config) return (config.config_id || config.id) && config.has_cookies === true && String(config.credential_status || '') === 'ready' ? config : null;
+            const safeForm = form && typeof form === 'object' ? form : {};
+            if (!String(safeForm.hotelId || '').trim()) return null;
+            return selectedConfig && (selectedConfig.config_id || selectedConfig.id) && selectedConfig.has_cookies === true && String(selectedConfig.credential_status || '') === 'ready' ? selectedConfig : null;
+        };
+        if (key === 'resolveMeituanConfigListResponse') return (res = {}) => {
+            if (res?.code === 200) return { ok: true, list: res?.data || [], message: '' };
+            return { ok: false, list: [], message: res?.message || '' };
+        };
+        if (key === 'resolveMeituanConfigListApplyAction') return ({ hotelId = '', shouldApplySelectedConfig = false } = {}) => ({
+            shouldApply: !!String(hotelId || '').trim() && shouldApplySelectedConfig === true,
+        });
+        if (key === 'resolveMeituanConfigListCachedResult') return ({ force = false, loaded = false, failed = false, cacheFresh = false, list = [] } = {}) => {
+            if (!force && loaded && !failed && cacheFresh) return { hit: true, list };
+            return { hit: false, list: null };
+        };
+        if (key === 'resolveMeituanConfigListLoadingAction') return ({ force = false, loadingPromise = null } = {}) => {
+            if (!loadingPromise) return { status: 'idle', promise: null };
+            if (!force) return { status: 'reuse', promise: loadingPromise };
+            return { status: 'await_previous', promise: loadingPromise };
+        };
+        if (key === 'buildMeituanConfigListSuccessState') return ({ list = [], loadedAt = 0 } = {}) => ({
+            list,
+            loaded: true,
+            loadedAt,
+        });
+        if (key === 'buildMeituanConfigListFailureAction') return ({ type = 'api', message = '', error = null } = {}) => {
+            const exception = type === 'exception';
+            return {
+                failed: true,
+                label: exception ? '[Debug] 加载美团配置列表失败:' : '[Debug] API 返回错误:',
+                detail: exception ? error : message,
+            };
+        };
+        if (key === 'buildMeituanConfigListStartState') return () => ({
+            loading: true,
+            failed: false,
+        });
+        if (key === 'buildMeituanConfigListFinishState') return () => ({
+            loading: false,
+            loadingPromise: null,
+        });
+        if (key === 'getMeituanConfigDetailVersion') return (config = {}) => String(config?.update_time || config?.updated_at || config?.created_at || '');
+        if (key === 'buildMeituanConfigDetailCacheKey') return (id = '') => (id ? String(id) : '');
+        if (key === 'resolveMeituanConfigDetailClearTarget') return (id = '') => {
+            const cacheKey = id ? String(id) : '';
+            if (!cacheKey) return { clearAll: true, cacheKey: '' };
+            return { clearAll: false, cacheKey };
+        };
+        if (key === 'resolveMeituanConfigDetailLoadTarget') return ({ id = '', loadingPromises = null } = {}) => {
+            const cacheKey = id ? String(id) : '';
+            if (!cacheKey) return { status: 'missing_key', cacheKey: '', promise: null };
+            if (loadingPromises && typeof loadingPromises.has === 'function' && typeof loadingPromises.get === 'function' && loadingPromises.has(cacheKey)) {
+                return { status: 'loading', cacheKey, promise: loadingPromises.get(cacheKey) };
+            }
+            return { status: 'ready', cacheKey, promise: null };
+        };
+        if (key === 'buildMeituanConfigDetailRequestUrl') return (cacheKey = '') => `/online-data/get-meituan-config-detail?id=${encodeURIComponent(String(cacheKey || ''))}`;
+        if (key === 'resolveMeituanConfigDetailResponse') return (res = {}) => {
+            const safeRes = res && typeof res === 'object' ? res : {};
+            if (safeRes.code !== 200) {
+                return {
+                    ok: false,
+                    message: safeRes.message || '加载美团完整配置失败',
+                    data: null,
+                };
+            }
+            return {
+                ok: true,
+                message: '',
+                data: safeRes.data || null,
+            };
+        };
+        if (key === 'shouldSkipMeituanConfigDetailLoad') return (config = null) => !config || !!config.cookies || !config.id || config.has_cookies === false;
+        if (key === 'resolveMeituanConfigDetailCachedResult') return ({ cached = null, listVersion = '' } = {}) => {
+            if (!cached || typeof cached !== 'object') return { hit: false, data: null };
+            const expectedVersion = String(listVersion || '');
+            if (expectedVersion && cached.version !== expectedVersion) return { hit: false, data: null };
+            return { hit: true, data: cached.data ?? null };
+        };
+        if (key === 'resolveMeituanConfigDetailCacheLookup') return ({ config = null, cache = null } = {}) => {
+            const cacheKey = config?.id ? String(config.id) : '';
+            const listVersion = String(config?.update_time || config?.updated_at || config?.created_at || '');
+            const cached = cacheKey && cache && typeof cache.get === 'function' ? cache.get(cacheKey) : null;
+            if (!cached || typeof cached !== 'object') return { cacheKey, listVersion, cachedResult: { hit: false, data: null } };
+            if (listVersion && cached.version !== listVersion) return { cacheKey, listVersion, cachedResult: { hit: false, data: null } };
+            return { cacheKey, listVersion, cachedResult: { hit: true, data: cached.data ?? null } };
+        };
+        if (key === 'buildMeituanConfigDetailCacheEntry') return ({ detail = null, listVersion = '' } = {}) => {
+            if (!detail) return null;
+            return {
+                version: String(detail?.update_time || detail?.updated_at || detail?.created_at || '') || String(listVersion || ''),
+                data: detail,
+            };
+        };
+        if (key === 'resolveMeituanConfigDetailCacheStorePlan') return ({ cacheKey = '', cacheEntry = null } = {}) => ({
+            shouldStore: !!(cacheKey && cacheEntry),
+            cacheKey: cacheKey ? String(cacheKey) : '',
+            cacheEntry,
+        });
+        if (key === 'resolveMeituanConfigDetailFailureAction') return ({ error = null, silent = false } = {}) => {
+            const message = error?.message || '加载美团完整配置失败';
+            if (silent) return { type: 'log', label: '[Meituan] 预热完整配置失败:', message, error };
+            return { type: 'toast', message, level: 'error', error };
+        };
+        if (key === 'resolveMeituanConfigDetailPrewarmPlan') return ({ config = null, delayMs = 80 } = {}) => {
+            if (!config || !!config.cookies || !config.id || config.has_cookies === false) {
+                return { shouldPrewarm: false, config: null, delayMs: 0 };
+            }
+            return { shouldPrewarm: true, config, delayMs };
+        };
+        if (key === 'resolveMeituanManualDefaultHotelIdFromState') return ({
+            currentHotelId = '',
+            storedHotelId = '',
+            userHotelId = '',
+            hotelPool = [],
+        } = {}) => {
+            const allowedHotelIds = new Set((Array.isArray(hotelPool) ? hotelPool : [])
+                .map(hotel => String(hotel?.id || '').trim())
+                .filter(Boolean));
+            const selectedHotelId = [currentHotelId, storedHotelId, userHotelId]
+                .map(value => String(value || '').trim())
+                .find(hotelId => allowedHotelIds.has(hotelId));
+            return selectedHotelId || '';
+        };
+        if (key === 'resolveMeituanSortState') return (currentField = 'roomNights', currentOrder = 'desc', nextField = '') => ({ field: nextField || currentField, order: nextField && nextField !== currentField ? 'desc' : (currentOrder === 'desc' ? 'asc' : 'desc') });
+        if (key === 'resolveMeituanTablePage') return (page = 1, totalPages = 1) => Math.min(Math.max(Number(page) || 1, 1), Math.max(Number(totalPages) || 1, 1));
+        if (key === 'resolveMeituanRankSourceNotice') return () => '美团静态工具缺失，排名摘要暂不可用。';
+        if (key === 'meituanFallbackNumberText') return (value) => (value > 0 ? String(Math.round(value)) : '-');
+        if (key === 'meituanFallbackMoneyText') return (value) => (value > 0 ? `¥${Math.floor(value)}` : '-');
+        if (key === 'meituanFallbackPercentText') return (value) => (value > 0 ? `${Number(value).toFixed(2)}%` : '-');
+        if (key === 'meituanFallbackMetricText') return () => '-';
+        if (key === 'meituanFallbackCard') return (cardKey, label, value, valueClass, panelClass, level = '', levelClass = 'text-gray-500') => ({ key: cardKey, label, value, valueClass, panelClass, level, levelClass });
+        if (key === 'buildMeituanBusinessSummaryFallbackCards') return () => [];
+        if (key === 'resolveMeituanFallbackMarketInventory') return () => 0;
+        if (key === 'resolveMeituanBusinessSummaryCards') return () => [];
+        if (key === 'resolveMeituanTopSummaryRows') return () => [];
+        if (key === 'buildMeituanBrowserCaptureSelectedSectionsText') return () => '未选择';
+        if (key === 'buildMeituanBrowserCaptureCommand') return () => '请先选择目标酒店并填写美团门店标识';
+        if (key === 'buildMeituanBrowserCaptureReadinessNotice') return () => null;
+        if (key.startsWith('createMeituan')) return () => ({});
+        if (key.startsWith('isMeituan') || key.startsWith('hasMeituan')) return () => false;
+        if (key.includes('Rows') || key.includes('Cards') || key.includes('List') || key.includes('Tasks') || key.includes('Presets') || key.includes('Modules') || key.startsWith('parse') || key === 'buildMeituanDownloadData') return () => [];
+        if (key.includes('Counts') || key.includes('Payload') || key.includes('Context') || key.includes('ResultEntry')) return () => ({});
+        if (key.startsWith('getMeituan') || key.endsWith('MetricNumber') || key.endsWith('Sum') || key.endsWith('Average') || key.endsWith('Hhi') || key.endsWith('PriceSigma')) return () => 0;
+        if (key.startsWith('buildMeituan') || key.startsWith('normalizeMeituan') || key.startsWith('validateMeituan')) return unavailable;
+        if (key.startsWith('runMeituan')) return async () => unavailable();
+        return unavailable;
+    };
+
+    const buildPlatformProfileFlowRows = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildPlatformProfileFlowRows', '页面展示工具尚未加载');
+
+    const buildCtripTrafficBusinessQuality = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildCtripTrafficBusinessQuality', '页面展示工具尚未加载');
+
+    const buildLocalCollectorLoginTaskRows = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildLocalCollectorLoginTaskRows', '页面展示工具尚未加载');
+
+    const buildManualNotificationFieldErrors = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildManualNotificationFieldErrors', '页面展示工具尚未加载');
+    const buildCoreOperationsPlatformCards = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildCoreOperationsPlatformCards', '页面展示工具尚未加载');
+    const buildCoreOperationsCompetitorRows = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildCoreOperationsCompetitorRows', '页面展示工具尚未加载');
+    const buildCoreOperationsAiSuggestions = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildCoreOperationsAiSuggestions', '页面展示工具尚未加载');
+    const buildCoreOperationsStepRows = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildCoreOperationsStepRows', '页面展示工具尚未加载');
+    const buildCloudAuthorizationRows = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildCloudAuthorizationRows', '页面展示工具尚未加载');
+    const buildInvestmentDecisionSectionRows = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildInvestmentDecisionSectionRows', '页面展示工具尚未加载');
+    const buildCoreOperationsSopProgress = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildCoreOperationsSopProgress', '页面展示工具尚未加载');
+    const buildPlatformAccountCenterRows = requireDeferredStaticFunction('SUXI_SYSTEM_PAGE_PROJECTIONS', 'buildPlatformAccountCenterRows', '页面展示工具尚未加载');
+    const buildOnlineAnalysisAggregationNotice = (gate = {}) => {
+        if (String(gate.status || '') !== 'blocked') return '';
+        const blocker = String(gate.blocker || '');
+        if (blocker === 'heterogeneous_metric_scope') {
+            return `已阻断不可加口径：当前筛选包含 ${Number(gate.group_count || 0)} 个平台/指标维度，已保留明细但停止总额、趋势和排名；请缩小到单一指标范围。`;
+        }
+        if (blocker === 'duplicate_canonical_grain') {
+            return '已阻断不可加口径：同一酒店、平台、业务日和指标维度存在重复快照，已停止相加；请先完成 canonical 事实去重。';
+        }
+        if (blocker === 'aggregation_identity_incomplete') {
+            return '已阻断不可加口径：记录缺少平台、门店、业务日、指标维度或采集运行身份。';
+        }
+        if (blocker === 'source_ownership_unverified') {
+            return '已阻断不可加口径：记录未通过数据源与门店归属校验。';
+        }
+        return String(gate.blocked_reason || '当前指标范围不可安全相加。');
+    };
+
     return {
+        buildManualNotificationFieldErrors,
+        buildCoreOperationsPlatformCards,
+        buildCoreOperationsCompetitorRows,
+        buildCoreOperationsAiSuggestions,
+        buildCoreOperationsStepRows,
+        buildCloudAuthorizationRows,
+        buildInvestmentDecisionSectionRows,
+        buildCoreOperationsSopProgress,
+        buildPlatformAccountCenterRows,
+        buildOnlineAnalysisAggregationNotice,
+        buildMeituanStaticFallbackFor, buildPlatformProfileFlowRows, buildCtripTrafficBusinessQuality, buildLocalCollectorLoginTaskRows,
+        buildInvestmentDecisionActionQueueRows, buildManualNotificationThreeSourceSummary, buildManualNotificationAutomaticTaskRows, buildEmployeeOtaChecklistRows,
         aiModelConfigI18n,
         normalizeLocale,
         getInitialLocale,
@@ -2730,7 +3108,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
         pricingReadinessBadgeClass,
         priceSuggestionReviewReadinessClass,
         agentClosureReadinessBadgeClass,
-        operationDataStatusText,
+        operationDataStatusText, buildOnlineHistoryRecordDetail, assertOnlineHistoryRowScope, readOnlineHistoryExportRows,
         operationProblemLevelLabel,
         operationAlertLevelLabel,
         operationAlertStatusLabel,

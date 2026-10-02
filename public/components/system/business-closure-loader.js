@@ -1,7 +1,7 @@
 (() => {
     const registry = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
-    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h6e68d18684';
-    const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-hbbdfe00879';
+    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h81815879c7';
+    const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-hedbefa7c92';
     let loadPromise = null;
 
     const loadScript = (source) => new Promise((resolve, reject) => {
@@ -39,9 +39,9 @@
     registry.InvestmentPaybackView = Vue.defineAsyncComponent({
         loader: () => {
             if (!paybackPromise) {
-                paybackPromise = loadScript('investment-scenario.min.js?v=investment-scenario-hf5b2f32461').then(() => {
+                paybackPromise = loadScript('investment-scenario.min.js?v=investment-scenario-hbd86fc0366').then(() => {
                     if (!registry.InvestmentScenarioWorkbench) throw new Error('投资经营测算组件未注册');
-                    return loadScript('investment-payback.min.js?v=investment-payback-h745d88dbd8');
+                    return loadScript('investment-payback.min.js?v=investment-payback-h08207c0f84');
                 }).then(() => {
                     if (!registry.InvestmentPaybackBody) throw new Error('投资回本组件未注册');
                     return registry.InvestmentPaybackBody;

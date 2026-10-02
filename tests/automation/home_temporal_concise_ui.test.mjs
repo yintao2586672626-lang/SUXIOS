@@ -50,7 +50,7 @@ assert.doesNotMatch(
 );
 assert.match(
   appMain,
-  /request\(`\/temporal-insights\/forecasts\/\$\{forecastPointId\}\/execution-intent`[\s\S]*response\.task_created !== false[\s\S]*persistedIntent\.status !== 'pending_approval'[\s\S]*persistedIntent\.tasks\) && persistedIntent\.tasks\.length > 0/,
+  /request\(`\/temporal-insights\/forecasts\/\$\{forecastPointId\}\/execution-intent`[\s\S]*response\.task_created !== false[\s\S]*readOperationExecutionIntent\(intentId, hotelId\)[\s\S]*operationExecutionHotelId\(persistedIntent\) !== hotelId[\s\S]*persistedIntent\.status !== 'pending_approval'[\s\S]*!Array\.isArray\(persistedIntent\.tasks\)[\s\S]*\|\| persistedIntent\.tasks\.length > 0/,
   'the review bridge must read back a pending intent with no task before opening operation tracking',
 );
 assert.match(

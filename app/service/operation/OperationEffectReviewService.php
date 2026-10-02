@@ -155,7 +155,8 @@ final class OperationEffectReviewService
                 $baselineDate,
                 $reviewDate,
                 $reviewedAt,
-                $input
+                $input,
+                $metricDefinition['payload']['definition']
             );
 
             $normalizedIntent = $intent;
@@ -334,7 +335,7 @@ final class OperationEffectReviewService
         $this->assertTablesReady();
         $this->assertPositiveIdentity($tenantId, $hotelId, $intentId, $taskId, 1);
         $intent = $this->scopedIntent($tenantId, $hotelId, $intentId, false);
-        $this->scopedTask($tenantId, $hotelId, $intentId, $taskId, false);
+        $task = $this->scopedTask($tenantId, $hotelId, $intentId, $taskId, false);
 
         $rows = Db::name(self::TABLE)
             ->where('tenant_id', $tenantId)
@@ -349,23 +350,29 @@ final class OperationEffectReviewService
             if (!is_array($row)) {
                 continue;
             }
-            $reviews[] = $this->bindCurrentApprovalContract(
-                $this->normalizeAndVerifyRow($row),
-                $intent
+            $reviews[] = $this->bindCurrentSourceReadback(
+                $this->bindCurrentApprovalContract($this->normalizeAndVerifyRow($row), $intent),
+                $intent,
+                $task
             );
         }
         $approvalContractVerified = count(array_filter(
             $reviews,
             static fn(array $review): bool => ($review['approval_contract_verified'] ?? false) === true
         ));
+        $sourceReadbackVerified = count(array_filter(
+            $reviews,
+            static fn(array $review): bool => ($review['source_readback_verified'] ?? false) === true
+        ));
 
         return [
             'list' => $reviews,
             'count' => count($reviews),
             'approval_contract_verified_count' => $approvalContractVerified,
-            'persistence_status' => $approvalContractVerified === count($reviews)
-                ? 'readback_verified'
-                : 'approval_target_drifted',
+            'source_readback_verified_count' => $sourceReadbackVerified,
+            'persistence_status' => $approvalContractVerified !== count($reviews)
+                ? 'approval_target_drifted'
+                : ($sourceReadbackVerified === count($reviews) ? 'readback_verified' : 'source_readback_unverified'),
         ];
     }
 
@@ -383,7 +390,7 @@ final class OperationEffectReviewService
         }
         $this->assertPositiveIdentity($tenantId, $hotelId, $intentId, $taskId, 1);
         $intent = $this->scopedIntent($tenantId, $hotelId, $intentId, false);
-        $this->scopedTask($tenantId, $hotelId, $intentId, $taskId, false);
+        $task = $this->scopedTask($tenantId, $hotelId, $intentId, $taskId, false);
         $row = Db::name(self::TABLE)
             ->where('id', $id)
             ->where('tenant_id', $tenantId)
@@ -395,13 +402,61 @@ final class OperationEffectReviewService
             throw new RuntimeException('效果复盘不存在或不属于当前经营范围');
         }
 
-        $review = $this->bindCurrentApprovalContract($this->normalizeAndVerifyRow($row), $intent);
-        if (($review['approval_contract_verified'] ?? false) !== true
-            || ($review['active_eligible'] ?? false) !== true
-        ) {
+        $review = $this->bindCurrentSourceReadback(
+            $this->bindCurrentApprovalContract($this->normalizeAndVerifyRow($row), $intent),
+            $intent,
+            $task
+        );
+        if (($review['approval_contract_verified'] ?? false) !== true) {
             throw new RuntimeException('效果复盘绑定的人工审批冻结目标已漂移');
         }
+        if (($review['source_readback_verified'] ?? false) !== true
+            || ($review['active_eligible'] ?? false) !== true
+        ) {
+            throw new RuntimeException('效果复盘绑定的来源回读证据已失效或不属于当前经营范围');
+        }
 
+        return $review;
+    }
+
+    /** Rebind immutable review history to the current, same-scope source evidence. */
+    private function bindCurrentSourceReadback(array $review, array $intent, array $task): array
+    {
+        $review['source_readback_verified'] = false;
+        $review['source_readback_validation_status'] = 'source_readback_unavailable';
+        try {
+            $sourceEvidence = $this->scopedSourceEvidence(
+                (int)$review['tenant_id'],
+                (int)$review['task_id'],
+                (int)$review['source_readback_evidence_id'],
+                false
+            );
+            $review['source_readback_validation_status'] = 'source_readback_invalid';
+            $definition = $review['metric_definition']['definition'] ?? null;
+            if (!is_array($definition) && !is_string($definition)) {
+                throw new InvalidArgumentException('效果复盘缺少已冻结的指标定义');
+            }
+            $this->verifiedSourceReadback(
+                $sourceEvidence,
+                $intent,
+                $task,
+                (int)$review['tenant_id'],
+                (int)$review['hotel_id'],
+                (string)$review['platform'],
+                (string)$review['metric_key'],
+                (string)$review['baseline_business_date'],
+                (string)$review['review_business_date'],
+                (string)$review['reviewed_at'],
+                $review,
+                $definition
+            );
+        } catch (InvalidArgumentException|RuntimeException) {
+            $review['readback_verified'] = false;
+            $review['active_eligible'] = false;
+            return $review;
+        }
+        $review['source_readback_verified'] = true;
+        $review['source_readback_validation_status'] = 'verified';
         return $review;
     }
 
@@ -496,9 +551,9 @@ final class OperationEffectReviewService
             throw new InvalidArgumentException('经营问答效果复盘日期必须晚于基准经营窗口');
         }
 
-        $contractDefinition = $this->arrayValue($contract['metric_definition'] ?? []);
-        $targetDefinition = $this->arrayValue($targetValue['metric_definition'] ?? []);
-        $evidenceDefinition = $this->arrayValue($intentEvidence['metric_definition'] ?? []);
+        $contractDefinition = $contract['metric_definition'] ?? null;
+        $targetDefinition = $targetValue['metric_definition'] ?? null;
+        $evidenceDefinition = $intentEvidence['metric_definition'] ?? null;
         $contractDefinitionDigest = strtolower(trim((string)($contract['metric_definition_digest'] ?? '')));
         $definitionPayload = [
             'metric_key' => $metricKey,
@@ -727,7 +782,8 @@ final class OperationEffectReviewService
         string $baselineDate,
         string $reviewDate,
         string $reviewedAt,
-        array $input
+        array $input,
+        array|string $metricDefinition
     ): array {
         $evidenceType = strtolower(trim((string)($sourceEvidence['evidence_type'] ?? '')));
         if (!in_array($evidenceType, self::SOURCE_READBACK_EVIDENCE_TYPES, true)) {
@@ -759,6 +815,18 @@ final class OperationEffectReviewService
             || trim((string)($context['review_date'] ?? '')) !== $reviewDate
         ) {
             throw new InvalidArgumentException('来源回读证据与日期或指标口径不一致');
+        }
+        // Legacy approvals did not freeze a unit; only an explicit approved unit can attest this comparison.
+        $expectedUnit = is_array($metricDefinition)
+            ? strtolower(trim((string)($metricDefinition['unit'] ?? '')))
+            : '';
+        $sourceUnit = is_string($context['metric_unit'] ?? null)
+            ? strtolower(trim($context['metric_unit'])) : '';
+        $unitMatches = OperationMetricUnitCompatibilityService::matches($intent, (array)$metricDefinition, $sourceUnit);
+        if ($expectedUnit !== ''
+            && !$unitMatches
+        ) {
+            throw new InvalidArgumentException('来源回读指标单位缺失或与人工审批冻结口径不一致');
         }
         $readbackAt = $this->requiredDateTime($context['readback_at'] ?? null, '来源回读时间');
         $executedAt = $this->requiredDateTime($task['executed_at'] ?? null, '任务执行时间');

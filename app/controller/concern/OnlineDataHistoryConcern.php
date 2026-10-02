@@ -6,6 +6,9 @@ namespace app\controller\concern;
 use app\service\CtripCompetitionCirclePersistenceService;
 use app\service\CtripTrafficDisplayService;
 use app\service\OnlineDataTrustStatusService;
+use app\service\OtaTrafficAttributionService;
+use app\service\OtaReadDateRangeService;
+use app\service\OperationAuditSanitizerService;
 use think\Response;
 use think\facade\Db;
 
@@ -26,6 +29,11 @@ trait OnlineDataHistoryConcern
         }
 
         try {
+            $this->validatedOnlineHistoryDateBounds();
+            $platform = strtolower(trim((string)$this->request->get('platform', $this->request->get('source', ''))));
+            if (!in_array($platform, ['', 'all', 'ctrip', 'meituan', 'qunar'], true)) {
+                throw new \InvalidArgumentException('历史查询平台无效', 422);
+            }
             $page = max(1, intval($this->request->get('page', 1)));
             $pageSizeInput = $this->request->get('page_size', null);
             if ($pageSizeInput === null || $pageSizeInput === '') {
@@ -72,7 +80,10 @@ trait OnlineDataHistoryConcern
                 'summary' => $paginationPlan['summary'],
             ]);
         } catch (\Throwable $e) {
-            return $this->error('获取历史记录失败: ' . $e->getMessage());
+            if ($e instanceof \InvalidArgumentException && $e->getCode() === 422) {
+                return $this->error($e->getMessage(), 422);
+            }
+            return $this->error('获取历史记录失败: ' . $e->getMessage(), 500);
         }
     }
 
@@ -95,6 +106,15 @@ trait OnlineDataHistoryConcern
             if (!$currentUser->isSuperAdmin()
                 && !$this->onlineHistoryUserCanViewHotel($currentUser, (int)($row['system_hotel_id'] ?? 0))) {
                 return $this->error('无权查看该历史记录', 403);
+            }
+            if (!$currentUser->isSuperAdmin()
+                && $this->onlineHistoryTenantBindingAvailable($this->getOnlineDailyDataColumns())) {
+                $rowTenantId = (int)($row['tenant_id'] ?? 0);
+                $hotelTenantId = (int)Db::name('hotels')
+                    ->where('id', (int)($row['system_hotel_id'] ?? 0))->value('tenant_id');
+                if ($rowTenantId <= 0 || $hotelTenantId <= 0 || $rowTenantId !== $hotelTenantId) {
+                    return $this->error('历史记录租户与酒店归属不匹配', 403);
+                }
             }
 
             $item = $this->normalizeOnlineHistoryRow($row, $this->getConfiguredHotelNameMap());
@@ -120,7 +140,11 @@ trait OnlineDataHistoryConcern
 
         try {
             $hotelId = trim((string)$this->request->get('hotel_id', ''));
-            $range = $this->normalizeCtripLatestRange((string)$this->request->get('range', ''));
+            $requestedRange = trim((string)$this->request->get('range', ''));
+            $range = $this->normalizeCtripLatestRange($requestedRange);
+            if ($requestedRange !== '' && $range === '') {
+                return $this->error('日期范围无效，请使用真实的 YYYY-MM-DD 日期、today 或 yesterday', 422);
+            }
             $sections = [
                 'rank' => $this->buildCtripLatestSection('rank', $hotelId, $currentUser, $range),
                 'traffic' => $this->buildCtripLatestSection('traffic', $hotelId, $currentUser, $range),
@@ -134,6 +158,9 @@ trait OnlineDataHistoryConcern
                 'review' => $sections['review'],
             ]);
         } catch (\Throwable $e) {
+            if ($e instanceof \InvalidArgumentException && $e->getCode() === 422) {
+                return $this->error($e->getMessage(), 422);
+            }
             return $this->error('获取携程最近采集数据失败: ' . $e->getMessage());
         }
     }
@@ -153,6 +180,7 @@ trait OnlineDataHistoryConcern
         }
 
         try {
+            [$startDate, $endDate] = $this->validatedOnlineHistoryDateBounds();
             $page = max(1, intval($this->request->get('page', 1)));
             $pageSize = min(100, max(1, intval($this->request->get('page_size', $this->request->get('limit', 20)))));
             $hotelId = trim((string)$this->request->get('hotel_id', ''));
@@ -162,6 +190,12 @@ trait OnlineDataHistoryConcern
             $query = Db::name('online_daily_data');
             $this->applyCtripStorageFilter($query, $columns);
             $this->applyCtripHotelScope($query, $hotelId, $currentUser, $columns, $viewableHotelIds);
+            if ($startDate !== '') {
+                $query->where('data_date', '>=', $startDate);
+            }
+            if ($endDate !== '') {
+                $query->where('data_date', '<=', $endDate);
+            }
             if ($dataType !== '' && $dataType !== 'all') {
                 $this->applyCtripSectionTypeFilter($query, $dataType, $columns);
             }
@@ -187,8 +221,16 @@ trait OnlineDataHistoryConcern
                 'summary' => $summary,
             ]);
         } catch (\Throwable $e) {
-            return $this->error('获取携程采集历史失败: ' . $e->getMessage());
+            return $this->error('获取携程采集历史失败: ' . $e->getMessage(), $e->getCode() === 422 ? 422 : 500);
         }
+    }
+
+    /** @return array{0:string,1:string} */
+    private function validatedOnlineHistoryDateBounds(): array
+    {
+        return \app\service\OtaReadDateRangeService::normalize(
+            $this->request->get('start_date', ''), $this->request->get('end_date', '')
+        );
     }
 
     private function buildCtripLatestSection(string $section, string $hotelId, $currentUser, string $range = ''): array
@@ -227,12 +269,32 @@ trait OnlineDataHistoryConcern
         if (isset($columns['data_date']) && !empty($latest['data_date'])) {
             $rowsQuery->where('data_date', $latest['data_date']);
         }
+        $mismatchedDates = [];
         if ($isExactDateTraffic) {
-            $rows = $this->orderOnlineDataByFetchTime($rowsQuery, $columns)
+            $storedRows = $this->orderOnlineDataByFetchTime($rowsQuery, $columns)
                 ->select()
                 ->toArray();
-            $rows = $this->selectLatestCtripExactDateTrafficRoleRows($rows);
+            $matchingRows = [];
+            foreach ($storedRows as $storedRow) {
+                $sourceDate = $this->ctripStoredTrafficRowDate($storedRow);
+                if ($sourceDate === $targetDate) {
+                    $matchingRows[] = $storedRow;
+                } else {
+                    $mismatchedDates[] = $sourceDate;
+                }
+            }
+            $rows = $this->selectLatestCtripExactDateTrafficRoleRows($matchingRows);
             if (empty($rows)) {
+                if ($mismatchedDates !== []) {
+                    $mismatch = $this->emptyCtripLatestSection($section, $labelMap[$section] ?? $section, $targetDate);
+                    $mismatch['status'] = 'date_mismatch';
+                    $mismatch['status_label'] = '已存记录来源日期不符或无效';
+                    $mismatch['verification_status'] = 'target_date_mismatch';
+                    $mismatch['response_date_status'] = 'target_date_mismatch';
+                    $mismatch['mismatched_record_count'] = count($mismatchedDates);
+                    $mismatch['source_business_dates_excluded'] = array_values(array_unique(array_filter($mismatchedDates)));
+                    return $mismatch;
+                }
                 return $this->emptyCtripLatestSection($section, $labelMap[$section] ?? $section, $targetDate);
             }
         } else {
@@ -291,6 +353,16 @@ trait OnlineDataHistoryConcern
             }
         }
         $displayTrafficRows = $section === 'traffic' ? CtripTrafficDisplayService::buildCtripTrafficDisplayRows($decodedRows) : [];
+        $missingTrafficRoles = [];
+        if ($section === 'traffic') {
+            $presentRoles = array_column($displayTrafficRows, 'compareType');
+            foreach (['self', 'competitor_avg'] as $role) {
+                if (!in_array($role, $presentRoles, true)) {
+                    $missingTrafficRoles[] = $role;
+                }
+            }
+        }
+        $trafficRolePartial = $section === 'traffic' && $missingTrafficRoles !== [];
         $displaySummary = $section === 'rank' ? $this->buildCtripBusinessDisplaySummary($displayHotels) : $this->emptyCtripBusinessDisplaySummary();
         if ($trafficFallback !== null) {
             $displaySummary['source_notice'] = '当前最新批次未返回流量字段，已展示最近一组有流量的携程竞争圈数据。';
@@ -325,20 +397,28 @@ trait OnlineDataHistoryConcern
             : [
                 'request_date' => (string)($latest['data_date'] ?? ''),
                 'source_business_date' => '',
-                'status' => 'not_applicable',
+                'status' => $section === 'traffic' && $mismatchedDates !== []
+                    ? 'target_date_partial'
+                    : 'not_applicable',
             ];
 
         return [
             'data_type' => $section,
             'data_type_label' => $labelMap[$section] ?? $section,
             'data_source' => '携程 ebooking',
-            'status' => empty($rows) ? 'empty' : 'success',
-            'status_label' => empty($rows) ? '暂无入库记录' : '有入库记录',
-            'verification_status' => empty($rows)
-                ? 'not_available'
-                : (($storageProof['source_verified'] ?? false) === true
-                    ? 'source_verified'
-                    : 'record_present_source_not_proven'),
+            'status' => $mismatchedDates !== [] || $trafficRolePartial ? 'partial' : (empty($rows) ? 'empty' : 'success'),
+            'status_label' => $mismatchedDates !== []
+                ? '已排除错日记录，展示目标日有效行'
+                : ($trafficRolePartial ? '已存流量缺少本店或竞争圈行' : (empty($rows) ? '暂无入库记录' : '有入库记录')),
+            'verification_status' => $mismatchedDates !== []
+                ? 'target_date_partial'
+                : ($trafficRolePartial
+                    ? 'role_partial'
+                    : (empty($rows)
+                    ? 'not_available'
+                    : (($storageProof['source_verified'] ?? false) === true
+                        ? 'source_verified'
+                        : 'record_present_source_not_proven'))),
             'data_date' => (string)($latest['data_date'] ?? ''),
             'target_data_date' => $targetDate,
             'request_date' => (string)($dateEvidence['request_date'] ?? ''),
@@ -346,6 +426,9 @@ trait OnlineDataHistoryConcern
             'response_date_status' => (string)($dateEvidence['status'] ?? 'target_date_unverified'),
             'fetched_at' => $fetchedAt !== '' ? $fetchedAt : $this->onlineRowFetchedAt($latest, $columns),
             'total' => count($rows),
+            'mismatched_record_count' => count($mismatchedDates),
+            'source_business_dates_excluded' => array_values(array_unique(array_filter($mismatchedDates))),
+            'missing_traffic_roles' => $missingTrafficRoles,
             'rows' => $decodedRows,
             'display_hotels' => $displayHotels,
             'display_summary' => $displaySummary,
@@ -413,7 +496,7 @@ trait OnlineDataHistoryConcern
         $collectedDate = preg_match('/^\d{4}-\d{2}-\d{2}/D', $fetchedAt) === 1
             ? substr($fetchedAt, 0, 10)
             : '';
-        $today = trim((string)($context['today'] ?? date('Y-m-d')));
+        $today = trim((string)($context['today'] ?? $this->onlineHistoryToday()));
         $identityCheck = is_array($context['identity_check'] ?? null)
             ? $context['identity_check']
             : null;
@@ -567,12 +650,21 @@ trait OnlineDataHistoryConcern
             && checkdate((int)$matches[2], (int)$matches[3], (int)$matches[1])) {
             return $range;
         }
+        if (preg_match('/^\d{4}-/', $range) === 1) {
+            throw new \InvalidArgumentException('携程业务日期无效，请选择真实日历日期', 422);
+        }
 
         return match ($range) {
             'yesterday', 'last_day', '1' => 'yesterday',
             'realtime', 'real_time', 'today_realtime', 'today', '0' => 'realtime',
             default => '',
         };
+    }
+
+    private function onlineHistoryToday(): string
+    {
+        return (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))
+            ->format('Y-m-d');
     }
 
     private function resolveCtripLatestTargetDate(string $range): string
@@ -582,8 +674,8 @@ trait OnlineDataHistoryConcern
         }
 
         return match ($range) {
-            'yesterday' => date('Y-m-d', strtotime('-1 day')),
-            'realtime' => date('Y-m-d'),
+            'yesterday' => (new \DateTimeImmutable('yesterday', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d'),
+            'realtime' => $this->onlineHistoryToday(),
             default => '',
         };
     }
@@ -1035,27 +1127,31 @@ trait OnlineDataHistoryConcern
         }
 
         $identityBlocked = is_array($identityCheck);
+        $trafficDateMismatch = (string)($sections['traffic']['status'] ?? '') === 'date_mismatch';
         $rankingCacheEligible = ($sections['rank']['cache_eligible'] ?? false) === true;
         $rankingCacheReason = (string)($sections['rank']['cache_reason'] ?? 'no_stored_rows');
-        $status = $identityBlocked
-            ? 'identity_mismatch'
-            : ($total <= 0 ? 'empty' : ($rankingCacheEligible ? 'success' : 'source_unverified'));
-        $statusLabel = $identityBlocked
-            ? '酒店身份不匹配'
-            : ($total <= 0
-                ? ($targetDataDate !== '' ? '目标日期未采集' : '暂无入库记录')
-                : ($rankingCacheEligible ? '来源与日期已核验' : '来源业务日未核验'));
+        if ($identityBlocked) {
+            $status = 'identity_mismatch';
+            $statusLabel = '酒店身份不匹配';
+            $verificationStatus = 'binding_mismatch';
+        } elseif ($total <= 0) {
+            $status = $trafficDateMismatch ? 'date_mismatch' : 'empty';
+            $statusLabel = $trafficDateMismatch
+                ? '流量记录来源日期不符'
+                : ($targetDataDate !== '' ? '目标日期未采集' : '暂无入库记录');
+            $verificationStatus = $trafficDateMismatch ? 'target_date_mismatch' : 'not_available';
+        } else {
+            $status = $rankingCacheEligible ? 'success' : 'source_unverified';
+            $statusLabel = $rankingCacheEligible ? '来源与日期已核验' : '来源业务日未核验';
+            $verificationStatus = $rankingCacheEligible ? 'source_verified' : 'record_present_source_not_proven';
+        }
         return [
             'hotel_id' => $hotelId,
             'platform' => 'ctrip',
             'data_source' => '携程 ebooking',
             'status' => $status,
             'status_label' => $statusLabel,
-            'verification_status' => $identityBlocked
-                ? 'binding_mismatch'
-                : ($rankingCacheEligible
-                    ? 'source_verified'
-                    : ($total > 0 ? 'record_present_source_not_proven' : 'not_available')),
+            'verification_status' => $verificationStatus,
             'identity_check' => $identityCheck,
             'identity_message' => $identityBlocked ? (string)($identityCheck['message'] ?? '') : '',
             'data_date' => $dataDate,
@@ -1073,20 +1169,40 @@ trait OnlineDataHistoryConcern
         ];
     }
 
+    private function applyKnownOtaPlatformIdentityConsistencyFilter($query, array $columns): void
+    {
+        if (!isset($columns['source'], $columns['platform'])) {
+            return;
+        }
+        // Ctrip is the storage collector for Qunar sub-channel rows. Other
+        // contradictory recognized identities cannot be assigned to a channel.
+        $normalize = static fn(string $column): string => "CASE LOWER(TRIM(COALESCE(`{$column}`, '')))
+            WHEN '携程' THEN 'ctrip' WHEN '美团' THEN 'meituan' WHEN '去哪儿' THEN 'qunar'
+            ELSE LOWER(TRIM(COALESCE(`{$column}`, ''))) END";
+        $source = $normalize('source');
+        $platform = $normalize('platform');
+        $known = "('ctrip', 'meituan', 'qunar')";
+        $query->whereRaw("($source NOT IN $known OR $platform NOT IN $known OR $source = $platform OR ($source = 'ctrip' AND $platform = 'qunar'))");
+    }
+
+    private function storedOtaPlatformSql(array $columns): string
+    {
+        $platform = isset($columns['platform']) ? "NULLIF(TRIM(COALESCE(`platform`, '')), '')" : 'NULL';
+        $source = isset($columns['source']) ? "NULLIF(TRIM(COALESCE(`source`, '')), '')" : 'NULL';
+        $value = "LOWER(TRIM(COALESCE($platform, $source, '')))";
+        return "CASE $value WHEN '携程' THEN 'ctrip' WHEN '美团' THEN 'meituan'
+            WHEN '去哪儿' THEN 'qunar' ELSE $value END";
+    }
+
     private function applyCtripStorageFilter($query, array $columns): void
     {
         if (isset($columns['source'], $columns['platform'])) {
-            $query->where(function ($q) {
-                $q->where('source', 'ctrip')->whereOr('platform', 'Ctrip');
-            });
-            return;
+            $this->applyKnownOtaPlatformIdentityConsistencyFilter($query, $columns);
         }
-        if (isset($columns['source'])) {
-            $query->where('source', 'ctrip');
-            return;
-        }
-        if (isset($columns['platform'])) {
-            $query->where('platform', 'Ctrip');
+        if (isset($columns['source']) || isset($columns['platform'])) {
+            $query->whereRaw($this->storedOtaPlatformSql($columns) . ' = :history_platform', [
+                'history_platform' => 'ctrip',
+            ]);
         }
     }
 
@@ -1156,6 +1272,22 @@ trait OnlineDataHistoryConcern
         ]));
     }
 
+    private function ctripStoredTrafficRowDate(array $row): string
+    {
+        $raw = json_decode((string)($row['raw_data'] ?? ''), true);
+        $payload = is_array($raw) ? $raw : [];
+        foreach (['date', 'dataDate', 'statDate', 'stat_date', 'data_date', 'reportDate', 'day'] as $key) {
+            if (trim((string)($payload[$key] ?? '')) !== '') {
+                $normalized = CtripTrafficDisplayService::normalizeAppTrafficRow($payload);
+                return (string)($normalized['date'] ?? '');
+            }
+        }
+        $normalized = CtripTrafficDisplayService::normalizeAppTrafficRow([
+            'date' => (string)($row['data_date'] ?? ''),
+        ]);
+        return (string)($normalized['date'] ?? '');
+    }
+
     private function applyCtripCompetitionCircleFilter($query, array $columns): void
     {
         if (isset($columns['data_type'])) {
@@ -1182,6 +1314,7 @@ trait OnlineDataHistoryConcern
                 $query->where('id', 0);
             } else {
                 $query->whereIn('system_hotel_id', $viewableHotelIds);
+                $this->applyOnlineHistoryTenantBinding($query, $columns);
             }
         }
     }
@@ -1230,6 +1363,50 @@ trait OnlineDataHistoryConcern
     private function onlineHistoryLightweightStatusExpression(array $columns): string
     {
         if (isset($columns['history_status'])) {
+            if (isset($columns['raw_data'], $columns['data_type'])
+                && (isset($columns['platform']) || isset($columns['source']))) {
+                $driver = strtolower((string)Db::connect()->getConfig('type'));
+                $dateSourceValue = $driver === 'sqlite'
+                    ? "COALESCE(json_extract(`raw_data`, '$.date_source'), json_extract(`raw_data`, '$.dateSource'), '')"
+                    : "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`raw_data`, '$.date_source')), JSON_UNQUOTE(JSON_EXTRACT(`raw_data`, '$.dateSource')), '')";
+                $jsonValid = $driver === 'sqlite' ? 'json_valid(`raw_data`)' : 'JSON_VALID(`raw_data`)';
+                $dateSource = "CASE WHEN {$jsonValid} = 1 THEN LOWER(TRIM({$dateSourceValue})) ELSE '' END";
+                $platformChecks = [];
+                foreach (['platform', 'source'] as $column) {
+                    if (isset($columns[$column])) {
+                        $platformChecks[] = "LOWER(TRIM(COALESCE(`{$column}`, ''))) IN ('meituan', '美团')";
+                    }
+                }
+                $badDate = "({$dateSource} LIKE '%default_data_date%'"
+                    . " OR {$dateSource} IN ('response.rtdataupdatetime', 'page.visible_update_time')"
+                    . " OR {$dateSource} LIKE '%cards.rtdataupdatetime')";
+                $untrustedDateConditions = ['(' . implode(' OR ', $platformChecks) . ") AND {$badDate}"];
+                if (isset($columns['dimension'], $columns['data_date'])) {
+                    $ctripChecks = [];
+                    foreach (['platform', 'source'] as $column) {
+                        if (isset($columns[$column])) {
+                            $ctripChecks[] = "LOWER(TRIM(COALESCE(`{$column}`, ''))) IN ('ctrip', '携程')";
+                        }
+                    }
+                    $observedDateValue = $driver === 'sqlite'
+                        ? "COALESCE(json_extract(`raw_data`, '$.data_date'), json_extract(`raw_data`, '$.dataDate'), '')"
+                        : "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(`raw_data`, '$.data_date')), JSON_UNQUOTE(JSON_EXTRACT(`raw_data`, '$.dataDate')), '')";
+                    $observedDate = "CASE WHEN {$jsonValid} = 1 THEN TRIM({$observedDateValue}) ELSE '' END";
+                    $storedDate = $driver === 'sqlite'
+                        ? "TRIM(COALESCE(CAST(`data_date` AS TEXT), ''))"
+                        : "TRIM(COALESCE(CAST(`data_date` AS CHAR), ''))";
+                    $trustedDateSource = "({$dateSource} = 'row' OR {$dateSource} LIKE 'row.%'"
+                        . " OR {$dateSource} LIKE 'response.%' OR {$dateSource} = 'request'"
+                        . " OR {$dateSource} LIKE 'request.%' OR {$dateSource} LIKE 'page.%')";
+                    $untrustedDateConditions[] = '(' . implode(' OR ', $ctripChecks) . ')'
+                        . " AND LOWER(TRIM(COALESCE(`dimension`, ''))) LIKE 'catalog:%'"
+                        . " AND ({$observedDate} <> {$storedDate} OR NOT {$trustedDateSource})";
+                }
+                return "CASE WHEN LOWER(TRIM(COALESCE(`history_status`, ''))) IN ('success', 'verified', 'normal', 'ready')"
+                    . " AND LOWER(TRIM(COALESCE(`data_type`, ''))) IN ('traffic', 'order', 'business')"
+                    . ' AND ((' . implode(') OR (', $untrustedDateConditions) . ")) THEN 'partial'"
+                    . " ELSE COALESCE(`history_status`, 'unverified') END";
+            }
             return "COALESCE(`history_status`, 'unverified')";
         }
 
@@ -1318,7 +1495,7 @@ trait OnlineDataHistoryConcern
         $driver = $this->onlineHistoryDatabaseDriver();
         $usesFoundRows = in_array($driver, ['mysql', 'mariadb'], true);
         $groupFields = [
-            ($usesFoundRows ? 'SQL_CALC_FOUND_ROWS ' : '') . "{$groupKeyExpression} AS history_group_key",
+            ($usesFoundRows ? 'SQL_CALC_FOUND_ROWS ' : '') . "{$groupKeyExpression} AS history_page_group_key",
             "MAX({$orderKeyExpression}) AS history_order_key",
             "MAX({$fetchTimeExpression}) AS group_fetch_time",
         ];
@@ -1328,7 +1505,7 @@ trait OnlineDataHistoryConcern
 
         $groupRows = (clone $query)
             ->fieldRaw(implode(', ', $groupFields))
-            ->group('history_group_key')
+            ->group('history_page_group_key')
             ->order('history_order_key', 'desc')
             ->limit(($page - 1) * $pageSize, $pageSize)
             ->select()
@@ -1357,7 +1534,7 @@ trait OnlineDataHistoryConcern
 
         $groupKeys = [];
         foreach ($groupRows as $row) {
-            $groupKey = (string)($row['history_group_key'] ?? '');
+            $groupKey = (string)($row['history_page_group_key'] ?? '');
             if ($groupKey !== '') {
                 $groupKeys[] = $groupKey;
             }
@@ -1387,7 +1564,7 @@ trait OnlineDataHistoryConcern
         if (isset($columns['history_fetch_time'])
             || isset($columns['update_time'])
             || isset($columns['create_time'])) {
-            $today = date('Y-m-d');
+            $today = $this->onlineHistoryToday();
             $todayQuery = (clone $query)->whereRaw(
                 "({$fetchTimeExpression}) BETWEEN :history_today_start AND :history_today_end",
                 [
@@ -1442,6 +1619,17 @@ trait OnlineDataHistoryConcern
             return $query->whereRaw('1 = 0');
         }
 
+        // Narrow by the indexed legacy key before evaluating the snapshot
+        // suffix. This preserves bounded hydration on existing databases.
+        if ($groupKeyExpression !== '`history_group_key`'
+            && str_contains($groupKeyExpression, '`history_group_key`')) {
+            $baseKeys = array_values(array_unique(array_map(
+                static fn(string $key): string => explode('|snapshot@', $key, 2)[0],
+                $groupKeys
+            )));
+            $query->whereIn('history_group_key', $baseKeys);
+        }
+
         $placeholders = [];
         $bind = [];
         foreach ($groupKeys as $index => $groupKey) {
@@ -1450,8 +1638,15 @@ trait OnlineDataHistoryConcern
             $bind[$name] = $groupKey;
         }
 
+        $comparisonExpression = $groupKeyExpression;
+        if ($this->onlineHistoryDatabaseDriver() !== 'sqlite'
+            && str_contains($groupKeyExpression, '|snapshot@')) {
+            // Generated legacy columns and connection literals can carry
+            // different collations. Snapshot identities require exact bytes.
+            $comparisonExpression = 'CAST((' . $groupKeyExpression . ') AS BINARY)';
+        }
         return $query->whereRaw(
-            '(' . $groupKeyExpression . ') IN (' . implode(', ', $placeholders) . ')',
+            '(' . $comparisonExpression . ') IN (' . implode(', ', $placeholders) . ')',
             $bind
         );
     }
@@ -1462,7 +1657,10 @@ trait OnlineDataHistoryConcern
             // Keep the generated column bare so the page hydration IN query
             // can use idx_online_daily_history_group_fetch. Wrapping it in a
             // CAST/COALESCE forces MariaDB to scan the whole filtered scope.
-            return '`history_group_key`';
+            if (!isset($columns['data_period'])) {
+                return '`history_group_key`';
+            }
+            return $this->onlineHistorySqlSnapshotGroupExpression('`history_group_key`', $columns);
         }
 
         $dataDate = $this->onlineHistorySqlColumnText($columns, 'data_date');
@@ -1486,10 +1684,37 @@ trait OnlineDataHistoryConcern
         ];
 
         if ($this->onlineHistoryDatabaseDriver() === 'sqlite') {
-            return '(' . implode(" || '|' || ", $parts) . ')';
+            $base = '(' . implode(" || '|' || ", $parts) . ')';
+        } else {
+            $base = 'CONCAT(' . implode(", '|', ", $parts) . ')';
         }
 
-        return 'CONCAT(' . implode(", '|', ", $parts) . ')';
+        return $this->onlineHistorySqlSnapshotGroupExpression($base, $columns);
+    }
+
+    private function onlineHistorySqlSnapshotGroupExpression(string $base, array $columns): string
+    {
+        if (!isset($columns['data_period'])) {
+            return $base;
+        }
+        $concat = fn(array $parts): string => $this->onlineHistoryDatabaseDriver() === 'sqlite'
+            ? '(' . implode(' || ', $parts) . ')'
+            : 'CONCAT(' . implode(', ', $parts) . ')';
+        $period = 'LOWER(TRIM(' . $this->onlineHistorySqlColumnText($columns, 'data_period') . '))';
+        $snapshot = 'CASE ';
+        if (isset($columns['sync_task_id'])) {
+            $snapshot .= 'WHEN COALESCE(`sync_task_id`, 0) > 0 THEN '
+                . $concat(["'task:'", $this->onlineHistorySqlColumnText($columns, 'sync_task_id')]) . ' ';
+        }
+        foreach (['snapshot_bucket', 'snapshot_time', 'create_time'] as $field) {
+            if (isset($columns[$field])) {
+                $value = 'TRIM(' . $this->onlineHistorySqlColumnText($columns, $field) . ')';
+                $snapshot .= "WHEN {$value} <> '' THEN " . $concat(["'{$field}:'", $value]) . ' ';
+            }
+        }
+        $snapshot .= 'ELSE ' . $concat(["'row:'", $this->onlineHistorySqlColumnText($columns, 'id')]) . ' END';
+        return "CASE WHEN {$period} IN ('realtime_snapshot', 'next_30_days', 'future_on_books') THEN "
+            . $concat([$base, "'|snapshot@'", $period, "':'", $snapshot]) . " ELSE {$base} END";
     }
 
     private function onlineHistorySqlPlatformExpression(array $columns): string
@@ -1574,13 +1799,17 @@ trait OnlineDataHistoryConcern
     private function orderOnlineHistoryMergedGroups(array $groups, array $groupKeys): array
     {
         $positions = array_flip(array_values($groupKeys));
-        $hashedKeys = isset($groupKeys[0]) && preg_match('/^[a-f0-9]{64}$/i', (string)$groupKeys[0]) === 1;
+        $hashedKeys = isset($groupKeys[0]) && preg_match('/^[a-f0-9]{64}(?:\|snapshot@|$)/i', (string)$groupKeys[0]) === 1;
         usort($groups, function (array $left, array $right) use ($positions, $hashedKeys): int {
             $leftKey = $this->buildOnlineHistoryMergeKey($left);
             $rightKey = $this->buildOnlineHistoryMergeKey($right);
             if ($hashedKeys) {
-                $leftKey = hash('sha256', $leftKey);
-                $rightKey = hash('sha256', $rightKey);
+                $hashBase = static function (string $key): string {
+                    $parts = explode('|snapshot@', $key, 2);
+                    return hash('sha256', $parts[0]) . (isset($parts[1]) ? '|snapshot@' . $parts[1] : '');
+                };
+                $leftKey = $hashBase($leftKey);
+                $rightKey = $hashBase($rightKey);
             }
             return ($positions[$leftKey] ?? PHP_INT_MAX) <=> ($positions[$rightKey] ?? PHP_INT_MAX);
         });
@@ -1639,7 +1868,7 @@ trait OnlineDataHistoryConcern
             'today_records' => 0,
             'failed_records' => 0,
         ];
-        $today = date('Y-m-d');
+        $today = $this->onlineHistoryToday();
         foreach ($groups as &$group) {
             $group['status'] = $this->resolveOnlineHistoryLightweightGroupStatus($group);
             $fetchTime = (string)$group['fetch_time'];
@@ -1695,7 +1924,7 @@ trait OnlineDataHistoryConcern
         $isCompetitionCircle = $dataType === 'competitor'
             && (string)($row['dimension'] ?? '') === 'competition_circle_hotel';
 
-        return implode('|', [
+        $base = implode('|', [
             (string)($row['data_date'] ?? ''),
             $platform,
             $dataType,
@@ -1704,6 +1933,7 @@ trait OnlineDataHistoryConcern
             $isCompetitionCircle ? 'competition_circle' : $compareType,
             $isCompetitionCircle ? $fetchTime : '',
         ]);
+        return $this->appendOnlineHistorySnapshotKey($base, $row);
     }
 
     private function onlineHistoryLightweightFetchTime(array $row): string
@@ -1759,8 +1989,18 @@ trait OnlineDataHistoryConcern
         foreach ($rows as $row) {
             $raw = (string)($row['raw_data'] ?? '');
             $decoded = $raw !== '' ? json_decode($raw, true) : null;
-            if (!is_array($decoded)) {
+            if (!is_array($decoded) || $decoded === []) {
                 $decoded = $this->buildOnlineRowPayload($row);
+            }
+            $hasRawDate = false;
+            foreach (['date', 'dataDate', 'statDate', 'stat_date', 'data_date', 'reportDate', 'day'] as $dateKey) {
+                if (trim((string)($decoded[$dateKey] ?? '')) !== '') {
+                    $hasRawDate = true;
+                    break;
+                }
+            }
+            if (!$hasRawDate) {
+                $decoded['date'] = (string)($row['data_date'] ?? '');
             }
             $decoded['_record_id'] = (int)($row['id'] ?? 0);
             $decoded['_data_date'] = (string)($row['data_date'] ?? '');
@@ -1807,45 +2047,23 @@ trait OnlineDataHistoryConcern
     private function applyOnlineHistoryFilters($query, $currentUser, ?array $viewableHotelIds = null): void
     {
         $columns = $this->getOnlineDailyDataColumns();
-        $platform = strtolower((string)$this->request->get('platform', $this->request->get('source', '')));
+        $platform = strtolower(trim((string)$this->request->get('platform', $this->request->get('source', ''))));
         $dataType = (string)$this->request->get('data_type', '');
         $hotelScope = (string)$this->request->get('hotel_scope', 'all');
         $hotelId = (string)$this->request->get('hotel_id', '');
         $otaHotelId = (string)$this->request->get('ota_hotel_id', '');
-        $startDate = (string)$this->request->get('start_date', '');
-        $endDate = (string)$this->request->get('end_date', '');
+        [$startDate, $endDate] = $this->validatedOnlineHistoryDateBounds();
 
         if ($platform !== '' && $platform !== 'all') {
-            if ($platform === 'ctrip') {
-                if (isset($columns['source'], $columns['platform'])) {
-                    $query->where(function ($q) {
-                        $q->where('source', 'ctrip')->whereOr('platform', 'Ctrip');
-                    });
-                } elseif (isset($columns['source'])) {
-                    $query->where('source', 'ctrip');
-                } elseif (isset($columns['platform'])) {
-                    $query->where('platform', 'Ctrip');
-                }
-            } elseif ($platform === 'meituan') {
-                if (isset($columns['source'], $columns['platform'])) {
-                    $query->where(function ($q) {
-                        $q->where('source', 'meituan')->whereOr('platform', 'Meituan');
-                    });
-                } elseif (isset($columns['source'])) {
-                    $query->where('source', 'meituan');
-                } elseif (isset($columns['platform'])) {
-                    $query->where('platform', 'Meituan');
-                }
-            } elseif ($platform === 'qunar') {
-                if (isset($columns['source'], $columns['platform'])) {
-                    $query->where(function ($q) {
-                        $q->where('source', 'qunar')->whereOr('platform', 'Qunar');
-                    });
-                } elseif (isset($columns['source'])) {
-                    $query->where('source', 'qunar');
-                } elseif (isset($columns['platform'])) {
-                    $query->where('platform', 'Qunar');
-                }
+            if (isset($columns['source'], $columns['platform'])
+                && in_array($platform, ['ctrip', 'meituan', 'qunar'], true)) {
+                $this->applyKnownOtaPlatformIdentityConsistencyFilter($query, $columns);
+            }
+            if (in_array($platform, ['ctrip', 'meituan', 'qunar'], true)
+                && (isset($columns['source']) || isset($columns['platform']))) {
+                $query->whereRaw($this->storedOtaPlatformSql($columns) . ' = :history_platform', [
+                    'history_platform' => $platform,
+                ]);
             }
         }
 
@@ -1926,8 +2144,35 @@ trait OnlineDataHistoryConcern
                 $query->where('id', 0);
             } else {
                 $query->whereIn('system_hotel_id', $viewableHotelIds);
+                $this->applyOnlineHistoryTenantBinding($query, $columns);
             }
         }
+    }
+
+    private function onlineHistoryTenantBindingAvailable(array $columns): bool
+    {
+        if (!isset($columns['tenant_id'], $columns['system_hotel_id'])) {
+            return false;
+        }
+        $hotelFields = Db::name('hotels')->getTableFields();
+        return in_array('tenant_id', $hotelFields, true) || array_key_exists('tenant_id', $hotelFields);
+    }
+
+    private function applyOnlineHistoryTenantBinding($query, array $columns): void
+    {
+        if (!$this->onlineHistoryTenantBindingAvailable($columns)) {
+            return;
+        }
+        $dataTable = (string)$query->getTable();
+        $hotelTable = (string)Db::name('hotels')->getTable();
+        $query->where('tenant_id', '>', 0)->whereExists(
+            static function ($hotelQuery) use ($dataTable, $hotelTable): void {
+                $hotelQuery->table([$hotelTable => 'history_owner_hotel'])
+                    ->field('history_owner_hotel.id')
+                    ->whereColumn('history_owner_hotel.id', $dataTable . '.system_hotel_id')
+                    ->whereColumn('history_owner_hotel.tenant_id', $dataTable . '.tenant_id');
+            }
+        );
     }
 
     /** @return array<int, int>|null null means the super-admin cross-hotel scope */
@@ -2065,7 +2310,7 @@ trait OnlineDataHistoryConcern
         $failedRecords = 0;
 
         if (isset($columns['create_time']) || isset($columns['update_time'])) {
-            $today = date('Y-m-d');
+            $today = $this->onlineHistoryToday();
             $createMax = isset($columns['create_time']) ? (string)((clone $query)->max('create_time') ?: '') : '';
             $updateMax = isset($columns['update_time']) ? (string)((clone $query)->max('update_time') ?: '') : '';
             $latestFetchTime = strcmp($updateMax, $createMax) > 0 ? $updateMax : $createMax;
@@ -2114,13 +2359,22 @@ trait OnlineDataHistoryConcern
     {
         $rawData = (string)($row['raw_data'] ?? $row['response_json'] ?? $row['data'] ?? '');
         $source = strtolower((string)($row['source'] ?? ''));
-        $platformCode = $this->normalizeHistoryPlatformCode($row['platform'] ?? $source);
+        $sourceCode = $this->normalizeHistoryPlatformCode($source);
+        $storedPlatformCode = $this->normalizeHistoryPlatformCode($row['platform'] ?? '');
+        $knownPlatforms = ['ctrip', 'meituan', 'qunar'];
+        $platformConflict = in_array($sourceCode, $knownPlatforms, true)
+            && in_array($storedPlatformCode, $knownPlatforms, true)
+            && $sourceCode !== $storedPlatformCode
+            && !($sourceCode === 'ctrip' && $storedPlatformCode === 'qunar');
+        $platformCode = $platformConflict
+            ? 'unknown'
+            : $this->normalizeHistoryPlatformCode($row['platform'] ?? $source);
         $compareType = (string)($row['compare_type'] ?? '');
         $otaHotelId = (string)($row['ota_hotel_id'] ?? $row['hotel_id'] ?? '');
         $systemHotelId = $row['system_hotel_id'] ?? null;
         $displayHotelName = $this->buildHistoryHotelDisplayName($row, $hotelMap);
         $dataType = $this->normalizeHistoryDataType((string)($row['data_type'] ?? ''), $compareType);
-        $status = $this->resolveHistoryStatus($row, $rawData);
+        $status = $platformConflict ? 'unverified' : $this->resolveHistoryStatus($row, $rawData);
 
         $item = $row;
         $item['id'] = (int)$row['id'];
@@ -2129,7 +2383,7 @@ trait OnlineDataHistoryConcern
         $item['fetch_time'] = strcmp($updateTime, $createTime) > 0 ? $updateTime : $createTime;
         $item['data_date'] = (string)($row['data_date'] ?? '');
         $item['platform'] = $platformCode;
-        $item['platform_label'] = $this->historyPlatformLabel($platformCode);
+        $item['platform_label'] = $platformConflict ? '渠道身份冲突' : $this->historyPlatformLabel($platformCode);
         $item['data_type'] = $dataType;
         $item['data_type_label'] = $this->historyDataTypeLabel($dataType);
         $item['hotel_name'] = $displayHotelName;
@@ -2146,7 +2400,9 @@ trait OnlineDataHistoryConcern
         $item['raw_data'] = $rawData;
         $item['metrics_summary'] = $this->buildHistoryMetricSummary($row, $rawData);
 
-        return $item;
+        // Legacy captures may predate ingestion redaction. Protect both the
+        // raw_data field and old response_json/data aliases at the read boundary.
+        return (new OperationAuditSanitizerService())->sanitizeArray($item, PHP_INT_MAX);
     }
 
     private function mergeOnlineHistoryRows(array $rows, array $hotelMap): array
@@ -2197,7 +2453,7 @@ trait OnlineDataHistoryConcern
     {
         $isCompetitionCircle = (string)($item['data_type'] ?? '') === 'competitor'
             && (string)($item['dimension'] ?? '') === 'competition_circle_hotel';
-        return implode('|', [
+        $base = implode('|', [
             (string)($item['data_date'] ?? ''),
             (string)($item['platform'] ?? ''),
             (string)($item['data_type'] ?? ''),
@@ -2206,6 +2462,28 @@ trait OnlineDataHistoryConcern
             $isCompetitionCircle ? 'competition_circle' : (string)($item['compare_type'] ?? ''),
             $isCompetitionCircle ? (string)($item['fetch_time'] ?? '') : '',
         ]);
+        return $this->appendOnlineHistorySnapshotKey($base, $item);
+    }
+
+    private function appendOnlineHistorySnapshotKey(string $base, array $item): string
+    {
+        $period = strtolower(trim((string)($item['data_period'] ?? '')));
+        if (!in_array($period, ['realtime_snapshot', 'next_30_days', 'future_on_books'], true)) {
+            return $base;
+        }
+        $snapshot = 'row:' . (string)($item['id'] ?? '');
+        if ((int)($item['sync_task_id'] ?? 0) > 0) {
+            $snapshot = 'task:' . (string)$item['sync_task_id'];
+        } else {
+            foreach (['snapshot_bucket', 'snapshot_time', 'create_time'] as $field) {
+                $value = trim((string)($item[$field] ?? ''));
+                if ($value !== '') {
+                    $snapshot = $field . ':' . $value;
+                    break;
+                }
+            }
+        }
+        return $base . '|snapshot@' . $period . ':' . $snapshot;
     }
 
     private function appendOnlineHistoryGroupRow(array &$group, array $item): void
@@ -2596,6 +2874,15 @@ trait OnlineDataHistoryConcern
     {
         $raw = json_decode($rawData, true);
         $raw = is_array($raw) ? $raw : [];
+        if (in_array(strtolower(trim((string)($row['data_type'] ?? ''))), ['traffic', 'order', 'business'], true)) {
+            $historyPlatform = $this->normalizeHistoryPlatformCode($row['platform'] ?? $row['source'] ?? '');
+            if (!OtaTrafficAttributionService::rowDateScopeIsAuthoritative($row, $historyPlatform)
+                || ($historyPlatform === 'ctrip'
+                    && !OtaTrafficAttributionService::ctripCatalogDateScopeIsAuthoritative($row))
+            ) {
+                return false;
+            }
+        }
         $validationStatus = strtolower(trim((string)($row['validation_status'] ?? '')));
         $sourceValidationStatus = strtolower(trim((string)(
             $row['source_validation_status']

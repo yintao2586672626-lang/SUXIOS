@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import vm from 'node:vm';
+import { parse, tokenizer } from 'acorn';
 
 const root = process.cwd();
 const checks = [];
@@ -23,11 +25,52 @@ function excludesAll(file, label, source, needles) {
   check(file, label, present.length === 0, present.join(', '));
 }
 
+// Use the JavaScript lexer so comments cannot satisfy a runnable contract, while
+// URLs, templates and regular-expression literals keep their original meaning.
+function executableJs(source) {
+  try {
+    const comments = [];
+    const tokens = tokenizer(source, {
+      ecmaVersion: 'latest', sourceType: 'module',
+      onComment: (_block, _text, start, end) => comments.push({ start, end }),
+    });
+    while (tokens.getToken().type.label !== 'eof') { /* collect comment ranges */ }
+    let cursor = 0;
+    let result = '';
+    for (const { start, end } of comments) {
+      result += source.slice(cursor, start) + source.slice(start, end).replace(/[^\r\n]/g, ' ');
+      cursor = end;
+    }
+    return result + source.slice(cursor);
+  } catch {
+    return '';
+  }
+}
+
+function startupHelperSources(source) {
+  try {
+    const ast = parse(source, { ecmaVersion: 'latest', sourceType: 'module' });
+    const declaration = ast.body.find((node) => node.type === 'ExportNamedDeclaration'
+      && node.declaration?.declarations?.some((item) => item.id?.name === 'FRONTEND_STARTUP_HELPER_SOURCES'))
+      ?.declaration.declarations.find((item) => item.id?.name === 'FRONTEND_STARTUP_HELPER_SOURCES');
+    const init = declaration?.init;
+    if (init?.type !== 'CallExpression' || init.callee?.object?.name !== 'Object'
+        || init.callee?.property?.name !== 'freeze' || init.arguments?.[0]?.type !== 'ArrayExpression') return [];
+    return init.arguments[0].elements.filter((item) => item?.type === 'Literal' && typeof item.value === 'string')
+      .map((item) => item.value);
+  } catch {
+    return [];
+  }
+}
+
 const route = read('route/app.php');
 const otaActionHandler = read('app/service/Ota/OtaActionHandler.php');
 const controller = read('app/controller/concern/OperationWorkbenchConcern.php');
 const service = read('app/service/DailyWorkbenchPatrolService.php');
-const operationService = read('app/service/OperationManagementService.php');
+const operationService = [
+  read('app/service/OperationManagementService.php'),
+  read('app/service/operation/OperationExecutionTenantConcern.php'),
+].join('\n');
 const patrolCommand = read('app/command/DailyWorkbenchPatrol.php');
 const consoleConfig = read('config/console.php');
 const patrolCronScript = read('scripts/daily_workbench_patrol_cron.php');
@@ -40,7 +83,13 @@ const frontend = `${frontendTemplate}\n${frontendEntry}`;
 const publicIndex = read('public/index.html');
 const ctripStatic = read('public/ctrip-static.js');
 const dataHealthStatic = read('public/data-health-static.js');
-const manualFetchConcern = read('app/controller/concern/OnlineDataManualFetchConcern.php');
+const manualFetchRoot = read('app/controller/concern/OnlineDataManualFetchConcern.php');
+const ctripExecutionConcern = read('app/controller/concern/CtripManualFetchExecutionConcern.php');
+const manualFetchConcern = [manualFetchRoot, ctripExecutionConcern].join('\n');
+const frontendStartupBuild = read('scripts/lib/frontend_startup_helpers_build.mjs');
+const frontendBootstrap = read('public/app-bootstrap.js');
+const homeSecondaryTemplate = read('resources/frontend/templates/fragments/23e-home-shared-secondary.html');
+const onlineDataTemplate = read('resources/frontend/templates/fragments/35-page-online-data.html');
 const cookieEndpointConcern = read('app/controller/concern/CookieEndpointConcern.php');
 const compassStatic = read('public/compass-static.js');
 const fullAutomation = read('tests/automation/suxi_full_automation_test.mjs');
@@ -205,7 +254,10 @@ includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workb
   'revenue_traffic_conversion',
   'ai_evidence',
   'next_operation_action',
-  "'workflow_chain' => $workflowChain",
+  "(new OperatingLoopKernelService())->currentForHotelDate(",
+  "'workflow_chain' => (array)($operatingLoop['stages'] ?? [])",
+  "'diagnostic_workflow_chain' => $workflowChain",
+  "'source_policy' => 'hotel_operating_cycle_kernel_only'",
   'today_ota_data',
   'field_trust_and_gaps',
   'revenue_metrics',
@@ -218,6 +270,10 @@ includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workb
   'AI suggestions must cite OTA evidence and data gaps',
   'Read-only workflow decomposition',
 ]);
+
+check('app/controller/concern/OperationWorkbenchConcern.php', 'daily workbench canonical stages use the current tenant hotel and date',
+  /\$operatingLoop\s*=\s*\(new OperatingLoopKernelService\(\)\)->currentForHotelDate\(\s*\$tenantId\s*,\s*\$hotelId\s*,\s*\$targetDate\s*\)/.test(dailySlice),
+  'requires the same-scope operating loop kernel before exposing canonical stages');
 
 excludesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workbench slice does not call OTA acquisition paths', dailySlice, [
   'executeAutoFetch(',
@@ -331,9 +387,14 @@ includesAll('resources/frontend/app-template.html', 'focused online-data panel e
   'reviewOperationExecutionTask',
 ]);
 
+includesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch composes and invokes its execution concern', manualFetchRoot, [
+  'use CtripManualFetchExecutionConcern;',
+  '$this->executeCtripManualFetch(',
+]);
+
 includesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch keeps zero Qunar visitors as a non-blocking field gap', manualFetchConcern, [
-  'saved_with_qunar_visitor_gap',
-  'no_saved_with_qunar_visitor_gap',
+  "'saved_with_qunar_visitor_gap'",
+  "'no_saved_with_qunar_visitor_gap'",
   'partial_qunar_visitor_gap',
   '仅作为字段缺口提示',
   '不阻断携程竞争圈获取和入库',
@@ -354,18 +415,62 @@ includesAll('public/data-health-static.js', 'manual one-click fetch display summ
   'const sortManualOneClickFetchRows = (rows = []) =>',
   'const summarizeManualOneClickFetchQunarVisitorQuality = (rows = []) =>',
   'const manualOneClickFetchQunarVisitorNeedsRetry = (quality = {}) =>',
-  '&& Number(quality?.total || 0) <= 0',
+  'Number(quality?.rowCount ?? quality?.row_count ?? 0) > 0',
+  '&& Number(quality?.total ?? quality?.visitor_total ?? 0) <= 0',
+  '&& quality?.ready !== true',
 ]);
 
-includesAll('public/ctrip-static.js', 'single Ctrip fetch distinguishes persisted success from bounded display-only results', ctripStatic, [
+includesAll('public/ctrip-static.js', 'single Ctrip fetch distinguishes persisted success from bounded display-only results', executableJs(ctripStatic), [
   "data.qunar_visitor_quality?.status === 'partial_qunar_visitor_gap'",
   "const saveBlocked = data.save_status === 'blocked'",
   'const ctripFetchReady = ctripRowsReturned',
-  'setFetchSuccess(!persistenceOutcome.businessFailed && (',
-  'persisted || (ctripFetchReady && (saveBlocked || temporaryDisplayOnly))',
+  'setFetchSuccess(allHotels.length > 0 && isCtripVerifiedReportSource(currentFetchMeta))',
   '仅作为字段缺口提示，不阻断携程竞争圈获取和入库。',
   "status: (saveBlocked || temporaryDisplayOnly) ? 'display_only' : (persisted ? 'success' : 'no_saved')",
 ]);
+
+const ctripReportSourceStart = ctripStatic.indexOf('const isCtripVerifiedReportSource =');
+const ctripReportSourceEnd = ctripStatic.indexOf('const buildCtripFetchRawFailureResult =', ctripReportSourceStart);
+const ctripReportSourceSlice = ctripReportSourceStart >= 0 && ctripReportSourceEnd > ctripReportSourceStart
+  ? executableJs(ctripStatic.slice(ctripReportSourceStart, ctripReportSourceEnd)) : '';
+includesAll('public/ctrip-static.js', 'Ctrip report sources require verified same-date evidence and exclude display-only data', ctripReportSourceSlice, [
+  "return String(meta?.status || '') === 'success'",
+  "&& String(meta?.response_date_status || '') === 'verified'",
+  '&& datePattern.test(dataDate)',
+  '&& sourceBusinessDate === dataDate',
+  '&& (!datePattern.test(requestDate) || requestDate === dataDate)',
+  'meta?.readback_verified === true',
+  'meta?.ranking_cache_eligible === true',
+  "&& String(meta?.verification_status || '') === 'source_verified'",
+  '&& (verifiedFreshReadback || verifiedStoredSnapshot)',
+]);
+let ctripReportSourceBehavior = false;
+try {
+  const verifiedMeta = {
+    status: 'success', response_date_status: 'verified', data_date: '2026-09-14',
+    request_date: '2026-09-14', source_business_date: '2026-09-14', readback_verified: true,
+  };
+  const cases = [
+    [verifiedMeta, true],
+    [{ ...verifiedMeta, status: 'display_only' }, false],
+    [{ status: 'display_only' }, false],
+    [{ ...verifiedMeta, readback_verified: false }, false],
+    [{ ...verifiedMeta, response_date_status: 'unverified' }, false],
+    [{ ...verifiedMeta, data_date: '' }, false],
+    [{ ...verifiedMeta, source_business_date: '2026-09-13' }, false],
+    [{ ...verifiedMeta, request_date: '2026-09-13' }, false],
+    [{ ...verifiedMeta, readback_verified: false, ranking_cache_eligible: true, verification_status: 'source_verified' }, true],
+    [{ ...verifiedMeta, readback_verified: false, ranking_cache_eligible: true, verification_status: 'unverified' }, false],
+  ];
+  ctripReportSourceBehavior = vm.runInNewContext(
+    `${ctripReportSourceSlice}\ncases.every(([meta, expected]) => isCtripVerifiedReportSource(meta) === expected)`,
+    { cases }, { timeout: 1000 },
+  ) === true;
+} catch {
+  // A missing or invalid helper cannot establish a verified report source.
+}
+check('public/ctrip-static.js', 'Ctrip report source behavior rejects display-only and mismatched evidence',
+  ctripReportSourceBehavior, 'same-scope readback or a verified stored snapshot is required');
 
 excludesAll('app/controller/concern/OnlineDataManualFetchConcern.php', 'Ctrip manual fetch no longer blocks success on the Qunar field gap', manualFetchConcern, [
   '需要自动重抓最多 3 次',
@@ -391,9 +496,33 @@ includesAll('public/data-health-static.js', 'manual one-click Ctrip fetch result
   'partial_qunar_visitor_gap',
 ]);
 
-includesAll('public/index.html', 'home entry points to daily workbench data-health view', `${publicIndex}\n${frontend}`, [
-  'compass-static.js?v=',
-  "openHomeQuickEntry({ page: 'online-data', tab: 'data-health' })",
+const authenticatedManifestMatch = publicIndex.match(/<script\b[^>]*\bid=["']suxi-authenticated-assets["'][^>]*>([\s\S]*?)<\/script>/i);
+let authenticatedAssets = [];
+try {
+  const parsed = JSON.parse(authenticatedManifestMatch?.[1] || '[]');
+  authenticatedAssets = Array.isArray(parsed) ? parsed : [];
+} catch {
+  // Invalid manifests fail the source-loading contract below.
+}
+const startupHelpersInManifest = authenticatedAssets.some((asset) => {
+  const src = typeof asset === 'string' ? asset : asset?.src;
+  const phase = typeof asset === 'string' ? 'startup' : (asset?.phase || 'startup');
+  const type = typeof asset === 'string' ? 'script' : (asset?.type || 'script');
+  return phase === 'startup' && type === 'script' && /^app-startup-helpers\.min\.js\?v=.+$/.test(src || '');
+});
+const startupSources = startupHelperSources(frontendStartupBuild);
+check('public/index.html', 'home entry points to daily workbench data-health view',
+  startupHelpersInManifest && startupSources.includes('compass-static.js')
+    && homeSecondaryTemplate.includes("openHomeQuickEntry({ page: 'online-data', tab: 'data-health' })")
+    && frontendEntry.includes('window.SUXI_COMPASS_STATIC'),
+  'requires the home action and compass source in the authenticated startup bundle');
+includesAll('public/app-bootstrap.js', 'authenticated startup loads the declared helper sources before the app entry', frontendBootstrap, [
+  "const AUTH_ASSET_MANIFEST_ID = 'suxi-authenticated-assets'",
+  'const assets = authenticatedAssets();',
+  'const startupAssets = assets.filter((asset) => asset.phase === ASSET_PHASE_STARTUP);',
+  'const startupScripts = startupAssets.filter((asset) => asset.type === ASSET_TYPE_SCRIPT);',
+  'await Promise.all(prerequisites.map((src) => loadScript(src)));',
+  'await loadScript(entry);',
 ]);
 
 includesAll('public/compass-static.js', 'compass OTA sync card opens daily workbench first', compassStatic, [
@@ -415,7 +544,7 @@ includesAll('public/index.html', 'daily workbench frontend loader uses read-only
   'dailyWorkbench.value = res.data || {}',
   'request(`/online-data/daily-workbench-patrols?${params.toString()}`)',
   'health: res.data?.health',
-  "/api/online-data/daily-workbench-patrols/report?",
+  "fetch(API_BASE + `/online-data/daily-workbench-patrols/report?${params.toString()}`",
   "request('/online-data/daily-workbench-patrols/run'",
   "request('/online-data/daily-workbench-patrols/actions/update'",
   "request('/online-data/daily-workbench-patrols/actions/review'",
@@ -425,9 +554,48 @@ includesAll('public/index.html', 'daily workbench frontend loader uses read-only
   'result_status: resultStatus',
 ]);
 
-includesAll('public/app-main.js', 'exposed daily workbench writes retain explicit operator confirmation', frontend, [
-  'window.confirm(dailyWorkbenchWriteBoundary.run.confirmText)',
-  'window.confirm(dailyWorkbenchWriteBoundary.export.confirmText)',
+const patrolRunStart = frontendEntry.indexOf('const openDailyWorkbenchPatrolConfirmation =');
+const patrolExportStart = frontendEntry.indexOf('const exportDailyWorkbenchPatrolReport =', patrolRunStart);
+const patrolExportEnd = frontendEntry.indexOf('const dailyWorkbenchPatrolActionKey =', patrolExportStart);
+const patrolRunSlice = patrolRunStart >= 0 && patrolExportStart > patrolRunStart
+  ? executableJs(frontendEntry.slice(patrolRunStart, patrolExportStart)) : '';
+const patrolExportSlice = patrolExportStart >= 0 && patrolExportEnd > patrolExportStart
+  ? executableJs(frontendEntry.slice(patrolExportStart, patrolExportEnd)) : '';
+const runConfirmationGate = /if\s*\(!dailyWorkbenchPatrolConfirming\.value\)\s*\{\s*openDailyWorkbenchPatrolConfirmation\(confirmationScope\);\s*return;\s*\}/;
+const changedScopeGate = /if\s*\(dailyWorkbenchPatrolConfirmationScope !== confirmationScope\)\s*\{\s*openDailyWorkbenchPatrolConfirmation\(confirmationScope\);\s*dailyWorkbenchPatrolError\.value = [^;]+;\s*return;\s*\}/;
+const patrolRunPost = patrolRunSlice.indexOf("await request('/online-data/daily-workbench-patrols/run'");
+const runConfirmationMatch = runConfirmationGate.exec(patrolRunSlice);
+const changedScopeMatch = changedScopeGate.exec(patrolRunSlice);
+check('public/app-main.js', 'exposed daily workbench writes retain explicit operator confirmation',
+  patrolRunPost >= 0 && runConfirmationMatch && changedScopeMatch
+    && runConfirmationMatch.index < patrolRunPost && changedScopeMatch.index < patrolRunPost
+    && patrolRunSlice.includes('dailyWorkbenchPatrolConfirming.value = true;')
+    && patrolRunSlice.includes("dailyWorkbenchPatrolConfirmationScope = String(confirmationScope || '');")
+    && patrolRunSlice.includes('dailyWorkbenchPatrolConfirming.value = false;')
+    && onlineDataTemplate.includes('@click="runDailyWorkbenchPatrol"')
+    && onlineDataTemplate.includes('v-if="dailyWorkbenchPatrolConfirming"')
+    && onlineDataTemplate.includes('dailyWorkbenchWriteBoundary.run.confirmText')
+    && onlineDataTemplate.includes('@click="cancelDailyWorkbenchPatrolConfirmation"'),
+  'requires visible run confirmation, cancellation and re-confirmation after a hotel/date change');
+const exportConfirmationStart = patrolExportSlice.indexOf('const confirmation = await openWorkflowFormDialog({');
+const exportCancellation = patrolExportSlice.indexOf('if (confirmation === null) return;');
+const exportFetch = patrolExportSlice.indexOf('await fetch(API_BASE +');
+check('public/app-main.js', 'patrol report export requires explicit confirmation before the authenticated download',
+  exportConfirmationStart >= 0 && exportCancellation > exportConfirmationStart && exportFetch > exportCancellation
+    && patrolExportSlice.slice(exportConfirmationStart, exportCancellation)
+      .includes('description: dailyWorkbenchWriteBoundary.value.export.confirmText'),
+  'requires confirmation text and cancellation before fetching the report');
+includesAll('public/app-main.js', 'patrol report export uses the API base and validates the authenticated markdown response', frontendEntry, [
+  "const API_BASE = '/api'",
+]);
+includesAll('public/app-main.js', 'patrol report export preserves same-session response and download guards', patrolExportSlice, [
+  'fetch(API_BASE + `/online-data/daily-workbench-patrols/report?${params.toString()}`',
+  'const requestSession = captureAuthSession();',
+  'Authorization: requestSession.token',
+  "Accept: 'text/markdown'",
+  'if (!isAuthSessionCurrent(requestSession) || !isCurrentExportScope()) return;',
+  "if (!contentType.includes('text/markdown'))",
+  'downloadBlob(blob, filename)',
 ]);
 
 includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workbench write responses disclose exact side effects', controller, [
@@ -439,9 +607,9 @@ includesAll('app/controller/concern/OperationWorkbenchConcern.php', 'daily workb
   "'X-SUXIOS-Operation-Log-Written' => 'true'",
 ]);
 
-includesAll('public/app-main.js', 'focused data health refresh hydrates the one-page operating loop', dataHealthRefreshSlice, [
-  'refreshCoreOperationsLoop({ includeDailyWorkbench: false })',
-]);
+check('public/app-main.js', 'focused data health refresh hydrates the one-page operating loop',
+  /jobs\.push\(refreshCoreOperationsLoop\(\{[^}]*\bincludeDailyWorkbench\s*:\s*false\b[^}]*\}\)\)/.test(executableJs(dataHealthRefreshSlice)),
+  'requires the core operating loop refresh job with daily workbench recursion disabled');
 
 excludesAll('public/index.html', 'daily workbench frontend panel does not expose collection actions', frontendPanelSlice + frontendLoaderSlice, [
   '/online-data/fetch-ctrip',

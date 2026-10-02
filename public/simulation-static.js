@@ -544,6 +544,121 @@ window.SUXI_SIMULATION_STATIC = (() => {
         return 0;
     }
 
+    function buildSimulationReportDownload(record = {}) {
+        const input = record.input || {}, result = record.result || {}, truth = record.truth_context || {};
+        const scenario = input.operatingScenario, operating = result.operatingScenario;
+        const text = value => value === null || value === undefined || value === '' ? '未记录'
+            : String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/[\\`*_[\]|]/g, '\\$&').replace(/\r\n|\r|\n/g, '<br>');
+        const number = (value, unit = '') => value === null || value === undefined || value === ''
+            || !['number', 'string'].includes(typeof value) || !Number.isFinite(Number(value))
+            ? '未记录' : `${text(value)}${unit}`;
+        const percent = value => value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
+            ? '未记录' : `${Number((Number(value) * 100).toFixed(6))}%`;
+        const labels = {
+            assumptions: '全部为情景假设', ota_only: '仅 OTA 订单额，缺全店及成本',
+            manual_pms_cost_unverified: '人工 PMS/成本值，尚未核验', manual_unverified: '人工输入，未核验',
+            example_prefill_unverified: '示例预填，未核验', existing_hotel: '现有酒店情景', proposed_investment: '拟投资项目情景',
+            recovered_within_horizon: '测算期内回本', never_within_horizon: '期内无正现金流，未回本',
+            not_recovered_within_horizon: '测算期内未回本', no_initial_outlay: '无初始支出，回本不适用',
+            no_initial_outlay_with_debt: '无初始股东支出但有债务，回本不适用',
+            reachable: '可达（仅在假设下）', unreachable: '当前假设下不可达', calculated_assumptions: '已计算的情景假设',
+            met_under_assumptions: '假设下满足', met: '假设下满足', not_met: '假设下不满足',
+            unreachable_even_without_rent: '零租金仍不可达', within_ceiling: '假设下未超上限', above_ceiling: '假设下超过上限',
+            not_applicable_no_loan: '无贷款，不适用', not_applicable_ramp: '爬坡期不适用', ramp: '爬坡期', stable: '稳定期',
+        };
+        const status = value => text(labels[value] || value);
+        const payback = value => value && typeof value === 'object'
+            ? `${status(value.status)}；月数：${number(value.months, ' 月')}` : '未记录';
+        const lines = ['# 已保存量化模拟报告', '',
+            '> 人工输入与情景测算，来源未核验；不是 OTA 数据或全酒店经营实绩。保存及记录回读不代表经营事实验证。', '',
+            '## 记录与来源', '',
+            `- 记录 ID：${number(record.id)}`, `- 方案名称：${text(record.project_name)}`,
+            `- 酒店 ID：${number(truth.hotel_id)}（未记录表示旧方案未绑定酒店，不推定当前所选酒店）`,
+            `- 记录保存时间：${text(record.created_at)}（不是来源业务日期）`,
+            `- 输入来源：${status(input.input_source_status)}`, `- 证据范围：${status(scenario?.evidence_basis)}`,
+            `- 来源、业务日期及假设说明：${text(scenario?.source_note)}`,
+            `- 情景类型：${status(scenario?.case_type)}；情景名称：${text(scenario?.case_name)}`,
+            `- 情景期：${text(scenario?.start_month)} 起，共 ${number(scenario?.horizon_months, ' 月')}；结果截止月：${text(operating?.end_month)}`,
+            `- 事实范围：${text(truth.scope_label)}`, `- 来源限制：${text(truth.failure_reason)}`,
+            `- 记录回读：${truth.persistence?.readback_verified === true ? '已确认保存记录；输入仍未核验' : '未记录确认状态'}`,
+            '', '## 已保存输入假设', '',
+            '主测算金额为人民币 CNY 元；入住率、佣金率、利率输入为百分数。数值只取本记录，不套用当前编辑草稿或示例默认值。', ''];
+        const table = (headers, rows) => {
+            lines.push(`| ${headers.join(' | ')} |`, `| ${headers.map(() => '---').join(' | ')} |`);
+            rows.forEach(row => lines.push(`| ${row.join(' | ')} |`));
+            lines.push('');
+        };
+        const inputs = [
+            ['roomCount', '房间数', ' 间'], ['adr', '综合 ADR', ' 元'], ['occupancyRate', '综合入住率', '%'],
+            ['otherIncome', '其他月收入合计', ' 元'], ['otaCommissionRate', '加权 OTA 佣金率', '%'],
+            ...simulationRoomRevenueDefinitions.flatMap(field => [[field.daysKey, `${field.label}天数`, ' 天'],
+                [field.adrKey, `${field.label} ADR`, ' 元'], [field.occupancyKey, `${field.label}入住率`, '%']]),
+            ...simulationOtherIncomeFields.map(field => [field.key, field.label, ' 元']),
+            ...[...simulationInvestmentFieldGroups, ...simulationCostFieldGroups].flatMap(group => [
+                [group.totalKey, `${group.title}合计`, ' 元'], ...group.fields.map(field => [field.key, field.label, ' 元']),
+            ]),
+            ...simulationOtaCommissionChannelDefinitions.flatMap(field => [[field.shareKey, `${field.label}收入占比`, '%'], [field.rateKey, `${field.label}佣金率`, '%']]),
+        ];
+        table(['输入项', '已存值'], inputs.map(([key, label, unit]) => [text(label.replace(/^预填示例：/, '')), number(input[key], unit)]));
+        if (scenario) {
+            lines.push('### 经营约束输入', '');
+            table(['输入项', '已存值'], operatingScenarioFields.map(field => [text(field.label), number(scenario[field.key])]));
+            lines.push(`情景金额口径：${text(scenario.currency)} / ${text(scenario.monetary_unit)}。`, '');
+        } else lines.push('旧版单月方案：未记录融资、爬坡及现金约束，不补入新方案默认值。', '');
+        const metrics = row => [number(row.monthlyRevenue, ' 元'), number(row.monthlyCost, ' 元'), number(row.monthlyNetCashflow, ' 元'),
+            number(row.revPAR, ' 元'), row.paybackMonths === null && Number.isFinite(row.monthlyNetCashflow) && row.monthlyNetCashflow <= 0
+                ? '当前现金流下不可回本' : number(row.paybackMonths, ' 月'),
+            row.breakEvenOccupancyStatus === 'unreachable' ? '当前条件无法保本' : percent(row.breakEvenOccupancy), percent(row.rentRatio)];
+        lines.push('## 单月稳态与三情景结果', '',
+            '下表为原记录结果，不重新计算。记录未保存三情景公式版本，不能推定历史参数。当前模型说明：单月回本为总投资 ÷ 单月净现金流，未计融资和爬坡；保守情景 ADR -20元、入住率 -10个百分点、其他月收入 -1700元；乐观情景分别 +20元、+8个百分点、+2000元，按有效范围截断，并非概率预测。', '',
+            `总投资：${number(result.totalInvestment, ' 元')}；风险等级：${text(result.riskLevel)}。`, '');
+        table(['情景', '月收入', '月成本', '月净现金流', 'RevPAR', '单月回本', '保本入住率', '租金占比'], [
+            ['基准结果', ...metrics(result)], ...(Array.isArray(record.scenarios) ? record.scenarios : []).map(row => [text(row.scenarioType), ...metrics(row)]),
+        ]);
+        if (!Array.isArray(record.scenarios) || !record.scenarios.length) lines.push('未记录三情景明细。', '');
+        if (operating) {
+            lines.push('## 经营约束结果', '', `结果性质：${status(operating.status)}；金额单位：${text(operating.currency)} / ${text(operating.monetary_unit)}。`, '');
+            table(['项目', '原记录结果'], [
+                ['项目回本', payback(operating.project_payback)], ['股东回本', payback(operating.equity_payback)],
+                ['资金需求', number(operating.funding_required, ' 元')], ['额外现金缺口', number(operating.additional_cash_gap, ' 元')],
+                ['期末现金', number(operating.ending_cash_balance, ' 元')], ['期末贷款余额', number(operating.outstanding_loan, ' 元')],
+                ['含债务现金保本入住率', operating.cash_break_even_status === 'unreachable' ? '当前假设下不可达' : percent(operating.cash_break_even_occupancy)],
+                ['月租金上限（含物业/公区费）', `${number(operating.monthly_rent_ceiling, ' 元')}；${status(operating.rent_status)}`],
+                ['目标回本月数 / 租金上限', `${number(operating.target_payback_months, ' 月')} / ${number(operating.target_rent_ceiling, ' 元')}；${status(operating.target_status)}`],
+                ['稳定月现金目标', `${number(operating.monthly_cash_target?.minimum, ' 元')}；${status(operating.monthly_cash_target?.status)}`],
+            ]);
+            lines.push('### 逐月现金结果', '');
+            const cashKeys = ['revenue', 'commission', 'fixed_cost', 'interest', 'principal', 'loan_balance', 'project_cashflow', 'equity_cashflow', 'project_cumulative', 'equity_cumulative', 'cash_balance'];
+            table(['日期', '阶段', '天数', '入住率', '月现金目标', '收入(元)', '佣金(元)', '固定成本(元)', '利息(元)', '本金(元)', '贷款余额(元)', '项目现金流(元)', '股东现金流(元)', '累计项目现金流(元)', '累计股东现金流(元)', '现金余额(元)'],
+                (Array.isArray(operating.cashflow_series) ? operating.cashflow_series : []).map(row => [text(row.date), status(row.phase), number(row.days), number(row.occupancy_pct, '%'), status(row.minimum_cash_target_status), ...cashKeys.map(key => number(row[key]))]));
+            if (!Array.isArray(operating.cashflow_series) || !operating.cashflow_series.length) lines.push('未记录逐月现金明细。', '');
+            lines.push('### 敏感性与计算说明', '');
+            table(['变化情景', '状态', '期末现金差额(元)', '额外现金缺口(元)', '股东回本'],
+                (Array.isArray(operating.sensitivity) ? operating.sensitivity : []).map(row => [text(row.label), status(row.status), number(row.ending_cash_delta), number(row.additional_cash_gap), payback(row.equity_payback)]));
+            if (!Array.isArray(operating.sensitivity) || !operating.sensitivity.length) lines.push('未记录敏感性明细。', '');
+            if (Array.isArray(operating.formulas) && operating.formulas.length) operating.formulas.forEach(value => lines.push(`- ${text(value)}`));
+            else lines.push('未记录经营约束公式说明。');
+            lines.push('');
+        } else if (scenario) lines.push('## 经营约束结果', '', '该记录未保存经营约束结果，不能由输入补算。', '');
+        if (Object.prototype.hasOwnProperty.call(input, 'valuation_date')) {
+            lines.push('## 补充现金流输入与结果', '',
+                `估值日期：${text(input.valuation_date)}；补充现金流货币：${text(input.currency)}。此口径独立列示，不与主测算 CNY 元合并。`, '',
+                `终值（原币种金额）：${number(input.terminal_value)}`, '');
+            table(['输入序列', '原顺序', '原币种金额'], ['construction_cashflows', 'operation_cashflows'].flatMap(key =>
+                (Array.isArray(input[key]) ? input[key] : []).map((value, index) => [key === 'construction_cashflows' ? '建设现金流' : '运营现金流', String(index + 1), number(value)])));
+            table(['结果日期', '期序号', '原币种金额'], (Array.isArray(result.cashflow_series) ? result.cashflow_series : []).map(row => [text(row.date), number(row.period), number(row.value)]));
+        }
+        lines.push('## 风险与解释来源', '');
+        if (Array.isArray(record.risk_hints) && record.risk_hints.length) record.risk_hints.forEach(risk => lines.push(`- ${text(risk.title)}（${text(risk.riskLevel)}）：${text(risk.content)}`));
+        else lines.push('未记录风险提示，不等于无风险。');
+        const analysis = record.model_analysis || {};
+        lines.push('', `解释来源：${text(simulationModelSourceLabel(analysis))}；生成时间：${text(analysis.generated_at)}。`, '',
+            `原记录解释：${text(analysis.summary)}`, '', '本文件仅导出已存测算记录，未重新计算、执行审批或验证经营来源。', '');
+        const safeName = String(record.project_name || '未命名方案').replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_').slice(0, 60);
+        const date = /^\d{4}-\d{2}-\d{2}/.exec(String(record.created_at || ''))?.[0] || '日期未记录';
+        return { filename: `测算报告-${record.id}-${safeName}-${date}.md`, content: lines.join('\n') };
+    }
     function simulationRecordSummary(record, { getHotelNameById = () => '', formatCurrency = value => value ?? '--' } = {}) {
         const hotelId = record?.truth_context?.hotel_id || record?.input?.hotel_id;
         const hotel = getHotelNameById(hotelId) || '未绑定酒店';
@@ -620,12 +735,35 @@ window.SUXI_SIMULATION_STATIC = (() => {
         );
     }
 
+    function simulationDraftFromRecord(record) {
+        const name = typeof record?.project_name === 'string' ? record.project_name : '';
+        const id = Number(record?.id);
+        if (!Number.isSafeInteger(id) || id <= 0) return { record: null, name, dirty: false };
+        const hotelId = Number(record?.truth_context?.hotel_id ?? record?.input?.hotel_id ?? record?.input?.system_hotel_id);
+        const scenario = record?.input?.operatingScenario;
+        return {
+            record: {
+                id,
+                name,
+                hotelId: Number.isSafeInteger(hotelId) && hotelId > 0 ? hotelId : null,
+                savedAt: typeof record.created_at === 'string' ? record.created_at : '',
+                scenarioStart: typeof scenario?.start_month === 'string' ? scenario.start_month : '',
+                scenarioMonths: Number.isSafeInteger(scenario?.horizon_months) && scenario.horizon_months > 0
+                    ? scenario.horizon_months : null,
+                hasScenario: Boolean(scenario),
+            },
+            name,
+            dirty: false,
+        };
+    }
+
     function hydrateSimulationState({
         enabled = false, loadState, setInput, setResult, setScenarios,
-        setRiskHints, setModelAnalysis, refresh,
+        setRiskHints, setModelAnalysis, refresh, clearRecord,
     } = {}) {
         if (!enabled || typeof loadState !== 'function') return false;
         const loaded = loadState();
+        clearRecord?.();
         setInput?.(loaded.input);
         if (loaded.result && loaded.scenarios) {
             setResult?.(loaded.result);
@@ -762,54 +900,143 @@ window.SUXI_SIMULATION_STATIC = (() => {
         return records.map(r => ({ id: r.id, name: r.input.operatingScenario.case_name, input: r.input, ...r.result.operatingScenario }));
     }
 
-    async function runSimulationArchiveFlow({ record, confirmAction, request, showToast, clearCurrent, loadRecords } = {}) {
+    async function runSimulationComparisonFlow({ record, records, rows, error, hotelId, request, isCurrent }) {
+        let selected = records.value.filter(item => item.id !== record.id);
+        if (selected.length === records.value.length) {
+            if (selected.length >= 4) throw new Error('最多比较4份方案');
+            const response = await request(`/simulation/records/${record.id}`);
+            if (!isCurrent()) return false;
+            if (response.code !== 200) throw new Error(response.message || '比较方案回读失败');
+            if (Number(response.data?.id) !== Number(record.id) || Number(response.data?.truth_context?.hotel_id) !== Number(hotelId)) {
+                throw new Error('比较记录不属于当前酒店或ID不一致');
+            }
+            if (!response.data?.result?.operatingScenario) throw new Error('旧记录没有经营约束字段，请复用并补齐后另存');
+            selected = [...selected, response.data];
+        }
+        const compared = selected.length >= 2 ? compareOperatingRecords(selected) : [];
+        if (!isCurrent()) return false;
+        records.value = selected;
+        rows.value = compared;
+        error.value = '';
+        return true;
+    }
+
+    function applySimulationRecord({ record, shouldReuseInput = true, aiSimulationRecordId, aiSimulationParams, simulationDraft,
+        aiSimulationResult, aiSimulationScenarios, simulationRiskHints, simulationModelAnalysis,
+        normalizeSimulationInput, normalizeSimulationModelAnalysis, generateRiskHints, saveSimulationState, setTimeout,
+        setAutoRefreshSuppressed }) {
+        if (!record) return;
+        aiSimulationRecordId.value = record.id || aiSimulationRecordId.value;
+        const input = normalizeSimulationInput(record.input);
+        if (shouldReuseInput && Object.keys(input).length) {
+            setAutoRefreshSuppressed(true);
+            aiSimulationParams.value = { ...input };
+            simulationDraft.value = simulationDraftFromRecord(record);
+            setTimeout(() => { setAutoRefreshSuppressed(false); }, 0);
+        }
+        aiSimulationResult.value = record.result || record.summary || null;
+        if (aiSimulationResult.value && record.execution_readiness) {
+            aiSimulationResult.value = {
+                ...aiSimulationResult.value,
+                execution_readiness: record.execution_readiness
+            };
+        }
+        aiSimulationScenarios.value = Array.isArray(record.scenarios) ? record.scenarios : [];
+        simulationRiskHints.value = Array.isArray(record.risk_hints) ? record.risk_hints : generateRiskHints(aiSimulationResult.value, aiSimulationScenarios.value);
+        simulationModelAnalysis.value = normalizeSimulationModelAnalysis(record.model_analysis || record.modelAnalysis || record.result?.modelAnalysis || record.result?.model_analysis || record.summary?.modelAnalysis);
+        if (aiSimulationResult.value && aiSimulationScenarios.value?.length) {
+            saveSimulationState(aiSimulationParams.value, aiSimulationResult.value, aiSimulationScenarios.value, simulationModelAnalysis.value);
+        }
+    }
+
+    async function runSimulationArchiveFlow({ record, pending, getScope, captureAuthSession, isAuthSessionCurrent,
+        confirmAction, request, showToast, clearCurrent, loadRecords } = {}) {
         if (record?.access_policy?.mutation_allowed === false) {
             showToast('该历史模拟未绑定酒店，只读保留；请复用输入并保存为当前酒店的新记录后再归档。', 'warning');
             return false;
         }
-        if (!record?.id || !confirmAction('确认归档该量化模拟记录？归档后将从历史列表隐藏。')) return false;
+        const id = Number(record?.id);
+        if (!Number.isSafeInteger(id) || id <= 0 || pending.value[id]) return false;
+        if (!confirmAction('确认归档该量化模拟记录？归档后将从历史列表隐藏。')) return false;
+        const scope = getScope();
+        const session = captureAuthSession();
+        const lease = Symbol('simulation archive');
+        const isCurrent = () => {
+            const current = getScope();
+            return pending.value[id] === lease && isAuthSessionCurrent(session)
+                && current.page === scope.page && current.generation === scope.generation
+                && String(current.hotel ?? '') === String(scope.hotel ?? '');
+        };
+        pending.value[id] = lease;
+        let archived = false;
         try {
-            const res = await request(`/simulation/records/${record.id}`, { method: 'DELETE' });
-            if (res.code !== 200) throw new Error(res.message || '量化模拟记录归档失败');
-            clearCurrent(record.id);
-            await loadRecords();
+            const res = await request(`/simulation/records/${id}`, { method: 'DELETE' });
+            if (!isCurrent()) return false;
+            if (res?.code !== 200) throw new Error(res?.message || '量化模拟记录归档失败');
+            if (!Number.isSafeInteger(res.data?.id) || res.data.id !== id) throw new Error('归档回执与记录不一致，请刷新历史确认');
+            archived = true;
+            clearCurrent(id);
+            const refreshed = await loadRecords();
+            if (!isCurrent()) return false;
+            if (refreshed !== true) {
+                showToast('量化模拟记录已归档；本次历史列表刷新未确认，请刷新历史确认。', 'warning');
+                return true;
+            }
             showToast('量化模拟记录已归档');
             return true;
         } catch (error) {
-            showToast(error.message || '量化模拟记录归档失败', 'error');
+            if (!isCurrent()) return false;
+            if (archived) showToast('量化模拟记录已归档；本次历史列表刷新未确认，请刷新历史确认。', 'warning');
+            else showToast(error.message || '量化模拟记录归档失败', 'error');
             return false;
+        } finally {
+            if (pending.value[id] === lease) delete pending.value[id];
         }
     }
 
-    const trimMetricZeros = (value) => String(value).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
-
-
-    function benchmarkMetricValue(value, suffix = '', decimals = 0) {
-        const number = Number(value);
-        if (!Number.isFinite(number)) return '--';
-        return `${trimMetricZeros(number.toFixed(decimals))}${suffix}`;
+    async function loadSimulationRecordPage({ state, records, append, request, isCurrent }) {
+        if (!isCurrent()) return false;
+        const pageSize = 30;
+        const cursor = append ? state.nextBeforeId : null;
+        const positiveId = value => Number.isSafeInteger(value) && value > 0;
+        if (append && (state.hasMore !== true || !positiveId(cursor))) return false;
+        const url = '/simulation/records' + (append ? `?before_id=${cursor}&page_size=${pageSize}` : '');
+        const response = await request(url);
+        if (!isCurrent()) return false;
+        const rows = response?.data?.list;
+        if (response?.code !== 200 || !Array.isArray(rows) || rows.length > pageSize) {
+            throw new Error('Invalid simulation history list');
+        }
+        let previousId = cursor ?? Infinity;
+        for (const row of rows) {
+            if (!row || typeof row !== 'object' || Array.isArray(row) || !positiveId(row.id) || row.id >= previousId) {
+                throw new Error('Invalid simulation history order');
+            }
+            previousId = row.id;
+        }
+        const pagination = response.data.pagination;
+        let hasMore = null, nextBeforeId = null;
+        if (pagination === undefined && !append) {
+            // Older servers can still show their first page, but cannot prove its end.
+        } else {
+            if (!pagination || typeof pagination !== 'object' || Array.isArray(pagination)
+                || pagination.page_size !== pageSize || pagination.returned_count !== rows.length
+                || typeof pagination.has_more !== 'boolean'
+                || (pagination.has_more && (rows.length !== pageSize || !positiveId(pagination.next_before_id)
+                    || pagination.next_before_id !== rows.at(-1)?.id || (cursor !== null && pagination.next_before_id >= cursor)))
+                || (!pagination.has_more && pagination.next_before_id !== null)) {
+                throw new Error('Invalid simulation history pagination');
+            }
+            hasMore = pagination.has_more;
+            nextBeforeId = pagination.next_before_id;
+        }
+        if (append && records.value.at(-1)?.id !== cursor) throw new Error('Simulation history cursor changed');
+        records.value = append ? records.value.concat(rows) : rows;
+        state.loaded = true;
+        state.hasMore = hasMore;
+        state.nextBeforeId = nextBeforeId;
+        return true;
     }
-
-    function buildBenchmarkModelDetailCards(metrics = {}) {
-        return [
-            { label: '竞品数量', value: benchmarkMetricValue(metrics.competitor_count, '家') },
-            { label: '竞品均价', value: benchmarkMetricValue(metrics.avg_competitor_price, '元') },
-            { label: '竞品均分', value: benchmarkMetricValue(metrics.avg_competitor_score, '分', 1) },
-            { label: '平均点评量', value: benchmarkMetricValue(metrics.avg_review_count) },
-            { label: 'OTA热度指数', value: benchmarkMetricValue(metrics.ota_heat_index, '%') },
-            { label: '采样半径', value: benchmarkMetricValue(metrics.traffic_radius_km, 'km', 1) }
-        ];
-    }
-
-
-
-
-
-
-
-
-
-
 
     function buildSimulationMetricCards(baseSimulation = null, formatCurrency = value => value ?? '--') {
         if (!baseSimulation) {
@@ -838,7 +1065,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
 
     return {
         defaultSimulationInput,
-        createOperatingScenario, operatingScenarioFields, validateOperatingScenario, normalizedOperatingScenario, operatingPaybackText, compareOperatingRecords,
+        createOperatingScenario, operatingScenarioFields, validateOperatingScenario, normalizedOperatingScenario, operatingPaybackText, compareOperatingRecords, runSimulationComparisonFlow,
         simulationCostFields,
         simulationCostFieldGroups,
         simulationOtaCommissionChannelDefinitions,
@@ -864,16 +1091,17 @@ window.SUXI_SIMULATION_STATIC = (() => {
         simulationReadinessBadgeClass,
         simulationReadinessMissingText,
         executionIntentIdFromRecord,
-        simulationRecordSummary,
+        buildSimulationReportDownload, simulationRecordSummary,
         simulationTaskDisabled,
         simulationTaskLabel,
         runSimulationExecutionIntentFlow,
         simulationHotelSelectionIsPermitted,
-        hydrateSimulationState,
+        hydrateSimulationState, simulationDraftFromRecord,
         runSimulationCalculationUiFlow,
         runSimulationCalculationFlow,
+        applySimulationRecord,
         runSimulationArchiveFlow,
-        buildBenchmarkModelDetailCards,
+        loadSimulationRecordPage,
         buildSimulationMetricCards,
         };
 })();

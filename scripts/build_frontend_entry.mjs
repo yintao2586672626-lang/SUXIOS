@@ -2,14 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildFrontendEntry } from './lib/frontend_entry_build.mjs';
+import { syncKnowledgeCoachingAssetVersions } from './lib/knowledge_coaching_asset_versions.mjs';
 import { updateFrontendAssetVersion } from './lib/frontend_asset_version.mjs';
-import { syncOperationStaticVersion, syncRevenueStaticVersions, syncKnowledgeDomainVersion, syncSimulationStaticVersion } from './lib/frontend_lazy_asset_versions.mjs';
+import { syncOperationStaticVersion, syncRevenueStaticVersions, syncKnowledgeDomainVersion, syncSimulationStaticVersion, syncActionLazyHelperVersions } from './lib/frontend_lazy_asset_versions.mjs';
 import {
   acquireFrontendTemplateLock,
   writeFileAtomic,
 } from './lib/frontend_template_lock.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+await syncKnowledgeCoachingAssetVersions(repoRoot);
 const releaseLock = await acquireFrontendTemplateLock(repoRoot, { owner: 'build-frontend-entry' });
 try {
 const sourcePath = path.join(repoRoot, 'public/app-main.js');
@@ -31,10 +33,14 @@ const knowledgeSource = syncKnowledgeDomainVersion(revenueVersion.appMain, knowl
 const simulationStaticPath = path.join(repoRoot, 'public/simulation-static.js');
 const simulationStatic = fs.readFileSync(simulationStaticPath);
 const simulationVersion = syncSimulationStaticVersion(knowledgeSource, simulationStatic);
-const source = simulationVersion.source;
+const actionHelpers = syncActionLazyHelperVersions(simulationVersion.source, name => fs.readFileSync(path.join(repoRoot, 'public', name)));
+const source = actionHelpers.source;
 const indexSource = fs.readFileSync(indexPath, 'utf8');
+const searchOpportunityPath = path.join(repoRoot, 'public/ctrip-search-opportunity-static.js');
+const searchOpportunitySource = fs.readFileSync(searchOpportunityPath);
 const artifact = await buildFrontendEntry(source);
-const versionUpdate = updateFrontendAssetVersion(indexSource, 'app-main.min.js', artifact);
+const searchOpportunityVersion = updateFrontendAssetVersion(indexSource, 'ctrip-search-opportunity-static.js', searchOpportunitySource);
+const versionUpdate = updateFrontendAssetVersion(searchOpportunityVersion.html, 'app-main.min.js', artifact);
 
 if (fs.readFileSync(sourcePath, 'utf8') !== originalSource) {
   throw new Error('public/app-main.js changed during compilation; refusing to publish a stale runtime entry.');
@@ -49,8 +55,16 @@ if (!fs.readFileSync(knowledgeDomainPath).equals(knowledgeDomain)) throw new Err
 if (!fs.readFileSync(simulationStaticPath).equals(simulationStatic)) {
   throw new Error('simulation-static.js changed during compilation; refusing a stale loader.');
 }
+for (const [name, bytes] of actionHelpers.dependencies) {
+  if (!fs.readFileSync(path.join(repoRoot, 'public', name)).equals(bytes)) {
+    throw new Error(`${name} changed during compilation; refusing a stale action helper version.`);
+  }
+}
 if (fs.readFileSync(indexPath, 'utf8') !== indexSource) {
   throw new Error('public/index.html changed during entry compilation; refusing to publish mixed asset versions.');
+}
+if (!fs.readFileSync(searchOpportunityPath).equals(searchOpportunitySource)) {
+  throw new Error('Search opportunity helper changed during compilation; refusing a stale asset version.');
 }
 
 function writeFileIfChanged(file, content) {
@@ -70,6 +84,7 @@ console.log(JSON.stringify({
   source_bytes: Buffer.byteLength(source),
   artifact_bytes: Buffer.byteLength(artifact),
   artifact_hash: versionUpdate.hash,
+  search_opportunity_hash: searchOpportunityVersion.hash,
   operation_static_hash: lazyVersion.hash,
   revenue_cockpit_hash: revenueVersion.cockpitHash,
   revenue_ai_hash: revenueVersion.revenueAiHash,

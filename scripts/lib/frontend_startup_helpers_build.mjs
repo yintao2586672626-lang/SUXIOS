@@ -10,7 +10,7 @@ import {
 } from './frontend_asset_version.mjs';
 import { FRONTEND_ENTRY_MINIFY_OPTIONS } from './frontend_entry_build.mjs';
 import { captureRuntimeAssetIdentity } from './runtime_asset_identity.mjs';
-import { syncStartupLazyComponentVersions } from './frontend_lazy_asset_versions.mjs';
+import { syncStartupLazyComponentVersions, syncStartupLazyHtmlVersions } from './frontend_lazy_asset_versions.mjs';
 
 export const FRONTEND_BOOTSTRAP_SOURCE = 'app-bootstrap.js';
 export const FRONTEND_BOOTSTRAP_ARTIFACT = 'app-bootstrap.min.js';
@@ -30,15 +30,18 @@ export const FRONTEND_STARTUP_HELPER_SOURCES = Object.freeze([
 ]);
 export const FRONTEND_DEFERRED_HELPER_SOURCES = Object.freeze([
   'ctrip-static.js',
+  'system-page-projections.js',
   'hotel-three-source-onboarding-static.js',
   'manual-notification-orchestration-static.js',
   'revenue-overview-contract-static.js',
+  'ota-fetch-flow-static.js',
   'meituan-static.js',
   'review-match-static.js',
   'data-health-static.js',
   'platform-profile-login-static.js',
   'competition-download-static.js',
   'ai-daily-report-static.js',
+  'components/system/operating-evidence-navigation.js',
   'components/meituan-future-flow.js',
 ]);
 
@@ -288,7 +291,10 @@ export async function inspectFrontendStartupHelpers(repoRoot) {
   const failures = [];
   try {
     const lazyPlan = syncStartupLazyComponentVersions(helperSources, name => fs.readFileSync(path.join(publicRoot, name)));
-    for (const entry of lazyPlan.sources) {
+    if (syncStartupLazyHtmlVersions(html, lazyPlan) !== html) {
+      failures.push('public/index.html has a stale deferred/lazy component hash; run build:frontend-startup-helpers.');
+    }
+    for (const entry of [...lazyPlan.sources, ...lazyPlan.dependencySources]) {
       if (entry.source !== entry.originalSource) {
         failures.push(`public/${entry.name} has a stale lazy component hash; run build:frontend-startup-helpers.`);
       }

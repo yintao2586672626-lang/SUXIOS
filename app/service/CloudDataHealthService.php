@@ -205,7 +205,7 @@ final class CloudDataHealthService
                 );
             }
 
-            if (self::collectionPartial($latestTask, $platformSources)) {
+            if (self::collectionPartialForDate($tasks, $platformSources, $platform, $targetDate, $hotelId, $tenantId)) {
                 $issues[] = self::issue(
                     'latest_collection_partial',
                     $platform,
@@ -424,7 +424,8 @@ final class CloudDataHealthService
         $columns = $this->tableColumns('platform_data_sync_tasks');
         $fields = array_values(array_intersect([
             'id', 'tenant_id', 'data_source_id', 'system_hotel_id', 'platform', 'status', 'message',
-            'started_at', 'finished_at', 'create_time', 'update_time',
+            'started_at', 'finished_at', 'create_time', 'update_time', 'stats_json',
+            'target_date', 'business_date', 'data_date',
         ], $columns));
         return Db::name('platform_data_sync_tasks')
             ->where('system_hotel_id', $hotelId)
@@ -527,17 +528,81 @@ final class CloudDataHealthService
     }
 
     /** @param array<int, array<string, mixed>> $sources */
-    private static function collectionPartial(array $latestTask, array $sources): bool
+    private static function collectionPartialForDate(
+        array $tasks,
+        array $sources,
+        string $platform,
+        string $targetDate,
+        int $hotelId,
+        int $tenantId
+    ): bool
     {
-        if (in_array(strtolower(trim((string)($latestTask['status'] ?? ''))), ['partial', 'partial_success'], true)) {
-            return true;
+        $sourceIds = array_column($sources, 'id');
+        $scopedTasks = array_values(array_filter($tasks, static function (array $task) use ($platform, $hotelId, $tenantId, $sourceIds): bool {
+            return self::rowPlatform($task) === $platform
+                && (!isset($task['system_hotel_id']) || (int)$task['system_hotel_id'] === $hotelId)
+                && (!isset($task['tenant_id']) || (int)$task['tenant_id'] === $tenantId)
+                && (empty($task['data_source_id']) || in_array((int)$task['data_source_id'], array_map('intval', $sourceIds), true));
+        }));
+        $targetTasks = array_values(array_filter($scopedTasks, static function (array $task) use ($targetDate): bool {
+            $dates = self::collectionBusinessDates($task);
+            return in_array($targetDate, $dates, true);
+        }));
+        $undatedTasks = array_values(array_filter($scopedTasks, static fn(array $task): bool => self::collectionBusinessDates($task) === []));
+        // Legacy undated failures remain unresolved, but an undated success
+        // cannot clear an explicitly dated partial collection.
+        foreach ([$targetTasks, $undatedTasks] as $dateScopeTasks) {
+            $latestTask = self::latestTask($dateScopeTasks, $platform);
+            if (in_array(strtolower(trim((string)($latestTask['status'] ?? ''))), ['partial', 'partial_success'], true)) {
+                return true;
+            }
         }
         foreach ($sources as $source) {
             if (in_array(strtolower(trim((string)($source['last_sync_status'] ?? ''))), ['partial', 'partial_success'], true)) {
+                $sourceDates = self::collectionBusinessDates($source);
+                if ($sourceDates !== [] && !in_array($targetDate, $sourceDates, true)) {
+                    continue;
+                }
+                $sourceTask = self::latestTask(array_values(array_filter(
+                    $scopedTasks,
+                    static fn(array $task): bool => (int)($task['data_source_id'] ?? 0) === (int)($source['id'] ?? 0)
+                )), $platform);
+                $taskDates = self::collectionBusinessDates($sourceTask);
+                if ($sourceDates === [] && $taskDates !== [] && !in_array($targetDate, $taskDates, true)) {
+                    continue;
+                }
                 return true;
             }
         }
         return false;
+    }
+
+    /** @return list<string> */
+    private static function collectionBusinessDates(array $record): array
+    {
+        $stats = $record['stats_json'] ?? [];
+        if (is_string($stats)) {
+            $stats = json_decode($stats, true);
+        }
+        $stats = is_array($stats) ? $stats : [];
+        $containers = [$record, $stats];
+        foreach (['run_readback', 'sync_diagnostics', 'collection_quality', 'ordered_collection'] as $key) {
+            if (is_array($stats[$key] ?? null)) {
+                $containers[] = $stats[$key];
+            }
+        }
+        $dates = [];
+        foreach ($containers as $container) {
+            foreach (['target_date', 'business_date', 'data_date'] as $key) {
+                $value = $container[$key] ?? null;
+                if (!is_string($value) || preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $value, $parts) !== 1
+                    || !checkdate((int)$parts[2], (int)$parts[3], (int)$parts[1])) {
+                    continue;
+                }
+                $dates[] = $value;
+            }
+        }
+        return array_values(array_unique($dates));
     }
 
     /** @return array<int, array<string, mixed>> */

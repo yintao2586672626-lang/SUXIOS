@@ -553,4 +553,81 @@ final class RevenuePricingRecommendationServiceTest extends TestCase
         self::assertCount(1, $repository->calls);
         self::assertSame(80, $repository->calls[0]['hotel_id']);
     }
+
+    public function testPricingHistoryUsesShanghaiBusinessTodayAcrossProcessTimezones(): void
+    {
+        $shanghaiNow = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $today = $shanghaiNow->format('Y-m-d');
+        $targetDate = $shanghaiNow->modify('+1 day')->format('Y-m-d');
+        $originalTimezone = date_default_timezone_get();
+        $repository = new class extends TrustedOtaFactRepository {
+            public array $singleCalls = [];
+            public array $batchCalls = [];
+
+            public function pricingHistory(int $systemHotelId, string $startDate, string $endDate): array
+            {
+                $this->singleCalls[] = [$systemHotelId, $startDate, $endDate];
+                return ['data_status' => 'blocked', 'rows' => [], 'data_gaps' => ['fixture_missing']];
+            }
+
+            public function pricingHistoryBatch(int $systemHotelId, array $windows): array
+            {
+                $this->batchCalls[] = [$systemHotelId, $windows];
+                return [];
+            }
+        };
+
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d') !== $today) {
+                    break;
+                }
+            }
+            self::assertNotSame($today, date('Y-m-d'));
+
+            $service = new RevenuePricingRecommendationService($repository);
+            $service->hotelPricingModelSummary(80, $targetDate);
+            self::assertSame($today, $repository->singleCalls[0][2]);
+
+            $batchService = new RevenuePricingRecommendationService($repository);
+            (new \ReflectionMethod($batchService, 'primeHotelSignalsBatch'))->invoke($batchService, 80, [$targetDate]);
+            $windows = $repository->batchCalls[0][1];
+            self::assertSame($today, reset($windows)['end_date']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
+    public function testEffectReviewDefaultTodayUsesShanghaiBusinessDate(): void
+    {
+        $shanghaiNow = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $today = $shanghaiNow->format('Y-m-d');
+        $originalTimezone = date_default_timezone_get();
+        try {
+            foreach (['Pacific/Honolulu', 'Pacific/Kiritimati'] as $timezone) {
+                date_default_timezone_set($timezone);
+                if (date('Y-m-d') !== $today) {
+                    break;
+                }
+            }
+            $processDate = date('Y-m-d');
+            self::assertNotSame($today, $processDate);
+            $windowEnd = $processDate < $today
+                ? $today
+                : $shanghaiNow->modify('+1 day')->format('Y-m-d');
+            $expectedStage = $processDate < $today
+                ? 'effect_review_sample_missing'
+                : 'effect_review_window_open';
+
+            $readiness = (new RevenuePricingRecommendationService())->buildEffectReviewReadiness(
+                ['status' => 4],
+                ['data_status' => 'ok', 'trusted_fact_count' => 1],
+                ['data_status' => 'ok', 'trusted_fact_count' => 0, 'end_date' => $windowEnd]
+            );
+            self::assertSame($expectedStage, $readiness['stage']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
 }

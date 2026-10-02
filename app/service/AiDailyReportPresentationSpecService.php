@@ -769,12 +769,23 @@ final class AiDailyReportPresentationSpecService
             return null;
         }
         $target = trim((string)($item['target_type'] ?? '人工判断'));
+        $targetKey = mb_substr(trim((string)($item['target_key'] ?? '')), 0, 120);
         $note = trim((string)($item['note'] ?? $item['comment'] ?? ''));
+        $correction = mb_substr(trim((string)($item['correction'] ?? '')), 0, 1000);
+        $statement = $decision . ($note !== '' ? '：' . $note : '');
+        if ($correction !== '') {
+            // Lead with the actual correction in the slide summary; retain both
+            // saved fields in the specification and the renderer's source notes.
+            $statement = $decision . '：修正意见：' . $correction
+                . ($note !== '' ? '；判断理由：' . mb_substr($note, 0, 1000) : '');
+        }
         return [
             'id' => sprintf('H-%02d', $index),
             'class' => 'HUMAN_DECISION',
-            'label' => mb_substr($target !== '' ? $target : '人工判断', 0, 120),
-            'statement' => mb_substr(trim($decision . ($note !== '' ? '：' . $note : '')), 0, 500),
+            'label' => mb_substr($target !== '' ? $target : '人工判断', 0, 120)
+                . ($targetKey !== '' ? ' · ' . $targetKey : ''),
+            'target_key' => $targetKey,
+            'statement' => mb_substr($statement, 0, $correction !== '' ? 2100 : 500),
             'value' => null,
             'unit' => '',
             'source_refs' => [],

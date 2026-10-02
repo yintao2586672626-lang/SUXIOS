@@ -28,27 +28,74 @@ final class OtaBrowserAssistImportService
         $normalized = $this->normalizeCapturePackages($payload);
         $packages = $normalized['packages'];
         if ($packages === []) {
-            throw new RuntimeException('浏览器辅助采集未解析到可入库数据。', 422);
+            return [
+                'status' => 'failed',
+                'source_contract' => self::CONTRACT_VERSION,
+                'collection_mode' => self::COLLECTION_MODE,
+                'package_count' => 0,
+                'row_count' => (int)$normalized['summary']['row_count'],
+                'normalized_count' => 0,
+                'saved_count' => 0,
+                'saved_count_complete' => true,
+                'unconfirmed_package_count' => 0,
+                'warnings' => $normalized['warnings'],
+                'packages' => [],
+            ];
         }
 
         $results = [];
         $saved = 0;
         $normalizedRows = 0;
+        $interrupted = false;
+        $unconfirmedPackages = 0;
         foreach ($packages as $package) {
-            $result = $this->syncService->importRows($user, $package);
-            $saved += (int)($result['saved_count'] ?? 0);
-            $normalizedRows += (int)($result['normalized_count'] ?? 0);
-            $results[] = [
+            $summary = [
                 'platform' => (string)$package['platform'],
                 'data_type' => (string)$package['data_type'],
                 'row_count' => count($package['rows']),
+                'request_scope' => $this->packageRequestScope($package),
+            ];
+            if ($interrupted) {
+                $results[] = array_merge($summary, [
+                    'status' => 'not_attempted',
+                    'code' => 'browser_assist_package_not_attempted',
+                    'message' => '前序分包结果尚未确认，本分包未尝试导入。',
+                    'normalized_count' => 0,
+                    'saved_count' => 0,
+                    'readback_verified' => false,
+                    'sync_task_id' => 0,
+                ]);
+                continue;
+            }
+            try {
+                $result = $this->syncService->importRows($user, $package);
+            } catch (\Throwable $error) {
+                if ($results === []) {
+                    throw $error;
+                }
+                $interrupted = true;
+                $unconfirmedPackages++;
+                $results[] = array_merge($summary, [
+                    'status' => 'unknown',
+                    'code' => 'browser_assist_package_outcome_unknown',
+                    'message' => '分包导入中断，保存结果尚未确认；请核对任务和回读结果后再处理。',
+                    'normalized_count' => null,
+                    'saved_count' => null,
+                    'readback_verified' => null,
+                    'sync_task_id' => null,
+                ]);
+                continue;
+            }
+            $saved += (int)($result['saved_count'] ?? 0);
+            $normalizedRows += (int)($result['normalized_count'] ?? 0);
+            $results[] = array_merge($summary, [
                 'status' => (string)($result['status'] ?? 'unknown'),
                 'message' => (string)($result['message'] ?? ''),
                 'normalized_count' => (int)($result['normalized_count'] ?? 0),
                 'saved_count' => (int)($result['saved_count'] ?? 0),
                 'readback_verified' => ($result['readback_verified'] ?? false) === true,
                 'sync_task_id' => (int)($result['task_id'] ?? 0),
-            ];
+            ]);
         }
 
         $status = $this->aggregateImportStatus($results);
@@ -61,8 +108,31 @@ final class OtaBrowserAssistImportService
             'row_count' => (int)$normalized['summary']['row_count'],
             'normalized_count' => $normalizedRows,
             'saved_count' => $saved,
+            'saved_count_complete' => !$interrupted,
+            'unconfirmed_package_count' => $unconfirmedPackages,
             'warnings' => $normalized['warnings'],
             'packages' => $results,
+        ];
+    }
+
+    /** Parsed input scope only; this is not independent persistence readback evidence. */
+    private function packageRequestScope(array $package): array
+    {
+        $businessDates = [];
+        foreach ($package['rows'] as $row) {
+            $date = trim((string)($row['data_date'] ?? ''));
+            if ($date !== '') {
+                $businessDates[$date] = true;
+            }
+        }
+        $businessDates = array_keys($businessDates);
+        sort($businessDates, SORT_STRING);
+        return [
+            'scope_type' => 'parsed_import_request',
+            'system_hotel_id' => (int)($package['system_hotel_id'] ?? 0),
+            'platform' => (string)$package['platform'],
+            'data_type' => (string)$package['data_type'],
+            'business_dates' => $businessDates,
         ];
     }
 
@@ -96,13 +166,25 @@ final class OtaBrowserAssistImportService
     public function normalizeCapturePackages(array $payload): array
     {
         $capture = $this->unwrapCapture($payload);
+        $snapshotTimeInput = $this->firstNonEmpty(
+            $payload['snapshot_time'] ?? null,
+            $payload['snapshotTime'] ?? null,
+            $capture['snapshot_time'] ?? null,
+            $capture['snapshotTime'] ?? null
+        );
         $context = [
             'generated_at' => $this->normalizeDateTime($payload['generated_at'] ?? $payload['generatedAt'] ?? date('Y-m-d H:i:s')),
             'system_hotel_id' => $this->toInt($payload['system_hotel_id'] ?? $payload['systemHotelId'] ?? $capture['system_hotel_id'] ?? $capture['systemHotelId'] ?? null),
             'hotel_id' => $this->cleanText($payload['hotel_id'] ?? $payload['hotelId'] ?? $capture['hotel_id'] ?? $capture['hotelId'] ?? ''),
             'hotel_name' => $this->cleanText($payload['hotel_name'] ?? $payload['hotelName'] ?? $capture['hotel_name'] ?? $capture['hotelName'] ?? ''),
-            'data_date' => $this->normalizeDate($payload['data_date'] ?? $payload['dataDate'] ?? $capture['data_date'] ?? $capture['dataDate'] ?? ''),
-            'snapshot_time' => $this->normalizeDateTime($payload['snapshot_time'] ?? $payload['snapshotTime'] ?? $capture['snapshot_time'] ?? $capture['snapshotTime'] ?? ''),
+            'data_date' => $this->firstNonEmpty(
+                $payload['data_date'] ?? null,
+                $payload['dataDate'] ?? null,
+                $capture['data_date'] ?? null,
+                $capture['dataDate'] ?? null
+            ) ?? '',
+            'snapshot_time' => $this->normalizeDateTime($snapshotTimeInput),
+            'snapshot_time_input' => $snapshotTimeInput,
         ];
 
         $warnings = [];
@@ -226,14 +308,25 @@ final class OtaBrowserAssistImportService
                     continue;
                 }
                 $sourcePath = $module . '.rooms.' . $roomIndex . '.days.' . $dayIndex;
-                $dataDate = $this->normalizeDate($day['date'] ?? $day['data_date'] ?? $day['dataDate'] ?? $section['data_date'] ?? $section['dataDate'] ?? $context['data_date'] ?? '');
+                $dateValue = $this->firstNonEmpty(
+                    $day['date'] ?? null,
+                    $day['data_date'] ?? null,
+                    $day['dataDate'] ?? null,
+                    $section['data_date'] ?? null,
+                    $section['dataDate'] ?? null,
+                    $context['data_date'] ?? null
+                );
+                $dataDate = $this->normalizeDate($dateValue);
                 if ($dataDate === '') {
+                    $invalidDate = $this->hasValue($dateValue);
                     $warnings[] = [
                         'platform' => $platform,
                         'module' => $module,
-                        'code' => 'data_date_missing',
+                        'code' => $invalidDate ? 'data_date_invalid' : 'data_date_missing',
                         'source_path' => $sourcePath,
-                        'message' => 'Inventory row skipped because no data_date could be proven.',
+                        'message' => $invalidDate
+                            ? 'Inventory row skipped because the explicit business date is invalid; snapshot time was not used as a fallback.'
+                            : 'Inventory row skipped because no data_date could be proven.',
                     ];
                     continue;
                 }
@@ -317,12 +410,13 @@ final class OtaBrowserAssistImportService
             $snapshot = $this->resolveSnapshot($section, $context);
             $dataDate = $this->resolveRealtimeDate($section, $context, $snapshot);
             if ($dataDate === '') {
+                $warningCode = $this->realtimeDateWarningCode($section, $context);
                 $warnings[] = [
                     'platform' => 'ctrip',
                     'module' => 'ctrip_stats',
-                    'code' => 'data_date_missing',
+                    'code' => $warningCode,
                     'source_path' => 'ctrip_stats.metrics.' . $channel,
-                    'message' => $channel . ' realtime metrics skipped because no data_date could be proven.',
+                    'message' => $this->realtimeDateWarningMessage('Ctrip ' . $channel, $warningCode),
                 ];
                 continue;
             }
@@ -481,12 +575,13 @@ final class OtaBrowserAssistImportService
         $snapshot = $this->resolveSnapshot($section, $context);
         $dataDate = $this->resolveRealtimeDate($section, $context, $snapshot);
         if ($dataDate === '') {
+            $warningCode = $this->realtimeDateWarningCode($section, $context);
             $warnings[] = [
                 'platform' => 'meituan',
                 'module' => 'meituan_stats',
-                'code' => 'data_date_missing',
+                'code' => $warningCode,
                 'source_path' => 'meituan_stats.metrics',
-                'message' => 'Meituan realtime metrics skipped because no data_date could be proven.',
+                'message' => $this->realtimeDateWarningMessage('Meituan', $warningCode),
             ];
             return [];
         }
@@ -597,7 +692,46 @@ final class OtaBrowserAssistImportService
             }
         }
 
-        if ($rows === [] && $this->hasMeituanHookShape($root)) {
+        $importableRows = [];
+        foreach ($rows as $row) {
+            if (($row['data_date'] ?? '') !== '') {
+                $importableRows[] = $row;
+                continue;
+            }
+            $sourcePath = (string)($row['capture_evidence']['source_path'] ?? 'meituan_hook');
+            $warningCode = 'data_date_missing';
+            $invalidForecastTargetDate = false;
+            if (preg_match('/^meituan_hook\.([^.]+)\.data(?:\.|$)/', $sourcePath, $matches) === 1
+                && isset($root[$matches[1]]) && is_array($root[$matches[1]])) {
+                $warningCode = $this->realtimeDateWarningCode($root[$matches[1]], $context);
+            }
+            if (($row['raw_data']['module'] ?? '') === 'meituan_hook_traffic_forecast'
+                && preg_match('/^meituan_hook\.[^.]+\.data(?:\.detail\.\d+)?$/D', $sourcePath) === 1) {
+                $forecastSourceRow = $row['raw_data']['data'] ?? [];
+                if (is_array($forecastSourceRow)) {
+                    $forecastDate = $this->firstNonEmpty($forecastSourceRow['dateTime'] ?? null, $forecastSourceRow['date'] ?? null, $forecastSourceRow['dataDate'] ?? null, $forecastSourceRow['statDate'] ?? null);
+                    $invalidForecastTargetDate = $this->hasValue($forecastDate) && $this->normalizeDate($forecastDate) === '';
+                    if ($invalidForecastTargetDate) {
+                        $warningCode = 'data_date_invalid';
+                    }
+                }
+            }
+            $warningMessage = $invalidForecastTargetDate
+                ? 'Meituan forecast row skipped because the explicit target date is invalid; snapshot time was not used as a fallback.'
+                : match ($warningCode) {
+                'data_date_invalid' => 'Meituan hook row skipped because the explicit business date is invalid; snapshot time was not used as a fallback.',
+                'source_timestamp_invalid' => 'Meituan hook row skipped because the source timestamp is invalid; normalizer-generated time was not used as a business date.',
+                default => 'Meituan hook row skipped because no data_date could be proven.',
+                };
+            $warnings[] = [
+                'platform' => 'meituan',
+                'module' => (string)($row['raw_data']['module'] ?? 'meituan_hook'),
+                'code' => $warningCode,
+                'source_path' => $sourcePath,
+                'message' => $warningMessage,
+            ];
+        }
+        if ($importableRows === [] && $this->hasMeituanHookShape($root)) {
             $warnings[] = [
                 'platform' => 'meituan',
                 'module' => 'meituan_hook',
@@ -606,7 +740,7 @@ final class OtaBrowserAssistImportService
             ];
         }
 
-        return $rows;
+        return $importableRows;
     }
 
     /**
@@ -914,12 +1048,15 @@ final class OtaBrowserAssistImportService
                 continue;
             }
             $sourcePath = $detail !== [] ? 'meituan_hook.' . $key . '.data.detail.' . $index : 'meituan_hook.' . $key . '.data';
+            $explicitDate = $this->firstNonEmpty($sourceRow['dateTime'] ?? null, $sourceRow['date'] ?? null, $sourceRow['dataDate'] ?? null, $sourceRow['statDate'] ?? null);
+            $dataDate = $this->hasValue($explicitDate)
+                ? $this->normalizeDate($explicitDate)
+                : $this->hookDataDate($item, $context, $snapshot, '');
             $row = [
                 'source' => 'meituan',
                 'platform' => 'meituan',
                 'data_type' => 'traffic_forecast',
-                'data_date' => $this->normalizeDate($this->firstNonEmpty($sourceRow['dateTime'] ?? null, $sourceRow['date'] ?? null, $sourceRow['dataDate'] ?? null, $sourceRow['statDate'] ?? null))
-                    ?: $this->hookDataDate($item, $context, $snapshot, ''),
+                'data_date' => $dataDate,
                 'data_period' => 'next_30_days',
                 'snapshot_time' => $snapshot['snapshot_time'],
                 'snapshot_bucket' => $snapshot['snapshot_bucket'],
@@ -1188,9 +1325,7 @@ final class OtaBrowserAssistImportService
      */
     private function hookDataDate(array $item, array $context, array $snapshot, string $dateRange): string
     {
-        return $this->normalizeDate($item['data_date'] ?? $item['dataDate'] ?? $context['data_date'] ?? '')
-            ?: $this->normalizeDate($snapshot['snapshot_time'])
-            ?: ($dateRange === '0' ? $this->normalizeDate($context['generated_at'] ?? '') : '');
+        return $this->resolveRealtimeDate($item, $context, $snapshot);
     }
 
     private function hookPeriod(string $dateRange): string
@@ -1259,7 +1394,15 @@ final class OtaBrowserAssistImportService
      */
     private function resolveSnapshot(array $section, array $context): array
     {
-        $snapshotTime = $this->normalizeDateTime($section['updatedAt'] ?? $section['updated_at'] ?? $section['capturedAt'] ?? $section['captured_at'] ?? $section['snapshot_time'] ?? $section['snapshotTime'] ?? $context['snapshot_time'] ?? '');
+        $snapshotTime = $this->normalizeDateTime($this->firstNonEmpty(
+            $section['updatedAt'] ?? null,
+            $section['updated_at'] ?? null,
+            $section['capturedAt'] ?? null,
+            $section['captured_at'] ?? null,
+            $section['snapshot_time'] ?? null,
+            $section['snapshotTime'] ?? null,
+            $context['snapshot_time'] ?? null
+        ));
         if ($snapshotTime !== '') {
             return [
                 'snapshot_time' => $snapshotTime,
@@ -1282,7 +1425,46 @@ final class OtaBrowserAssistImportService
      */
     private function resolveRealtimeDate(array $section, array $context, array $snapshot): string
     {
-        return $this->normalizeDate($section['data_date'] ?? $section['dataDate'] ?? $context['data_date'] ?? '') ?: $this->normalizeDate($snapshot['snapshot_time']);
+        $explicitDate = $this->firstNonEmpty($section['data_date'] ?? null, $section['dataDate'] ?? null, $context['data_date'] ?? null);
+        if ($this->hasValue($explicitDate)) {
+            return $this->normalizeDate($explicitDate);
+        }
+        // Upload/normalization time cannot establish the business date of captured metrics.
+        return ($snapshot['source'] ?? '') === 'source_timestamp'
+            ? $this->normalizeDate($snapshot['snapshot_time'])
+            : '';
+    }
+
+    private function realtimeDateWarningCode(array $section, array $context): string
+    {
+        $explicitDate = $this->firstNonEmpty($section['data_date'] ?? null, $section['dataDate'] ?? null, $context['data_date'] ?? null);
+        if ($this->hasValue($explicitDate) && $this->normalizeDate($explicitDate) === '') {
+            return 'data_date_invalid';
+        }
+        $sourceTimestamp = $this->firstNonEmpty(
+            $section['updatedAt'] ?? null,
+            $section['updated_at'] ?? null,
+            $section['capturedAt'] ?? null,
+            $section['captured_at'] ?? null,
+            $section['snapshot_time'] ?? null,
+            $section['snapshotTime'] ?? null,
+            $context['snapshot_time_input'] ?? $context['snapshot_time'] ?? null
+        );
+        if ($this->hasValue($sourceTimestamp) && $this->normalizeDateTime($sourceTimestamp) === '') {
+            return 'source_timestamp_invalid';
+        }
+        return 'data_date_missing';
+    }
+
+    private function realtimeDateWarningMessage(string $source, string $code): string
+    {
+        if ($code === 'data_date_invalid') {
+            return $source . ' realtime metrics skipped because the explicit business date is invalid; snapshot time was not used as a fallback.';
+        }
+        if ($code === 'source_timestamp_invalid') {
+            return $source . ' realtime metrics skipped because the source timestamp is invalid; normalizer-generated time was not used as a business date.';
+        }
+        return $source . ' realtime metrics skipped because no business date could be proven.';
     }
 
     /**
@@ -1553,8 +1735,13 @@ final class OtaBrowserAssistImportService
             return '';
         }
         $text = trim((string)$value);
-        if (preg_match('/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/', $text, $matches) !== 1
-            && preg_match('/^(\d{4})(\d{2})(\d{2})$/', $text, $matches) !== 1) {
+        if (preg_match('/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})([ T].+)?$/D', $text, $matches) !== 1
+            && preg_match('/^(\d{4})(\d{2})(\d{2})$/D', $text, $matches) !== 1) {
+            return '';
+        }
+        if (!checkdate((int)$matches[2], (int)$matches[3], (int)$matches[1])
+            || (isset($matches[4]) && $this->normalizeDateTime($text) === '')
+        ) {
             return '';
         }
         return sprintf('%04d-%02d-%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3]);
@@ -1569,6 +1756,9 @@ final class OtaBrowserAssistImportService
             return '';
         }
         if (is_numeric($value)) {
+            if (!is_finite((float)$value)) {
+                return '';
+            }
             $timestamp = (int)$value;
             if ($timestamp > 100000000000) {
                 $timestamp = (int)floor($timestamp / 1000);
@@ -1576,10 +1766,19 @@ final class OtaBrowserAssistImportService
             return date('Y-m-d H:i:s', $timestamp);
         }
         $text = trim((string)$value);
-        if (preg_match('/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/', $text, $matches) !== 1) {
+        if (preg_match('/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2})(?:\.\d+)?)?(?<offset>[Zz]|[+-](?<offset_hour>\d{2})(?::?(?<offset_minute>\d{2}))?)?)?$/D', $text, $matches) !== 1) {
             return '';
         }
-        return sprintf(
+        if (!checkdate((int)$matches[2], (int)$matches[3], (int)$matches[1])
+            || (int)($matches[4] ?? 0) > 23
+            || (int)($matches[5] ?? 0) > 59
+            || (int)($matches[6] ?? 0) > 59
+            || (int)($matches['offset_hour'] ?? 0) > 23
+            || (int)($matches['offset_minute'] ?? 0) > 59
+        ) {
+            return '';
+        }
+        $normalized = sprintf(
             '%04d-%02d-%02d %02d:%02d:%02d',
             (int)$matches[1],
             (int)$matches[2],
@@ -1588,6 +1787,13 @@ final class OtaBrowserAssistImportService
             (int)($matches[5] ?? 0),
             (int)($matches[6] ?? 0)
         );
+        $offset = strtoupper((string)($matches['offset'] ?? ''));
+        if ($offset !== '') {
+            return (new \DateTimeImmutable($normalized . $offset))
+                ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
+                ->format('Y-m-d H:i:s');
+        }
+        return $normalized;
     }
 
     private function snapshotBucket(string $snapshotTime): string

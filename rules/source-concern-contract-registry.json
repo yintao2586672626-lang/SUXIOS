@@ -1,6 +1,9 @@
 {
   "schema_version": "suxios.source_concern_registry.v1",
   "aggregates": {
+    "app/controller/concern/OnlineDataAnalyticsConcern.php": [
+      "app/controller/concern/OnlineDataAnalysisEvidenceConcern.php"
+    ],
     "app/controller/Agent.php": [
       "app/controller/concern/AgentOtaExecutionIntentConcern.php",
       "app/controller/concern/AgentCapturedOtaAnalysisConcern.php",
@@ -13,6 +16,7 @@
     ],
     "app/controller/concern/AutoFetchConcern.php": [
       "app/controller/concern/AutoFetchProfileSyncConcern.php",
+      "app/controller/concern/AutoFetchRunModeConcern.php",
       "app/controller/concern/CtripAutoFetchExecutionConcern.php",
       "app/controller/concern/CtripAutoFetchBusinessConcern.php",
       "app/controller/concern/MeituanAutoFetchExecutionConcern.php"
@@ -37,10 +41,13 @@
     ],
     "app/service/OperationManagementService.php": [
       "app/service/operation/OperationSnapshotConcern.php",
+      "app/service/operation/OperationBaselineConcern.php",
+      "app/service/operation/OperationServiceQualityConcern.php",
       "app/service/operation/OperationAlertConcern.php",
       "app/service/operation/OperationAlertAnalysisConcern.php",
       "app/service/operation/OperationExecutionReceiptConcern.php",
       "app/service/operation/OperationEffectReadbackConcern.php",
+      "app/service/operation/OperationEffectValidationConcern.php",
       "app/service/operation/OperationExecutionTenantConcern.php",
       "app/service/operation/OperationExecutionPersistenceConcern.php",
       "app/service/operation/OperationActionLifecycleConcern.php",
@@ -48,21 +55,51 @@
     ],
     "app/service/OtaLocalCollectorService.php": [
       "app/service/concern/OtaLocalCollectorLeaseConcern.php",
-      "app/service/concern/OtaLocalCollectorManualLoginConcern.php"
+      "app/service/concern/OtaLocalCollectorManualLoginConcern.php",
+      "app/service/concern/OtaLocalCollectorResultDeliveryConcern.php",
+      "app/service/concern/OtaLocalCollectorRecoveryConcern.php"
     ],
     "app/service/AiDailyReportService.php": [
       "app/service/concern/AiDailyReportReadinessConcern.php",
-      "app/service/concern/AiDailyReportExecutionReadConcern.php"
+      "app/service/concern/AiDailyReportExecutionReadConcern.php",
+      "app/service/concern/AiDailyReportStorageReadConcern.php",
+      "app/service/concern/AiDailyReportEvidenceConcern.php"
     ],
     "app/service/RevenueAiOverviewService.php": [
-      "app/service/concern/RevenueAiOverviewLabelConcern.php"
+      "app/service/concern/RevenueAiOverviewLabelConcern.php",
+      "app/service/concern/RevenueAiOverviewMarketStructureConcern.php",
+      "app/service/concern/RevenueAiOverviewPricingEvidenceConcern.php"
+    ],
+    "scripts/report_business_chain_status.php": [
+      "scripts/lib/business_chain_p0_scope.php"
     ],
     "tests/OnlineDataTest.php": [
       "tests/Support/OnlineData/CtripTestCases.php",
+      "tests/Support/OnlineData/CtripSourceDateEvidenceTestCases.php",
       "tests/Support/OnlineData/MeituanTestCases.php",
       "tests/Support/OnlineData/ProfileTestCases.php",
       "tests/Support/OnlineData/AutoFetchTestCases.php",
+      "tests/Support/OnlineData/AutoFetchReceiptTestCases.php",
       "tests/Support/OnlineData/DailyOtaReviewTestCases.php"
+    ],
+    "app/service/operation/OperationSnapshotConcern.php": [
+      "app/service/operation/OperationBaselineConcern.php",
+      "app/service/operation/OperationServiceQualityConcern.php"
+    ],
+    "app/service/operation/OperationExecutionPersistenceConcern.php": [
+      "app/service/operation/OperationExecutionReceiptConcern.php"
+    ],
+    "tests/Support/OnlineData/CtripTestCases.php": [
+      "tests/Support/OnlineData/CtripSourceDateEvidenceTestCases.php"
+    ],
+    "tests/Support/OnlineData/AutoFetchTestCases.php": [
+      "tests/Support/OnlineData/AutoFetchReceiptTestCases.php"
+    ],
+    "public/meituan-static.js": [
+      "public/ota-fetch-flow-static.js"
+    ],
+    "public/data-health-static.js": [
+      "public/ota-fetch-flow-static.js"
     ],
     "tests/PlatformDataSyncServiceTest.php": [
       "tests/Support/PlatformDataSyncBrowserProfileFixture.php",

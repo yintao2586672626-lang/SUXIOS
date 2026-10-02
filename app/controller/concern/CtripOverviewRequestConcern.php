@@ -5,6 +5,76 @@ namespace app\controller\concern;
 
 trait CtripOverviewRequestConcern
 {
+    /** The date-scoped task has one server-owned endpoint; legacy URL requests stay separate. */
+    private function buildCtripFlowOverviewTask(array $request, array $storedConfig, int $systemHotelId): array
+    {
+        $hotelId = trim((string)($request['hotel_id'] ?? ''));
+        $date = trim((string)($request['data_date'] ?? ''));
+        $parsedDate = \DateTimeImmutable::createFromFormat('!Y-m-d', $date);
+        $expectedIds = array_map('strval', $this->extractExpectedCtripPlatformHotelIds($storedConfig, $systemHotelId));
+        if (($request['request_source'] ?? '') !== 'flow_overview'
+            || $systemHotelId <= 0
+            || (string)($request['system_hotel_id'] ?? '') !== (string)$systemHotelId
+            || $this->otaConfigBoundSystemHotelId($storedConfig) !== $systemHotelId
+            || !preg_match('/^[1-9][0-9]*$/D', $hotelId)
+            || !in_array($hotelId, $expectedIds, true)
+            || !$parsedDate || $parsedDate->format('Y-m-d') !== $date) {
+            throw new \InvalidArgumentException('Ctrip flow overview hotel binding or date is invalid.');
+        }
+        return [
+            'url' => 'https://ebooking.ctrip.com/datacenter/api/inland/marketanalysis/flowanalysis/queryFlowTransforNewV1?hostType=Ebooking',
+            'method' => 'POST',
+            'hotel_id' => $hotelId,
+            'data_date' => $date,
+            'payload' => $this->buildCtripOverviewRequestPayload(['platform' => 'Ctrip'], $hotelId, $date),
+        ];
+    }
+
+    private function executeCtripFlowOverviewTask(array $task, array $credentialPayload, int $systemHotelId): \think\Response
+    {
+        $cookies = trim((string)($credentialPayload['cookies'] ?? $credentialPayload['cookie'] ?? ''));
+        $auth = $credentialPayload['auth_data'] ?? $credentialPayload['authData'] ?? [];
+        if (is_string($auth)) $auth = json_decode($auth, true) ?: [];
+        $token = (string)($credentialPayload['spidertoken'] ?? $credentialPayload['spider_token']
+            ?? (is_array($auth) ? ($auth['spidertoken'] ?? $auth['spider_token'] ?? $auth['token'] ?? '') : ''));
+        $result = $cookies === '' ? ['error' => 'credential_missing']
+            : $this->sendCtripOverviewRequest($task['url'], $task['payload'], $cookies, 'POST', $token);
+        if (!empty($result['error']) || (int)($result['http_code'] ?? 0) !== 200) {
+            return json(['code' => 502, 'message' => '携程流量概览请求失败，未取得当前酒店与日期的数据',
+                'data' => ['status' => 'error', 'readback_verified' => false, 'saved_count' => 0]], 502);
+        }
+
+        $projection = \app\service\CtripOverviewSummaryService::projectFlowOverview(
+            $result['decoded_data'] ?? [], $task['hotel_id'], $task['data_date']
+        );
+        $rows = $projection['rows'];
+        $savedCount = $rows === [] ? 0 : $this->parseAndSaveTrafficData(
+            $rows, $task['data_date'], $task['data_date'], 'ctrip', $systemHotelId,
+            'ctrip', $task['hotel_id'], 'cookie_api', true
+        );
+        $verified = $rows !== [] && $savedCount === count($rows);
+        $payload = [
+            'request_source' => 'flow_overview', 'system_hotel_id' => $systemHotelId,
+            'hotel_id' => $task['hotel_id'], 'platform' => 'ctrip', 'data_date' => $task['data_date'],
+            'metric_scope' => 'ctrip_channel_funnel', 'source_method' => 'cookie_api',
+            'collected_at' => date('Y-m-d H:i:s'), 'status' => $projection['status'],
+            'data' => $rows, 'total' => count($rows), 'row_count' => count($rows),
+            'saved_count' => $savedCount, 'readback_verified' => $verified,
+            'persistence_status' => $verified ? 'readback_verified' : ($rows === [] ? 'no_parsed_rows' : 'readback_not_verified'),
+            'counts' => ['overview' => count($rows)], 'metrics' => $projection['metrics'], 'gaps' => $projection['gaps'],
+        ];
+        if (!$verified) {
+            $payload['status'] = $rows === [] ? $projection['status'] : 'error';
+            $code = $rows === [] ? 422 : 500;
+            return json(['code' => $code, 'message' => $rows === []
+                ? '未取得当前酒店与日期的可保存流量事实，未返回指标不计零'
+                : '携程流量概览已返回，但数据未全部通过保存回读，请重试', 'data' => $payload], $code);
+        }
+        return json(['code' => 200, 'message' => $projection['status'] === 'ready'
+            ? '携程流量概览已获取并确认入库'
+            : '携程流量概览已确认入库，部分指标未返回或不可计算', 'data' => $payload]);
+    }
+
     private function normalizeCtripOverviewRequestUrls($value): array
     {
         if (is_array($value)) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { syncOperationStaticVersion, syncRevenueStaticVersions, syncOperatingIntelligenceVersion } from '../../scripts/lib/frontend_lazy_asset_versions.mjs';
+import { syncOperationStaticVersion, syncSimulationStaticVersion, syncRevenueStaticVersions, syncOperatingIntelligenceVersion, syncStartupLazyComponentVersions, syncStartupLazyHtmlVersions, STARTUP_LAZY_COMPONENTS, ACTION_LAZY_HELPERS, syncActionLazyHelperVersions } from '../../scripts/lib/frontend_lazy_asset_versions.mjs';
 
 const source = "const unrelated = 'keep';\nconst operationStaticScriptVersion = 'release-v1-h0123456789';\n";
 test('changing lazy helper bytes updates its content hash without changing unrelated entry code', () => {
@@ -39,4 +39,84 @@ test('assistant loader receives the current component content hash and changes n
   assert.equal(updated.source, loader.replace('0123456789', hash));
   assert.equal(syncOperatingIntelligenceVersion(updated.source, component).source, updated.source);
   assert.throws(() => syncOperatingIntelligenceVersion(loader + loader, component), /exactly one/);
+});
+
+test('nested component changes invalidate both the parent loader and startup loader, then stabilize', () => {
+  const assets = new Map();
+  const entries = Object.entries(STARTUP_LAZY_COMPONENTS).map(([name, children]) => ({
+    name,
+    source: children.map(child => {
+      assets.set(child, Buffer.from('window.fixture = true;'));
+      return `const asset${assets.size} = '${child}?v=fixture-h0123456789';`;
+    }).join('\n'),
+  }));
+  const parent = 'components/system/app-main-components.js';
+  const child = 'components/system/manager-coaching-panel.js';
+  assets.set(parent, Buffer.from(`const child = '${child}?v=20260926-v1';`));
+  assets.set(child, Buffer.from('window.coaching = 1;'));
+  const initial = syncStartupLazyComponentVersions(entries, name => assets.get(name));
+  assert.equal(initial.dependencySources.length, 1);
+  assert.match(initial.dependencySources[0].source, /20260926-v1-h[a-f0-9]{10}/);
+  const html = `"src":"${parent}?v=fixture-h0123456789"`;
+  const expectedParentHash = createHash('sha256').update(initial.dependencySources[0].source).digest('hex').slice(0,10);
+  assert.equal(syncStartupLazyHtmlVersions(html, initial), html.replace('0123456789',expectedParentHash));
+  for (const dependency of initial.dependencySources) assets.set(dependency.name, Buffer.from(dependency.source));
+  const stable = syncStartupLazyComponentVersions(initial.sources, name => assets.get(name));
+  assert.equal(stable.dependencySources.length, 0);
+  assert.deepEqual(stable.sources.map(entry => entry.source), initial.sources.map(entry => entry.source));
+  assets.set(child, Buffer.from('window.coaching = 2;'));
+  const changed = syncStartupLazyComponentVersions(stable.sources, name => assets.get(name));
+  assert.equal(changed.dependencySources.length, 1);
+  assert.notEqual(changed.sources[0].source, stable.sources[0].source);
+  assert.equal(changed.sources[1].source, stable.sources[1].source);
+});
+
+test('action helpers retain release prefixes while their changed bytes invalidate immutable cache URLs', () => {
+  const source = Object.keys(ACTION_LAZY_HELPERS).map(name => `const ${name} = 'release-h80-v3';`).join('\n');
+  const bytes = name => Buffer.from(`window.fixture = '${name}';`);
+  const first = syncActionLazyHelperVersions(source, bytes);
+  assert.equal(first.dependencies.size, Object.keys(ACTION_LAZY_HELPERS).length);
+  assert.equal((first.source.match(/release-h80-v3-h[a-f0-9]{10}/g) || []).length, first.dependencies.size);
+  assert.equal(syncActionLazyHelperVersions(first.source, bytes).source, first.source);
+  assert.notEqual(syncActionLazyHelperVersions(first.source, name => Buffer.concat([bytes(name),Buffer.from('changed')])).source, first.source);
+  assert.throws(() => syncActionLazyHelperVersions('', bytes), /exactly one/);
+});
+
+test('retired expansion is absent from action dependencies while every active declaration remains mandatory and unique', () => {
+  assert.equal(Object.hasOwn(ACTION_LAZY_HELPERS, 'expansionStaticOptionsScriptVersion'), false);
+  assert.equal(Object.values(ACTION_LAZY_HELPERS).includes('expansion-static-options.js'), false);
+  const declarations = Object.keys(ACTION_LAZY_HELPERS).map(name => `const ${name} = 'active-release';`);
+  const source = declarations.join('\n');
+  const requestedAssets = [];
+  const result = syncActionLazyHelperVersions(source, name => {
+    requestedAssets.push(name);
+    return Buffer.from(`synthetic ${name}`);
+  });
+  assert.deepEqual(requestedAssets, Object.values(ACTION_LAZY_HELPERS));
+  assert.deepEqual([...result.dependencies.keys()], Object.values(ACTION_LAZY_HELPERS));
+  for (const [index, variable] of Object.keys(ACTION_LAZY_HELPERS).entries()) {
+    for (const input of [
+      declarations.filter((_, candidate) => candidate !== index).join('\n'),
+      `${source}\n${declarations[index]}`,
+    ]) {
+      assert.throws(() => syncActionLazyHelperVersions(input, () => Buffer.from('synthetic')), new RegExp(`exactly one ${variable} declaration`));
+    }
+  }
+});
+
+test('active operation and simulation loaders both reject missing, duplicate or unversioned declarations', () => {
+  for (const [variable, sync] of [
+    ['operationStaticScriptVersion', syncOperationStaticVersion],
+    ['simulationStaticScriptVersion', syncSimulationStaticVersion],
+  ]) {
+    const source = `const ${variable} = 'active-release-h0123456789';`;
+    const bytes = Buffer.from(`synthetic ${variable}`);
+    const updated = sync(source, bytes);
+    const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 10);
+    assert.equal(updated.source, source.replace('0123456789', hash));
+    assert.equal(sync(updated.source, bytes).source, updated.source);
+    for (const invalid of ['', `${source}\n${source}`, source.replace('-h0123456789', '')]) {
+      assert.throws(() => sync(invalid, bytes), /exactly one/);
+    }
+  }
 });

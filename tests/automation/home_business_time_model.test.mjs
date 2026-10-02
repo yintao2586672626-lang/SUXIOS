@@ -864,7 +864,11 @@ test('competitor data is diagnostic reference and does not raise core fact readi
   const sources = buildHomeDataSources({
     sampleDays: 7,
     trendReady: true,
-    channelSignal: { status: 'ok' },
+    selectedBusinessDate: '2026-07-23',
+    otaPlatformRows: [
+      { key: 'ctrip', date: '2026-07-23', status: '已验证' },
+      { key: 'meituan', date: '2026-07-23', status: '已验证' },
+    ],
     priceSignal: { status: 'pending' },
   });
   const competitor = sources.find((sourceRow) => sourceRow.name === '竞对价格');
@@ -873,6 +877,37 @@ test('competitor data is diagnostic reference and does not raise core fact readi
   assert.equal(competitor?.role, 'diagnostic');
   assert.equal(readiness.percent, 100);
   assert.match(readiness.diagnosticText, /不计入核心事实就绪度/);
+});
+
+test('home OTA readiness requires exact hotel and business-date readback for both platforms', () => {
+  const base = {
+    sampleDays: 7,
+    trendReady: true,
+    selectedBusinessDate: '2026-07-23',
+    channelSignal: { status: 'stable', updated_at: '2026-07-24 10:00:00' },
+  };
+  const rows = [
+    { key: 'ctrip', date: '2026-07-23', status: '已验证' },
+    { key: 'meituan', date: '2026-07-23', status: '部分取得' },
+  ];
+  const otaRow = (options) => buildHomeDataSources(options).find((row) => row.name === 'OTA 渠道数据');
+
+  assert.equal(otaRow({ ...base, otaPlatformRows: rows }).ready, false);
+  assert.match(otaRow({ ...base, otaPlatformRows: rows }).status, /部分/);
+  assert.equal(buildCompassDataReadiness(buildHomeDataSources({ ...base, otaPlatformRows: rows })).percent, 50);
+  assert.equal(otaRow({ ...base, otaPlatformRows: rows.map(row => ({ ...row, date: '2026-07-22' })) }).ready, false);
+  assert.equal(otaRow({ ...base, otaPlatformRows: rows, otaFactLayerError: '读取失败' }).ready, false);
+  assert.match(otaRow({ ...base, otaPlatformRows: rows, otaFactLayerError: '读取失败' }).impact, /携程未核验/);
+  assert.equal(otaRow({ ...base, otaPlatformRows: rows, otaFactLayerLoading: true }).ready, false);
+  const foreignHotelRows = buildHomeBusinessTimeModel({
+    temporalData, selectedHotelId: 81, selectedBusinessDate: '2026-07-23',
+    revenueFactLayer: buildRevenueFactLayer({ hotelId: 80 }),
+  }).yesterday.otaPlatformRows;
+  assert.equal(otaRow({ ...base, otaPlatformRows: foreignHotelRows }).ready, false);
+  assert.equal(otaRow({
+    ...base,
+    otaPlatformRows: rows.map(row => ({ ...row, status: '已验证' })),
+  }).ready, true);
 });
 
 test('one upstream fact-layer error is grouped once instead of repeated across every metric card', () => {

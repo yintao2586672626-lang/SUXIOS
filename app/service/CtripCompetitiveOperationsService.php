@@ -131,7 +131,7 @@ final class CtripCompetitiveOperationsService
         return [
             'status' => $rowCount === 0
                 ? 'data_missing'
-                : ($usableRowCount === 0 ? 'unverified' : ($usableRowCount === $rowCount ? 'available' : 'partial')),
+                : ($usableRowCount === 0 ? 'unverified' : ($usableRowCount === $rowCount && $funnel['status'] !== 'partial' ? 'available' : 'partial')),
             'context' => $context,
             'business_comparison' => $comparison,
             'traffic_funnel_comparison' => $funnel,
@@ -162,7 +162,7 @@ final class CtripCompetitiveOperationsService
                 'decision_gate' => $usableRowCount === 0 ? 'insufficient_evidence' : 'usable_evidence_only',
             ],
             'source_scope' => 'ctrip_ota_competition_circle_only',
-            'scope_notice' => '经营、流量、排名与异常均为携程 OTA 竞争圈口径，不代表全酒店/PMS经营事实；异常是排查线索，不代表已证明因果。',
+            'scope_notice' => '经营、流量、排名与异常均为携程 OTA 竞争圈口径，不代表全酒店/PMS经营事实；异常是排查线索，不代表已证明因果。' . ($funnel['coverage_notice'] ?? ''),
             'room_count_semantics' => CtripPublicHotelProfileService::ROOM_COUNT_SEMANTICS,
         ];
     }
@@ -265,7 +265,7 @@ final class CtripCompetitiveOperationsService
             $compareType = 'competitor';
             if ($ownOtaHotelId !== '' && $otaHotelId === $ownOtaHotelId) {
                 $compareType = 'self';
-            } elseif ($compareTypeRaw === 'self') {
+            } elseif ($ownOtaHotelId === '' && $compareTypeRaw === 'self') {
                 $compareType = 'self';
             } elseif ($compareTypeRaw === 'competitor_avg' || $otaHotelId === '-1') {
                 $compareType = 'competitor_avg';
@@ -427,23 +427,44 @@ final class CtripCompetitiveOperationsService
                 : ($groups['competitor'] ?? []);
             $competitor = $this->aggregateFunnelRows($competitorBase);
             if ($self !== null) {
-                $selfRows[] = $self;
+                $selfRows[$date] = $self;
             }
             if ($competitor !== null) {
-                $competitorRows[] = $competitor;
+                $competitorRows[$date] = $competitor;
             }
             $daily[] = ['date' => $date, 'self' => $self, 'competitor_average' => $competitor];
         }
         $selfSummary = $this->aggregateFunnelMetrics($selfRows);
         $competitorSummary = $this->aggregateFunnelMetrics($competitorRows);
+        $sameDates = $selfRows !== [] && array_keys($selfRows) === array_keys($competitorRows);
+        $incomplete = in_array(false, $selfSummary['metric_complete'] ?? [], true)
+            || in_array(false, $competitorSummary['metric_complete'] ?? [], true);
+        $gaps = $this->metricGaps($selfSummary, $competitorSummary, [
+            'list_exposure', 'detail_exposure', 'detail_entry_rate', 'order_visitors', 'order_entry_rate', 'submit_users', 'submit_rate',
+        ]);
+        foreach ($gaps as $metric => &$gap) {
+            // Counts remain observed facts, but partial counts or different
+            // date sets must not become like-for-like comparisons.
+            if (!$sameDates || !($selfSummary['metric_complete'][$metric] ?? is_numeric($selfSummary[$metric] ?? null))
+                || !($competitorSummary['metric_complete'][$metric] ?? is_numeric($competitorSummary[$metric] ?? null))) {
+                $gap['difference'] = null;
+                $gap['difference_pct'] = null;
+            }
+        }
+        unset($gap);
+        $dateMismatch = $selfRows !== [] && $competitorRows !== [] && !$sameDates;
+        $notice = $incomplete ? '流量字段覆盖不完整：计数仅表示已观测记录，缺少完整分子分母的比率暂不计算。' : '';
+        if ($dateMismatch) {
+            $notice .= '本店与竞圈流量日期覆盖不同，暂不比较，也不生成跨侧转化建议。';
+        }
 
         return [
-            'status' => $selfSummary !== null || $competitorSummary !== null ? 'available' : 'data_missing',
+            'status' => $incomplete || $dateMismatch ? 'partial' : 'available',
             'self' => $selfSummary,
             'competitor_average' => $competitorSummary,
-            'gaps' => $this->metricGaps($selfSummary, $competitorSummary, [
-                'list_exposure', 'detail_exposure', 'detail_entry_rate', 'order_visitors', 'order_entry_rate', 'submit_users', 'submit_rate',
-            ]),
+            'gaps' => $gaps,
+            'date_coverage' => ['self' => array_keys($selfRows), 'competitor_average' => array_keys($competitorRows), 'comparable' => $sameDates],
+            'coverage_notice' => $notice,
             'rows' => $daily,
         ];
     }
@@ -519,6 +540,7 @@ final class CtripCompetitiveOperationsService
         $selfFunnel = is_array($funnel['self'] ?? null) ? $funnel['self'] : null;
         $competitorFunnel = is_array($funnel['competitor_average'] ?? null) ? $funnel['competitor_average'] : null;
         if ($selfFunnel !== null && $competitorFunnel !== null
+            && ($funnel['date_coverage']['comparable'] ?? false)
             && ($selfFunnel['quality_status'] ?? '') === 'usable'
             && ($competitorFunnel['quality_status'] ?? '') === 'usable'
             && is_numeric($selfFunnel['detail_entry_rate'] ?? null)
@@ -540,7 +562,8 @@ final class CtripCompetitiveOperationsService
                 ];
             }
         } else {
-            $gaps[] = 'self_or_competitor_funnel_missing';
+            $gaps[] = $selfFunnel !== null && $competitorFunnel !== null && !($funnel['date_coverage']['comparable'] ?? false)
+                ? 'funnel_date_coverage_mismatch' : 'self_or_competitor_funnel_missing';
         }
 
         return [
@@ -621,6 +644,7 @@ final class CtripCompetitiveOperationsService
         foreach (['list_exposure', 'detail_exposure', 'order_visitors', 'submit_users'] as $metric) {
             $values = array_values(array_filter(array_column($rows, $metric), static fn($value): bool => is_numeric($value)));
             $metrics[$metric] = $values !== [] ? array_sum($values) / count($values) : null;
+            $metrics['metric_complete'][$metric] = count($values) === count($rows);
         }
         $metrics = $this->withFunnelRates($metrics);
         $metrics['quality_status'] = $this->aggregateQualityStatus($rows);
@@ -637,6 +661,8 @@ final class CtripCompetitiveOperationsService
         foreach (['list_exposure', 'detail_exposure', 'order_visitors', 'submit_users'] as $metric) {
             $values = array_values(array_filter(array_column($rows, $metric), static fn($value): bool => is_numeric($value)));
             $metrics[$metric] = $values !== [] ? array_sum($values) : null;
+            $metrics['metric_complete'][$metric] = count($values) === count($rows)
+                && count(array_filter($rows, static fn(array $row): bool => ($row['metric_complete'][$metric] ?? false) === true)) === count($rows);
         }
         $metrics = $this->withFunnelRates($metrics);
         $usableCount = count(array_filter(
@@ -652,9 +678,12 @@ final class CtripCompetitiveOperationsService
     /** @return array<string,mixed> */
     private function withFunnelRates(array $metrics): array
     {
-        $metrics['detail_entry_rate'] = $this->rate($metrics['detail_exposure'], $metrics['list_exposure']);
-        $metrics['order_entry_rate'] = $this->rate($metrics['order_visitors'], $metrics['detail_exposure']);
-        $metrics['submit_rate'] = $this->rate($metrics['submit_users'], $metrics['order_visitors']);
+        foreach (['detail_entry_rate' => ['detail_exposure', 'list_exposure'],
+            'order_entry_rate' => ['order_visitors', 'detail_exposure'],
+            'submit_rate' => ['submit_users', 'order_visitors']] as $rate => [$numerator, $denominator]) {
+            $metrics[$rate] = $metrics['metric_complete'][$numerator] && $metrics['metric_complete'][$denominator]
+                ? $this->rate($metrics[$numerator], $metrics[$denominator]) : null;
+        }
         return $metrics;
     }
 
@@ -764,8 +793,8 @@ final class CtripCompetitiveOperationsService
 
     private function businessCompareType(array $row, array $raw, string $otaHotelId, string $ownOtaHotelId): string
     {
-        if ($ownOtaHotelId !== '' && $otaHotelId === $ownOtaHotelId) {
-            return 'self';
+        if ($ownOtaHotelId !== '') {
+            return $otaHotelId === $ownOtaHotelId ? 'self' : 'competitor';
         }
         $compareType = strtolower(trim((string)($row['compare_type'] ?? $raw['compareType'] ?? $raw['compare_type'] ?? '')));
         $name = strtolower(preg_replace('/\s+/u', '', (string)($row['hotel_name'] ?? $raw['hotelName'] ?? '')) ?? '');

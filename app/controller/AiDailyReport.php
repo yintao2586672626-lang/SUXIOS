@@ -10,6 +10,7 @@ use app\service\AiReportGenerationTaskService;
 use app\service\ApiExceptionMapper;
 use app\service\OtaCompetitionAnalysisBundleService;
 use app\service\P0OtaDownstreamGateService;
+use app\service\RevenueOverviewDateContract;
 use think\Response;
 use Throwable;
 
@@ -52,7 +53,8 @@ class AiDailyReport extends Base
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
-            return $this->reportReadResponse($this->service->latest($hotelIds, $hotelId));
+            $reportDate = trim((string)$this->request->param('report_date', ''));
+            return $this->reportReadResponse($this->service->latest($hotelIds, $hotelId, $reportDate));
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily report query failed', self::API_BUSINESS_EXCEPTIONS);
         }
@@ -78,10 +80,7 @@ class AiDailyReport extends Base
         try {
             $input = $this->requestData();
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)($input['hotel_id'] ?? 0));
-            $date = trim((string)($input['report_date'] ?? $input['date'] ?? ''));
-            if ($date === '') {
-                $date = date('Y-m-d', strtotime('-1 day'));
-            }
+            $date = self::reportDateFromInput($input);
             $userId = (int)($this->currentUser->id ?? 0);
             $edition = OtaCompetitionAnalysisBundleService::normalizeEdition($input['edition'] ?? 'lite');
             $isAdmin = (bool)$this->currentUser->isSuperAdmin();
@@ -132,6 +131,15 @@ class AiDailyReport extends Base
         }
     }
 
+    private static function reportDateFromInput(array $input): string
+    {
+        try {
+            return RevenueOverviewDateContract::businessDate($input['report_date'] ?? $input['date'] ?? null);
+        } catch (\RuntimeException $e) {
+            throw new \InvalidArgumentException('report_date is invalid', 0, $e);
+        }
+    }
+
     private function reportReadResponse(array $report): Response
     {
         if (in_array($report['data_status'] ?? '', ['read_failed', 'missing_table'], true)) {
@@ -164,13 +172,17 @@ class AiDailyReport extends Base
             $userId = (int)($this->currentUser->id ?? 0);
             $userLabel = (string)($this->currentUser->username ?? $this->currentUser->name ?? '');
 
-            return $this->success($this->service->recordHumanJudgment(
+            $report = $this->service->recordHumanJudgment(
                 $id,
                 $hotelIds,
                 $userId,
                 $this->requestData(),
                 $userLabel
-            ));
+            );
+            if (in_array($report['data_status'] ?? '', ['read_failed', 'missing_table'], true)) {
+                return $this->error('人工判断可能已保存，先刷新核对再决定是否重试。本次日报读取或证据校验未通过。', 503, $report);
+            }
+            return $this->success($report);
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily report judgment save failed', self::API_BUSINESS_EXCEPTIONS);
         }

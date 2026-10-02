@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
@@ -413,4 +414,228 @@ test('a delayed artifact read cannot overwrite a switched report hotel or audien
   assert.equal(state.aiDailyReportPresentationResult.status, 'ready');
   assert.equal(state.aiDailyReportPresentationResult.artifactId, 2002);
   assert.equal(state.aiDailyReportPresentationLoading, false);
+});
+
+test('presentation generation stops before the artifact write when the login session changes', async () => {
+  let sessionEpoch = 1;
+  const requests = [];
+  let resolveSpec;
+  let markSpecStarted;
+  const specStarted = new Promise(resolve => { markSpecStarted = resolve; });
+  const specReadback = new Promise(resolve => { resolveSpec = resolve; });
+  const sandbox = {
+    window: {},
+    Vue: {
+      ref: value => ({ __v_isRef: true, value }),
+      watch: (_sources, callback, options) => { if (options?.immediate) callback(); },
+      onBeforeUnmount: () => {},
+    },
+    console,
+    URL,
+    Blob,
+  };
+  vm.runInNewContext(deliveryClient, sandbox);
+  const ctx = {
+    aiDailyReport: { id: 89, hotel_id: 80, report_date: '2026-08-23' },
+    assistantSessionEpoch: () => sessionEpoch,
+    aiDailyReportDeliveryRequest: async (url, options = {}) => {
+      requests.push({ url, method: options.method || 'GET' });
+      if ((options.method || 'GET') === 'GET') return { code: 404 };
+      if (url.endsWith('/presentation-spec')) {
+        markSpecStarted();
+        return specReadback;
+      }
+      return { code: 500, message: 'unexpected artifact write' };
+    },
+  };
+  const state = sandbox.window.SUXI_AI_DAILY_REPORT_DELIVERY.setup({ ctx });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const generation = state.downloadAiDailyReportPackage();
+  await specStarted;
+  sessionEpoch += 1;
+  resolveSpec({ code: 200, data: {
+    record_id: 901,
+    spec_fingerprint: 'b'.repeat(64),
+    readback_verified: true,
+    report_id: 89,
+    hotel_id: 80,
+    audience: 'owner',
+  } });
+  await generation;
+
+  assert.deepEqual(requests.map(row => row.method), ['GET', 'POST']);
+  assert.equal(state.aiDailyReportPresentationGenerating, false);
+  assert.notEqual(state.aiDailyReportPresentationResult?.status, 'ready');
+});
+
+test('a delayed presentation read from an old login session is ignored and releases loading', async () => {
+  let sessionEpoch = 1;
+  let resolveRead;
+  let markReadStarted;
+  const readStarted = new Promise(resolve => { markReadStarted = resolve; });
+  const delayedRead = new Promise(resolve => { resolveRead = resolve; });
+  const sandbox = {
+    window: {},
+    Vue: {
+      ref: value => ({ __v_isRef: true, value }),
+      watch: (_sources, callback, options) => { if (options?.immediate) callback(); },
+      onBeforeUnmount: () => {},
+    },
+    console,
+    URL,
+    Blob,
+  };
+  vm.runInNewContext(deliveryClient, sandbox);
+  const ctx = {
+    aiDailyReport: { id: 89, hotel_id: 80, report_date: '2026-08-23' },
+    assistantSessionEpoch: () => sessionEpoch,
+    aiDailyReportDeliveryRequest: async () => { markReadStarted(); return delayedRead; },
+  };
+  const state = sandbox.window.SUXI_AI_DAILY_REPORT_DELIVERY.setup({ ctx });
+  await readStarted;
+  sessionEpoch += 1;
+  resolveRead({ code: 200, data: {
+    artifact_id: 901,
+    report_id: 89,
+    hotel_id: 80,
+    audience: 'owner',
+    artifact_readback_verified: true,
+    content_sha256: 'a'.repeat(64),
+    content_bytes: 10,
+    spec_fingerprint: 'b'.repeat(64),
+  } });
+  for (let index = 0; index < 8; index += 1) await Promise.resolve();
+  assert.equal(state.aiDailyReportPresentationResult, null);
+  assert.equal(state.aiDailyReportPresentationLoading, false);
+});
+
+test('presentation generation stops before artifact creation when the report date changes', async () => {
+  const requests = [];
+  let resolveSpec;
+  let markSpecStarted;
+  const specStarted = new Promise(resolve => { markSpecStarted = resolve; });
+  const specReadback = new Promise(resolve => { resolveSpec = resolve; });
+  const sandbox = {
+    window: {},
+    Vue: {
+      ref: value => ({ __v_isRef: true, value }),
+      watch: (_sources, callback, options) => { if (options?.immediate) callback(); },
+      onBeforeUnmount: () => {},
+    },
+    console,
+    URL,
+    Blob,
+  };
+  vm.runInNewContext(deliveryClient, sandbox);
+  const ctx = {
+    aiDailyReport: { id: 89, hotel_id: 80, report_date: '2026-08-23' },
+    aiDailyReportDeliveryRequest: async (url, options = {}) => {
+      requests.push({ url, method: options.method || 'GET' });
+      if ((options.method || 'GET') === 'GET') return { code: 404 };
+      if (url.endsWith('/presentation-spec')) {
+        markSpecStarted();
+        return specReadback;
+      }
+      return { code: 500, message: 'unexpected artifact write' };
+    },
+  };
+  const state = sandbox.window.SUXI_AI_DAILY_REPORT_DELIVERY.setup({ ctx });
+  await Promise.resolve();
+  await Promise.resolve();
+  const generation = state.downloadAiDailyReportPackage();
+  await specStarted;
+  ctx.aiDailyReport.report_date = '2026-08-24';
+  resolveSpec({ code: 200, data: {
+    record_id: 902,
+    spec_fingerprint: 'c'.repeat(64),
+    readback_verified: true,
+    report_id: 89,
+    hotel_id: 80,
+    audience: 'owner',
+  } });
+  await generation;
+  assert.deepEqual(requests.map(row => row.method), ['GET', 'POST']);
+  assert.notEqual(state.aiDailyReportPresentationResult?.status, 'ready');
+});
+
+test('presentation generation still downloads the exact same-scope verified bundle', async () => {
+  const requests = [];
+  const downloads = [];
+  const bundle = Buffer.from([1, 2, 3]);
+  const bundleSha = createHash('sha256').update(bundle).digest('hex');
+  const fingerprint = 'e'.repeat(64);
+  const sandbox = {
+    window: { atob },
+    Vue: {
+      ref: value => ({ __v_isRef: true, value }),
+      watch: (_sources, callback, options) => { if (options?.immediate) callback(); },
+      onBeforeUnmount: () => {},
+    },
+    console,
+    URL: {
+      createObjectURL: () => 'blob:verified-package',
+      revokeObjectURL: () => {},
+    },
+    Blob,
+    crypto: {
+      subtle: {
+        digest: async (_algorithm, bytes) => Uint8Array.from(
+          createHash('sha256').update(Buffer.from(bytes)).digest()
+        ).buffer,
+      },
+    },
+    document: {
+      createElement: () => ({
+        click() { downloads.push(this.download); },
+      }),
+      body: { appendChild: () => {}, removeChild: () => {} },
+    },
+  };
+  vm.runInNewContext(deliveryClient, sandbox);
+  const ctx = {
+    aiDailyReport: { id: 89, hotel_id: 80, report_date: '2026-08-23' },
+    assistantSessionEpoch: () => 4,
+    aiDailyReportDeliveryRequest: async (url, options = {}) => {
+      const method = options.method || 'GET';
+      requests.push({ url, method });
+      if (method === 'GET') return { code: 404 };
+      if (url.endsWith('/presentation-spec')) {
+        return { code: 200, data: {
+          record_id: 903,
+          spec_fingerprint: fingerprint,
+          readback_verified: true,
+          report_id: 89,
+          hotel_id: 80,
+          audience: 'owner',
+        } };
+      }
+      return { code: 200, data: {
+        artifact_readback_verified: true,
+        render_status: 'rendered_and_readback_verified',
+        content_sha256: bundleSha,
+        content_bytes: bundle.byteLength,
+        bundle_base64: bundle.toString('base64'),
+        report_id: 89,
+        hotel_id: 80,
+        audience: 'owner',
+        presentation_spec_id: 903,
+        spec_fingerprint: fingerprint,
+        storage_status: 'saved',
+        artifact_id: 904,
+        filename: 'verified-report.zip',
+      } };
+    },
+  };
+  const state = sandbox.window.SUXI_AI_DAILY_REPORT_DELIVERY.setup({ ctx });
+  for (let index = 0; index < 8; index += 1) await Promise.resolve();
+
+  await state.downloadAiDailyReportPackage();
+
+  assert.deepEqual(requests.map(row => row.method), ['GET', 'POST', 'POST']);
+  assert.deepEqual(downloads, ['verified-report.zip']);
+  assert.equal(state.aiDailyReportPresentationResult.status, 'ready');
+  assert.equal(state.aiDailyReportPresentationResult.artifactId, 904);
+  assert.equal(state.aiDailyReportPresentationGenerating, false);
 });

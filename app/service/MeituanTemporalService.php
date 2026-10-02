@@ -50,12 +50,14 @@ final class MeituanTemporalService
         $sourceState = $this->sourceState($user, $systemHotelId);
         $from = $asOf->sub(new DateInterval('P31D'))->format('Y-m-d');
         $to = $asOf->add(new DateInterval('P30D'))->format('Y-m-d');
-        $rows = Db::name('online_daily_data')
+        $query = Db::name('online_daily_data')
             ->where('system_hotel_id', $systemHotelId)
             ->where('source', 'meituan')
             ->whereBetween('data_date', [$from, $to])
             ->whereIn('data_type', ['business', 'order', 'traffic', 'traffic_analysis', 'traffic_forecast'])
-            ->order('id', 'desc')
+            ->order('id', 'desc');
+        $this->applyStoredRowTenantBinding($query);
+        $rows = $query
             ->select()
             ->toArray();
 
@@ -214,6 +216,7 @@ final class MeituanTemporalService
         $asOfText = $asOf->format('Y-m-d');
         $yesterdayText = $asOf->sub(new DateInterval('P1D'))->format('Y-m-d');
         $futureEnd = $asOf->add(new DateInterval('P29D'))->format('Y-m-d');
+        $isHistoricalReplay = $asOfText < $now->format('Y-m-d');
 
         $rows = array_values(array_filter($rows, static function ($row) use ($systemHotelId): bool {
             if (!is_array($row)) {
@@ -222,6 +225,11 @@ final class MeituanTemporalService
             return (int)($row['system_hotel_id'] ?? 0) === $systemHotelId
                 && strtolower(trim((string)($row['source'] ?? $row['platform'] ?? ''))) === 'meituan';
         }));
+        $nextBusinessDay = $asOf->add(new DateInterval('P1D'));
+        $rows = array_values(array_filter($rows, fn(array $row): bool =>
+            (!$isHistoricalReplay || $this->capturedAt($row) !== '')
+            && $this->capturedByObservation($row, $now, $nextBusinessDay)
+        ));
         $todayRows = array_values(array_filter($rows, static fn(array $row): bool =>
             (string)($row['data_date'] ?? '') === $asOfText
             && in_array(strtolower((string)($row['data_type'] ?? '')), ['business', 'order', 'traffic', 'traffic_analysis'], true)
@@ -255,16 +263,7 @@ final class MeituanTemporalService
         $yesterdayReference = $this->latestReadyReference($yesterdayReferences);
 
         $future = $this->buildFutureSection($futureRows, $asOfText, $futureEnd);
-        $sourceBlocked = ($sourceState['status'] ?? '') === 'blocked';
-        if ($sourceBlocked) {
-            $blockedReason = (string)($sourceState['reason_code'] ?? 'meituan_source_blocked');
-            $todayCurrent['status'] = 'blocked';
-            $todayCurrent['reason_code'] = $blockedReason;
-            $yesterdayCurrent['status'] = 'blocked';
-            $yesterdayCurrent['reason_code'] = $blockedReason;
-            $future['status'] = 'blocked';
-            $future['reason_code'] = $blockedReason;
-        } elseif ($asOfText === $now->format('Y-m-d') && (int)$now->format('H') < 9) {
+        if ($asOfText === $now->format('Y-m-d') && (int)$now->format('H') < 9) {
             $yesterdayCurrent['status'] = 'pending_source_update';
             $yesterdayCurrent['reason_code'] = 'before_platform_update_window';
             $yesterdayCurrent['metrics'] = $this->maskPendingMetrics(
@@ -282,6 +281,7 @@ final class MeituanTemporalService
             'platform' => 'meituan',
             'data_scope' => 'ota_channel',
             'as_of_date' => $asOfText,
+            'read_mode' => $isHistoricalReplay ? 'historical_as_of' : 'current',
             'generated_at' => $now->format('Y-m-d H:i:s'),
             'source_state' => $sourceState,
             'today' => [
@@ -569,14 +569,16 @@ final class MeituanTemporalService
         string $dataDate,
         string $capturedDate
     ): bool {
-        $rows = Db::name('online_daily_data')
+        $query = Db::name('online_daily_data')
             ->where('system_hotel_id', $systemHotelId)
             ->where('source', 'meituan')
             ->whereIn('data_type', ['business', 'order', 'traffic_analysis'])
             ->where('readback_verified', 1)
             ->where('data_date', $dataDate)
             ->order('id', 'desc')
-            ->limit(200)
+            ->limit(200);
+        $this->applyStoredRowTenantBinding($query);
+        $rows = $query
             ->select()
             ->toArray();
 
@@ -613,14 +615,16 @@ final class MeituanTemporalService
     ): bool {
         $start = $this->date($asOfDate)->format('Y-m-d');
         $end = $this->date($asOfDate)->add(new DateInterval('P29D'))->format('Y-m-d');
-        $rows = Db::name('online_daily_data')
+        $query = Db::name('online_daily_data')
             ->where('system_hotel_id', $systemHotelId)
             ->where('source', 'meituan')
             ->where('data_type', 'traffic_forecast')
             ->where('readback_verified', 1)
             ->whereBetween('data_date', [$start, $end])
             ->order('id', 'desc')
-            ->limit(500)
+            ->limit(500);
+        $this->applyStoredRowTenantBinding($query);
+        $rows = $query
             ->select()
             ->toArray();
 
@@ -693,8 +697,9 @@ final class MeituanTemporalService
                 'metrics' => $metrics,
             ];
         }
-        usort($snapshots, static fn(array $a, array $b): int =>
-            strcmp((string)$b['captured_at'], (string)$a['captured_at'])
+        usort($snapshots, fn(array $a, array $b): int =>
+            (($this->capturedTimestamp($b['captured_at']) ?? PHP_INT_MIN)
+                <=> ($this->capturedTimestamp($a['captured_at']) ?? PHP_INT_MIN))
             ?: ((int)$b['sync_task_id'] <=> (int)$a['sync_task_id'])
         );
         return $snapshots;
@@ -785,8 +790,9 @@ final class MeituanTemporalService
             $snapshot['is_current_capture'] = $isCurrentCapture;
             $snapshots[] = $snapshot;
         }
-        usort($snapshots, static fn(array $a, array $b): int =>
-            strcmp((string)$b['captured_at'], (string)$a['captured_at'])
+        usort($snapshots, fn(array $a, array $b): int =>
+            (($this->capturedTimestamp($b['captured_at']) ?? PHP_INT_MIN)
+                <=> ($this->capturedTimestamp($a['captured_at']) ?? PHP_INT_MIN))
             ?: ((int)$b['sync_task_id'] <=> (int)$a['sync_task_id'])
         );
 
@@ -1157,6 +1163,11 @@ final class MeituanTemporalService
                 && $dateSource !== 'row')) {
             return false;
         }
+        if (in_array(strtolower((string)($row['data_type'] ?? '')), ['traffic', 'business', 'order'], true)
+            && !OtaTrafficAttributionService::rowDateScopeIsAuthoritative($row, 'meituan')
+        ) {
+            return false;
+        }
         $identifierReady = ($raw['platform_hotel_identifier_present'] ?? null) === true
             && trim((string)($raw['platform_hotel_identifier_source'] ?? '')) !== ''
             && !in_array(
@@ -1282,21 +1293,64 @@ final class MeituanTemporalService
     /** @param array<int, array<string, mixed>> $rows */
     private function latestCapturedAt(array $rows): ?string
     {
-        $values = array_values(array_filter(array_map(fn(array $row): string => $this->capturedAt($row), $rows)));
-        rsort($values);
-        return $values[0] ?? null;
+        $latestValue = null;
+        $latestTimestamp = null;
+        foreach ($rows as $row) {
+            $value = $this->capturedAt($row);
+            $timestamp = $this->capturedTimestamp($value);
+            if ($timestamp !== null && ($latestTimestamp === null || $timestamp > $latestTimestamp)) {
+                $latestValue = $value;
+                $latestTimestamp = $timestamp;
+            }
+        }
+        return $latestValue;
+    }
+
+    private function capturedTimestamp(?string $value): ?int
+    {
+        $value = trim((string)$value);
+        if ($value === '') {
+            return null;
+        }
+        try {
+            return (new DateTimeImmutable($value, new DateTimeZone(self::TIMEZONE)))->getTimestamp();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function capturedAt(array $row): string
     {
         $raw = $this->raw($row);
-        return trim((string)(
-            $row['snapshot_time']
-            ?? $raw['captured_at']
-            ?? $raw['snapshot_time']
-            ?? $row['create_time']
-            ?? ''
-        ));
+        foreach ([
+            $row['snapshot_time'] ?? null,
+            $raw['captured_at'] ?? null,
+            $raw['snapshot_time'] ?? null,
+            $row['create_time'] ?? null,
+        ] as $value) {
+            $timestamp = trim((string)$value);
+            if ($timestamp !== '') {
+                return $timestamp;
+            }
+        }
+        return '';
+    }
+
+    private function capturedByObservation(
+        array $row,
+        DateTimeImmutable $observedAt,
+        DateTimeImmutable $nextBusinessDay
+    ): bool {
+        $timestamp = $this->capturedAt($row);
+        if ($timestamp === '') {
+            return true;
+        }
+        try {
+            $capturedAt = new DateTimeImmutable($timestamp, new DateTimeZone(self::TIMEZONE));
+        } catch (\Throwable) {
+            return false;
+        }
+        return $capturedAt <= $observedAt && $capturedAt < $nextBusinessDay;
     }
 
     private static function isOwnHotelRow(array $row): bool
@@ -1327,6 +1381,28 @@ final class MeituanTemporalService
             throw new RuntimeException('Invalid as_of_date.', 422);
         }
         return $date;
+    }
+
+    private function applyStoredRowTenantBinding($query): void
+    {
+        $dataFields = Db::name('online_daily_data')->getTableFields();
+        $hotelFields = Db::name('hotels')->getTableFields();
+        if ((!in_array('tenant_id', $dataFields, true) && !array_key_exists('tenant_id', $dataFields))
+            || (!in_array('system_hotel_id', $dataFields, true) && !array_key_exists('system_hotel_id', $dataFields))
+            || (!in_array('tenant_id', $hotelFields, true) && !array_key_exists('tenant_id', $hotelFields))) {
+            return;
+        }
+
+        $dataTable = (string)$query->getTable();
+        $hotelTable = (string)Db::name('hotels')->getTable();
+        $query->where('tenant_id', '>', 0)->whereExists(
+            static function ($hotelQuery) use ($dataTable, $hotelTable): void {
+                $hotelQuery->table([$hotelTable => 'meituan_temporal_owner_hotel'])
+                    ->field('meituan_temporal_owner_hotel.id')
+                    ->whereColumn('meituan_temporal_owner_hotel.id', $dataTable . '.system_hotel_id')
+                    ->whereColumn('meituan_temporal_owner_hotel.tenant_id', $dataTable . '.tenant_id');
+            }
+        );
     }
 
     private function refreshReason(array $result): string

@@ -345,6 +345,7 @@ final class MeituanCloudPmsCaptureService
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
             ->where('business_date', $businessDate)
+            ->order('captured_at', 'desc')
             ->order('id', 'desc')
             ->find();
         return is_array($row)
@@ -365,6 +366,7 @@ final class MeituanCloudPmsCaptureService
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
             ->where('business_date', $businessDate)
+            ->order('captured_at', 'desc')
             ->order('id', 'desc')
             ->limit(max(1, min($limit, 20)))
             ->select()

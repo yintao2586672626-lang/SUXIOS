@@ -54,6 +54,22 @@ final class PreciseQueryPeriodService
             }
             return $match[0];
         }, $query);
+        // Comparisons have already been split into separate windows. Reject
+        // extra range endpoints before date extraction can drop an abbreviation.
+        $rangeSyntax = preg_replace('/曝光到(?:访问|详情|访)|(?:查|看|拿|取|得|达)到/u', '', $query);
+        if (preg_match_all('/到|至|~|～/u', $rangeSyntax) > 1) {
+            return $this->clarify('multiple_periods', '单次请给出一个起止期间，或两个明确的比较期间。');
+        }
+        if (preg_match('/(上周|本周|这周)\s*(?:到|至|~|～)(.*)$/u', $query, $weekRange)) {
+            $end = $this->window(trim($weekRange[2]), [], $now);
+            if (isset($end['clarifying_question'])) return $end;
+            if (($end['date_source'] ?? '') !== 'explicit_day') {
+                return $this->clarify('period_needs_explicit_dates', '请明确结束业务日期，例如“上周到昨天”或“上周到2026年9月7日”。');
+            }
+            $start = $now->modify('monday this week');
+            if ($weekRange[1] === '上周') $start = $start->modify('-7 days');
+            return $this->range($start->format('Y-m-d'), $end['date_end'], 'explicit_range');
+        }
         if (preg_match('/(?:最近|近|过去的|过去)([0-9零〇一二两三四五六七八九十百千万]+)天/u', $query, $m)) {
             if (!ctype_digit($m[1])) return $this->clarify('period_limit', '单次支持1至31个业务日，请缩小日期范围。');
             $days = (int)$m[1];
@@ -71,7 +87,7 @@ final class PreciseQueryPeriodService
             $end = $m[0] === '上周' ? $start->modify('+6 days') : $now->modify('-1 day');
             return $this->range($start->format('Y-m-d'), $end->format('Y-m-d'), 'completed_calendar_week');
         }
-        $datePattern = '(?:(20[0-9]{2})[-/.年])?([0-9]{1,2})[-/月]([0-9]{1,2})(?:日|号)?';
+        $datePattern = '(?:(20[0-9]{2})[-/.年])?([0-9]{1,2})[-/.月]([0-9]{1,2})(?:日|号)?';
         preg_match_all('~(?<![0-9])' . $datePattern . '(?![0-9])~u', $query, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
         $dates = [];
         foreach ($matches as $m) {
@@ -84,9 +100,18 @@ final class PreciseQueryPeriodService
             $days = in_array($m[0], ['今天','今日'], true) ? 0 : ($m[0] === '前天' ? 2 : 1);
             $dates[] = ['date'=>$now->modify('-' . $days . ' days')->format('Y-m-d'), 'offset'=>$m[1]];
         }
+        if (count($dates) > 2 && preg_match('/到|至|~|～/u', $rangeSyntax)) {
+            return $this->clarify('multiple_periods', '单次请给出一个起止期间，或两个明确的比较期间。');
+        }
         usort($dates, static fn(array $a,array $b): int => $a['offset'] <=> $b['offset']);
         $dates = array_values(array_unique(array_column($dates, 'date')));
-        if (count($dates) === 1 && preg_match('/(?:到|至|~|～)\s*([0-9]{1,2})[日号]/u', $query, $m)) $dates[] = substr($dates[0],0,8) . str_pad($m[1],2,'0',STR_PAD_LEFT);
+        if (count($dates) === 1 && count($matches) + count($relative[0]) === 1) {
+            if (preg_match('/(?:到|至|~|～)\s*([0-9]{1,2})(?:日|号)?(?![0-9年月\/.-])/u', $query, $m)) {
+                $dates[] = substr($dates[0], 0, 8) . str_pad($m[1], 2, '0', STR_PAD_LEFT);
+            } elseif (preg_match('#(?:' . $datePattern . '|今天|今日|昨天|昨日|前天)\s*(?:到|至|~|～)#u', $query)) {
+                return $this->clarify('period_needs_explicit_dates', '请明确结束业务日期；省略年月时，结束日沿用起始日所在月。');
+            }
+        }
         if (count($dates) > 1) {
             if (!preg_match('/到|至|~|～/u', $query)) return $this->clarify('distinct_dates_need_operator', '这些日期需要相加还是对比？请使用“到”表示期间，或“对比”表示比较。');
             if (count($dates) > 2) return $this->clarify('multiple_periods', '单次请给出一个起止期间，或两个明确的比较期间。');

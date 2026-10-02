@@ -86,6 +86,7 @@ final class LocalSecondBrainContractServiceTest extends TestCase
     {
         $service = new AiEvaluationRunService();
         $result = $this->evaluationResult();
+        $result['scoring_contract_version'] = \app\service\AiEvaluationBatchReplayService::SCORING_CONTRACT_VERSION;
 
         $saved = $service->save(
             'eval-local-run-0001',
@@ -100,6 +101,7 @@ final class LocalSecondBrainContractServiceTest extends TestCase
         self::assertTrue($saved['readback_verified']);
         self::assertSame('readback_verified', $saved['persistence_status']);
         self::assertSame(17, $saved['created_by']);
+        self::assertSame($result, $service->read((int)$saved['id'])['result']);
         self::assertSame(1, (int)Db::name(AiEvaluationRunService::TABLE)
             ->where('id', (int)$saved['id'])
             ->value('readback_verified'));

@@ -77,10 +77,14 @@ function installRealDisplayClear(h) {
     'ctripFlowOverviewResult', 'ctripAdsBrowserCaptureResult', 'ctripSearchOpportunityPayload',
     'ctripSearchOpportunityError', 'ctripSearchOpportunityLoading', 'ctripSearchOpportunitySaving',
     'ctripCommentBrowserCaptureRunning', 'ctripDiagnosisSnapshotLoading', 'ctripRankingDisplayActivated',
-    'ctripLatestComparison']) h.context[name] ||= { value: null };
+    'ctripLatestComparison', 'ctripTrafficBundleLoading', 'ctripOverviewFetchActionLoading',
+    'ctripCookieApiRunning', 'ctripAdsBrowserCaptureRunning', 'ctripFlowOverviewFetching']) h.context[name] ||= { value: null };
   Object.assign(h.context, {
     ctripCommentBrowserCaptureRequestSeq: 0, ctripDiagnosisSnapshotRequestSeq: 0,
     ctripSearchOpportunityRequestSeq: 0,
+    ctripTrafficBundleRequestSeq: 0, ctripOverviewFetchActionRequestSeq: 0, ctripCookieApiCaptureRequestSeq: 0,
+    ctripAdsCaptureRequestSeq: 0,
+    ctripFlowOverviewCaptureRequestSeq: 0,
     ctripReviewMatchControllerBindings: { invalidateCtripReviewMatch() {},
       ctripReviewMatchResult: { value: null }, ctripReviewMatchLoading: { value: '' },
       ctripReviewMatchLookupLoadingCommentId: { value: '' } },

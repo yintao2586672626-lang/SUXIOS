@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -5,7 +6,7 @@ import vm from 'node:vm';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const systemStaticSource = readFileSync('public/system-static.js', 'utf8');
-const dataHealthStaticSource = readFileSync('public/data-health-static.js', 'utf8');
+const dataHealthStaticSource = readStaticContractSource('public/data-health-static.js');
 const otaProfileStaticSource = readFileSync('public/ota-profile-static.js', 'utf8');
 const html = readFrontendContractSource();
 const sandbox = { window: {}, console, setTimeout, clearTimeout };
@@ -176,7 +177,7 @@ test('platform account UI names manual and automatic paths and routes them separ
 
 test('multi-hotel account center loads all permitted data sources instead of inheriting the selected hotel', () => {
   const start = html.indexOf('const loadPlatformDataSources = async');
-  const end = html.indexOf('const loadPlatformSyncTasks = async', start);
+  const end = html.indexOf('const loadPlatformSyncTasks =', start);
   assert.ok(start >= 0 && end > start, 'platform data source loader must be present');
   const loader = html.slice(start, end);
   assert.match(

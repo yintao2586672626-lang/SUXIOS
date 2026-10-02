@@ -40,32 +40,52 @@ function e2eDatabaseSafetyGuard(): array
     );
 }
 
-/** @return array<string, bool> */
-function e2eTableColumns(string $table): array
+/** @return array<string, array<string, mixed>> */
+function e2eTableColumnMetadata(string $table): array
 {
     if (!preg_match('/^[A-Za-z0-9_]+$/D', $table)) {
         return [];
     }
     try {
-        $rows = Db::query("SHOW COLUMNS FROM `{$table}`");
-    } catch (Throwable) {
-        return [];
+        $rows = Db::query(
+            'SELECT COLUMN_NAME AS Field, EXTRA AS Extra, GENERATION_EXPRESSION AS GenerationExpression '
+            . 'FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name',
+            ['table_name' => $table]
+        );
+    } catch (Throwable $error) {
+        throw new RuntimeException('Isolated E2E column metadata lookup failed for ' . $table, 0, $error);
     }
 
     $columns = [];
     foreach ($rows as $row) {
         $name = (string)($row['Field'] ?? $row['field'] ?? '');
         if ($name !== '') {
-            $columns[$name] = true;
+            $columns[$name] = $row;
         }
     }
     return $columns;
 }
 
+/** @return array<string, bool> */
+function e2eTableColumns(string $table): array
+{
+    return array_fill_keys(array_keys(e2eTableColumnMetadata($table)), true);
+}
+
 /** @param array<string, mixed> $payload @return array<string, mixed> */
 function e2eFilterPayload(string $table, array $payload): array
 {
-    return array_intersect_key($payload, e2eTableColumns($table));
+    $writable = [];
+    foreach (e2eTableColumnMetadata($table) as $name => $column) {
+        // DEFAULT_GENERATED is a writable default, unlike STORED/VIRTUAL GENERATED.
+        $extra = (string)($column['Extra'] ?? $column['extra'] ?? '');
+        $expression = trim((string)($column['GenerationExpression'] ?? $column['generationexpression'] ?? ''));
+        if (preg_match('/\b(?:VIRTUAL|STORED)\s+GENERATED\b/i', $extra) || $expression !== '') {
+            continue;
+        }
+        $writable[$name] = true;
+    }
+    return array_intersect_key($payload, $writable);
 }
 
 function e2eHasColumn(string $table, string $column): bool
@@ -88,10 +108,15 @@ function e2eAssertSchemaReady(): array
             'source', 'data_type', 'dimension',
             'data_source_id', 'ingestion_method', 'snapshot_time',
             'readback_verified', 'readback_verified_at',
+            'sync_task_id', 'history_status', 'validation_status', 'data_period', 'is_final', 'platform',
         ],
         'platform_data_sources' => [
             'id', 'tenant_id', 'system_hotel_id', 'name', 'platform',
             'data_type', 'ingestion_method', 'status', 'enabled',
+        ],
+        'platform_data_sync_tasks' => [
+            'id', 'tenant_id', 'system_hotel_id', 'data_source_id', 'platform', 'data_type',
+            'ingestion_method', 'status', 'stats_json',
         ],
         'ai_daily_reports' => [
             'id', 'tenant_id', 'hotel_id', 'report_date', 'status',
@@ -254,6 +279,7 @@ function e2eCount(string $prefix): array
     foreach ([
         'online_daily_data' => ['online_daily_data', 'system_hotel_id'],
         'platform_data_sources' => ['platform_data_sources', 'system_hotel_id'],
+        'platform_data_sync_tasks' => ['platform_data_sync_tasks', 'system_hotel_id'],
         'temporal_forecast_snapshots' => ['temporal_forecast_snapshots', 'system_hotel_id'],
         'analysis_reference_set_versions' => ['analysis_reference_set_versions', 'system_hotel_id'],
         'ai_daily_reports' => 'ai_daily_reports',
@@ -486,11 +512,51 @@ function e2eSeedAiReportInputs(string $prefix): array
         }
 
         $ids = [];
+        $syncTaskIds = [];
         foreach ($fixtures as $fixture) {
             $date = (string)$fixture['date'];
             $dataType = (string)$fixture['data_type'];
             $otaHotelId = (string)$fixture['hotel_id'];
             $traceId = $prefix . '_' . $dataType . '_' . str_replace('-', '', $date);
+            $metricDimension = $dataType === 'business' ? 'semantic:ctrip:room_revenue' : 'semantic:ctrip:traffic';
+            $syncStats = [
+                'synthetic' => true,
+                'fixture_scope' => 'isolated_e2e_ai_report_inputs',
+                'system_hotel_id' => $hotelId,
+                'platform_hotel_id' => $otaHotelId,
+                'business_date' => $date,
+                'dimension' => $metricDimension,
+                'source_trace_id' => $traceId,
+            ];
+            $syncTaskId = (int)Db::name('platform_data_sync_tasks')->insertGetId(e2eFilterPayload('platform_data_sync_tasks', [
+                'tenant_id' => (int)$hotel['tenant_id'],
+                'system_hotel_id' => $hotelId,
+                'data_source_id' => $dataSourceIds[$dataType],
+                'platform' => 'ctrip',
+                'data_type' => $dataType,
+                'ingestion_method' => 'isolated_e2e_fixture',
+                'trigger_type' => 'isolated_e2e',
+                'status' => 'running',
+                'attempt_count' => 1,
+                'max_attempts' => 1,
+                'started_at' => $now,
+                'message' => $prefix . '_synthetic_readback_only',
+                'stats_json' => json_encode($syncStats, JSON_THROW_ON_ERROR),
+                'create_time' => $now,
+                'update_time' => $now,
+            ]));
+            $storedTask = Db::name('platform_data_sync_tasks')->where('id', $syncTaskId)->find();
+            if ($syncTaskId <= 0 || !is_array($storedTask)
+                || (int)$storedTask['tenant_id'] !== (int)$hotel['tenant_id']
+                || (int)$storedTask['system_hotel_id'] !== $hotelId
+                || (int)$storedTask['data_source_id'] !== (int)$dataSourceIds[$dataType]
+                || (string)$storedTask['platform'] !== 'ctrip'
+                || (string)$storedTask['data_type'] !== $dataType
+                || (string)$storedTask['ingestion_method'] !== 'isolated_e2e_fixture'
+                || (string)$storedTask['status'] !== 'running'
+                || json_decode((string)$storedTask['stats_json'], true) !== $syncStats) {
+                throw new RuntimeException('Isolated AI report sync-task ownership readback failed');
+            }
             $payload = e2eFilterPayload('online_daily_data', [
                 'tenant_id' => (int)($hotel['tenant_id'] ?? 0) ?: $hotelId,
                 'system_hotel_id' => $hotelId,
@@ -500,7 +566,7 @@ function e2eSeedAiReportInputs(string $prefix): array
                 'source' => 'ctrip',
                 'platform' => 'ctrip',
                 'data_type' => $dataType,
-                'dimension' => '',
+                'dimension' => $metricDimension,
                 'compare_type' => 'self',
                 'amount' => $fixture['amount'] ?? null,
                 'quantity' => $fixture['quantity'] ?? null,
@@ -518,9 +584,11 @@ function e2eSeedAiReportInputs(string $prefix): array
                     'collected_at' => $date . ' 23:59:59',
                     'source_trace_id' => $traceId,
                 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-                'validation_status' => 'normal',
+                'validation_status' => 'pending_verification',
+                'history_status' => 'pending',
                 'validation_flags' => '[]',
                 'data_source_id' => $dataSourceIds[$dataType],
+                'sync_task_id' => $syncTaskId,
                 'ingestion_method' => 'isolated_e2e_fixture',
                 'source_trace_id' => $traceId,
                 'data_period' => 'historical_daily',
@@ -541,6 +609,9 @@ function e2eSeedAiReportInputs(string $prefix): array
                 || (string)($stored['source'] ?? '') !== 'ctrip'
                 || (string)($stored['data_type'] ?? '') !== $dataType
                 || (int)($stored['data_source_id'] ?? 0) !== (int)$dataSourceIds[$dataType]
+                || (int)($stored['tenant_id'] ?? 0) !== (int)$hotel['tenant_id']
+                || (int)($stored['sync_task_id'] ?? 0) !== $syncTaskId
+                || (string)($stored['dimension'] ?? '') !== $metricDimension
                 || ($dataType === 'traffic' && (
                     (int)($stored['list_exposure'] ?? -1) !== (int)$fixture['list_exposure']
                     || (int)($stored['detail_exposure'] ?? -1) !== (int)$fixture['detail_exposure']
@@ -551,17 +622,37 @@ function e2eSeedAiReportInputs(string $prefix): array
                 ))) {
                 throw new RuntimeException('Isolated AI report input fixture readback failed');
             }
-            Db::name('online_daily_data')->where('id', $rowId)->update([
+            Db::name('online_daily_data')->where('id', $rowId)->update(e2eFilterPayload('online_daily_data', [
                 'readback_verified' => 1,
                 'readback_verified_at' => $now,
-            ]);
+                'validation_status' => 'verified',
+                'history_status' => 'success',
+            ]));
             $verified = Db::name('online_daily_data')->where('id', $rowId)->find();
-            if (!is_array($verified) || (int)($verified['readback_verified'] ?? 0) !== 1) {
+            if (!is_array($verified) || (int)($verified['readback_verified'] ?? 0) !== 1
+                || (string)($verified['validation_status'] ?? '') !== 'verified'
+                || (string)($verified['history_status'] ?? '') !== 'success'
+                || (int)($verified['sync_task_id'] ?? 0) !== $syncTaskId) {
                 throw new RuntimeException('Isolated AI report traffic fixture verification writeback failed');
             }
+            $syncStats += ['row_ids' => [$rowId], 'saved_count' => 1, 'readback_verified_count' => 1];
+            Db::name('platform_data_sync_tasks')->where('id', $syncTaskId)->update([
+                'status' => 'success',
+                'finished_at' => $now,
+                'stats_json' => json_encode($syncStats, JSON_THROW_ON_ERROR),
+            ]);
+            $verifiedTask = Db::name('platform_data_sync_tasks')->where('id', $syncTaskId)->find();
+            if (!is_array($verifiedTask) || (string)$verifiedTask['status'] !== 'success'
+                || (int)$verifiedTask['system_hotel_id'] !== $hotelId
+                || (int)$verifiedTask['tenant_id'] !== (int)$hotel['tenant_id']
+                || (int)$verifiedTask['data_source_id'] !== (int)$dataSourceIds[$dataType]
+                || json_decode((string)$verifiedTask['stats_json'], true) !== $syncStats) {
+                throw new RuntimeException('Isolated AI report sync-task result readback failed');
+            }
             $ids[] = $rowId;
+            $syncTaskIds[] = $syncTaskId;
         }
-        return ['row_ids' => $ids, 'data_source_ids' => $dataSourceIds];
+        return ['row_ids' => $ids, 'data_source_ids' => $dataSourceIds, 'sync_task_ids' => $syncTaskIds];
     });
 
     $rowIds = $fixtureResult['row_ids'];
@@ -573,6 +664,7 @@ function e2eSeedAiReportInputs(string $prefix): array
         'business_ota_hotel_id' => $businessOtaHotelId,
         'row_ids' => $rowIds,
         'data_source_ids' => $dataSourceIds,
+        'sync_task_ids' => $fixtureResult['sync_task_ids'],
         'data_dates' => array_values(array_unique(array_column($fixtures, 'date'))),
         'readback_verified' => count($rowIds) === count($fixtures),
         'source_scope' => 'synthetic_isolated_e2e_ctrip_channel_fixture',
@@ -1121,6 +1213,9 @@ try {
     $databaseSafety = e2eDatabaseSafetyGuard();
     if ($action === 'guard') {
         $result = array_merge($databaseSafety, e2eAssertSchemaReady());
+    } elseif ($action === 'verify-generated-column-compatibility') {
+        require __DIR__ . DIRECTORY_SEPARATOR . 'e2e-generated-column-compatibility.php';
+        $result = e2eVerifyGeneratedColumnCompatibility($databaseSafety);
     } else {
         $prefix = e2ePrefix();
         $result = match ($action) {

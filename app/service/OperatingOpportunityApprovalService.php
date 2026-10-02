@@ -424,8 +424,24 @@ final class OperatingOpportunityApprovalService
                 break;
             }
         }
-        if (!$hasSourceRef || ($status === 'pending_approval' && (array)($intent['tasks'] ?? []) !== [])) {
+        if (!$hasSourceRef) {
             throw new RuntimeException('经营机会关联待审批单证据回读不一致', 409);
+        }
+        $tasks = (array)($intent['tasks'] ?? []);
+        if (($status === 'approved' && count($tasks) !== 1)
+            || ($status !== 'approved' && $tasks !== [])
+        ) {
+            throw new RuntimeException('经营机会审批状态与原任务数量回读不一致', 409);
+        }
+        foreach ($tasks as $task) {
+            if (!is_array($task)
+                || (int)($task['id'] ?? 0) <= 0
+                || (int)($task['tenant_id'] ?? 0) !== $tenantId
+                || (int)($task['hotel_id'] ?? 0) !== $hotelId
+                || (int)($task['intent_id'] ?? 0) !== (int)$intent['id']
+            ) {
+                throw new RuntimeException('经营机会原任务身份回读不一致', 409);
+            }
         }
     }
 

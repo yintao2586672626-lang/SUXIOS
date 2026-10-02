@@ -491,6 +491,7 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
                     'order_flow_row_type' => 'summary',
                     'order_flow_direction' => 'loss',
                     'order_flow_period' => 'last_7_days',
+                    'order_flow_capture_run_at' => '2026-07-14T01:20:00.000001Z',
                     'period_start' => '2026-07-07',
                     'period_end' => '2026-07-13',
                     'order_count' => 0,
@@ -504,6 +505,7 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
                     'order_flow_row_type' => 'hotel_detail',
                     'order_flow_direction' => 'loss',
                     'order_flow_period' => 'last_7_days',
+                    'order_flow_capture_run_at' => '2026-07-14T01:20:00.000001Z',
                     'period_start' => '2026-07-07',
                     'period_end' => '2026-07-13',
                     'order_count' => 7,
@@ -531,6 +533,7 @@ final class MeituanCapturedDataIntegrityTest extends TestCase
         $raw = json_decode((string)$rows[1]['raw_data'], true);
         self::assertSame('last_7_days', $raw['order_flow_period']);
         self::assertSame('loss', $raw['order_flow_direction']);
+        self::assertSame('2026-07-14T01:20:00.000001Z', $raw['order_flow_capture_run_at']);
         self::assertSame(7, $raw['order_count']);
         self::assertSame(5234, $raw['amount']);
         self::assertSame('大床房', $raw['lossRoomList'][0]['lossRoomName']);

@@ -15,10 +15,13 @@
         name: 'CommissionAcquisitionCalculatorPanel',
         props: { hotelId: { type: [String, Number], default: '' }, hotels: { type: Array, default: () => [] }, request: { type: Function, default: null }, openFinance: { type: Function, default: null } },
         setup(props) {
-            const { h, reactive, computed, ref, watch } = window.Vue;
+            const { h, reactive, computed, ref, watch, onBeforeUnmount } = window.Vue;
             const core = window.SUXI_COMMISSION_CALCULATOR_CORE;
             const paidCore = window.SUXI_COMMISSION_PAID_TRAFFIC_CORE;
             const form = reactive(defaults());
+            let importSequence = 0;
+            watch(form, () => { importSequence++; }, { deep: true, flush: 'sync' });
+            onBeforeUnmount(() => { importSequence++; });
             const notice = ref('');
             const importInput = ref(null);
             const summaryOpen = ref(false);
@@ -64,8 +67,8 @@
                 lines.push('边界：不预测实际流量；不自动调整佣金或投放。等额广告使用较低佣金，是对照方案，不与涨佣叠加；广告增量额相对较低佣金且未额外投放的情景，不含原间夜调佣后的贡献差额。历史ROI不保证未来，归因不等于增量；未计库存上限、替代渠道损失、固定成本。');
                 return lines.filter(Boolean).join('\n');
             });
-            const reset = () => { Object.assign(form, defaults()); notice.value = '已重置为示例假设；历史投产比未填写。'; };
-            watch(() => String(props.hotelId), (current, previous) => { if (current !== previous) { reset(); notice.value = '门店已变更，测算输入已重置为示例，避免沿用其他门店的假设。'; } });
+            const reset = () => { importSequence++; Object.assign(form, defaults()); notice.value = '已重置为示例假设；历史投产比未填写。'; };
+            watch(() => String(props.hotelId), (current, previous) => { if (current !== previous) { reset(); notice.value = '门店已变更，测算输入已重置为示例，避免沿用其他门店的假设。'; } }, { flush: 'sync' });
             const save = () => {
                 if (!basis.value.result || traffic.value.error) return;
                 const payload = { schema, source_method: 'user_scenario_input', fact_status: 'unverified', metric_scope: 'channel_acquisition_scenario', hotel_id: hotel.value?.id ?? null, hotel_name: hotel.value?.name ?? null, input: { ...form } };
@@ -76,9 +79,12 @@
             const restore = async event => {
                 const file = event?.target?.files?.[0];
                 if (!file) return;
+                const ticket = ++importSequence;
+                event.target.value = '';
                 try {
                     if (file.size > 32768) throw new Error('测算方案文件过大，请选择本面板导出的JSON文件。');
                     const payload = JSON.parse(await file.text());
+                    if (ticket !== importSequence) return;
                     if (payload?.schema !== schema || !payload.input || payload.fact_status !== 'unverified') throw new Error('不是受支持的人工测算方案文件。');
                     if (payload.hotel_id != null && String(payload.hotel_id) !== String(hotel.value?.id ?? '')) throw new Error('方案门店与当前门店不同，请先选择方案对应门店；未导入任何字段。');
                     const candidate = {};
@@ -94,8 +100,7 @@
                     if (candidate.historicalRoi.trim()) paidCore.calculatePaidTraffic(result, candidate);
                     Object.assign(form, candidate);
                     notice.value = '已从测算方案恢复输入并重新计算；仍为人工情景，不是验证后的经营事实。';
-                } catch (error) { notice.value = '导入失败：' + error.message; }
-                event.target.value = '';
+                } catch (error) { if (ticket === importSequence) notice.value = '导入失败：' + error.message; }
             };
             const copy = async () => {
                 try { await navigator.clipboard.writeText(summary.value); notice.value = '已复制测算摘要，包含口径与未验证提示。'; }

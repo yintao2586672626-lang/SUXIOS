@@ -154,14 +154,9 @@ test('OTA analysis page renders complete event fields and honest loading, error 
 });
 
 test('Ctrip eBooking competition view binds the current hotel and end date to a visible event feed', () => {
-  const ctripLoader = sliceFrom(
-    'const loadCtripCompetitorEventFeed = (options = {}) => loadCompetitorEventFeed({',
-    '\n            const handleCtripPublicProfileHotelChange',
-  );
-  const workspace = sliceFrom(
-    'const openCtripCompetitorEventWorkspace = async () => {',
-    '\n            const handleCtripPublicProfileHotelChange',
-  );
+  const mainSource = appMain;
+  const ctripLoader = sourceDeclaration(mainSource, 'loadCtripCompetitorEventFeed');
+  const workspace = sourceDeclaration(mainSource, 'openCtripCompetitorEventWorkspace');
   const tabOpen = sliceFrom(
     "if (tab === 'ctrip-market-competition') {",
     "\n                if (tab === 'ctrip-traffic') {",
@@ -196,3 +191,4 @@ test('Ctrip eBooking competition view binds the current hotel and end date to a 
   assert.match(ctripTemplate, /data-testid="ctrip-competitor-event-feed-truncated"/);
   assert.match(ctripTemplate, /不代表酒店总房态、真实剩余库存或全酒店经营事实/);
 });
+import { sourceDeclaration } from './helpers/source_declaration.mjs';

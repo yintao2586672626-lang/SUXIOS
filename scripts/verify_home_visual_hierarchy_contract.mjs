@@ -25,7 +25,11 @@ const sampleHomeDataSources = typeof buildHomeDataSources === 'function'
     sampleDays: 7,
     trendReady: true,
     trendUpdatedAt: '2026-06-10',
-    channelSignal: { status: 'ok', updated_at: '2026-06-09' },
+    selectedBusinessDate: '2026-06-09',
+    otaPlatformRows: [
+      { key: 'ctrip', date: '2026-06-09', status: '已验证' },
+      { key: 'meituan', date: '2026-06-09', status: '已验证' },
+    ],
     priceSignal: { status: 'pending', updated_at: '2026-06-08' },
     weatherSignal: { status: 'ok', updated_at: '2026-06-07' },
     weatherCount: 2,

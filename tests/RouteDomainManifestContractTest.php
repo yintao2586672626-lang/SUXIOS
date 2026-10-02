@@ -191,6 +191,10 @@ final class RouteDomainManifestContractTest extends TestCase
         }
 
         $workflowRoutes = [
+            'api/operation|get|/manager-capability/coaching|ManagerCapability/coachingList',
+            'api/operation|post|/manager-capability/coaching|ManagerCapability/coachingCreate',
+            'api/operation|get|/manager-capability/coaching/:id|ManagerCapability/coachingRead',
+            'api/operation|post|/manager-capability/coaching/:id/:action|ManagerCapability/coachingAction',
             'api/operation|get|/task-workflows|OperationManagement/taskWorkflows',
             'api/operation|post|/task-workflow-proposals|OperationManagement/proposeTaskWorkflow',
             'api/operation|get|/execution-tasks/:id/workflow|OperationManagement/readTaskWorkflow',

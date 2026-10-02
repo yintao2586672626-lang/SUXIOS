@@ -67,6 +67,137 @@ final class OtaStandardModuleTest extends TestCase
         self::assertSame([], $dataset['data_quality']['rejected_rows']);
     }
 
+    public function testEtlDoesNotMarkDefaultDatedMeituanTrafficAsReadbackTrusted(): void
+    {
+        $row = [
+            'id' => 81, 'system_hotel_id' => 80, 'hotel_id' => 'meituan-80',
+            'hotel_name' => 'Hotel 80', 'source' => 'meituan', 'data_type' => 'traffic',
+            'data_date' => '2026-08-01', 'source_trace_id' => 'traffic-81',
+            'readback_verified' => 1, 'collected_at' => '2026-08-01 10:00:00',
+            'update_time' => '2026-08-01 10:01:00', 'list_exposure' => 900,
+            'raw_data' => json_encode(['date_source' => 'capture_context.default_data_date']),
+        ];
+        $etl = new OtaStandardEtlService();
+        $defaultDated = $etl->buildDatasetFromRows([$row]);
+        self::assertSame('blocked', $defaultDated['status']);
+        self::assertFalse($defaultDated['fact_ota_traffic'][0]['source_trace']['saved_success']);
+
+        $row['raw_data'] = json_encode(['date_source' => 'page.business_period_selection.readback']);
+        $pageDated = $etl->buildDatasetFromRows([$row]);
+        self::assertSame('ready', $pageDated['status']);
+        self::assertTrue($pageDated['fact_ota_traffic'][0]['source_trace']['saved_success']);
+    }
+
+    public function testEtlDoesNotTrustMeituanOrderWithCaptureDefaultDate(): void
+    {
+        $row = [
+            'id' => 82, 'system_hotel_id' => 80, 'hotel_id' => 'meituan-80',
+            'hotel_name' => 'Hotel 80', 'source' => 'meituan', 'data_type' => 'order',
+            'data_date' => '2026-08-01', 'source_trace_id' => 'order-82',
+            'readback_verified' => 1, 'collected_at' => '2026-08-01 10:00:00',
+            'update_time' => '2026-08-01 10:01:00', 'book_order_num' => 1,
+            'raw_data' => json_encode(['date_basis' => 'unknown', 'date_source' => 'capture_context.default_data_date']),
+        ];
+        $etl = new OtaStandardEtlService();
+        $defaultDated = $etl->buildDatasetFromRows([$row]);
+        self::assertSame('blocked', $defaultDated['status']);
+        self::assertFalse($defaultDated['fact_ota_daily'][0]['source_trace']['saved_success']);
+        $defaultMetrics = (new OtaRevenueMetricService())->summarizeDataset($defaultDated);
+        self::assertFalse($defaultMetrics['metric_trust']['totals.order_count']['saved_success']);
+        self::assertContains(
+            'order_date_source_not_authoritative',
+            $defaultMetrics['metric_trust']['totals.order_count']['failure_reasons']
+        );
+
+        $row['raw_data'] = json_encode(['date_basis' => 'order_date', 'date_source' => 'order_time']);
+        $orderDated = $etl->buildDatasetFromRows([$row]);
+        self::assertSame('ready', $orderDated['status']);
+        self::assertTrue($orderDated['fact_ota_daily'][0]['source_trace']['saved_success']);
+    }
+
+    public function testEtlDoesNotTrustMeituanBusinessWithCaptureDefaultDate(): void
+    {
+        $row = [
+            'id' => 83, 'system_hotel_id' => 80, 'hotel_id' => 'meituan-80',
+            'hotel_name' => 'Hotel 80', 'source' => 'meituan', 'data_type' => 'business',
+            'data_date' => '2026-08-01', 'source_trace_id' => 'business-83',
+            'readback_verified' => 1, 'collected_at' => '2026-08-01 10:00:00',
+            'update_time' => '2026-08-01 10:01:00', 'amount' => 500,
+            'raw_data' => json_encode(['date_source' => 'capture_context.default_data_date']),
+        ];
+        $etl = new OtaStandardEtlService();
+        $defaultDated = $etl->buildDatasetFromRows([$row]);
+        self::assertSame('blocked', $defaultDated['status']);
+        self::assertFalse($defaultDated['fact_ota_daily'][0]['source_trace']['saved_success']);
+
+        $row['raw_data'] = json_encode(['date_source' => 'row.statDate']);
+        $dated = $etl->buildDatasetFromRows([$row]);
+        self::assertSame('ready', $dated['status']);
+        self::assertTrue($dated['fact_ota_daily'][0]['source_trace']['saved_success']);
+    }
+
+    public function testEtlDoesNotPromoteRequestDatedCtripCatalogAmountToTrustedFact(): void
+    {
+        $row = [
+            'id' => 84, 'system_hotel_id' => 80, 'hotel_id' => 'ctrip-80',
+            'hotel_name' => 'Hotel 80', 'source' => 'ctrip', 'data_type' => 'business',
+            'data_date' => '2026-08-01',
+            'dimension' => 'catalog:business_overview:business_realtime:amount:root',
+            'source_trace_id' => 'catalog-84', 'readback_verified' => 1,
+            'collected_at' => '2026-08-01 10:00:00', 'update_time' => '2026-08-01 10:01:00',
+            'amount' => 500,
+            'raw_data' => json_encode(['source' => 'ctrip_catalog_facts', 'metrics' => ['amount' => 500]]),
+        ];
+        $etl = new OtaStandardEtlService();
+        $requestDated = $etl->buildDatasetFromRows([$row]);
+        self::assertSame('blocked', $requestDated['status']);
+        self::assertFalse($requestDated['fact_ota_daily'][0]['source_trace']['saved_success']);
+        self::assertContains(
+            'business_date_source_not_authoritative',
+            $requestDated['fact_ota_daily'][0]['source_trace']['failure_reasons']
+        );
+
+        $row['raw_data'] = json_encode([
+            'source' => 'ctrip_catalog_facts', 'metrics' => ['amount' => 500],
+            'data_date' => '2026-08-01', 'date_source' => 'page.period_selection.readback',
+        ]);
+        $observed = $etl->buildDatasetFromRows([$row]);
+        self::assertSame('ready', $observed['status']);
+        self::assertTrue($observed['fact_ota_daily'][0]['source_trace']['saved_success']);
+    }
+
+    public function testEtlDoesNotTrustRequestDatedCtripCatalogPeerRank(): void
+    {
+        $row = [
+            'id' => 85, 'system_hotel_id' => 80, 'hotel_id' => 'ctrip-80',
+            'source' => 'ctrip', 'data_type' => 'peer_rank',
+            'data_date' => '2026-08-01',
+            'dimension' => 'catalog:peer_rank:hotel_rank:v1',
+            'source_trace_id' => 'catalog-85', 'readback_verified' => 1,
+            'collected_at' => '2026-08-01 10:00:00',
+            'rank' => 3,
+            'raw_data' => json_encode(['source' => 'ctrip_catalog_facts']),
+        ];
+        $etl = new OtaStandardEtlService();
+        $missing = $etl->buildDatasetFromRows([$row]);
+        self::assertSame('blocked', $missing['status']);
+        self::assertFalse($missing['fact_ota_peer_rank'][0]['source_trace']['saved_success']);
+        self::assertContains(
+            'peer_rank_date_source_not_authoritative',
+            $missing['fact_ota_peer_rank'][0]['source_trace']['failure_reasons']
+        );
+        $metrics = (new OtaRevenueMetricService())->summarizeDataset($missing);
+        self::assertFalse($metrics['metric_trust']['peer_rank.rows']['saved_success']);
+
+        $row['raw_data'] = json_encode([
+            'source' => 'ctrip_catalog_facts',
+            'data_date' => '2026-08-01', 'date_source' => 'page.business_date',
+        ]);
+        $observed = $etl->buildDatasetFromRows([$row]);
+        self::assertSame('ready', $observed['status']);
+        self::assertTrue($observed['fact_ota_peer_rank'][0]['source_trace']['saved_success']);
+    }
+
     public function testRevenueMetricsUseStandardFactsWithoutInventingMissingCancellationData(): void
     {
         $etl = new OtaStandardEtlService();

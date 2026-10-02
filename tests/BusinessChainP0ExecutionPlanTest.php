@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Tests;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 final class BusinessChainP0ExecutionPlanTest extends TestCase
 {
@@ -12,11 +13,79 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
         require_once __DIR__ . '/../scripts/report_business_chain_status.php';
     }
 
+    #[DataProvider('operatorSkippedMeituanStates')]
+    public function testOperatorSkippedMeituanNeverOffersLoginSyncOrVerificationWork(
+        bool $manualLoginVerified,
+        bool $factsReady
+    ): void {
+        $rows = $factsReady ? 3 : 0;
+        $factStatus = $factsReady ? 'ready' : 'missing';
+        $step = $this->step(80, 18, 'active');
+        $step['manual_login_state_verified'] = $manualLoginVerified;
+        $step['profile_login_trigger']['entry'] = '/api/online-data/profile-login-trigger/meituan';
+        $payload = [
+            'status' => 'incomplete',
+            'scope' => ['date' => '2026-07-25', 'system_hotel_id' => 80, 'hotel_scope_policy' => 'system_hotel_id'],
+            'platforms' => [[
+                'platform' => 'meituan',
+                'target_date_rows' => $rows,
+                'p0_traffic_gate' => [
+                    'status' => $factStatus,
+                    'traffic_rows' => $rows,
+                    'stored_target_date_traffic_rows' => $rows,
+                    'readback_verified_rows' => $rows,
+                    'readback_unverified_rows' => 0,
+                    'readback_check_supported' => true,
+                    'readback_status' => $factStatus,
+                    'profile_scope_system_hotel_ids' => [80],
+                    'system_hotel_row_counts' => ['80' => $rows],
+                    'traffic_field_fact_status' => $factStatus,
+                    'p0_standard_fact_status' => $factStatus,
+                    'required_metric_value_status' => $factStatus,
+                    'platform_hotel_identifier_status' => $factStatus,
+                    'action_entry' => '/api/online-data/capture-meituan-browser',
+                    'hotel_scoped_next_steps' => [$step],
+                ],
+            ]],
+        ];
+
+        $plan = \business_chain_compact_p0_execution_plan($payload, '2026-07-25', 80, 2, ['meituan'], ['meituan']);
+        $summary = $plan['platform_summaries'][0];
+        $nextStep = $summary['next_steps'][0];
+        self::assertTrue($summary['operator_skip_active']);
+        self::assertSame('p0_skipped_by_operator_reference_only_no_collection', $summary['operator_skip_policy']);
+        self::assertSame('', $summary['action_entry']);
+        self::assertSame('', $nextStep['login_trigger_entry']);
+        self::assertSame('', $nextStep['after_login_sync_entry']);
+        self::assertSame('', $nextStep['verifier_command']);
+        self::assertSame(
+            $manualLoginVerified ? 'login_verified_reference_only' : 'skipped_by_operator_no_login',
+            $nextStep['login_trigger_status']
+        );
+        $platformSteps = array_values(array_filter(
+            $plan['operator_sequence'],
+            static fn(array $item): bool => ($item['platform'] ?? '') === 'meituan'
+        ));
+        self::assertSame(['operator_skip'], array_column($platformSteps, 'type'));
+        self::assertSame('p0_skipped_by_operator', $platformSteps[0]['status']);
+        self::assertFalse(\business_chain_p0_execution_plan_ready($plan));
+    }
+
+    public static function operatorSkippedMeituanStates(): array
+    {
+        return [
+            'unverified login and missing facts' => [false, false],
+            'verified login and missing facts' => [true, false],
+            'unverified login and ready historical facts' => [false, true],
+            'verified login and ready historical facts' => [true, true],
+        ];
+    }
+
     public function testMixedHotelReadinessNeverPromotesTheWholePlatformToReady(): void
     {
         $payload = [
             'status' => 'incomplete',
-            'scope' => ['date' => '2026-07-25'],
+            'scope' => ['date' => '2026-07-25', 'system_hotel_id' => null, 'hotel_scope_policy' => 'platform_date'],
             'summary' => [
                 'p0_platforms_incomplete' => 1,
                 'traffic_gates_incomplete' => 1,
@@ -32,6 +101,7 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
                 'p0_traffic_gate' => [
                     'status' => 'profile_scope_traffic_closure_incomplete',
                     'traffic_rows' => 3,
+                    'stored_target_date_traffic_rows' => 3,
                     'action_status' => 'ready',
                     'action_missing_inputs' => [],
                     'traffic_field_fact_status' => 'ready',
@@ -109,6 +179,7 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
         $plan = [
             'scope' => [
                 'system_hotel_id' => 80,
+                'hotel_identity' => \business_chain_p0_hotel_identity(80, ['system_hotel_id' => 80, 'hotel_scope_policy' => 'system_hotel_id']),
                 'system_hotel_identity' => [
                     'status' => 'ready',
                     'system_hotel_id' => 80,
@@ -366,6 +437,9 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
             'status' => 'incomplete',
             'verifier_exit_code' => 2,
             'scope' => [
+                'hotel_identity' => \business_chain_p0_hotel_identity(80, ['system_hotel_id' => 80, 'hotel_scope_policy' => 'system_hotel_id']),
+                'target_date' => '2026-07-28',
+                'date_identity' => ['status' => 'ready', 'requested_target_date' => '2026-07-28', 'verifier_target_date' => '2026-07-28'],
                 'system_hotel_id' => 80,
                 'platforms' => ['ctrip', 'meituan'],
             ],
@@ -393,6 +467,9 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
             'status' => 'incomplete',
             'verifier_exit_code' => 2,
             'scope' => [
+                'hotel_identity' => \business_chain_p0_hotel_identity(80, ['system_hotel_id' => null, 'hotel_scope_policy' => 'platform_date']),
+                'target_date' => '2026-07-28',
+                'date_identity' => ['status' => 'ready', 'requested_target_date' => '2026-07-28', 'verifier_target_date' => '2026-07-28'],
                 'system_hotel_id' => 80,
                 'platforms' => ['ctrip'],
             ],
@@ -408,6 +485,9 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
             'status' => 'incomplete',
             'verifier_exit_code' => 2,
             'scope' => [
+                'hotel_identity' => \business_chain_p0_hotel_identity(80, ['system_hotel_id' => 80, 'hotel_scope_policy' => 'system_hotel_id']),
+                'target_date' => '2026-07-28',
+                'date_identity' => ['status' => 'ready', 'requested_target_date' => '2026-07-28', 'verifier_target_date' => '2026-07-28'],
                 'system_hotel_id' => 80,
                 'platforms' => ['ctrip', 'meituan'],
             ],
@@ -427,6 +507,23 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
         $skippedPlan['scope']['platforms'] = ['ctrip'];
         $skippedPlan['platform_summaries'][0]['operator_skip_active'] = true;
         self::assertFalse(\business_chain_p0_execution_plan_ready($skippedPlan));
+    }
+
+    public function testSelectedHotelCannotBorrowPlatformReadinessFromAnotherHotel(): void
+    {
+        $plan = [
+            'status' => 'passed',
+            'scope' => [
+                'hotel_identity' => \business_chain_p0_hotel_identity(64, ['system_hotel_id' => 64, 'hotel_scope_policy' => 'system_hotel_id']),
+                'target_date' => '2026-07-28',
+                'date_identity' => ['status' => 'ready', 'requested_target_date' => '2026-07-28', 'verifier_target_date' => '2026-07-28'],
+                'system_hotel_id' => 64,
+                'platforms' => ['meituan'],
+            ],
+            'platform_summaries' => [$this->readyPlatformSummary('meituan', 80)],
+        ];
+
+        self::assertFalse(\business_chain_p0_execution_plan_ready($plan));
     }
 
     /**
@@ -468,11 +565,20 @@ final class BusinessChainP0ExecutionPlanTest extends TestCase
             'platform' => $platform,
             'target_date_rows' => 10,
             'traffic_rows' => 3,
+            'stored_target_date_traffic_rows' => 3,
             'readback_check_supported' => true,
             'readback_verified_rows' => 3,
             'readback_unverified_rows' => 0,
             'readback_status' => 'ready',
             'platform_ready' => true,
+            'selected_system_hotel_id' => $hotelId,
+            'selected_hotel_ready' => true,
+            'hotel_scope_evidence' => [
+                'profile_scope_system_hotel_ids' => [$hotelId],
+                'system_hotel_row_counts' => [(string)$hotelId => 3],
+                'traffic_field_fact_status' => 'ready', 'p0_standard_fact_status' => 'ready',
+                'required_metric_value_status' => 'ready', 'platform_hotel_identifier_status' => 'ready',
+            ],
             'operator_skip_active' => false,
             'next_steps' => [[
                 'platform' => $platform,

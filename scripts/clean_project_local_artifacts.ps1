@@ -112,10 +112,11 @@ function Remove-TargetBestEffort {
 function Assert-NoReparsePoints {
   param([Parameter(Mandatory = $true)][string]$Path)
   $cursor = Get-Item -LiteralPath $Path -Force
-  while ($cursor.FullName -ne $workspace) {
+  while ($true) {
     if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
       throw "Refusing linked cleanup path: $($cursor.FullName)"
     }
+    if ($cursor.FullName -eq $workspace) { break }
     $cursor = Get-Item -LiteralPath ([IO.Path]::GetDirectoryName($cursor.FullName)) -Force
   }
   $pending = New-Object 'System.Collections.Generic.Stack[string]'

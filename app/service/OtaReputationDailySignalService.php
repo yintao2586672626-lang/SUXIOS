@@ -71,10 +71,15 @@ final class OtaReputationDailySignalService
         foreach (['ctrip', 'meituan'] as $platform) {
             $current = $this->selectSnapshot($projected, $platform, $businessDate);
             $previous = $this->selectSnapshot($projected, $platform, $previousDate);
+            $hasUsableMetrics = $current !== null && ($current['score'] !== null
+                || $current['bad_review_count'] !== null || $current['unreplied_count'] !== null);
             $platforms[$platform] = [
-                'status' => $current === null ? 'no_current_strict_fact' : 'strict_fact_available',
+                'status' => $current === null ? 'no_current_strict_fact'
+                    : ($hasUsableMetrics ? 'strict_fact_available' : 'no_current_usable_metrics'),
                 'current_record_ref' => $current['record_ref'] ?? null,
                 'previous_record_ref' => $previous['record_ref'] ?? null,
+                'current_score_status' => $current['score_status'] ?? 'missing',
+                'previous_score_status' => $previous['score_status'] ?? 'missing',
             ];
             if ($current !== null) {
                 array_push($signals, ...$this->signals($current, $previous, $tenantId, $hotelId, $businessDate));
@@ -283,6 +288,9 @@ final class OtaReputationDailySignalService
         if ($score === null && $badReviewCount === null && $unrepliedCount === null) {
             return null;
         }
+        // Keep the newest snapshot even when its score is invalid; an older score is not a replacement fact.
+        $scoreStatus = $score === null || $score === 0.0 ? 'missing'
+            : (is_finite($score) && $score > 0 && $score <= 5 ? 'available' : 'invalid');
         return [
             'platform' => $source,
             'platform_label' => $source === 'ctrip' ? '携程' : '美团',
@@ -290,7 +298,8 @@ final class OtaReputationDailySignalService
             'record_id' => (int)$row['id'],
             'record_ref' => 'online_daily_data#' . (int)$row['id'],
             'data_date' => (string)$row['data_date'],
-            'score' => $score !== null && $score > 0 ? round($score, 4) : null,
+            'score' => $scoreStatus === 'available' ? round($score, 4) : null,
+            'score_status' => $scoreStatus,
             'bad_review_count' => $badReviewCount !== null ? (int)round($badReviewCount) : null,
             'unreplied_count' => $unrepliedCount !== null ? (int)round($unrepliedCount) : null,
             'source_method' => trim((string)($row['ingestion_method'] ?? $raw['acquisition_method'] ?? '')),

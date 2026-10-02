@@ -287,6 +287,128 @@ test('hard refresh restores the exact immutable broadcast snapshot instead of la
   assert.equal(state.aiDailyTrustedBroadcast.final_text, savedSnapshot.final_text);
 });
 
+const deferredBroadcastResponse = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+};
+const flushBroadcastRequests = async () => {
+  for (let index = 0; index < 10; index++) await Promise.resolve();
+};
+
+for (const changedScope of ['hotel', 'date']) {
+  for (const staleStage of ['generation', 'exact-readback']) {
+    for (const staleOutcome of ['success', 'failure']) {
+      test(`broadcast ${changedScope} switch releases stale ${staleStage} busy state before ${staleOutcome}`, async () => {
+        const oldGeneration = deferredBroadcastResponse();
+        const oldExactReadback = deferredBroadcastResponse();
+        const newGeneration = deferredBroadcastResponse();
+        const calls = [];
+        const notices = [];
+        const watchers = [];
+        const form = { hotel_id: 80, report_date: '2026-08-23' };
+        const nextIdentity = changedScope === 'hotel'
+          ? { hotel_id: 81, report_date: form.report_date }
+          : { hotel_id: form.hotel_id, report_date: '2026-08-24' };
+        const nextHistory = {
+          ...savedSnapshot,
+          snapshot_id: 322,
+          hotel_id: nextIdentity.hotel_id,
+          business_date: nextIdentity.report_date,
+          final_text: `saved history for ${nextIdentity.hotel_id} / ${nextIdentity.report_date}`,
+          snapshot_fingerprint: 'd'.repeat(64),
+          final_text_sha256: 'e'.repeat(64),
+        };
+        const nextGenerated = {
+          ...nextHistory,
+          snapshot_id: 323,
+          final_text: `new generation for ${nextIdentity.hotel_id} / ${nextIdentity.report_date}`,
+          snapshot_fingerprint: 'f'.repeat(64),
+          final_text_sha256: '1'.repeat(64),
+        };
+        let generationCount = 0;
+        const sandbox = {
+          window: {},
+          Vue: {
+            ref: value => ({ __v_isRef: true, value }),
+            watch: (_sources, callback) => watchers.push(callback),
+            onBeforeUnmount: () => {},
+          },
+          console,
+          URL,
+          Blob,
+        };
+        vm.runInNewContext(deliveryClient, sandbox);
+        const state = sandbox.window.SUXI_AI_DAILY_REPORT_DELIVERY.setupBroadcast({
+          ctx: {
+            aiDailyReportForm: form,
+            aiDailyReportDeliveryRequest: (url, options = {}) => {
+              calls.push({ url, options });
+              if (options.method === 'POST') {
+                generationCount++;
+                return generationCount === 1 ? oldGeneration.promise : newGeneration.promise;
+              }
+              if (url === '/ai-daily-reports/broadcast-snapshots/321') return oldExactReadback.promise;
+              if (url === '/ai-daily-reports/broadcast-snapshots/323') {
+                return Promise.resolve({ code: 200, data: nextGenerated });
+              }
+              if (url.includes('/latest?')) {
+                const params = new URL(url, 'https://fixture.invalid').searchParams;
+                const isOldScope = Number(params.get('hotel_id')) === 80
+                  && params.get('report_date') === '2026-08-23';
+                return Promise.resolve({ code: 200, data: isOldScope ? savedSnapshot : nextHistory });
+              }
+              throw new Error(`unexpected synthetic request ${url}`);
+            },
+            showToast: (message, type) => notices.push({ message, type }),
+          },
+        });
+
+        await state.loadAiDailyTrustedBroadcast();
+        const staleGeneration = state.generateAiDailyTrustedBroadcast();
+        assert.equal(state.aiDailyTrustedBroadcastGenerating, true);
+        if (staleStage === 'exact-readback') {
+          oldGeneration.resolve({ code: 200, data: savedSnapshot });
+          await flushBroadcastRequests();
+          assert.ok(calls.some(call => call.url.endsWith('/321')));
+        }
+
+        Object.assign(form, nextIdentity);
+        watchers[0]();
+        await flushBroadcastRequests();
+        assert.equal(state.aiDailyTrustedBroadcastLoading, false);
+        assert.equal(state.aiDailyTrustedBroadcast.snapshot_id, nextHistory.snapshot_id);
+        assert.equal(state.aiDailyTrustedBroadcastGenerating, false, 'scope change releases the superseded generation before it settles');
+
+        const currentGeneration = state.generateAiDailyTrustedBroadcast();
+        assert.equal(generationCount, 2, 'new scope may generate while the old request is unresolved');
+        assert.equal(state.aiDailyTrustedBroadcastGenerating, true);
+        const staleResponse = staleStage === 'generation' ? oldGeneration : oldExactReadback;
+        if (staleOutcome === 'success') staleResponse.resolve({ code: 200, data: savedSnapshot });
+        else staleResponse.reject(new Error('old scope synthetic failure'));
+        assert.equal(await staleGeneration, false);
+        assert.equal(state.aiDailyTrustedBroadcastGenerating, true, 'old finally must not release the current generation');
+        assert.equal(state.aiDailyTrustedBroadcast.final_text, nextHistory.final_text);
+        assert.equal(state.aiDailyTrustedBroadcastError, '');
+        assert.equal(notices.length, 0, 'stale success and failure must stay silent');
+
+        newGeneration.resolve({ code: 200, data: nextGenerated });
+        assert.equal(await currentGeneration, true);
+        assert.equal(state.aiDailyTrustedBroadcastGenerating, false);
+        assert.equal(state.aiDailyTrustedBroadcastLoading, false);
+        assert.equal(state.aiDailyTrustedBroadcast.snapshot_id, nextGenerated.snapshot_id);
+        assert.equal(state.aiDailyTrustedBroadcast.hotel_id, nextIdentity.hotel_id);
+        assert.equal(state.aiDailyTrustedBroadcast.business_date, nextIdentity.report_date);
+        assert.equal(state.aiDailyTrustedBroadcast.final_text, nextGenerated.final_text);
+        assert.equal(state.aiDailyTrustedBroadcast.readback_verified, true);
+        assert.equal(calls.filter(call => call.url.endsWith('/323')).length, 1);
+        assert.equal(notices.filter(notice => notice.type === 'success').length, 1);
+      });
+    }
+  }
+}
+
 test('broadcast lazy component uses its dedicated server-snapshot setup', () => {
   assert.ok(templateSource.includes("componentKey: 'AiDailyTrustedBroadcastBody'"));
   assert.ok(templateSource.includes('<ai-daily-trusted-broadcast-view :ctx="$root"></ai-daily-trusted-broadcast-view>'));

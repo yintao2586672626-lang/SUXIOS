@@ -6,6 +6,7 @@ namespace app\service\operation;
 use app\service\OnlineDataFieldFactService;
 use app\service\OnlineDataTrustStatusService;
 use app\service\OtaStandardEtlService;
+use app\service\OtaTrafficAttributionService;
 use DateTimeImmutable;
 use DateTimeZone;
 use think\facade\Db;
@@ -13,6 +14,7 @@ use Throwable;
 
 trait OperationSnapshotConcern
 {
+    use OperationServiceQualityConcern;
     use OperationBaselineConcern;
 
     private function buildSummary(array $hotelIds, ?int $hotelId, string $date): array
@@ -93,23 +95,30 @@ trait OperationSnapshotConcern
         $dailyRevenueCoverage = [];
         $dailyOrderCoverage = [];
         $dailyRoomNightCoverage = [];
-        $roomCount = 0.0;
-        $roomCountPresent = false;
+        $otaRevenueCoverage = [];
+        $otaRoomNightCoverage = [];
+        $otaMetricIdentityMissing = false;
+        $roomCountForRevenue = 0.0;
+        $revenueRoomCountComplete = true;
+        $roomCountForOccupancy = 0.0;
+        $roomNightCountMissingRoomCount = false;
         $sourceKinds = [];
         $sourceMissing = false;
 
         foreach ($daily as $row) {
             $reportData = $this->decodeJson((string)($row['report_data'] ?? ''));
             $dailyMetricKeys = [];
-            if ($this->dailyRevenueIsPresent($row, $reportData)) {
-                $totals['revenue'] += $this->extractRevenue($row, $reportData);
+            $dailyRevenue = $this->extractRevenue($row, $reportData);
+            if ($dailyRevenue !== null) {
+                $totals['revenue'] += $dailyRevenue;
                 $metricPresent['revenue'] = true;
                 $metricScopes['revenue']['whole_hotel_daily_report'] = true;
                 $this->markDailyMetricCoverage($dailyRevenueCoverage, $row);
                 $dailyMetricKeys[] = 'revenue';
             }
-            if ($this->dailyRoomNightsArePresent($reportData)) {
-                $totals['room_nights'] += $this->extractRoomNights($row, $reportData);
+            $dailyRoomNights = $this->extractRoomNights($row, $reportData);
+            if ($dailyRoomNights !== null) {
+                $totals['room_nights'] += $dailyRoomNights;
                 $metricPresent['room_nights'] = true;
                 $metricScopes['room_nights']['whole_hotel_daily_report'] = true;
                 $this->markDailyMetricCoverage($dailyRoomNightCoverage, $row);
@@ -125,9 +134,19 @@ trait OperationSnapshotConcern
             }
             $rowRoomCount = $this->extractSalableRoomCount($row, $reportData);
             if ($rowRoomCount > 0) {
-                $roomCount += $rowRoomCount;
-                $roomCountPresent = true;
                 $dailyMetricKeys[] = 'available_rooms';
+            }
+            if ($dailyRevenue !== null && $rowRoomCount !== null && $rowRoomCount > 0) {
+                $roomCountForRevenue += $rowRoomCount;
+            } elseif ($dailyRevenue !== null || ($rowRoomCount !== null && $rowRoomCount > 0)) {
+                $revenueRoomCountComplete = false;
+            }
+            if ($dailyRoomNights !== null) {
+                if ($rowRoomCount !== null && $rowRoomCount > 0) {
+                    $roomCountForOccupancy += $rowRoomCount;
+                } else {
+                    $roomNightCountMissingRoomCount = true;
+                }
             }
             if ($this->numericMetricValue($row['occupancy_rate'] ?? null) !== null) {
                 $base['occ'] = max((float)($base['occ'] ?? 0), (float)$row['occupancy_rate']);
@@ -153,6 +172,7 @@ trait OperationSnapshotConcern
             $fact = is_array($item['fact'] ?? null) ? $item['fact'] : [];
             $onlineMetricKeys = [];
             $fieldFactMetricKeys = [];
+            $otaMetricKey = $this->otaDailyMetricIdentity($row, $fact);
             $onlineOrders = $this->numericMetricValue($fact['order_count'] ?? null);
             if ((string)($fact['metric_semantic_scope'] ?? '') === 'ota_daily_generic') {
                 $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
@@ -175,6 +195,11 @@ trait OperationSnapshotConcern
                 $metricScopes['revenue']['ota_channel'] = true;
                 $onlineMetricKeys[] = 'amount';
                 $fieldFactMetricKeys[] = 'order_amount';
+                if ($otaMetricKey === null) {
+                    $otaMetricIdentityMissing = true;
+                } else {
+                    $otaRevenueCoverage[$otaMetricKey] = true;
+                }
             }
             if (!$this->hasDailyMetricForOnlineRow($dailyRoomNightCoverage, $row)
                 && ($onlineRoomNights = $this->numericMetricValue($fact['room_nights'] ?? null)) !== null) {
@@ -183,6 +208,11 @@ trait OperationSnapshotConcern
                 $metricScopes['room_nights']['ota_channel'] = true;
                 $onlineMetricKeys[] = 'quantity';
                 $fieldFactMetricKeys[] = 'room_nights';
+                if ($otaMetricKey === null) {
+                    $otaMetricIdentityMissing = true;
+                } else {
+                    $otaRoomNightCoverage[$otaMetricKey] = true;
+                }
             }
             if ($onlineMetricKeys === []) {
                 continue;
@@ -221,21 +251,30 @@ trait OperationSnapshotConcern
             && $revenueScopes[0] === $roomNightScopes[0];
         $wholeHotelRevenue = $revenueScopes === ['whole_hotel_daily_report'];
         $wholeHotelRoomNights = $roomNightScopes === ['whole_hotel_daily_report'];
+        $dailyRevenueRoomDatesMatch = array_diff_key($dailyRevenueCoverage, $dailyRoomNightCoverage) === []
+            && array_diff_key($dailyRoomNightCoverage, $dailyRevenueCoverage) === [];
+        $otaRevenueRoomIdentityMatches = !$otaMetricIdentityMissing
+            && $otaRevenueCoverage !== [] && $otaRoomNightCoverage !== []
+            && array_diff_key($otaRevenueCoverage, $otaRoomNightCoverage) === []
+            && array_diff_key($otaRoomNightCoverage, $otaRevenueCoverage) === [];
 
         $base['revenue'] = $metricPresent['revenue'] ? round($totals['revenue'], 2) : null;
         $base['orders'] = $metricPresent['orders'] ? (int)round($totals['orders']) : null;
         $base['room_nights'] = $metricPresent['room_nights'] ? round($totals['room_nights'], 2) : null;
         $base['adr'] = $derivedRevenueRoomScopeMatches
+            && ($wholeHotelRevenue ? $dailyRevenueRoomDatesMatch : $otaRevenueRoomIdentityMatches)
             && $metricPresent['revenue']
             && $metricPresent['room_nights']
             && $base['room_nights'] > 0
             ? round((float)$base['revenue'] / (float)$base['room_nights'], 2)
             : null;
-        if ($base['occ'] === null && $roomCountPresent && $wholeHotelRoomNights && $metricPresent['room_nights']) {
-            $base['occ'] = round(((float)$base['room_nights'] / $roomCount) * 100, 2);
+        if ($wholeHotelRoomNights && $metricPresent['room_nights']
+            && !$roomNightCountMissingRoomCount && $roomCountForOccupancy > 0) {
+            $base['occ'] = round(((float)$base['room_nights'] / $roomCountForOccupancy) * 100, 2);
         }
-        $base['revpar'] = $roomCountPresent && $wholeHotelRevenue && $metricPresent['revenue']
-            ? round((float)$base['revenue'] / $roomCount, 2)
+        $base['revpar'] = $revenueRoomCountComplete && $roomCountForRevenue > 0
+            && $wholeHotelRevenue && $metricPresent['revenue']
+            ? round((float)$base['revenue'] / $roomCountForRevenue, 2)
             : null;
 
         $dataGaps = [];
@@ -272,13 +311,13 @@ trait OperationSnapshotConcern
             ];
         }
         if ($base['adr'] === null) {
-            $base['optional_data_gaps'][] = ['code' => 'operation_adr_not_calculable', 'message' => '收入或间夜缺失，或间夜为0，ADR不可计算'];
+            $base['optional_data_gaps'][] = ['code' => 'operation_adr_not_calculable', 'message' => '收入或间夜缺失、酒店/平台/日期范围不一致，或间夜为0，ADR不可计算'];
         }
         if ($base['occ'] === null) {
-            $base['optional_data_gaps'][] = ['code' => 'operation_occ_not_calculable', 'message' => '入住率或可售房量未返回，OCC不可计算'];
+            $base['optional_data_gaps'][] = ['code' => 'operation_occ_not_calculable', 'message' => '出租间夜或可售房数缺失、日期不完整，或可售房数不大于0，OCC不可计算'];
         }
         if ($base['revpar'] === null) {
-            $base['optional_data_gaps'][] = ['code' => 'operation_revpar_not_calculable', 'message' => '收入或可售房量未返回，RevPAR不可计算'];
+            $base['optional_data_gaps'][] = ['code' => 'operation_revpar_not_calculable', 'message' => '收入或可售房数缺失、日期不一致，或可售房数不大于0，RevPAR不可计算'];
         }
 
         $base['metric_scopes'] = array_map(static fn(array $scopes): array => array_keys($scopes), $metricScopes);
@@ -292,6 +331,18 @@ trait OperationSnapshotConcern
         $base['data_status'] = $dataGaps === [] ? self::DATA_OK : 'partial';
 
         return $base;
+    }
+
+    private function otaDailyMetricIdentity(array $row, array $fact): ?string
+    {
+        $tenantId = (int)($row['tenant_id'] ?? 0);
+        $hotelId = (int)($row['system_hotel_id'] ?? 0);
+        $platform = strtolower(trim((string)($fact['platform_key'] ?? '')));
+        $date = substr(trim((string)($fact['date_key'] ?? $row['data_date'] ?? '')), 0, 10);
+        if ($tenantId <= 0 || $hotelId <= 0 || $platform === '' || $date === '') {
+            return null;
+        }
+        return $tenantId . ':' . $hotelId . ':' . $platform . ':' . $date;
     }
 
     private function buildOta(array $hotelIds, string $date): array
@@ -410,6 +461,11 @@ trait OperationSnapshotConcern
                 'order',
                 'orders',
             ], true)) {
+                return false;
+            }
+            if (in_array($dataType, ['business', 'business_overview', 'overview', 'operation', 'order', 'orders'], true)
+                && $this->onlineRowChannelIdentity($row) === 'meituan'
+                && !OtaTrafficAttributionService::rowDateScopeIsAuthoritative($row, 'meituan')) {
                 return false;
             }
             return $this->isTrustedSelfOtaFactRow($row)
@@ -586,7 +642,26 @@ trait OperationSnapshotConcern
                 $selected[$key] = $row;
             }
         }
-        return array_values($selected);
+        return array_values(array_filter(
+            $selected,
+            fn(array $row): bool => OtaTrafficAttributionService::rowDateScopeIsAuthoritative(
+                $row,
+                $this->onlineRowChannelIdentity($row)
+            ) && $this->ctripCatalogFlowDateScopeIsAuthoritative($row)
+        ));
+    }
+
+    /** @param array<string, mixed> $row */
+    private function ctripCatalogFlowDateScopeIsAuthoritative(array $row): bool
+    {
+        if ($this->onlineRowChannelIdentity($row) !== 'ctrip') {
+            return true;
+        }
+        $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
+        if (strtolower(trim((string)($raw['source'] ?? ''))) !== 'ctrip_catalog_facts') {
+            return true;
+        }
+        return OtaTrafficAttributionService::ctripCatalogDateScopeIsAuthoritative($row);
     }
 
     /** @param array<string, mixed> $row */
@@ -2073,220 +2148,6 @@ trait OperationSnapshotConcern
             }
         }
         return $max;
-    }
-
-    private function buildServiceQuality(array $hotelIds, string $date): array
-    {
-        return $this->buildServiceQualityFromRows($this->onlineRows($hotelIds, $date, $date));
-    }
-
-    private function buildServiceQualityFromRows(array $rows): array
-    {
-        $base = [
-            'avg_psi_score' => null,
-            'avg_service_score' => null,
-            'sample_count' => 0,
-            'psi_sample_count' => 0,
-            'service_score_sample_count' => 0,
-            'data_status' => self::DATA_PENDING,
-            'score_scale' => 'unknown',
-            'threshold_80_eligible' => false,
-            'data_gaps' => [],
-        ];
-
-        $psiScores = [];
-        $serviceScores = [];
-        foreach ($rows as $row) {
-            $dataType = strtolower((string)($row['data_type'] ?? ''));
-            if (!in_array($dataType, ['quality', 'service', 'service_quality', 'psi'], true)) {
-                continue;
-            }
-            if (!$this->isTrustedSelfOtaFactRow($row)) {
-                continue;
-            }
-
-            $raw = $this->decodeJson((string)($row['raw_data'] ?? ''));
-            $psi = $this->nestedOnlineMetric($raw, ['psiScore', 'psi_score', 'psi', 'serviceQualityScore', 'qualityScore']);
-            if ($psi === null && str_contains(strtolower((string)($row['dimension'] ?? '')), ':psi_score')) {
-                $psi = $this->firstNumericMetric($row, ['data_value']);
-            }
-            $serviceScore = $this->nestedOnlineMetric($raw, ['serviceScore', 'service_score', 'dayReportServiceScore', 'service_score_value']);
-
-            if ($psi !== null && $psi > 0) {
-                $psiScores[] = $psi;
-                $base['psi_sample_count']++;
-            }
-            if ($serviceScore !== null && $serviceScore > 0) {
-                $serviceScores[] = $serviceScore;
-                $base['service_score_sample_count']++;
-            }
-            if (($psi !== null && $psi > 0) || ($serviceScore !== null && $serviceScore > 0)) {
-                $base['sample_count']++;
-            }
-        }
-
-        if ($base['sample_count'] <= 0) {
-            return $base;
-        }
-
-        $base['avg_psi_score'] = $psiScores !== [] ? $this->avg($psiScores) : null;
-        $base['avg_service_score'] = $serviceScores !== [] ? $this->avg($serviceScores) : null;
-        $scores = array_merge($psiScores, $serviceScores);
-        $base['threshold_80_eligible'] = $this->scoresUseHundredPointScale($scores);
-        $base['score_scale'] = $base['threshold_80_eligible'] ? '0_100' : 'unknown';
-        $base['data_status'] = $base['threshold_80_eligible'] ? self::DATA_OK : 'partial';
-        $base['data_gaps'] = $base['threshold_80_eligible'] ? [] : ['service_quality_scale_unknown'];
-
-        return $base;
-    }
-
-    /** @param array<string, mixed> $raw @param array<int, string> $keys */
-    private function nestedOnlineMetric(array $raw, array $keys): ?float
-    {
-        $payloads = [$raw];
-        foreach ([
-            $raw['row'] ?? null,
-            $raw['raw_data'] ?? null,
-            $raw['row']['raw_data'] ?? null,
-        ] as $payload) {
-            if (is_array($payload)) {
-                $payloads[] = $payload;
-            }
-        }
-
-        foreach ($payloads as $payload) {
-            $metrics = is_array($payload['metrics'] ?? null) ? $payload['metrics'] : [];
-            $value = $this->firstNumericMetric($metrics, $keys);
-            if ($value === null) {
-                $value = $this->firstNumericMetric($payload, $keys);
-            }
-            if ($value !== null) {
-                return $value;
-            }
-
-            foreach ((array)($payload['facts'] ?? []) as $fact) {
-                if (!is_array($fact)) {
-                    continue;
-                }
-                $metricKey = strtolower(trim((string)($fact['metric_key'] ?? '')));
-                if (!in_array($metricKey, array_map('strtolower', $keys), true)) {
-                    continue;
-                }
-                $factValue = $fact['value'] ?? null;
-                if (is_numeric($factValue)) {
-                    return (float)$factValue;
-                }
-            }
-        }
-
-        return null;
-    }
-
-    /** @param array<int, mixed> $scores */
-    private function scoresUseHundredPointScale(array $scores): bool
-    {
-        $scores = array_values(array_filter($scores, static fn($value): bool => is_numeric($value) && (float)$value > 0));
-        if ($scores === []) {
-            return false;
-        }
-        foreach ($scores as $score) {
-            $score = (float)$score;
-            if ($score <= 10 || $score > 100) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /** @param array<string, mixed> $serviceQuality */
-    private function serviceQualityThresholdEligible(array $serviceQuality): bool
-    {
-        if (array_key_exists('threshold_80_eligible', $serviceQuality)) {
-            return $serviceQuality['threshold_80_eligible'] === true;
-        }
-        return $this->scoresUseHundredPointScale([
-            $serviceQuality['avg_psi_score'] ?? null,
-            $serviceQuality['avg_service_score'] ?? null,
-        ]);
-    }
-
-    private function buildHoliday(string $date): array
-    {
-        $timezone = new DateTimeZone('Asia/Shanghai');
-        $today = DateTimeImmutable::createFromFormat('!Y-m-d', $date, $timezone) ?: new DateTimeImmutable('today', $timezone);
-        $holidays = [
-            ['name' => '元旦', 'start_date' => '2026-01-01', 'end_date' => '2026-01-03'],
-            ['name' => '春节', 'start_date' => '2026-02-15', 'end_date' => '2026-02-23'],
-            ['name' => '清明节', 'start_date' => '2026-04-04', 'end_date' => '2026-04-06'],
-            ['name' => '劳动节', 'start_date' => '2026-05-01', 'end_date' => '2026-05-05'],
-            ['name' => '端午节', 'start_date' => '2026-06-19', 'end_date' => '2026-06-21'],
-            ['name' => '中秋节', 'start_date' => '2026-09-25', 'end_date' => '2026-09-27'],
-            ['name' => '国庆节', 'start_date' => '2026-10-01', 'end_date' => '2026-10-07'],
-        ];
-
-        foreach ($holidays as $holiday) {
-            $end = DateTimeImmutable::createFromFormat('!Y-m-d', $holiday['end_date'], $timezone);
-            if ($end >= $today) {
-                $start = DateTimeImmutable::createFromFormat('!Y-m-d', $holiday['start_date'], $timezone);
-                $daysLeft = $today < $start ? (int)$today->diff($start)->format('%a') : 0;
-                return [
-                    'next_holiday' => $holiday['name'],
-                    'days_left' => $daysLeft,
-                    'suggestion' => $daysLeft < 15 ? '节假日临近，建议检查库存、价格和活动节奏' : '保持常规监控',
-                    'data_status' => self::DATA_OK,
-                ];
-            }
-        }
-
-        return [
-            'next_holiday' => null,
-            'days_left' => null,
-            'suggestion' => self::DATA_PENDING,
-            'data_status' => self::DATA_PENDING,
-        ];
-    }
-
-    private function averageOnlineMetrics(array $hotelIds, string $date, int $days): array
-    {
-        $start = date('Y-m-d', strtotime($date . ' -' . $days . ' days'));
-        $end = date('Y-m-d', strtotime($date . ' -1 day'));
-        $rows = $this->latestOnlineFlowRows($this->onlineRows($hotelIds, $start, $end));
-        if (empty($rows)) {
-            return [];
-        }
-
-        $byDate = [];
-        foreach ($rows as $row) {
-            $day = (string)$row['data_date'];
-            $metrics = $this->onlineFlowMetrics($row);
-            $byDate[$day]['exposure'] = ($byDate[$day]['exposure'] ?? 0) + $metrics['exposure'];
-            $byDate[$day]['visitors'] = ($byDate[$day]['visitors'] ?? 0) + $metrics['visitors'];
-            $byDate[$day]['views'] = ($byDate[$day]['views'] ?? 0) + $metrics['views'];
-            $byDate[$day]['orders'] = ($byDate[$day]['orders'] ?? 0) + $metrics['orders'];
-        }
-
-        $count = max(1, count($byDate));
-        $sum = ['exposure' => 0, 'visitors' => 0, 'views' => 0, 'orders' => 0];
-        foreach ($byDate as $metric) {
-            foreach ($sum as $key => $value) {
-                $sum[$key] += (float)($metric[$key] ?? 0);
-            }
-        }
-
-        $exposure = $sum['exposure'] / $count;
-        $visitors = $sum['visitors'] / $count;
-        $views = $sum['views'] / $count;
-        $orders = $sum['orders'] / $count;
-
-        return [
-            'exposure' => $exposure,
-            'visitors' => $visitors,
-            'views' => $views,
-            'orders' => $orders,
-            'view_rate' => $exposure > 0 ? $views / $exposure * 100 : 0,
-            'order_rate' => $visitors > 0 ? $orders / $visitors * 100 : 0,
-            'data_status' => $exposure > 0 && ($visitors > 0 || $views > 0) ? self::DATA_OK : 'partial',
-        ];
     }
 
 }

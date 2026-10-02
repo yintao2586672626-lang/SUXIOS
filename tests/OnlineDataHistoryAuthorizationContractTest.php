@@ -3,7 +3,11 @@ declare(strict_types=1);
 
 namespace Tests;
 
+use app\controller\concern\OnlineDataAnalyticsConcern;
 use app\controller\concern\OnlineDataHistoryConcern;
+use app\controller\concern\OnlineDataQualityConcern;
+use app\controller\concern\OnlineDataSummaryConcern;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use think\App;
@@ -92,6 +96,172 @@ final class OnlineDataHistoryAuthorizationContractTest extends TestCase
         self::assertSame('无权查看该历史记录', $response['message']);
     }
 
+    public function testLegacyDailySummaryKeepsHotelPermissionWithoutTenantColumns(): void
+    {
+        $user = $this->user([7, 8], [7]);
+        $parameters = [
+            'system_hotel_id' => '7', 'source' => 'ctrip',
+            'start_date' => '2026-08-01', 'end_date' => '2026-08-01',
+        ];
+        $allowed = $this->payload($this->controller($user, $parameters)->dailyDataSummary());
+        self::assertSame(200, $allowed['code']);
+        self::assertSame(1, $allowed['data']['truth_context']['persistence']['record_count']);
+
+        $denied = $this->controller($user, array_replace($parameters, ['system_hotel_id' => '8']))->dailyDataSummary();
+        self::assertSame(403, $denied->getCode());
+    }
+
+    public function testLegacyHotelPickerAndAnalysisKeepHotelPermissionWithoutTenantColumns(): void
+    {
+        $user = $this->user([7, 8], [7]);
+        $hotels = $this->payload($this->controller($user)->hotelList());
+        self::assertSame(200, $hotels['code']);
+        self::assertSame([7], array_column($hotels['data'], 'system_hotel_id'));
+
+        $analysis = $this->payload($this->controller($user, [
+            'system_hotel_id' => '7', 'source' => 'ctrip', 'data_type' => 'traffic',
+            'start_date' => '2026-08-01', 'end_date' => '2026-08-01',
+        ])->dataAnalysis());
+        self::assertSame(200, $analysis['code']);
+        self::assertSame(1, $analysis['data']['summary']['scoped_record_count']);
+
+        $denied = $this->controller($user, ['system_hotel_id' => '8'])->dataAnalysis();
+        self::assertSame(403, $denied->getCode());
+    }
+
+    #[DataProvider('invalidBusinessDateRequestProvider')]
+    public function testHistoricalReadRejectsInvalidBusinessDateBounds(string $method, array $parameters): void
+    {
+        $response = $this->controller($this->user([7, 8], [7]), $parameters)->{$method}();
+
+        self::assertSame(422, $response->getCode());
+        self::assertSame(422, $this->payload($response)['code']);
+    }
+
+    public static function invalidBusinessDateRequestProvider(): array
+    {
+        $cases = [
+            'invalid calendar day' => ['start_date' => '2026-02-31', 'end_date' => '2026-09-01'],
+            'invalid leap day' => ['start_date' => '2026-02-29'],
+            'reversed bounds' => ['start_date' => '2026-08-03', 'end_date' => '2026-08-01'],
+            'timezone timestamp' => ['start_date' => '2026-08-01T00:00:00+08:00'],
+            'UTC timestamp' => ['end_date' => '2026-08-01T23:30:00Z'],
+            'array input' => ['start_date' => ['2026-08-01']],
+        ];
+        $requests = [];
+        foreach (['history', 'dailyDataList'] as $method) {
+            foreach ($cases as $name => $parameters) {
+                $requests[$method . ': ' . $name] = [$method, $parameters];
+            }
+        }
+        return $requests;
+    }
+
+    #[DataProvider('businessDateScopeProvider')]
+    public function testHistoricalReadFiltersBusinessDatesWithoutChangingHotelOrPlatformScope(
+        string $method,
+        array $parameters,
+        array $expectedDates
+    ): void {
+        Db::name('online_daily_data')->delete(true);
+        $rows = [];
+        foreach ([1, 2, 3] as $day) {
+            $rows[] = array_replace($this->row($day, 7, 'Allowed hotel'), [
+                'data_date' => '2026-08-0' . $day,
+                'create_time' => '2026-09-10 09:00:00',
+                'update_time' => '2026-09-10 09:00:00',
+            ]);
+        }
+        $rows[] = array_replace($this->row(4, 8, 'Denied hotel'), ['data_date' => '2026-08-02']);
+        $rows[] = array_replace($this->row(5, 7, 'Allowed hotel'), [
+            'source' => 'meituan',
+            'platform' => 'Meituan',
+            'hotel_id' => 'meituan-7',
+            'data_date' => '2026-08-02',
+        ]);
+        Db::name('online_daily_data')->insertAll($rows);
+        $parameters += ['hotel_id' => '7', 'source' => 'ctrip'];
+
+        $payload = $this->payload($this->controller($this->user([7, 8], [7]), $parameters)->{$method}());
+
+        self::assertSame(200, $payload['code']);
+        $actualDates = array_column($payload['data']['list'], 'data_date');
+        sort($actualDates);
+        self::assertSame($expectedDates, $actualDates);
+        foreach ($payload['data']['list'] as $row) {
+            self::assertSame('ctrip', strtolower((string)($row['source'] ?? $row['platform'] ?? '')));
+            self::assertSame(7, (int)($row['system_hotel_id'] ?? $row['hotel_id']));
+        }
+    }
+
+    public static function businessDateScopeProvider(): array
+    {
+        $cases = [
+            'start only' => [['start_date' => '2026-08-02'], ['2026-08-02', '2026-08-03']],
+            'end only' => [['end_date' => '2026-08-02'], ['2026-08-01', '2026-08-02']],
+            'single day inclusive' => [['start_date' => '2026-08-02', 'end_date' => '2026-08-02'], ['2026-08-02']],
+            'no bounds' => [[], ['2026-08-01', '2026-08-02', '2026-08-03']],
+        ];
+        $requests = [];
+        foreach (['history', 'dailyDataList'] as $method) {
+            foreach ($cases as $name => [$parameters, $dates]) {
+                $requests[$method . ': ' . $name] = [$method, $parameters, $dates];
+            }
+        }
+        return $requests;
+    }
+
+    public function testCtripHistoryAppliesBusinessDateBoundsToListAndCount(): void
+    {
+        Db::name('online_daily_data')->insert(array_replace($this->row(3, 7, 'Allowed hotel'), [
+            'data_date' => '2026-07-31', 'create_time' => '2026-08-03 12:00:00',
+        ]));
+        $user = $this->user([7, 8], [7]);
+        $response = $this->payload($this->controller($user, [
+            'start_date' => '2026-07-31', 'end_date' => '2026-07-31',
+        ])->ctripHistory());
+        self::assertSame(200, $response['code']);
+        self::assertSame(1, $response['data']['total']);
+        self::assertSame([3], array_column($response['data']['list'], 'id'));
+        self::assertSame('2026-07-31', $response['data']['list'][0]['data_date']);
+    }
+
+    public function testStoredHistoryNeverReturnsLegacyCredentialFields(): void
+    {
+        Db::name('online_daily_data')->where('id', 1)->update(['raw_data' => json_encode([
+            'cookies' => 'test-only-cookie-marker',
+            'nested' => ['authorization' => 'test-only-auth-marker'],
+            'amount' => 42,
+        ])]);
+        $response = $this->payload($this->controller($this->user([7], [7]))->historyDetail(1));
+        self::assertSame(200, $response['code']);
+        self::assertStringNotContainsString('test-only-cookie-marker', json_encode($response));
+        self::assertStringNotContainsString('test-only-auth-marker', json_encode($response));
+        self::assertSame(42, $response['data']['raw_data_json']['amount']);
+    }
+
+    public function testDailyListAppliesEitherBusinessDateBoundAndSurvivesHotelRename(): void
+    {
+        Db::name('online_daily_data')->insert(array_replace($this->row(3, 7, 'Old name'), ['data_date' => '2026-07-31']));
+        Db::name('hotels')->where('id', 7)->update(['name' => 'Renamed hotel']);
+        $user = $this->user([7, 8], [7]);
+        $from = $this->payload($this->controller($user, ['start_date' => '2026-08-01'])->dailyDataList());
+        $until = $this->payload($this->controller($user, ['end_date' => '2026-07-31'])->dailyDataList());
+        self::assertSame([1], array_column($from['data']['list'], 'id'));
+        self::assertSame([3], array_column($until['data']['list'], 'id'));
+        self::assertSame('Renamed hotel', $until['data']['list'][0]['hotel_name']);
+        self::assertSame(1, $until['data']['pagination']['total']);
+    }
+
+    public function testDailyListAlsoRedactsLegacyCredentialsWithoutMutatingStoredMetrics(): void
+    {
+        Db::name('online_daily_data')->where('id', 1)->update(['raw_data' => '{"cookies":"test-only-cookie-marker","amount":42}']);
+        $response = $this->payload($this->controller($this->user([7], [7]))->dailyDataList());
+        self::assertSame(200, $response['code']);
+        self::assertStringNotContainsString('test-only-cookie-marker', json_encode($response));
+        self::assertStringContainsString('test-only-cookie-marker', Db::name('online_daily_data')->where('id', 1)->value('raw_data'));
+    }
+
     private static function createSchema(): void
     {
         Db::execute(<<<'SQL'
@@ -130,28 +300,31 @@ CREATE TABLE online_daily_data (
 SQL);
     }
 
-    private function controller(object $user): object
+    private function controller(object $user, array $parameters = []): object
     {
-        return new class($user) {
+        return new class($user, $parameters) {
+            use OnlineDataAnalyticsConcern;
             use OnlineDataHistoryConcern;
+            use OnlineDataQualityConcern;
+            use OnlineDataSummaryConcern;
 
             public object $currentUser;
             public object $request;
 
-            public function __construct(object $user)
+            public function __construct(object $user, array $parameters)
             {
                 $this->currentUser = $user;
-                $this->request = new class($user) {
+                $this->request = new class($user, $parameters) {
                     public object $user;
 
-                    public function __construct(object $user)
+                    public function __construct(object $user, private array $parameters)
                     {
                         $this->user = $user;
                     }
 
                     public function get(string $key, mixed $default = null): mixed
                     {
-                        return $default;
+                        return $this->parameters[$key] ?? $default;
                     }
                 };
             }
@@ -163,6 +336,26 @@ SQL);
                     $columns[(string)$column['name']] = true;
                 }
                 return $columns;
+            }
+
+            private function checkPermission(): void
+            {
+                if (!$this->currentUser) {
+                    throw new RuntimeException('Unauthenticated synthetic controller');
+                }
+            }
+
+            private function permittedHotelIdsForAction(string $capability): ?array
+            {
+                return array_values(array_filter(
+                    $this->currentUser->getPermittedHotelIds(),
+                    fn(int $hotelId): bool => $this->currentUser->hasHotelPermission($hotelId, $capability)
+                ));
+            }
+
+            private function normalizeOnlineDataTypeFilters(mixed $single, mixed $multiple): array
+            {
+                return [];
             }
 
             protected function success(mixed $data = null, string $message = '操作成功'): Response

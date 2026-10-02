@@ -87,7 +87,7 @@ const localCapabilityFunction = sliceBetween(
 const mediaFunction = sliceBetween(
   component,
   'const extractLocalMedia = async () => {',
-  'const loadWecom = async () => {',
+  'let wecomLoadingOwner = null;',
 );
 const councilReadbackMatcher = sliceBetween(
   appMain,
@@ -185,7 +185,7 @@ test('local capability and multipart media calls use the injected request and st
   assert.match(mediaFunction, /source_retention \|\| ''\) !== 'discarded_after_extraction'/);
   assert.match(mediaFunction, /source_file_retained !== false/);
   assert.match(mediaFunction, /hotel_fact_created !== false/);
-  assert.match(mediaFunction, /currentHotelId\(\) !== hotelId/);
+  // Current hotel/session ownership is exercised by local_media_scope_recovery.test.mjs.
 });
 
 test('council stays explicitly triggered, local-only and exact-readback verified', () => {

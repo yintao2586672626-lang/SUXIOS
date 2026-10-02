@@ -1,10 +1,11 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const html = readFrontendContractSource();
-const meituanStaticSource = readFileSync('public/meituan-static.js', 'utf8');
+const meituanStaticSource = readStaticContractSource('public/meituan-static.js');
 const reviewMatchStaticSource = readFileSync('public/review-match-static.js', 'utf8');
 
 const sliceBetween = (source, startText, endText) => {
@@ -25,9 +26,9 @@ const failureMapper = sliceBetween(
   'const platformCollectionFailureReasonClass = (reason, row = null) => {'
 );
 const flowBuilder = sliceBetween(
-  html,
-  'const platformProfileFlowRows = computed(() => {',
-  'const meituanPlatformProfileStatusRow = computed'
+  readFileSync('public/system-page-projections.js', 'utf8'),
+  'const buildPlatformProfileFlowRows = ',
+  'const buildCtripTrafficBusinessQuality = '
 );
 const requestContextLayer = sliceBetween(
   html,

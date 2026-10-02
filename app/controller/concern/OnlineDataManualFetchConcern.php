@@ -724,7 +724,7 @@ trait OnlineDataManualFetchConcern
                 'saved_count' => 0,
             ];
         }
-        if ($processedCount <= 0 || $readbackCount <= 0) {
+        if ($processedCount <= 0) {
             return [
                 'persistence_status' => 'not_persisted',
                 'persisted' => false,
@@ -3237,6 +3237,14 @@ trait OnlineDataManualFetchConcern
             ]);
         }
 
+        // Keep both directions from this request identifiable after upsert: a
+        // partial retry must not make the previous direction look current.
+        $captureRunAt = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))
+            ->format('Y-m-d\TH:i:s.u\Z');
+        $capturedItems = array_map(
+            static fn(array $item): array => array_merge($item, ['order_flow_capture_run_at' => $captureRunAt]),
+            $capturedItems
+        );
         $capturedPayload = [
             'store_id' => $identity['shop_id'] ?: $identity['poi_id'],
             'poi_id' => $identity['poi_id'],
@@ -3294,6 +3302,7 @@ trait OnlineDataManualFetchConcern
             'request_start_date' => $startDate,
             'request_end_date' => $endDate,
             'order_flow_period' => MeituanOrderFlowService::resolvePeriod($startDate, $endDate),
+            'order_flow_capture_run_at' => $captureRunAt,
             'amount_unit' => 'yuan',
         ], $complete ? '订单流向获取成功' : '订单流向部分获取成功');
     }

@@ -103,7 +103,7 @@
         };
         // HOTEL_DATA_ANALYST_QUALITY_UI_END
         // HOTEL_DATA_ANALYST_FEEDBACK_CLIENT_START
-        const createHotelDataAnalystFeedbackUi = ({ getState, request }) => {
+        const createHotelDataAnalystFeedbackUi = ({ getState, request, getSessionEpoch = () => undefined }) => {
             const HOTEL_DATA_ANALYST_FEEDBACK_ISSUE_CODES = new Set([
                 'fact_or_number',
                 'scope_or_date',
@@ -132,6 +132,7 @@
                     feedback_kind: '',
                     correction_text: '',
                     issue_codes: [],
+                    draft_dirty: false,
                     phase: hotelDataAnalystFeedbackSnapshotValid(snapshot) ? 'idle' : 'unavailable',
                     error: hotelDataAnalystFeedbackSnapshotValid(snapshot)
                         ? ''
@@ -196,10 +197,18 @@
                     ));
                 }
                 feedback.phase = 'editing';
+                feedback.draft_dirty = true;
                 feedback.error = '';
                 feedback.saved_message = '';
                 feedback.idempotency_key = '';
                 return true;
+            };
+            const feedbackRequestOwner = (feedback) => {
+                const state = getState();
+                const epoch = getSessionEpoch();
+                return () => getSessionEpoch() === epoch
+                    && getState() === state
+                    && state.quality_feedback_by_question_id?.[String(feedback.question_id)] === feedback;
             };
             const assertHotelDataAnalystFeedbackReadback = (row = {}, snapshot = {}, expected = {}) => {
                 const kind = String(row?.feedback_kind || '');
@@ -249,12 +258,14 @@
                 const feedback = qualityFeedbackFor(question);
                 if (!hotelDataAnalystFeedbackSnapshotValid(snapshot)) return feedback;
                 if (!options.force && feedback.loaded) return feedback;
-                if (feedback.loading) return feedback;
+                if (feedback.loading || feedback.saving) return feedback;
+                const isCurrent = feedbackRequestOwner(feedback);
                 feedback.loading = true;
-                feedback.phase = feedback.phase === 'editing' ? 'editing' : 'loading';
+                feedback.phase = feedback.draft_dirty || feedback.phase === 'editing' ? 'editing' : 'loading';
                 feedback.error = '';
                 try {
                     const response = await request(`/agent/operating-questions/${snapshot.questionId}/feedbacks/mine?limit=20`);
+                    if (!isCurrent()) return null;
                     if (response.code !== 200 || !response.data || typeof response.data !== 'object') {
                         throw new Error(response.message || '分析反馈历史读取失败');
                     }
@@ -301,6 +312,8 @@
                     }
                     return feedback;
                 } catch (error) {
+                    if (!isCurrent()) return null;
+                    feedback.data_status = 'load_failed';
                     feedback.phase = 'error';
                     feedback.error = error?.message || '分析反馈历史读取失败';
                     return feedback;
@@ -312,6 +325,7 @@
                 const snapshot = hotelDataAnalystFeedbackSnapshot(question);
                 const feedback = qualityFeedbackFor(question);
                 if (!hotelDataAnalystFeedbackSnapshotValid(snapshot) || feedback.saving) return null;
+                const isCurrent = feedbackRequestOwner(feedback);
                 const kind = String(feedback.feedback_kind || '');
                 const correctionText = String(feedback.correction_text || '').trim();
                 const issueCodes = Array.from(new Set(
@@ -350,6 +364,7 @@
                             idempotency_key: feedback.idempotency_key,
                         }),
                     });
+                    if (!isCurrent()) return null;
                     if (response.code === 409) throw new Error('分析快照已变化，请重新读取当前分析后再反馈。');
                     if (response.code === 503) throw new Error('反馈账本待完成数据库迁移；本次没有改写分析结果。');
                     if (response.code !== 200 || !response.data || typeof response.data !== 'object') {
@@ -363,6 +378,7 @@
                     });
                     const feedbackId = Number(saved.id || 0);
                     const readback = await request(`/agent/operating-questions/${snapshot.questionId}/feedbacks/${feedbackId}`);
+                    if (!isCurrent()) return null;
                     if (readback.code !== 200 || !readback.data || typeof readback.data !== 'object') {
                         throw new Error(readback.message || '分析反馈按编号回读失败');
                     }
@@ -375,6 +391,7 @@
                         issueCodes,
                     });
                     const sourceReadback = await request(`/agent/operating-questions/${snapshot.questionId}`);
+                    if (!isCurrent()) return null;
                     const sourceExact = sourceReadback?.data || {};
                     if (sourceReadback.code !== 200
                         || Number(sourceExact.id || 0) !== snapshot.questionId
@@ -395,12 +412,14 @@
                     feedback.phase = 'saved';
                     feedback.saved_message = '反馈已保存并按编号回读；原分析记录保持不变。';
                     feedback.idempotency_key = '';
+                    feedback.draft_dirty = false;
                     feedback.original_analysis_mutated = false;
                     feedback.formal_evaluation_case_created = false;
                     feedback.model_training_triggered = false;
                     feedback.external_action_authorized = false;
                     return exact;
                 } catch (error) {
+                    if (!isCurrent()) return null;
                     feedback.phase = String(error?.message || '').includes('快照已变化') ? 'stale' : 'error';
                     feedback.error = error?.message || '分析反馈保存失败';
                     return null;
@@ -412,6 +431,10 @@
                 forQuestion: qualityFeedbackFor,
                 updateDraft: updateOperatingQuestionQualityFeedbackDraft,
                 load: loadOperatingQuestionQualityFeedback,
+                queueLoad: (question) => {
+                    const isCurrent = feedbackRequestOwner(qualityFeedbackFor(question));
+                    return Promise.resolve().then(() => isCurrent() ? loadOperatingQuestionQualityFeedback(question) : null);
+                },
                 save: saveOperatingQuestionQualityFeedback,
             };
         };
@@ -447,9 +470,9 @@
                 && feedback.loaded !== true
                 && feedback.loading !== true
                 && String(feedback.phase || '') === 'idle'
-                && typeof feedbackUi.load === 'function'
+                && typeof feedbackUi.queueLoad === 'function'
             ) {
-                Promise.resolve().then(() => feedbackUi.load(question));
+                feedbackUi.queueLoad(question);
             }
             if (!interactive && !feedback.loaded && !feedback.latest) return null;
             const prefix = String(options.testId || 'hotel-data-analyst-quality-feedback');
@@ -484,6 +507,15 @@
                     role: 'alert',
                     'data-testid': `${prefix}-error`,
                 }, String(feedback.error)));
+            }
+            if (interactive && !unavailable && feedback.data_status === 'load_failed') {
+                statusNodes.push(h('button', {
+                    type: 'button',
+                    disabled: busy,
+                    class: 'mt-2 min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50',
+                    'data-testid': `${prefix}-retry-history`,
+                    onClick: () => feedbackUi.load?.(question, { force: true }),
+                }, feedback.loading ? '重新读取中…' : '重新读取历史反馈'));
             }
             if (feedback.saved_message && !feedback.error) {
                 statusNodes.push(h('p', {
@@ -960,7 +992,7 @@
             renderPreciseMetricEvidence,
             hotelDataAnalystProfile,
             normalizeQualityReceipt: normalizeHotelDataAnalystQualityReceipt,
-            normalizePreciseMetricSet,
+            normalizePreciseMetricSet, preciseMetricHasValue, preciseMetricUnitLabel, preciseMetricGapRows,
         });
     };
 

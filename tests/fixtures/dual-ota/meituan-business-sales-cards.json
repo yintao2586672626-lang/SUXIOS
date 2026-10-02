@@ -1,0 +1,2709 @@
+{
+  "evidence_level": "Offline real JS producer/date gate with synthetic page-selection and response callbacks; no browser/network/persistence/readback",
+  "caveat": "captureSections=[] deliberately audits business row/response/date/identity only; this is not proof that a full traffic/orders capture completed",
+  "source_files": [
+    {
+      "path": "scripts/meituan_browser_capture.mjs",
+      "sha256": "940c13377d974cbf6acdf6baf701788b8a5a174a8b8671e6ce88624c42420d6a"
+    },
+    {
+      "path": "scripts/lib/meituan_browser_capture_normalize.mjs",
+      "sha256": "38c8ad6353a3d27dd8de6ce84954bc8f3eb8fd2bf936227020bdf944f8089558"
+    },
+    {
+      "path": "scripts/lib/meituan_capture_gate.mjs",
+      "sha256": "e9067ef4c122b72ba90650e380b5c962e1c391a7b1af6eb3a8dde3203a635efd"
+    },
+    {
+      "path": "scripts/lib/meituan_platform_identity.mjs",
+      "sha256": "48165658f7054fad509772d3094295e96bece2f05a135b8245a3b7b9eace1d2d"
+    }
+  ],
+  "cases": [
+    {
+      "name": "positive",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_room_nights": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.cards.7.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [],
+            "lead_price": 120,
+            "sales_room_nights": 3,
+            "sales_amount": 600,
+            "sales_avg_price": 200,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 1,
+            "browse_to_pay_rate": 5,
+            "amount": 600,
+            "quantity": 3,
+            "room_nights": 3,
+            "book_order_num": 1,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 5,
+            "browse_pay_rate": 5,
+            "data_value": 200,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "1"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "5%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "600"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "3"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "200"
+                    }
+                  ],
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": true,
+        "metrics": {
+          "amount": 600,
+          "quantity": 3,
+          "sales_amount": 600,
+          "sales_room_nights": 3,
+          "sales_avg_price": 200
+        }
+      }
+    },
+    {
+      "name": "zero_positive_nights",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_room_nights": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.cards.7.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [],
+            "lead_price": 120,
+            "sales_room_nights": 3,
+            "sales_amount": 0,
+            "sales_avg_price": 0,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 1,
+            "browse_to_pay_rate": 5,
+            "amount": 0,
+            "quantity": 3,
+            "room_nights": 3,
+            "book_order_num": 1,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 5,
+            "browse_pay_rate": 5,
+            "data_value": 0,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "1"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "5%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "3"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "0"
+                    }
+                  ],
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": true,
+        "metrics": {
+          "amount": 0,
+          "quantity": 3,
+          "sales_amount": 0,
+          "sales_room_nights": 3,
+          "sales_avg_price": 0
+        }
+      }
+    },
+    {
+      "name": "zero_pair",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_room_nights": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.cards.7.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [],
+            "lead_price": 120,
+            "sales_room_nights": 0,
+            "sales_amount": 0,
+            "sales_avg_price": 0,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 0,
+            "browse_to_pay_rate": 0,
+            "amount": 0,
+            "quantity": 0,
+            "room_nights": 0,
+            "book_order_num": 0,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 0,
+            "browse_pay_rate": 0,
+            "data_value": 0,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "0%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "0"
+                    }
+                  ],
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": true,
+        "metrics": {
+          "amount": 0,
+          "quantity": 0,
+          "sales_amount": 0,
+          "sales_room_nights": 0,
+          "sales_avg_price": 0
+        }
+      }
+    },
+    {
+      "name": "zero_pair_missing_average",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_room_nights": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [
+              "sales_avg_price"
+            ],
+            "lead_price": 120,
+            "sales_room_nights": 0,
+            "sales_amount": 0,
+            "sales_avg_price": null,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 0,
+            "browse_to_pay_rate": 0,
+            "amount": 0,
+            "quantity": 0,
+            "room_nights": 0,
+            "book_order_num": 0,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 0,
+            "browse_pay_rate": 0,
+            "data_value": null,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "0%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "0"
+                    }
+                  ],
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": true,
+        "metrics": {
+          "amount": 0,
+          "quantity": 0,
+          "sales_amount": 0,
+          "sales_room_nights": 0,
+          "sales_avg_price": null
+        }
+      }
+    },
+    {
+      "name": "zero_pair_positive_average",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_room_nights": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.cards.7.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [],
+            "lead_price": 120,
+            "sales_room_nights": 0,
+            "sales_amount": 0,
+            "sales_avg_price": 200,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 0,
+            "browse_to_pay_rate": 0,
+            "amount": 0,
+            "quantity": 0,
+            "room_nights": 0,
+            "book_order_num": 0,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 0,
+            "browse_pay_rate": 0,
+            "data_value": 200,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "0%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "200"
+                    }
+                  ],
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": true,
+        "metrics": {
+          "amount": 0,
+          "quantity": 0,
+          "sales_amount": 0,
+          "sales_room_nights": 0,
+          "sales_avg_price": 200
+        }
+      }
+    },
+    {
+      "name": "missing_nights",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [
+              "sales_room_nights"
+            ],
+            "lead_price": 120,
+            "sales_room_nights": null,
+            "sales_amount": 0,
+            "sales_avg_price": 0,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 0,
+            "browse_to_pay_rate": 0,
+            "amount": 0,
+            "quantity": null,
+            "room_nights": null,
+            "book_order_num": 0,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 0,
+            "browse_pay_rate": 0,
+            "data_value": 0,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "0%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "0"
+                    }
+                  ],
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": true,
+        "metrics": {
+          "amount": 0,
+          "quantity": null,
+          "sales_amount": 0,
+          "sales_room_nights": null,
+          "sales_avg_price": 0
+        }
+      }
+    },
+    {
+      "name": "missing_amount",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_room_nights": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [
+              "sales_amount"
+            ],
+            "lead_price": 120,
+            "sales_room_nights": 0,
+            "sales_amount": null,
+            "sales_avg_price": 0,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 0,
+            "browse_to_pay_rate": 0,
+            "amount": null,
+            "quantity": 0,
+            "room_nights": 0,
+            "book_order_num": 0,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 0,
+            "browse_pay_rate": 0,
+            "data_value": 0,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "0%"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "0"
+                    }
+                  ],
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": true,
+        "metrics": {
+          "amount": null,
+          "quantity": 0,
+          "sales_amount": null,
+          "sales_room_nights": 0,
+          "sales_avg_price": 0
+        }
+      }
+    },
+    {
+      "name": "nonzero_amount_zero_nights",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_room_nights": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.cards.7.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [],
+            "lead_price": 120,
+            "sales_room_nights": 0,
+            "sales_amount": 600,
+            "sales_avg_price": 0,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 0,
+            "browse_to_pay_rate": 0,
+            "amount": 600,
+            "quantity": 0,
+            "room_nights": 0,
+            "book_order_num": 0,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 0,
+            "browse_pay_rate": 0,
+            "data_value": 0,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "0%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "600"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "0"
+                    }
+                  ],
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": true,
+        "metrics": {
+          "amount": 600,
+          "quantity": 0,
+          "sales_amount": 600,
+          "sales_room_nights": 0,
+          "sales_avg_price": 0
+        }
+      }
+    },
+    {
+      "name": "average_contradiction",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_room_nights": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.cards.7.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [],
+            "lead_price": 120,
+            "sales_room_nights": 3,
+            "sales_amount": 600,
+            "sales_avg_price": 300,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 1,
+            "browse_to_pay_rate": 5,
+            "amount": 600,
+            "quantity": 3,
+            "room_nights": 3,
+            "book_order_num": 1,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 5,
+            "browse_pay_rate": 5,
+            "data_value": 300,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "1"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "5%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "600"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "3"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "300"
+                    }
+                  ],
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": true,
+        "metrics": {
+          "amount": 600,
+          "quantity": 3,
+          "sales_amount": 600,
+          "sales_room_nights": 3,
+          "sales_avg_price": 300
+        }
+      }
+    },
+    {
+      "name": "field_aliases_not_cards",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "sales_room_nights": {
+                "source_path": "data.businessData.salesRoomNights",
+                "source_kind": "field"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.salesAmount",
+                "source_kind": "field"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.salesAvgPrice",
+                "source_kind": "field"
+              }
+            },
+            "_meituan_business_metric_missing": [
+              "lead_price",
+              "exposure_users",
+              "detail_visitors",
+              "paid_order_count",
+              "browse_to_pay_rate"
+            ],
+            "lead_price": null,
+            "sales_room_nights": 3,
+            "sales_amount": 600,
+            "sales_avg_price": 200,
+            "exposure_users": null,
+            "detail_visitors": null,
+            "paid_order_count": null,
+            "browse_to_pay_rate": null,
+            "amount": 600,
+            "quantity": 3,
+            "room_nights": 3,
+            "book_order_num": null,
+            "listExposure": null,
+            "detailExposure": null,
+            "flowRate": null,
+            "browse_pay_rate": null,
+            "data_value": 200,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "salesAmount": 600,
+                  "salesRoomNights": 3,
+                  "salesAvgPrice": 200,
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": true,
+        "metrics": {
+          "amount": 600,
+          "quantity": 3,
+          "sales_amount": 600,
+          "sales_room_nights": 3,
+          "sales_avg_price": 200
+        }
+      }
+    },
+    {
+      "name": "initial_selection_failed",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [],
+        "responses": [],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_not_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp"
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "fail",
+          "failed_check_ids": [
+            "xhr_not_captured"
+          ],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 0,
+          "captured_response_count": 0,
+          "importable_response_count": 0,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 0,
+        "date_scope_ready": false,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "fail",
+        "usable_business_payload": false,
+        "metrics": null
+      }
+    },
+    {
+      "name": "final_selection_failed",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [],
+        "responses": [],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_not_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "fail",
+          "failed_check_ids": [
+            "xhr_not_captured"
+          ],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 0,
+          "captured_response_count": 0,
+          "importable_response_count": 0,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 0,
+        "date_scope_ready": false,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "fail",
+        "usable_business_payload": false,
+        "metrics": null
+      }
+    },
+    {
+      "name": "explicit_other_date",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "0%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "0"
+                    }
+                  ],
+                  "dataDate": "2026-09-25",
+                  "poiId": "synthetic-81"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "matched",
+          "source_validation": true,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 1,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "synthetic-81",
+          "sensitive_values_exposed": false
+        },
+        "poi_id": "synthetic-81",
+        "store_id": "synthetic-81",
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {
+            "businessData": 1
+          }
+        },
+        "capture_gate": {
+          "status": "pass",
+          "failed_check_ids": [],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": []
+        }
+      },
+      "expected": {
+        "business_row_count": 0,
+        "date_scope_ready": false,
+        "platform_identity_status": "matched",
+        "capture_gate_status": "pass",
+        "usable_business_payload": false,
+        "metrics": null
+      }
+    },
+    {
+      "name": "other_store",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_room_nights": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.cards.7.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [],
+            "lead_price": 120,
+            "sales_room_nights": 0,
+            "sales_amount": 0,
+            "sales_avg_price": 0,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 0,
+            "browse_to_pay_rate": 0,
+            "amount": 0,
+            "quantity": 0,
+            "room_nights": 0,
+            "book_order_num": 0,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 0,
+            "browse_pay_rate": 0,
+            "data_value": 0,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "0%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "0"
+                    }
+                  ],
+                  "poiId": "synthetic-other"
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "mismatch",
+          "source_validation": false,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 1,
+          "matched_identifier_count": 0,
+          "mismatched_identifier_count": 1,
+          "validated_identifier": "",
+          "sensitive_values_exposed": false
+        },
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "fail",
+          "failed_check_ids": [
+            "platform_hotel_identity_mismatch"
+          ],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": [],
+          "platform_identity_status": "mismatch"
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "mismatch",
+        "capture_gate_status": "fail",
+        "usable_business_payload": false,
+        "metrics": {
+          "amount": 0,
+          "quantity": 0,
+          "sales_amount": 0,
+          "sales_room_nights": 0,
+          "sales_avg_price": 0
+        }
+      }
+    },
+    {
+      "name": "missing_store_evidence",
+      "payload": {
+        "platform": "meituan",
+        "system_hotel_id": 81,
+        "tenant_id": 7,
+        "data_date": "2026-09-26",
+        "defaultDataDate": "2026-09-26",
+        "data_period": "historical_daily",
+        "businessData": [
+          {
+            "data_type": "business",
+            "compare_type": "self",
+            "is_self": true,
+            "_capture_source": "xhr:traffic:business_data",
+            "_source_path": "data.businessData",
+            "_meituan_business_metric_sources": {
+              "lead_price": {
+                "source_path": "data.businessData.cards.0.value",
+                "source_kind": "card"
+              },
+              "sales_room_nights": {
+                "source_path": "data.businessData.cards.6.value",
+                "source_kind": "card"
+              },
+              "sales_amount": {
+                "source_path": "data.businessData.cards.5.value",
+                "source_kind": "card"
+              },
+              "sales_avg_price": {
+                "source_path": "data.businessData.cards.7.value",
+                "source_kind": "card"
+              },
+              "exposure_users": {
+                "source_path": "data.businessData.cards.1.value",
+                "source_kind": "card"
+              },
+              "detail_visitors": {
+                "source_path": "data.businessData.cards.2.value",
+                "source_kind": "card"
+              },
+              "paid_order_count": {
+                "source_path": "data.businessData.cards.3.value",
+                "source_kind": "card"
+              },
+              "browse_to_pay_rate": {
+                "source_path": "data.businessData.cards.4.value",
+                "source_kind": "card"
+              }
+            },
+            "_meituan_business_metric_missing": [],
+            "lead_price": 120,
+            "sales_room_nights": 0,
+            "sales_amount": 0,
+            "sales_avg_price": 0,
+            "exposure_users": 100,
+            "detail_visitors": 20,
+            "paid_order_count": 0,
+            "browse_to_pay_rate": 0,
+            "amount": 0,
+            "quantity": 0,
+            "room_nights": 0,
+            "book_order_num": 0,
+            "listExposure": 100,
+            "detailExposure": 20,
+            "flowRate": 0,
+            "browse_pay_rate": 0,
+            "data_value": 0,
+            "business_capture_epoch": 1,
+            "business_relative_range": "昨日",
+            "business_evidence_source": "page.business_period_selection.readback",
+            "dataDate": "2026-09-26",
+            "date_source": "page.business_period_selection.readback",
+            "data_updated_at": "2026-09-26",
+            "data_period": "historical_daily",
+            "date_scope_evidence": "meituan_business_yesterday_tab"
+          }
+        ],
+        "responses": [
+          {
+            "status": 200,
+            "section": "traffic",
+            "payload_key": "businessData",
+            "row_count": 1,
+            "business_capture_epoch": 1,
+            "data": {
+              "data": {
+                "businessData": {
+                  "cards": [
+                    {
+                      "id": "LEAD_PRICE",
+                      "title": "引流价",
+                      "value": "120"
+                    },
+                    {
+                      "id": "EXPOSE_PV_CNT",
+                      "title": "曝光人数",
+                      "value": "100"
+                    },
+                    {
+                      "id": "INTENTION_UV",
+                      "title": "浏览人数",
+                      "value": "20"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT",
+                      "title": "支付订单数",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ORDER_CNT_UV",
+                      "title": "浏览-支付转化率",
+                      "value": "0%"
+                    },
+                    {
+                      "id": "PAY_AMT",
+                      "title": "销售额",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ROOMNIGHT",
+                      "title": "销售间夜",
+                      "value": "0"
+                    },
+                    {
+                      "id": "PAY_ADR",
+                      "title": "销售均价",
+                      "value": "0"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "section_evidence": {
+          "business": {
+            "status": "target_date_relative_range_selected",
+            "target_date": "2026-09-26",
+            "relative_range": "昨日",
+            "evidence_source": "page.business_period_selection.readback",
+            "marker": "meituan_business_yesterday_tab",
+            "date_scope_policy": "selected_relative_range_readback_not_refresh_timestamp",
+            "business_capture_epoch": 1,
+            "response_count": 1,
+            "business_row_count": 1
+          }
+        },
+        "read_fallbacks": [],
+        "auth_status": {
+          "ok": true,
+          "status": "synthetic_page_authorization"
+        },
+        "platform_identity_validation": {
+          "schema_version": 1,
+          "status": "unverified",
+          "source_validation": false,
+          "evidence_source": "ota_request_or_own_response",
+          "expected_identifier_count": 1,
+          "observed_identifier_count": 0,
+          "matched_identifier_count": 0,
+          "mismatched_identifier_count": 0,
+          "validated_identifier": "",
+          "sensitive_values_exposed": false
+        },
+        "target_date_filter": {
+          "target_date": "2026-09-26",
+          "dropped_counts": {}
+        },
+        "capture_gate": {
+          "status": "fail",
+          "failed_check_ids": [
+            "platform_hotel_identity_unverified"
+          ],
+          "section_counts": {
+            "traffic": 0,
+            "order_flow": 0,
+            "orders": 0,
+            "ads": 0,
+            "reviews": 0,
+            "room_types": 0
+          },
+          "response_count": 1,
+          "captured_response_count": 1,
+          "importable_response_count": 1,
+          "requested_sections": [],
+          "section_statuses": {},
+          "not_applicable_sections": [],
+          "platform_identity_status": "unverified"
+        }
+      },
+      "expected": {
+        "business_row_count": 1,
+        "date_scope_ready": true,
+        "platform_identity_status": "unverified",
+        "capture_gate_status": "fail",
+        "usable_business_payload": false,
+        "metrics": {
+          "amount": 0,
+          "quantity": 0,
+          "sales_amount": 0,
+          "sales_room_nights": 0,
+          "sales_avg_price": 0
+        }
+      }
+    }
+  ]
+}

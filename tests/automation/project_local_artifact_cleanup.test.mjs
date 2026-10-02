@@ -112,6 +112,22 @@ test('cleanup rejects a junction before deleting any selected target', { skip: p
   });
 });
 
+test('cleanup rejects a junction workspace root before deleting its physical caches', { skip: process.platform !== 'win32' }, () => {
+  withCleanupFixture(({ fixture, workspace, put }) => {
+    const cache = put('runtime/cache/canary.txt');
+    const alias = path.join(fixture, 'workspace-alias');
+    assert.ok(path.resolve(alias).startsWith(path.resolve(fixture) + path.sep));
+    symlinkSync(workspace, alias, 'junction');
+    const quote = value => "'" + value.replaceAll("'", "''") + "'";
+    const apply = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command',
+      `Set-Location -LiteralPath ${quote(alias)}\n& ${quote(path.join(repoRoot, 'scripts/clean_project_local_artifacts.ps1'))} -Apply`,
+    ], { cwd: fixture, encoding: 'utf8', windowsHide: true });
+    assert.notEqual(apply.status, 0);
+    assert.match(apply.stderr + apply.stdout, /Refusing linked cleanup path/);
+    assert.ok(existsSync(cache));
+  });
+});
+
 test('generic cleaner refuses financial backup opt-in and self-audit excludes secret content', { skip: process.platform !== 'win32' }, () => {
   withCleanupFixture(({ put, execute }) => {
     const recovery = put('database/backups/recovery.sql');

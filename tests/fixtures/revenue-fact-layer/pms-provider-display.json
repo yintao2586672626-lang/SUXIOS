@@ -1,0 +1,2046 @@
+{
+    "meituan_cloud_pms": {
+        "contract_version": "revenue_three_source_fact_layer.v1",
+        "status": "partial",
+        "revenue_analysis_status": "partial",
+        "hotel": {
+            "tenant_id": 80,
+            "system_hotel_id": 80,
+            "name": "敦煌漠蓝新"
+        },
+        "business_date": "2026-07-30",
+        "pms_binding": {
+            "binding_status": "configured",
+            "selected_provider": "meituan_cloud_pms",
+            "effective_provider": "meituan_cloud_pms",
+            "resolution": "selected_provider",
+            "compatibility_fallback": false,
+            "query_allowed": true,
+            "blocker_code": null,
+            "query_scope": {
+                "tenant_id": 80,
+                "system_hotel_id": 80,
+                "business_date": "2026-07-30",
+                "provider": "meituan_cloud_pms",
+                "binding_status": "configured",
+                "binding_resolution": "selected_provider",
+                "compatibility_fallback": false
+            }
+        },
+        "date_alignment": {
+            "status": "aligned",
+            "comparison_allowed": true,
+            "target_business_date": "2026-07-30",
+            "timezone": "Asia/Shanghai",
+            "pms_date_basis": "pms_business_date",
+            "ota_date_basis": "platform_data_date",
+            "sources": {
+                "meituan_cloud_pms": {
+                    "target_date": "2026-07-30",
+                    "observed_date": "2026-07-30",
+                    "date_basis": "pms_business_date",
+                    "data_status": "readback_verified",
+                    "nearest_saved_evidence": {
+                        "provider": "meituan_cloud_pms",
+                        "source_table": "meituan_cloud_pms_captures",
+                        "query_scope": {
+                            "tenant_id": 80,
+                            "system_hotel_id": 80,
+                            "business_date": "2026-07-30",
+                            "provider": "meituan_cloud_pms",
+                            "binding_status": "configured",
+                            "binding_resolution": "selected_provider",
+                            "compatibility_fallback": false
+                        },
+                        "status": "not_available",
+                        "business_date": null,
+                        "distance_days": null
+                    }
+                },
+                "ctrip_ota": {
+                    "target_date": "2026-07-30",
+                    "observed_date": "2026-07-30",
+                    "date_basis": "platform_data_date",
+                    "data_status": "readback_verified"
+                },
+                "meituan_ota": {
+                    "target_date": "2026-07-30",
+                    "observed_date": "2026-07-30",
+                    "date_basis": "platform_data_date",
+                    "data_status": "readback_verified"
+                }
+            },
+            "mismatches": [],
+            "missing_sources": [],
+            "message": "PMS、携程、美团均已按同一目标业务日精确回读；指标仍按各自来源口径分层展示。",
+            "note": "日期对齐只允许分层比较；不自动认定 OTA 下单、支付或结算口径等于 PMS 入住经营口径。"
+        },
+        "source_completeness": {
+            "meituan_cloud_pms": "readback_verified",
+            "ctrip_ota": "readback_verified",
+            "meituan_ota": "readback_verified"
+        },
+        "sources": {
+            "meituan_cloud_pms": {
+                "data_status": "readback_verified",
+                "source_key": "meituan_cloud_pms",
+                "metric_scope": "whole_hotel_accommodation",
+                "business_scope": "estimated_accommodation_room_fee",
+                "business_date": "2026-07-30",
+                "actual_business_date": "2026-07-30",
+                "binding": {
+                    "binding_status": "configured",
+                    "selected_provider": "meituan_cloud_pms",
+                    "effective_provider": "meituan_cloud_pms",
+                    "resolution": "selected_provider",
+                    "compatibility_fallback": false,
+                    "query_allowed": true,
+                    "blocker_code": null,
+                    "query_scope": {
+                        "tenant_id": 80,
+                        "system_hotel_id": 80,
+                        "business_date": "2026-07-30",
+                        "provider": "meituan_cloud_pms",
+                        "binding_status": "configured",
+                        "binding_resolution": "selected_provider",
+                        "compatibility_fallback": false
+                    }
+                },
+                "query_scope": {
+                    "tenant_id": 80,
+                    "system_hotel_id": 80,
+                    "business_date": "2026-07-30",
+                    "provider": "meituan_cloud_pms",
+                    "binding_status": "configured",
+                    "binding_resolution": "selected_provider",
+                    "compatibility_fallback": false
+                },
+                "facts": {
+                    "room_revenue": 7200,
+                    "payment_collected_amount": null,
+                    "sold_room_nights": 15,
+                    "sellable_room_nights": 30,
+                    "remaining_sellable_room_nights": 15,
+                    "occupancy_rate_percent": 50,
+                    "adr": 480,
+                    "revpar": 240
+                },
+                "fact_statuses": {
+                    "room_revenue": {
+                        "status": "readback_verified",
+                        "reason": "",
+                        "caliber": "美团云 PMS 工作台当日实时预计房费，不等同结算或支付实收"
+                    },
+                    "payment_collected_amount": {
+                        "status": "missing",
+                        "reason": "pms_payment_collected_amount_not_captured",
+                        "caliber": "支付通道确认的实收金额"
+                    },
+                    "sold_room_nights": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "sellable_room_nights": {
+                        "status": "readback_verified",
+                        "reason": "",
+                        "caliber": "美团云 PMS 工作台首页总房量",
+                        "formula": "",
+                        "basis": "verified_pms_summary_total_rooms"
+                    },
+                    "occupancy_rate_percent": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "adr": {
+                        "status": "readback_verified",
+                        "reason": "",
+                        "formula": "room_revenue / sold_room_nights"
+                    },
+                    "revpar": {
+                        "status": "readback_verified",
+                        "reason": "",
+                        "formula": "room_revenue / sellable_room_nights"
+                    }
+                },
+                "source": {
+                    "table": "meituan_cloud_pms_captures",
+                    "record_id": 17,
+                    "tenant_id": 80,
+                    "system_hotel_id": 80,
+                    "provider_hotel_id": "MT-80",
+                    "provider_hotel_name": "敦煌漠蓝",
+                    "system_hotel_name": "敦煌漠蓝新",
+                    "data_date": "2026-07-30",
+                    "target_business_date": "2026-07-30",
+                    "provider": "meituan_cloud_pms",
+                    "capture_provider": "meituan_cloud_pms",
+                    "binding_status": "configured",
+                    "binding_resolution": "selected_provider",
+                    "compatibility_fallback": false,
+                    "query_scope": {
+                        "tenant_id": 80,
+                        "system_hotel_id": 80,
+                        "business_date": "2026-07-30",
+                        "provider": "meituan_cloud_pms",
+                        "binding_status": "configured",
+                        "binding_resolution": "selected_provider",
+                        "compatibility_fallback": false
+                    },
+                    "capture_source_scope": "today_realtime_accommodation",
+                    "captured_at": "2026-07-30 10:30:00",
+                    "source_fingerprint": null,
+                    "readback_status": "readback_verified",
+                    "collection_result": {
+                        "provider": "meituan_cloud_pms",
+                        "validation_basis": "provider_capture_identity_date_reconciliation_readback",
+                        "allowed": true
+                    },
+                    "collection_claim_reason_codes": []
+                },
+                "scope_note": null,
+                "allowed_uses": [
+                    "whole_hotel_accommodation_revenue_analysis",
+                    "whole_hotel_sellable_room_denominator",
+                    "cross_source_comparison_without_revenue_addition"
+                ]
+            },
+            "ctrip_ota": {
+                "data_status": "readback_verified",
+                "metric_scope": "ota_channel",
+                "business_scope": "ota_channel",
+                "business_date": "2026-07-30",
+                "actual_business_date": "2026-07-30",
+                "platform": "ctrip",
+                "analysis_readiness": {
+                    "allowed": false,
+                    "status": "not_loaded",
+                    "basis": "ota_revenue_metric_credibility_gate"
+                },
+                "facts": {
+                    "revenue": 0,
+                    "orders": 0,
+                    "room_nights": 0,
+                    "adr": null,
+                    "list_exposure": null,
+                    "detail_exposure": null,
+                    "flow_rate_percent": null,
+                    "submit_rate_percent": null,
+                    "cancellation_rate_percent": null,
+                    "cancellation_gross_order_count": null
+                },
+                "fact_statuses": {
+                    "revenue": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "orders": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "room_nights": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "adr": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "list_exposure": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "detail_exposure": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "flow_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "submit_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "cancellation_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "cancellation_gross_order_count": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    }
+                },
+                "operational_crosscheck": {
+                    "revenue": null,
+                    "orders": null,
+                    "room_nights": null,
+                    "adr": null,
+                    "data_status": "not_loaded",
+                    "data_gaps": [
+                        "ota_operational_metrics_not_loaded"
+                    ]
+                },
+                "source": {
+                    "table": "online_daily_data",
+                    "tenant_id": 80,
+                    "system_hotel_id": 80,
+                    "data_date": "2026-07-30",
+                    "platform": "ctrip",
+                    "row_ids": [
+                        66156
+                    ],
+                    "source_trace_ids": [
+                        "ctrip-trusted-trace"
+                    ],
+                    "data_source_ids": [
+                        25
+                    ],
+                    "sync_task_ids": [
+                        1001
+                    ],
+                    "ingestion_methods": [
+                        "profile_browser"
+                    ],
+                    "readback_status": "readback_verified",
+                    "operational_metric_keys": [],
+                    "operational_metric_provenance": [],
+                    "operational_data_quality": {
+                        "canonicalized_traffic_projection_groups": 0,
+                        "traffic_projection_policy": "",
+                        "revenue_representation_conflicts": [],
+                        "order_dedup": []
+                    }
+                },
+                "allowed_uses": [
+                    "ota_channel_metric_level_display"
+                ]
+            },
+            "meituan_ota": {
+                "data_status": "readback_verified",
+                "metric_scope": "ota_channel",
+                "business_scope": "ota_channel",
+                "business_date": "2026-07-30",
+                "actual_business_date": "2026-07-30",
+                "platform": "meituan",
+                "analysis_readiness": {
+                    "allowed": false,
+                    "status": "not_loaded",
+                    "basis": "ota_revenue_metric_credibility_gate"
+                },
+                "facts": {
+                    "revenue": 1032.39,
+                    "orders": 1,
+                    "room_nights": 1,
+                    "adr": 1032.39,
+                    "list_exposure": null,
+                    "detail_exposure": null,
+                    "flow_rate_percent": null,
+                    "submit_rate_percent": null,
+                    "cancellation_rate_percent": null,
+                    "cancellation_gross_order_count": null
+                },
+                "fact_statuses": {
+                    "revenue": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "orders": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "room_nights": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "adr": {
+                        "status": "derived_verified",
+                        "reason": "",
+                        "formula": "ota_room_revenue / ota_room_nights"
+                    },
+                    "list_exposure": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "detail_exposure": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "flow_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "submit_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "cancellation_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "cancellation_gross_order_count": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    }
+                },
+                "operational_crosscheck": {
+                    "revenue": null,
+                    "orders": null,
+                    "room_nights": null,
+                    "adr": null,
+                    "data_status": "not_loaded",
+                    "data_gaps": [
+                        "ota_operational_metrics_not_loaded"
+                    ]
+                },
+                "source": {
+                    "table": "online_daily_data",
+                    "tenant_id": 80,
+                    "system_hotel_id": 80,
+                    "data_date": "2026-07-30",
+                    "platform": "meituan",
+                    "row_ids": [
+                        66635
+                    ],
+                    "source_trace_ids": [
+                        "meituan-trusted-trace"
+                    ],
+                    "data_source_ids": [
+                        68
+                    ],
+                    "sync_task_ids": [
+                        1002
+                    ],
+                    "ingestion_methods": [
+                        "profile_browser"
+                    ],
+                    "readback_status": "readback_verified",
+                    "operational_metric_keys": [],
+                    "operational_metric_provenance": [],
+                    "operational_data_quality": {
+                        "canonicalized_traffic_projection_groups": 0,
+                        "traffic_projection_policy": "",
+                        "revenue_representation_conflicts": [],
+                        "order_dedup": []
+                    }
+                },
+                "allowed_uses": [
+                    "ota_channel_metric_level_display"
+                ]
+            },
+            "pricing_guard": {
+                "data_status": "missing",
+                "metric_scope": "manual_pricing_configuration",
+                "minimum_floor_price": null,
+                "items": [],
+                "source": {
+                    "table": "room_types",
+                    "hotel_id": 80,
+                    "input_scope": "manual_pricing_configuration",
+                    "evidence_status": "missing_or_incomplete"
+                },
+                "forbidden_substitutes": [
+                    "ota_lead_price",
+                    "ota_sales_avg_price",
+                    "historical_adr",
+                    "competitor_price"
+                ]
+            }
+        },
+        "facts": {
+            "whole_hotel_accommodation": {
+                "room_revenue": 7200,
+                "payment_collected_amount": null,
+                "sold_room_nights": 15,
+                "sellable_room_nights": 30,
+                "remaining_sellable_room_nights": 15,
+                "occupancy_rate_percent": 50,
+                "adr": 480,
+                "revpar": 240
+            },
+            "ota_channel": {
+                "ctrip": {
+                    "revenue": 0,
+                    "orders": 0,
+                    "room_nights": 0,
+                    "adr": null,
+                    "list_exposure": null,
+                    "detail_exposure": null,
+                    "flow_rate_percent": null,
+                    "submit_rate_percent": null,
+                    "cancellation_rate_percent": null,
+                    "cancellation_gross_order_count": null
+                },
+                "meituan": {
+                    "revenue": 1032.39,
+                    "orders": 1,
+                    "room_nights": 1,
+                    "adr": 1032.39,
+                    "list_exposure": null,
+                    "detail_exposure": null,
+                    "flow_rate_percent": null,
+                    "submit_rate_percent": null,
+                    "cancellation_rate_percent": null,
+                    "cancellation_gross_order_count": null
+                },
+                "combined": {
+                    "revenue": null,
+                    "orders": 1,
+                    "room_nights": 1,
+                    "adr": null
+                },
+                "combined_status": {
+                    "data_status": "partial_readback_verified",
+                    "fact_statuses": {
+                        "revenue": {
+                            "status": "analysis_blocked",
+                            "reason": "ota_revenue_analysis_gate_blocked"
+                        },
+                        "orders": {
+                            "status": "readback_verified",
+                            "reason": ""
+                        },
+                        "room_nights": {
+                            "status": "readback_verified",
+                            "reason": ""
+                        },
+                        "adr": {
+                            "status": "not_calculable",
+                            "reason": "combined_ota_revenue_not_ready",
+                            "formula": "combined_ota_revenue / combined_ota_room_nights"
+                        }
+                    },
+                    "analysis_readiness": {
+                        "revenue_allowed": false,
+                        "status": "blocked"
+                    }
+                }
+            },
+            "cross_source_comparison": {
+                "ota_revenue_per_whole_hotel_sellable_room": null,
+                "status": "not_calculable",
+                "metric_scope": "cross_source_comparison",
+                "numerator_scope": "ota_channel",
+                "denominator_scope": "whole_hotel_accommodation",
+                "formula": "sum(ctrip_ota.revenue + meituan_ota.revenue) / pms.sellable_room_nights",
+                "label": "OTA收入/全酒店可售间夜",
+                "whole_hotel_revenue_claim_allowed": false
+            }
+        },
+        "derived_metrics": {
+            "whole_hotel_adr": {
+                "value": 480,
+                "unit": "CNY",
+                "status": "ready",
+                "scope": "whole_hotel_accommodation",
+                "formula": "room_revenue / sold_room_nights",
+                "reason": "",
+                "note": ""
+            },
+            "whole_hotel_revpar": {
+                "value": 240,
+                "unit": "CNY",
+                "status": "ready",
+                "scope": "whole_hotel_accommodation",
+                "formula": "room_revenue / sellable_room_nights",
+                "reason": "",
+                "note": ""
+            },
+            "ota_adr": {
+                "value": null,
+                "unit": "CNY",
+                "status": "not_calculable",
+                "scope": "ota_channel",
+                "formula": "ota_room_revenue / ota_room_nights",
+                "reason": "combined_ota_adr_not_ready",
+                "note": ""
+            },
+            "ota_room_night_share_percent": {
+                "value": 6.67,
+                "unit": "%",
+                "status": "ready",
+                "scope": "cross_source_comparison",
+                "formula": "ota_room_nights / pms_sold_room_nights * 100",
+                "reason": "",
+                "note": "OTA渠道房晚占PMS全酒店出租房晚；可能受取消、入住日与订单日口径影响。"
+            },
+            "ota_room_revenue_share_percent": {
+                "value": null,
+                "unit": "%",
+                "status": "not_calculable",
+                "scope": "cross_source_comparison",
+                "formula": "ota_room_revenue / pms_estimated_accommodation_room_fee * 100",
+                "reason": "pms_room_fee_or_ota_room_revenue_missing",
+                "note": "分母是PMS预计住宿房费（美团云工作台实时估算），不是结算或支付实收；只作同日预计房费结构参考。"
+            },
+            "ota_cancellation_rate_percent": {
+                "value": null,
+                "unit": "%",
+                "status": "not_calculable",
+                "scope": "ota_channel",
+                "formula": "sum(platform_cancel_rate * platform_gross_orders) / sum(platform_gross_orders)",
+                "reason": "all_platform_cancellation_rate_or_gross_order_base_missing",
+                "note": "按平台总订单数加权；不与PMS取消口径混算。"
+            },
+            "ota_revenue_per_whole_hotel_sellable_room": {
+                "value": null,
+                "unit": "CNY",
+                "status": "not_calculable",
+                "scope": "cross_source_comparison",
+                "formula": "sum(ctrip_ota.revenue + meituan_ota.revenue) / pms.sellable_room_nights",
+                "reason": "cross_source_denominator_or_ota_facts_missing",
+                "note": ""
+            },
+            "ota_adr_minus_minimum_floor_price": {
+                "value": null,
+                "unit": "CNY",
+                "status": "not_calculable",
+                "scope": "reference_only",
+                "formula": "combined_ota_adr - minimum_configured_room_type_floor_price",
+                "reason": "floor_price_or_ota_adr_missing",
+                "note": "全店最低保护价与综合OTA ADR粒度不同，只作预警参考，不能据此判定某房型低价销售。"
+            }
+        },
+        "analysis_gaps": [
+            {
+                "code": "ctrip_ota_revenue_analysis_blocked",
+                "source": "ctrip_ota",
+                "status": "not_loaded",
+                "category": "revenue_analysis_credibility"
+            },
+            {
+                "code": "meituan_ota_revenue_analysis_blocked",
+                "source": "meituan_ota",
+                "status": "not_loaded",
+                "category": "revenue_analysis_credibility"
+            }
+        ],
+        "ai_review_gaps": [
+            {
+                "code": "ctrip_ota_revenue_analysis_blocked",
+                "source": "ctrip_ota",
+                "status": "not_loaded",
+                "category": "revenue_analysis_credibility"
+            },
+            {
+                "code": "meituan_ota_revenue_analysis_blocked",
+                "source": "meituan_ota",
+                "status": "not_loaded",
+                "category": "revenue_analysis_credibility"
+            }
+        ]
+    },
+    "dingdandao_pms": {
+        "contract_version": "revenue_three_source_fact_layer.v1",
+        "status": "partial",
+        "revenue_analysis_status": "partial",
+        "hotel": {
+            "tenant_id": 80,
+            "system_hotel_id": 80,
+            "name": "敦煌漠蓝新"
+        },
+        "business_date": "2026-07-30",
+        "pms_binding": {
+            "binding_status": "configured",
+            "selected_provider": "dingdandao_pms",
+            "effective_provider": "dingdandao_pms",
+            "resolution": "selected_provider",
+            "compatibility_fallback": false,
+            "query_allowed": true,
+            "blocker_code": null,
+            "query_scope": {
+                "tenant_id": 80,
+                "system_hotel_id": 80,
+                "business_date": "2026-07-30",
+                "provider": "dingdandao_pms",
+                "binding_status": "configured",
+                "binding_resolution": "selected_provider",
+                "compatibility_fallback": false
+            }
+        },
+        "date_alignment": {
+            "status": "aligned",
+            "comparison_allowed": true,
+            "target_business_date": "2026-07-30",
+            "timezone": "Asia/Shanghai",
+            "pms_date_basis": "pms_business_date",
+            "ota_date_basis": "platform_data_date",
+            "sources": {
+                "dingdandao_pms": {
+                    "target_date": "2026-07-30",
+                    "observed_date": "2026-07-30",
+                    "date_basis": "pms_business_date",
+                    "data_status": "readback_verified",
+                    "nearest_saved_evidence": {
+                        "provider": "dingdandao_pms",
+                        "source_table": "dingdandao_operating_target_captures",
+                        "query_scope": {
+                            "tenant_id": 80,
+                            "system_hotel_id": 80,
+                            "business_date": "2026-07-30",
+                            "provider": "dingdandao_pms",
+                            "binding_status": "configured",
+                            "binding_resolution": "selected_provider",
+                            "compatibility_fallback": false
+                        },
+                        "status": "not_available",
+                        "business_date": null,
+                        "distance_days": null
+                    }
+                },
+                "ctrip_ota": {
+                    "target_date": "2026-07-30",
+                    "observed_date": "2026-07-30",
+                    "date_basis": "platform_data_date",
+                    "data_status": "readback_verified"
+                },
+                "meituan_ota": {
+                    "target_date": "2026-07-30",
+                    "observed_date": "2026-07-30",
+                    "date_basis": "platform_data_date",
+                    "data_status": "readback_verified"
+                }
+            },
+            "mismatches": [],
+            "missing_sources": [],
+            "message": "PMS、携程、美团均已按同一目标业务日精确回读；指标仍按各自来源口径分层展示。",
+            "note": "日期对齐只允许分层比较；不自动认定 OTA 下单、支付或结算口径等于 PMS 入住经营口径。"
+        },
+        "source_completeness": {
+            "dingdandao_pms": "readback_verified",
+            "ctrip_ota": "readback_verified",
+            "meituan_ota": "readback_verified"
+        },
+        "sources": {
+            "dingdandao_pms": {
+                "data_status": "readback_verified",
+                "source_key": "dingdandao_pms",
+                "metric_scope": "whole_hotel_accommodation",
+                "business_scope": "accommodation_room_fee",
+                "business_date": "2026-07-30",
+                "actual_business_date": "2026-07-30",
+                "binding": {
+                    "binding_status": "configured",
+                    "selected_provider": "dingdandao_pms",
+                    "effective_provider": "dingdandao_pms",
+                    "resolution": "selected_provider",
+                    "compatibility_fallback": false,
+                    "query_allowed": true,
+                    "blocker_code": null,
+                    "query_scope": {
+                        "tenant_id": 80,
+                        "system_hotel_id": 80,
+                        "business_date": "2026-07-30",
+                        "provider": "dingdandao_pms",
+                        "binding_status": "configured",
+                        "binding_resolution": "selected_provider",
+                        "compatibility_fallback": false
+                    }
+                },
+                "query_scope": {
+                    "tenant_id": 80,
+                    "system_hotel_id": 80,
+                    "business_date": "2026-07-30",
+                    "provider": "dingdandao_pms",
+                    "binding_status": "configured",
+                    "binding_resolution": "selected_provider",
+                    "compatibility_fallback": false
+                },
+                "facts": {
+                    "room_revenue": 7930.11,
+                    "payment_collected_amount": null,
+                    "sold_room_nights": 15,
+                    "sellable_room_nights": 15,
+                    "remaining_sellable_room_nights": 0,
+                    "occupancy_rate_percent": 100,
+                    "adr": 528.67,
+                    "revpar": 528.67
+                },
+                "fact_statuses": {
+                    "room_revenue": {
+                        "status": "readback_verified",
+                        "reason": "",
+                        "caliber": "PMS住宿房费，不等同支付实收"
+                    },
+                    "payment_collected_amount": {
+                        "status": "missing",
+                        "reason": "pms_payment_collected_amount_not_captured",
+                        "caliber": "支付通道确认的实收金额"
+                    },
+                    "sold_room_nights": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "sellable_room_nights": {
+                        "status": "derived_verified",
+                        "reason": "",
+                        "caliber": "由出租房晚与入住率交叉推导并校验的可售房晚",
+                        "formula": "sold_room_nights / occupancy_rate_decimal",
+                        "basis": "derived_from_verified_pms_metrics"
+                    },
+                    "occupancy_rate_percent": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "adr": {
+                        "status": "derived_verified",
+                        "reason": "",
+                        "formula": "room_revenue / sold_room_nights"
+                    },
+                    "revpar": {
+                        "status": "derived_verified",
+                        "reason": "",
+                        "formula": "room_revenue / sellable_room_nights"
+                    }
+                },
+                "source": {
+                    "table": "dingdandao_operating_target_captures",
+                    "record_id": 6,
+                    "tenant_id": 80,
+                    "system_hotel_id": 80,
+                    "provider_hotel_id": "5206408",
+                    "provider_hotel_name": "敦煌漠蓝",
+                    "system_hotel_name": "敦煌漠蓝新",
+                    "data_date": "2026-07-30",
+                    "target_business_date": "2026-07-30",
+                    "provider": "dingdandao_pms",
+                    "capture_provider": "dingdandao_pms",
+                    "binding_status": "configured",
+                    "binding_resolution": "selected_provider",
+                    "compatibility_fallback": false,
+                    "query_scope": {
+                        "tenant_id": 80,
+                        "system_hotel_id": 80,
+                        "business_date": "2026-07-30",
+                        "provider": "dingdandao_pms",
+                        "binding_status": "configured",
+                        "binding_resolution": "selected_provider",
+                        "compatibility_fallback": false
+                    },
+                    "capture_source_scope": "today_only",
+                    "captured_at": "2026-07-30 01:36:11",
+                    "source_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                    "readback_status": "readback_verified",
+                    "collection_result": {
+                        "contract_version": "suxios.collection_result.v1",
+                        "scope": {
+                            "tenant_id": 80,
+                            "system_hotel_id": 80,
+                            "platform": "dingdandao_pms",
+                            "platform_hotel_id": "5206408",
+                            "business_module": "accommodation_operating",
+                            "data_date": "2026-07-30",
+                            "target_stay_date": null,
+                            "date_role": "business_date",
+                            "source_method": "authorized_browser_endpoint",
+                            "source_scope": "today_only"
+                        },
+                        "run": {
+                            "run_id": 6,
+                            "collected_at": "2026-07-30 01:36:11",
+                            "strategy": {
+                                "selected": "verified_endpoint_recipe",
+                                "status": "verified",
+                                "fallback_from": null,
+                                "fallback_reason": null,
+                                "response_evidence_type": "structured_json",
+                                "recipe_plan_hash": "553621d58b0414c63853661d31c3d5ae89192f3e49e6aca973faf34f45c868c9",
+                                "recipe_count": 23
+                            }
+                        },
+                        "identity_status": "matched",
+                        "collection_status": "verified",
+                        "quality_status": "verified",
+                        "metrics": [
+                            {
+                                "metric_key": "total_room_fee",
+                                "value": 7930.11,
+                                "value_type": "decimal",
+                                "unit": "cny",
+                                "status": "verified",
+                                "source_path": null
+                            },
+                            {
+                                "metric_key": "adr",
+                                "value": 528.67,
+                                "value_type": "decimal",
+                                "unit": "cny_per_room_night",
+                                "status": "verified",
+                                "source_path": null
+                            },
+                            {
+                                "metric_key": "occupancy_rate_percent",
+                                "value": 100,
+                                "value_type": "decimal",
+                                "unit": "percent",
+                                "status": "verified",
+                                "source_path": null
+                            },
+                            {
+                                "metric_key": "revpar",
+                                "value": 528.67,
+                                "value_type": "decimal",
+                                "unit": "cny_per_sellable_room",
+                                "status": "verified",
+                                "source_path": null
+                            },
+                            {
+                                "metric_key": "sold_room_nights",
+                                "value": 15,
+                                "value_type": "integer",
+                                "unit": "room_night",
+                                "status": "verified",
+                                "source_path": null
+                            },
+                            {
+                                "metric_key": "average_daily_room_nights",
+                                "value": 15,
+                                "value_type": "decimal",
+                                "unit": "room_night",
+                                "status": "verified",
+                                "source_path": null
+                            },
+                            {
+                                "metric_key": "derived_sellable_room_nights",
+                                "value": 15,
+                                "value_type": "integer",
+                                "unit": "room_night",
+                                "status": "derived",
+                                "source_path": null
+                            }
+                        ],
+                        "counts": {
+                            "observed": 7,
+                            "normalized": 7,
+                            "saved": 2,
+                            "readback": 2
+                        },
+                        "saved_count": 2,
+                        "readback_status": "readback_verified",
+                        "snapshot_ref": "dingdandao_operating_target_capture#6",
+                        "previous_comparable_ref": null,
+                        "references": {
+                            "capture_id": 6,
+                            "row_ids": [],
+                            "source_trace_ids": [
+                                "dingdandao:274775285e5684aa33737365239467459913c599558da048502665c071d73eba"
+                            ],
+                            "source_fingerprint": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+                        },
+                        "blockers": [],
+                        "claim": {
+                            "allowed": true,
+                            "reason_codes": []
+                        },
+                        "sensitive_material_exposed": false
+                    },
+                    "collection_claim_reason_codes": []
+                },
+                "scope_note": null,
+                "allowed_uses": [
+                    "whole_hotel_accommodation_revenue_analysis",
+                    "whole_hotel_sellable_room_denominator",
+                    "cross_source_comparison_without_revenue_addition"
+                ]
+            },
+            "ctrip_ota": {
+                "data_status": "readback_verified",
+                "metric_scope": "ota_channel",
+                "business_scope": "ota_channel",
+                "business_date": "2026-07-30",
+                "actual_business_date": "2026-07-30",
+                "platform": "ctrip",
+                "analysis_readiness": {
+                    "allowed": false,
+                    "status": "not_loaded",
+                    "basis": "ota_revenue_metric_credibility_gate"
+                },
+                "facts": {
+                    "revenue": 0,
+                    "orders": 0,
+                    "room_nights": 0,
+                    "adr": null,
+                    "list_exposure": null,
+                    "detail_exposure": null,
+                    "flow_rate_percent": null,
+                    "submit_rate_percent": null,
+                    "cancellation_rate_percent": null,
+                    "cancellation_gross_order_count": null
+                },
+                "fact_statuses": {
+                    "revenue": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "orders": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "room_nights": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "adr": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "list_exposure": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "detail_exposure": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "flow_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "submit_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "cancellation_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "cancellation_gross_order_count": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    }
+                },
+                "operational_crosscheck": {
+                    "revenue": null,
+                    "orders": null,
+                    "room_nights": null,
+                    "adr": null,
+                    "data_status": "not_loaded",
+                    "data_gaps": [
+                        "ota_operational_metrics_not_loaded"
+                    ]
+                },
+                "source": {
+                    "table": "online_daily_data",
+                    "tenant_id": 80,
+                    "system_hotel_id": 80,
+                    "data_date": "2026-07-30",
+                    "platform": "ctrip",
+                    "row_ids": [
+                        66156
+                    ],
+                    "source_trace_ids": [
+                        "ctrip-trusted-trace"
+                    ],
+                    "data_source_ids": [
+                        25
+                    ],
+                    "sync_task_ids": [
+                        1001
+                    ],
+                    "ingestion_methods": [
+                        "profile_browser"
+                    ],
+                    "readback_status": "readback_verified",
+                    "operational_metric_keys": [],
+                    "operational_metric_provenance": [],
+                    "operational_data_quality": {
+                        "canonicalized_traffic_projection_groups": 0,
+                        "traffic_projection_policy": "",
+                        "revenue_representation_conflicts": [],
+                        "order_dedup": []
+                    }
+                },
+                "allowed_uses": [
+                    "ota_channel_metric_level_display"
+                ]
+            },
+            "meituan_ota": {
+                "data_status": "readback_verified",
+                "metric_scope": "ota_channel",
+                "business_scope": "ota_channel",
+                "business_date": "2026-07-30",
+                "actual_business_date": "2026-07-30",
+                "platform": "meituan",
+                "analysis_readiness": {
+                    "allowed": false,
+                    "status": "not_loaded",
+                    "basis": "ota_revenue_metric_credibility_gate"
+                },
+                "facts": {
+                    "revenue": 1032.39,
+                    "orders": 1,
+                    "room_nights": 1,
+                    "adr": 1032.39,
+                    "list_exposure": null,
+                    "detail_exposure": null,
+                    "flow_rate_percent": null,
+                    "submit_rate_percent": null,
+                    "cancellation_rate_percent": null,
+                    "cancellation_gross_order_count": null
+                },
+                "fact_statuses": {
+                    "revenue": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "orders": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "room_nights": {
+                        "status": "readback_verified",
+                        "reason": ""
+                    },
+                    "adr": {
+                        "status": "derived_verified",
+                        "reason": "",
+                        "formula": "ota_room_revenue / ota_room_nights"
+                    },
+                    "list_exposure": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "detail_exposure": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "flow_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "submit_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "cancellation_rate_percent": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    },
+                    "cancellation_gross_order_count": {
+                        "status": "missing",
+                        "reason": "metric_source_hotel_mismatch",
+                        "caliber": "",
+                        "updated_at": "",
+                        "source_identity": {
+                            "status": "unverified",
+                            "system_hotel_ids": [],
+                            "platforms": [],
+                            "date_range": {
+                                "start": null,
+                                "end": null
+                            }
+                        },
+                        "source_provenance": {
+                            "table": "",
+                            "row_ids": [],
+                            "trace_ids": [],
+                            "data_source_ids": [],
+                            "sync_task_ids": [],
+                            "data_types": [],
+                            "source_methods": [],
+                            "data_periods": [],
+                            "finality": "unknown",
+                            "row_count": 0,
+                            "final_row_count": 0,
+                            "stored_count": 0,
+                            "readback_verified_count": 0
+                        }
+                    }
+                },
+                "operational_crosscheck": {
+                    "revenue": null,
+                    "orders": null,
+                    "room_nights": null,
+                    "adr": null,
+                    "data_status": "not_loaded",
+                    "data_gaps": [
+                        "ota_operational_metrics_not_loaded"
+                    ]
+                },
+                "source": {
+                    "table": "online_daily_data",
+                    "tenant_id": 80,
+                    "system_hotel_id": 80,
+                    "data_date": "2026-07-30",
+                    "platform": "meituan",
+                    "row_ids": [
+                        66635
+                    ],
+                    "source_trace_ids": [
+                        "meituan-trusted-trace"
+                    ],
+                    "data_source_ids": [
+                        68
+                    ],
+                    "sync_task_ids": [
+                        1002
+                    ],
+                    "ingestion_methods": [
+                        "profile_browser"
+                    ],
+                    "readback_status": "readback_verified",
+                    "operational_metric_keys": [],
+                    "operational_metric_provenance": [],
+                    "operational_data_quality": {
+                        "canonicalized_traffic_projection_groups": 0,
+                        "traffic_projection_policy": "",
+                        "revenue_representation_conflicts": [],
+                        "order_dedup": []
+                    }
+                },
+                "allowed_uses": [
+                    "ota_channel_metric_level_display"
+                ]
+            },
+            "pricing_guard": {
+                "data_status": "missing",
+                "metric_scope": "manual_pricing_configuration",
+                "minimum_floor_price": null,
+                "items": [],
+                "source": {
+                    "table": "room_types",
+                    "hotel_id": 80,
+                    "input_scope": "manual_pricing_configuration",
+                    "evidence_status": "missing_or_incomplete"
+                },
+                "forbidden_substitutes": [
+                    "ota_lead_price",
+                    "ota_sales_avg_price",
+                    "historical_adr",
+                    "competitor_price"
+                ]
+            }
+        },
+        "facts": {
+            "whole_hotel_accommodation": {
+                "room_revenue": 7930.11,
+                "payment_collected_amount": null,
+                "sold_room_nights": 15,
+                "sellable_room_nights": 15,
+                "remaining_sellable_room_nights": 0,
+                "occupancy_rate_percent": 100,
+                "adr": 528.67,
+                "revpar": 528.67
+            },
+            "ota_channel": {
+                "ctrip": {
+                    "revenue": 0,
+                    "orders": 0,
+                    "room_nights": 0,
+                    "adr": null,
+                    "list_exposure": null,
+                    "detail_exposure": null,
+                    "flow_rate_percent": null,
+                    "submit_rate_percent": null,
+                    "cancellation_rate_percent": null,
+                    "cancellation_gross_order_count": null
+                },
+                "meituan": {
+                    "revenue": 1032.39,
+                    "orders": 1,
+                    "room_nights": 1,
+                    "adr": 1032.39,
+                    "list_exposure": null,
+                    "detail_exposure": null,
+                    "flow_rate_percent": null,
+                    "submit_rate_percent": null,
+                    "cancellation_rate_percent": null,
+                    "cancellation_gross_order_count": null
+                },
+                "combined": {
+                    "revenue": null,
+                    "orders": 1,
+                    "room_nights": 1,
+                    "adr": null
+                },
+                "combined_status": {
+                    "data_status": "partial_readback_verified",
+                    "fact_statuses": {
+                        "revenue": {
+                            "status": "analysis_blocked",
+                            "reason": "ota_revenue_analysis_gate_blocked"
+                        },
+                        "orders": {
+                            "status": "readback_verified",
+                            "reason": ""
+                        },
+                        "room_nights": {
+                            "status": "readback_verified",
+                            "reason": ""
+                        },
+                        "adr": {
+                            "status": "not_calculable",
+                            "reason": "combined_ota_revenue_not_ready",
+                            "formula": "combined_ota_revenue / combined_ota_room_nights"
+                        }
+                    },
+                    "analysis_readiness": {
+                        "revenue_allowed": false,
+                        "status": "blocked"
+                    }
+                }
+            },
+            "cross_source_comparison": {
+                "ota_revenue_per_whole_hotel_sellable_room": null,
+                "status": "not_calculable",
+                "metric_scope": "cross_source_comparison",
+                "numerator_scope": "ota_channel",
+                "denominator_scope": "whole_hotel_accommodation",
+                "formula": "sum(ctrip_ota.revenue + meituan_ota.revenue) / pms.sellable_room_nights",
+                "label": "OTA收入/全酒店可售间夜",
+                "whole_hotel_revenue_claim_allowed": false
+            }
+        },
+        "derived_metrics": {
+            "whole_hotel_adr": {
+                "value": 528.67,
+                "unit": "CNY",
+                "status": "ready",
+                "scope": "whole_hotel_accommodation",
+                "formula": "room_revenue / sold_room_nights",
+                "reason": "",
+                "note": ""
+            },
+            "whole_hotel_revpar": {
+                "value": 528.67,
+                "unit": "CNY",
+                "status": "ready",
+                "scope": "whole_hotel_accommodation",
+                "formula": "room_revenue / sellable_room_nights",
+                "reason": "",
+                "note": ""
+            },
+            "ota_adr": {
+                "value": null,
+                "unit": "CNY",
+                "status": "not_calculable",
+                "scope": "ota_channel",
+                "formula": "ota_room_revenue / ota_room_nights",
+                "reason": "combined_ota_adr_not_ready",
+                "note": ""
+            },
+            "ota_room_night_share_percent": {
+                "value": 6.67,
+                "unit": "%",
+                "status": "ready",
+                "scope": "cross_source_comparison",
+                "formula": "ota_room_nights / pms_sold_room_nights * 100",
+                "reason": "",
+                "note": "OTA渠道房晚占PMS全酒店出租房晚；可能受取消、入住日与订单日口径影响。"
+            },
+            "ota_room_revenue_share_percent": {
+                "value": null,
+                "unit": "%",
+                "status": "not_calculable",
+                "scope": "cross_source_comparison",
+                "formula": "ota_room_revenue / pms_accommodation_room_fee * 100",
+                "reason": "pms_room_fee_or_ota_room_revenue_missing",
+                "note": "分母是PMS住宿房费，不是支付实收；只作同日房费结构参考。"
+            },
+            "ota_cancellation_rate_percent": {
+                "value": null,
+                "unit": "%",
+                "status": "not_calculable",
+                "scope": "ota_channel",
+                "formula": "sum(platform_cancel_rate * platform_gross_orders) / sum(platform_gross_orders)",
+                "reason": "all_platform_cancellation_rate_or_gross_order_base_missing",
+                "note": "按平台总订单数加权；不与PMS取消口径混算。"
+            },
+            "ota_revenue_per_whole_hotel_sellable_room": {
+                "value": null,
+                "unit": "CNY",
+                "status": "not_calculable",
+                "scope": "cross_source_comparison",
+                "formula": "sum(ctrip_ota.revenue + meituan_ota.revenue) / pms.sellable_room_nights",
+                "reason": "cross_source_denominator_or_ota_facts_missing",
+                "note": ""
+            },
+            "ota_adr_minus_minimum_floor_price": {
+                "value": null,
+                "unit": "CNY",
+                "status": "not_calculable",
+                "scope": "reference_only",
+                "formula": "combined_ota_adr - minimum_configured_room_type_floor_price",
+                "reason": "floor_price_or_ota_adr_missing",
+                "note": "全店最低保护价与综合OTA ADR粒度不同，只作预警参考，不能据此判定某房型低价销售。"
+            }
+        },
+        "analysis_gaps": [
+            {
+                "code": "ctrip_ota_revenue_analysis_blocked",
+                "source": "ctrip_ota",
+                "status": "not_loaded",
+                "category": "revenue_analysis_credibility"
+            },
+            {
+                "code": "meituan_ota_revenue_analysis_blocked",
+                "source": "meituan_ota",
+                "status": "not_loaded",
+                "category": "revenue_analysis_credibility"
+            }
+        ],
+        "ai_review_gaps": [
+            {
+                "code": "ctrip_ota_revenue_analysis_blocked",
+                "source": "ctrip_ota",
+                "status": "not_loaded",
+                "category": "revenue_analysis_credibility"
+            },
+            {
+                "code": "meituan_ota_revenue_analysis_blocked",
+                "source": "meituan_ota",
+                "status": "not_loaded",
+                "category": "revenue_analysis_credibility"
+            }
+        ]
+    }
+}

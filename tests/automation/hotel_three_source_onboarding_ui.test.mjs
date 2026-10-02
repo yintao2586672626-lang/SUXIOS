@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const read = path => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');
-const appMain = read('public/app-main.js');
+const appMain = read('public/app-main.js') + '\n' + read('public/system-page-projections.js');
 const appMainComponents = read('public/components/system/app-main-components.js');
 const appMainComponentsLoader = read('public/components/system/app-main-components-loader.js');
 const hotelOnboardingStatic = read('public/hotel-three-source-onboarding-static.js');
@@ -79,8 +79,12 @@ test('cloud logins are serialized and only complete with opaque profile and sess
   assert.match(hotelOnboardingStatic, /!url\.pathname\.startsWith\('\/cloud-browser-viewer\/'\)/);
   assert.match(opener, /viewerWindow\.location\.replace\(viewerUrl\)/);
   assert.match(completer, /request\('\/cloud-browser-profiles\/complete-login'/);
-  assert.match(completer, /profile_id: session\.profile_id/);
-  assert.match(completer, /session_id: session\.session_id/);
+  assert.match(completer, /const profileId = session\.profile_id;/);
+  assert.match(completer, /const sessionId = session\.session_id;/);
+  const completionRequest = sliceBetween(completer,
+    "const response = await request('/cloud-browser-profiles/complete-login'", 'if (!isCurrent()) return false;');
+  assert.match(completionRequest, /profile_id: profileId/);
+  assert.match(completionRequest, /session_id: sessionId/);
   assert.match(completer, /delete nextSessions\[platform\]/);
   assert.match(completer, /hotelOnboardingBusyPlatform\.value = ''/);
   assert.match(hotelOnboardingStatic, /row\.profileReady === true/);
@@ -131,7 +135,9 @@ test('collection plan can be enabled before onboarding is allowed to finish', ()
   assert.match(verification, /'data-testid': 'hotel-onboarding-enable-collection'/);
   assert.match(verification, /onClick: ctx\.enableHotelOnboardingHourlyCollection/);
   assert.match(verification, /disabled: ctx\.hotelOnboardingLoading \|\| !ctx\.hotelOnboardingReady/);
-  assert.match(hotelOnboardingStatic, /await loadHotelThreeSourceOnboarding\(\{ hotelId: exactHotelId, silent: true \}\)/);
+  const enabler = sliceBetween(hotelOnboardingStatic,
+    'const enableHotelOnboardingHourlyCollection = async', 'const openHotelOnboardingWechatConfig =');
+  assert.match(enabler, /const readbackPromise = loadHotelThreeSourceOnboarding\(\{ hotelId: exactHotelId, silent: true \}\);\s*expectedReadEpoch = hotelOnboardingReadEpoch;\s*const refreshed = await readbackPromise;\s*if \(!isCurrent\(\)\) return false;\s*if \(!refreshed \|\| !hotelOnboardingReady\.value\) \{\s*throw new Error/);
 });
 
 test('page completion never overrides a backend blocker when visible source rows look ready', () => {

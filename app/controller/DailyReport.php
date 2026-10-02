@@ -82,7 +82,16 @@ class DailyReport extends Base
         $this->checkPermission();
 
         $pagination = $this->getPagination();
-        $hotelId = $this->request->param('hotel_id', '');
+        $requestedHotelParam = $this->request->param('hotel_id', '');
+        if (!is_scalar($requestedHotelParam) && $requestedHotelParam !== null) {
+            return $this->error('酒店ID无效', 400);
+        }
+        $requestedHotel = trim((string)$requestedHotelParam);
+        if ($requestedHotel !== '' && $requestedHotel !== '0'
+            && (!ctype_digit($requestedHotel) || (int)$requestedHotel <= 0)) {
+            return $this->error('酒店ID无效', 400);
+        }
+        $hotelId = (int)$requestedHotel;
         $startDate = $this->request->param('start_date', '');
         $endDate = $this->request->param('end_date', '');
 
@@ -90,14 +99,20 @@ class DailyReport extends Base
 
         // 根据权限过滤酒店
         if (!$this->currentUser->isSuperAdmin()) {
-            $permittedHotelIds = $this->currentUser->getPermittedHotelIds();
-            if (empty($permittedHotelIds)) {
-                return $this->paginate([], 0, $pagination['page'], $pagination['page_size']);
+            $viewableHotelIds = array_values(array_filter(
+                array_map('intval', $this->currentUser->getPermittedHotelIds()),
+                fn(int $id): bool => $id > 0 && $this->currentUser->hasHotelPermission($id, 'can_view_report')
+            ));
+            if ($hotelId > 0 && !in_array($hotelId, $viewableHotelIds, true)) {
+                return $this->error('无权查看此酒店日报', 403);
             }
-            if ($hotelId && in_array($hotelId, $permittedHotelIds)) {
+            if ($viewableHotelIds === []) {
+                return $this->error('无权查看酒店日报', 403);
+            }
+            if ($hotelId > 0) {
                 $query->where('hotel_id', $hotelId);
             } else {
-                $query->whereIn('hotel_id', $permittedHotelIds);
+                $query->whereIn('hotel_id', $viewableHotelIds);
             }
         } elseif ($hotelId) {
             $query->where('hotel_id', $hotelId);
@@ -176,17 +191,21 @@ class DailyReport extends Base
         
         // 获取当月所有日报表数据（用于计算月累计）
         $monthReports = DailyReportModel::where('hotel_id', $report->hotel_id)
-            ->where('report_date', '>=', "{$year}-{$month}-01")
+            ->where('status', DailyReportModel::STATUS_SUBMITTED)
+            ->where('report_date', '>=', sprintf('%04d-%02d-01', $year, $month))
             ->where('report_date', '<=', $reportDate)
             ->select();
         
         // 计算月累计数据
         $monthSum = $this->calculateMonthSum($monthReports);
+        $monthCoverage = $this->calculateMonthCoverage($monthReports, (string)$reportDate);
+        $monthCoverage['hotel_id'] = (int)$report->hotel_id;
+        $monthCoverage['tenant_id'] = max(0, (int)($hotel?->tenant_id ?? $report->tenant_id ?? 0));
         
         // 计算各项指标
         $onlineRowsStatus = null;
         $onlineRows = $this->dailyOtaRows((int)$report->hotel_id, (string)$reportDate, $onlineRowsStatus);
-        $result = $this->calculateReportDetail($hotel, $reportData, $taskData, $monthSum, $reportDate, $day, $monthDays, $onlineRows);
+        $result = $this->calculateReportDetail($hotel, $reportData, $taskData, $monthSum, $reportDate, $day, $monthDays, $onlineRows, $monthCoverage);
         if ($onlineRowsStatus === 'read_failed') {
             $result['ota_channel_supplement']['data_status'] = 'read_failed';
             $result['ota_channel_supplement']['data_error_code'] = 'online_daily_data_read_failed';
@@ -215,6 +234,7 @@ class DailyReport extends Base
         $fieldCounts = [];
         $reportCount = 0;
         foreach ($reports as $report) {
+            if (!in_array($report->status ?? null, [DailyReportModel::STATUS_SUBMITTED, (string)DailyReportModel::STATUS_SUBMITTED], true)) continue;
             $reportCount++;
             $data = $this->normalizeReportData($report->report_data ?? []);
             foreach ($data as $key => $value) {
@@ -233,6 +253,38 @@ class DailyReport extends Base
             'field_counts' => $fieldCounts,
         ];
         return $sum;
+    }
+
+    private function calculateMonthCoverage($reports, string $reportDate): array
+    {
+        $monthPrefix = substr($reportDate, 0, 7);
+        $startDate = $monthPrefix . '-01';
+        $expectedDays = (int)substr($reportDate, 8, 2);
+        $observed = [];
+        foreach ($reports as $report) {
+            if (!in_array($report->status ?? null, [DailyReportModel::STATUS_SUBMITTED, (string)DailyReportModel::STATUS_SUBMITTED], true)) continue;
+            $date = (string)($report->report_date ?? '');
+            if ($date >= $startDate && $date <= $reportDate) {
+                $observed[$date] = true;
+            }
+        }
+        $missing = [];
+        for ($day = 1; $day <= $expectedDays; $day++) {
+            $date = $monthPrefix . '-' . sprintf('%02d', $day);
+            if (!isset($observed[$date])) $missing[] = $date;
+        }
+        return [
+            'source_table' => 'daily_reports',
+            'required_report_status' => DailyReportModel::STATUS_SUBMITTED,
+            'source_policy' => 'submitted_daily_reports_only',
+            'scope' => 'whole_hotel_daily_report',
+            'start_date' => $startDate,
+            'end_date' => $reportDate,
+            'expected_days' => $expectedDays,
+            'observed_days' => count($observed),
+            'missing_dates' => $missing,
+            'data_status' => $missing === [] ? 'complete' : 'partial',
+        ];
     }
     
     /**
@@ -265,7 +317,7 @@ class DailyReport extends Base
         return [];
     }
 
-    private function calculateReportDetail($hotel, $reportData, $taskData, $monthSum, $reportDate, $day, $monthDays, array $onlineRows = []): array
+    private function calculateReportDetail($hotel, $reportData, $taskData, $monthSum, $reportDate, $day, $monthDays, array $onlineRows = [], ?array $monthCoverage = null): array
     {
         $reportData = is_array($reportData) ? $reportData : $this->normalizeReportData($reportData);
         $taskData = is_array($taskData) ? $taskData : $this->normalizeReportData($taskData);
@@ -449,6 +501,9 @@ class DailyReport extends Base
         } elseif ($monthTotalRooms <= 0) {
             $addGap('monthly_sold_room_nights_not_positive', '月累计出租间夜不大于 0，月 ADR 无定义，不以 0 代替。', ['month_adr']);
         }
+        if (($monthCoverage['data_status'] ?? '') === 'partial') {
+            $addGap('monthly_daily_reports_missing', '业务月内存在未提交日期；月累计仅为已提交日报的观察值，不能当作完整月累计。', ['month_revenue', 'month_occ_rate', 'month_adr', 'month_revpar', 'month_complete_rate', 'month_revenue_diff']);
+        }
         if ($monthRevenueTarget === null) {
             $addGap('monthly_revenue_target_missing', '未设置月营收目标，不生成完成率或目标差额。', ['month_complete_rate', 'month_revenue_diff', 'day_revenue_target', 'day_revenue_diff']);
         } elseif ($monthRevenueTarget <= 0) {
@@ -476,7 +531,8 @@ class DailyReport extends Base
             'month_complete_rate' => $monthCompleteRate,
         ] as $metric => $value) {
             $metricStatus[$metric] = [
-                'status' => $value === null ? 'data_gap' : 'ready',
+                'status' => $value === null ? 'data_gap'
+                    : (str_starts_with($metric, 'month_') && ($monthCoverage['data_status'] ?? '') === 'partial' ? 'partial' : 'ready'),
                 'scope' => 'whole_hotel_daily_report',
             ];
         }
@@ -580,9 +636,11 @@ class DailyReport extends Base
             'month_cash_income' => $monthCashIncome,
 
             'metric_scope' => 'whole_hotel_daily_report',
+            'month_coverage' => $monthCoverage ?? ['data_status' => 'unknown'],
             'data_status' => $coreMetricsReady ? 'ready' : ($reportData === [] ? 'missing' : 'partial'),
             'core_metrics_ready' => $coreMetricsReady,
-            'data_notice' => '经营指标仅基于 daily_reports 中已填报的全酒店经营字段；OTA 补充摘要保持 ota_channel 口径，不参与全酒店营收、OCC、ADR 或 RevPAR 推导。',
+            'data_notice' => '经营指标仅基于 daily_reports 中已填报的全酒店经营字段；OTA 补充摘要保持 ota_channel 口径，不参与全酒店营收、OCC、ADR 或 RevPAR 推导。'
+                . (($monthCoverage['data_status'] ?? '') === 'partial' ? '月累计存在未提交日期，仅代表已提交日报的观察值。' : ''),
             'metric_status' => $metricStatus,
             'data_gaps' => $dataGaps,
             
@@ -926,8 +984,11 @@ class DailyReport extends Base
 
         $data = $this->requestData();
 
-        // 提取报表数据
-        $reportData = $this->extractReportData($data);
+        // 编辑只覆盖明确提交的配置字段；状态更新与旧版字段不能清空既有报表。
+        $reportData = array_replace(
+            $this->normalizeReportData($report->report_data ?? []),
+            $this->extractReportData($data)
+        );
         
         $report->report_data = $reportData;
         
@@ -1433,7 +1494,8 @@ class DailyReport extends Base
         
         // 获取当月所有日报表数据
         $monthReports = DailyReportModel::where('hotel_id', $report->hotel_id)
-            ->where('report_date', '>=', "{$year}-{$month}-01")
+            ->where('status', DailyReportModel::STATUS_SUBMITTED)
+            ->where('report_date', '>=', sprintf('%04d-%02d-01', $year, $month))
             ->where('report_date', '<=', $reportDate)
             ->select();
         

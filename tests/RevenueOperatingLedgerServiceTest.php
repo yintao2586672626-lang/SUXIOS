@@ -35,6 +35,23 @@ final class RevenueOperatingLedgerServiceTest extends TestCase
     {
         return array_values(array_filter($ledger['metrics'], static fn(array $m): bool => $m['metric_key'] === $key))[0];
     }
+    public function testSavedButUnreadbackMeituanMoneyKeepsUnverifiedLedgerQuality(): void
+    {
+        $row = [
+            'data_type' => 'business', 'record_kind' => 'aggregate', 'gross_revenue' => 120,
+            'monetary_unit_evidence' => ['currency' => 'CNY', 'amount_storage_unit' => 'yuan', 'failure_reasons' => []],
+            'source_trace' => ['system_hotel_id' => 80, 'platform' => 'meituan', 'date_key' => '2026-08-20',
+                'row_id' => 901, 'saved_success' => true, 'readback_verified' => false],
+        ];
+        $service = new OtaRevenueMetricService();
+        $unverified = $service->ledgerEntries(['fact_ota_daily' => [$row]], 9, 80, 'meituan');
+        self::assertCount(1, $unverified);
+        self::assertFalse($unverified[0]['readback_verified']);
+        self::assertSame('unverified', $unverified[0]['quality_status']);
+        $row['source_trace']['readback_verified'] = true;
+        $verified = $service->ledgerEntries(['fact_ota_daily' => [$row]], 9, 80, 'meituan');
+        self::assertSame('readback_verified', $verified[0]['quality_status']);
+    }
     public function testSameDayOrderIsNotSettlementAndUnknownRemainderIsNeverBalanced(): void
     {
         $ledger = (new RevenueOperatingLedgerService())->build($this->scope(), [

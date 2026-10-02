@@ -1,3 +1,4 @@
+import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
@@ -6,7 +7,7 @@ import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
 const html = readFrontendContractSource();
 const ctripStatic = readFileSync('public/ctrip-static.js', 'utf8');
-const meituanStatic = readFileSync('public/meituan-static.js', 'utf8');
+const meituanStatic = readStaticContractSource('public/meituan-static.js');
 const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
 const otaDiagnosisStatic = readFileSync('public/ota-diagnosis-static.js', 'utf8');
 const onlineDataTemplateFragment = readFileSync('resources/frontend/templates/fragments/35-page-online-data.html', 'utf8');
@@ -749,9 +750,8 @@ test('Meituan daily fetch keeps the advanced Profile panel out of the ranking pa
 test('Meituan ranking uses selected hotel config without exposing temporary fields', () => {
   const rankingPanel = sliceFrom('<div v-if="onlineDataTab === \'meituan-ranking\'">', '<!-- 获取结果显示 -->');
   const fetchMeituanData = sliceFrom('const fetchMeituanData = async (options = {}) => {', 'const useCtripTrafficDisplayRows');
-  const meituanFetchFlow = meituanStatic.slice(
-    meituanStatic.indexOf('const runMeituanBatchFetchFlow = async ({'),
-    meituanStatic.indexOf('const buildMeituanRankDisplayRows')
+  const meituanFetchFlow = sourceDeclaration(
+    readFileSync('public/ota-fetch-flow-static.js', 'utf8'), 'runMeituanBatchFetchFlow'
   );
   const meituanBatchValidation = meituanStatic.slice(
     meituanStatic.indexOf('const validateMeituanBatchFetchInput = ({'),
@@ -788,7 +788,7 @@ test('Meituan ranking uses selected hotel config without exposing temporary fiel
   assert.equal(meituanStaticApi.shouldShowMeituanPreviousDayUpdateNotice(['1'], 8), true);
   assert.equal(meituanStaticApi.shouldShowMeituanPreviousDayUpdateNotice(['1'], 9), false);
   assert.equal(meituanStaticApi.shouldShowMeituanPreviousDayUpdateNotice(['7'], 3), false);
-  assert.match(html, /const meituanRankMaxDate = computed\(\(\) => formatDate\(new Date\(\)\)\);/);
+  assert.match(html, /const meituanRankMaxDate = computed\(\(\) => shanghaiBusinessDate\(\)\);/);
   assert.match(html, /meituanRankMaxDate,/);
   assert.match(html, /const showMeituanPreviousDayUpdateNotice = computed\(\(\) => \{/);
   assert.match(mainSetupReturnSource(), /showMeituanPreviousDayUpdateNotice/);
@@ -812,7 +812,7 @@ test('Meituan ranking uses selected hotel config without exposing temporary fiel
   assert.doesNotMatch(meituanFetchFlow, /return \{ status: 'missing_hotel' \}/);
   assert.doesNotMatch(meituanFetchFlow, /return \{ status: 'missing_config' \}/);
   assert.doesNotMatch(meituanFetchFlow, /setBusinessSummary\(null\)/);
-  assert.match(meituanFetchFlow, /status:\s*'exception'/);
+  assert.match(meituanFetchFlow, /status:\s*unverifiedCount > 0 \? 'readback_unverified' : 'exception'/);
   assert.match(meituanFetchFlow, /const failedCount = results\.filter\(item => item\?\.error\)\.length;/);
   assert.match(meituanFetchFlow, /fetchTasks\.length > 0 && failedCount === fetchTasks\.length/);
   assert.match(meituanFetchFlow, /setBusinessSummary\(getEmptyBusinessSummary\(\)\)/);
@@ -1683,7 +1683,9 @@ test('Meituan batch fetch keeps backend display summary after model build', asyn
     },
   });
 
-  assert.equal(result.status, 'success');
+  assert.equal(result.status, 'readback_unverified');
+  assert.equal(result.totalSavedCount, 0);
+  assert.equal(result.unverifiedSavedCount, 4);
   assert.equal(capturedDisplaySummary?.cards?.[0]?.key, 'totalRoomNights');
   assert.deepEqual(businessSummaryWrites, []);
   assert.equal(notifications.length, 2);
@@ -1753,7 +1755,7 @@ test('Meituan ranking commits only the complete candidate for each retry task', 
     },
     requestCommit: async body => {
       committed.push({ ...body });
-      return { code: 200, data: { saved_count: 20 } };
+      return { code: 200, data: { saved_count: 20, readback_verified: true, persistence_status: 'readback_verified' } };
     },
     requestDisplayModel: async () => ({ code: 200, data: { display_hotels: [] } }),
     useDisplayModel: data => data.display_hotels || [],
@@ -1762,7 +1764,10 @@ test('Meituan ranking commits only the complete candidate for each retry task', 
   assert.equal(requestCounts.get('P_XS'), 2);
   assert.deepEqual(committed.filter(item => item.rank_type === 'P_XS').map(item => item.candidate_id), ['P_XS-2']);
   assert.equal(committed.length, 4);
+  assert.equal(result.status, 'success');
   assert.equal(result.totalSavedCount, 80);
+  assert.equal(result.verifiedSavedCount, 80);
+  assert.equal(result.unverifiedSavedCount, 0);
 });
 
 test('Meituan ranking reports platform responses before queued database commits finish', async () => {
@@ -2021,7 +2026,9 @@ test('Meituan today ranking stops each rank task as soon as its data is complete
     useDisplayModel: data => data.display_hotels || [],
   });
 
-  assert.equal(result.status, 'success');
+  assert.equal(result.status, 'readback_unverified');
+  assert.equal(result.totalSavedCount, 0);
+  assert.equal(result.unverifiedSavedCount, 80);
   assert.equal(requestCounts.get('P_RZ'), 1);
   assert.equal(requestCounts.get('P_XS'), 2);
   assert.equal(requestCounts.get('P_ZH'), 1);
@@ -2438,7 +2445,9 @@ test('Meituan historical ranking stops each task when complete within three atte
     useDisplayModel: data => data.display_hotels || [],
   });
 
-  assert.equal(result.status, 'success');
+  assert.equal(result.status, 'readback_unverified');
+  assert.equal(result.totalSavedCount, 0);
+  assert.equal(result.unverifiedSavedCount, 80);
   assert.equal(requestCounts.get('P_RZ'), 2);
   assert.equal(requestCounts.get('P_XS'), 2);
   assert.equal(requestCounts.get('P_ZH'), 1);
@@ -2881,8 +2890,8 @@ test('Meituan display model keeps self metric anchors scoped by date range', () 
 test('Meituan config saves cookie-only and no longer treats room counts as credentials', () => {
   const saveMeituanConfigItem = functionSlice('saveMeituanConfigItem');
   const meituanStaticFallback = constSlice(
-    'const meituanStaticFallbackFor = (key) => {',
-    '\n            const requireMeituanStatic = (key) => {'
+    'const buildMeituanStaticFallbackFor = ',
+    'const buildPlatformProfileFlowRows = '
   );
   const returnToMeituanRankingAfterConfigSave = constSlice(
     'const returnToMeituanRankingAfterConfigSave = async (hotelId) => {',
@@ -3434,7 +3443,8 @@ test('Home lower dashboard panels mount after the first OTA navigation window', 
   assert.match(html, /const ensureHomeSecondaryStaticRuntimeReady = async \(\) => \{[\s\S]*SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET[\s\S]*app-deferred-helpers\.min\.js/);
   assert.match(html, /const scheduleHomeSecondaryPanelsReady = \(delayMs = HOME_SECONDARY_PANEL_DELAY_MS\) => \{/);
   assert.match(currentPageWatcher, /clearHomeSecondaryPanelsReadyTimer\(\);\s*clearDualOtaSystemMetricDrilldownHydrationTimer\(\);\s*homeSecondaryPanelsReady\.value = false;\s*destroyHomeTrendChart\(\);/);
-  assert.match(currentPageWatcher, /homeSecondaryPanelsReady\.value = false;\s*scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,620}?const requestPolicy = currentCompassReadPolicy\(newPage, 'current'\);/);
+  assert.match(html, /const requestSeq = clearHomeSecondaryPanelsReadyTimer\(\);\s*homeSecondaryPanelsReady\.value = false;/);
+  assert.match(currentPageWatcher, /scheduleHomeSecondaryPanelsReady\(\);[\s\S]{0,620}?const requestPolicy = currentCompassReadPolicy\(newPage, 'current'\);/);
   assert.match(currentPageWatcher, /runPageLoadOnce\([\s\S]*?newPage,[\s\S]*?'main',[\s\S]*?\(\) => loadCompassData\(\{\s*skipOtaBackground:\s*true,\s*requestPolicy\s*\}\),[\s\S]*?ttlMs: DASHBOARD_PAGE_CACHE_TTL_MS,[\s\S]*?requestPolicy/);
   assert.doesNotMatch(currentPageWatcher, /runPageLoadOnce\(newPage, 'auto-fetch-static'/);
   assert.match(html, /v-if="homeSecondaryPanelsReady"[^>]+data-testid="daily-ops-monitor-card"/);
@@ -4615,6 +4625,10 @@ test('Online data health tab returns the initial light refresh and schedules lat
     'const goAiDailyReportDataGap = async (gap) => {',
     '\n            const operationExecutionItems'
   );
+  const openAiDailyReportDataHealthTarget = sliceFrom(
+    'const openAiDailyReportDataHealthTarget = () => {',
+    '\n            const openAiDailyReportEvidenceTarget'
+  );
   const onlineDataDefaultLoader = sliceFrom(
     "if (newPage === 'online-data' && token.value) {",
     "\n                if (newPage === 'operation-logs')"
@@ -4676,8 +4690,9 @@ test('Online data health tab returns the initial light refresh and schedules lat
   assert.match(openCtripManualTab, /refreshLatest: false/);
   assert.match(openCtripManualTab, /skipIfAligned: true/);
   assert.doesNotMatch(openCtripManualTab, /loadDataHealthPanel,\s*loadConfigList/);
-  assert.match(goAiDailyReportDataGap, /currentPage\.value = 'online-data';\s*onlineDataTab\.value = 'data-health';\s*dataHealthSecondaryPanelsReady\.value = false;\s*scheduleDataHealthSecondaryPanelsReady\(\);\s*dataHealthDetailPanelsReady\.value = false;\s*scheduleDataHealthDetailPanelsReady\(\);\s*dataHealthEmployeePanelsReady\.value = false;\s*scheduleDataHealthEmployeePanelsReady\(\);\s*scheduleDataHealthPanelRefresh\('light'\);/);
-  assert.doesNotMatch(goAiDailyReportDataGap, /await loadDataHealthPanel\('light'\);/);
+  assert.match(goAiDailyReportDataGap, /await openAiDailyReportEvidenceTarget\(gap\);/);
+  assert.match(openAiDailyReportDataHealthTarget, /currentPage\.value = 'online-data';\s*onlineDataTab\.value = 'data-health';\s*dataHealthSecondaryPanelsReady\.value = false;\s*scheduleDataHealthSecondaryPanelsReady\(\);\s*dataHealthDetailPanelsReady\.value = false;\s*scheduleDataHealthDetailPanelsReady\(\);\s*dataHealthEmployeePanelsReady\.value = false;\s*scheduleDataHealthEmployeePanelsReady\(\);\s*scheduleDataHealthPanelRefresh\('light', \{ force: true \}\);/);
+  assert.doesNotMatch(openAiDailyReportDataHealthTarget, /await loadDataHealthPanel\('light'\);/);
   assert.match(html, /const MANUAL_ONLINE_DATA_CONFIG_PREWARM_DELAY_MS = 60;/);
   assert.match(html, /const MANUAL_ONLINE_FETCH_CONFIG_TABS = new Set\(\['ctrip', 'meituan'\]\);/);
   assert.match(html, /const shouldPrewarmManualOnlineFetchConfig = \(newTab\) => MANUAL_ONLINE_FETCH_CONFIG_TABS\.has\(String\(newTab \|\| ''\)\);/);
@@ -4767,8 +4782,8 @@ test('Download center defers hotel filter loading after primary data', () => {
 
 test('Core operations keeps missing platform evidence unknown instead of synthetic zero', () => {
   const platformCards = sliceFrom(
-    'const coreOperationsPlatformCards = computed(() => {',
-    '\n            const coreOperationsMeituanComparableValue'
+    'const buildCoreOperationsPlatformCards = ',
+    '\n    const buildCoreOperationsCompetitorRows = '
   );
   assert.match(platformCards, /const rawSourceRows = platformEvidence\?\.target_date_rows;/);
   assert.match(platformCards, /const sourceRows = rawSourceRows !== null[\s\S]*Number\.isInteger\(parsedSourceRows\)[\s\S]*parsedSourceRows >= 0[\s\S]*\? parsedSourceRows[\s\S]*: null;/);
@@ -4797,7 +4812,7 @@ test('Core operations clears old scope values and exposes competitor request fai
     'dailyWorkbench.value = null;',
     'dailyWorkbenchPatrol.value = null;',
     'phase3OperationEffectLoop.value = null;',
-    'ctripCompetitiveOperationsPayload.value = null;',
+    'resetCtripCompetitiveOperations();',
     'competitorSummary.value = null;',
   ]) {
     assert.ok(resetScopedState.includes(reset), `scope reset must include ${reset}`);
@@ -4814,6 +4829,9 @@ test('Core six-step state requires both platforms, AI-linked tasks, and a due te
   const executionAndSteps = sliceFrom(
     'const coreOperationsExecutionItems = computed(() => {',
     '\n            const phase3OperationEffectLoopSummary'
+  ) + sliceFrom(
+    'const buildCoreOperationsStepRows = ',
+    '\n    const buildCloudAuthorizationRows = '
   );
 
   assert.match(executionAndSteps, /const coreOperationsAiExecutionItems = computed[\s\S]*source_module \|\| ''\)\.toLowerCase\(\) === 'ota_diagnosis_saved'/);
@@ -4845,3 +4863,4 @@ test('Operation action loads reject stale request and hotel responses', () => {
   assert.match(operationActionsLoader, /catch \(error\) \{\s*if \(!isCurrentRequest\(\)\) return;/);
   assert.match(operationActionsLoader, /finally \{\s*if \(requestSeq === operationActionsRequestSeq\) \{\s*operationLoading\.value\.actions = false;/);
 });
+import { sourceDeclaration } from './helpers/source_declaration.mjs';

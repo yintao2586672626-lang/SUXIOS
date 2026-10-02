@@ -11,6 +11,10 @@ use think\facade\Db;
 const MOLANXIN_RUNNER_MAX_OUTPUT_BYTES = 2_000_000;
 
 $root = dirname(__DIR__);
+$profileLeaseRunner = $root . '/scripts/run_dingdandao_profile_lease_collection.php';
+if (!is_file($profileLeaseRunner)) {
+    molanxinFail('molanxin_collection_profile_lease_runner_unavailable', 2);
+}
 require $root . '/vendor/autoload.php';
 (new App($root))->initialize();
 
@@ -68,7 +72,7 @@ try {
     $runId = $runs->start($hotelId, $observedAt);
     $collection = molanxinRunJsonProcess([
         $phpBinary,
-        $root . '/scripts/run_dingdandao_profile_lease_collection.php',
+        $profileLeaseRunner,
         '--hotel-id=' . $hotelId,
         '--owner-user-id=' . $ownerUserId,
         '--profile-id=' . $profileId,

@@ -734,9 +734,12 @@ trait MeituanCapturedDataConcern
             $conversion = CtripTrafficDisplayService::trafficRate((float)$orders, (float)$clicks);
         }
         $roasValue = $this->firstMeituanValue($item, ['roas', 'roi'], null);
-        $roas = $roasValue !== null ? max(0.0, $this->meituanNumber($item, ['roas', 'roi'], 0.0)) : null;
-        if ($roas === null && $spend !== null && $spend > 0 && $orderAmount !== null && $orderAmount > 0) {
-            $roas = $orderAmount / $spend;
+        $roas = $this->meituanNumber($item, ['roas', 'roi'], NAN);
+        $roas = is_finite($roas) && $roas >= 0 ? $roas : null;
+        if ($roasValue === null && $spend !== null && is_finite($spend) && $spend > 0
+            && $orderAmount !== null && is_finite($orderAmount) && $orderAmount >= 0) {
+            $derivedRoas = $orderAmount / $spend;
+            $roas = is_finite($derivedRoas) ? $derivedRoas : null;
         }
 
         if ($exposure === null && $clicks === null && $spend === null && $orderAmount === null && $orders === null && $roas === null) {
@@ -1342,6 +1345,9 @@ trait MeituanCapturedDataConcern
                 ->where('data_type', (string)$row['data_type'])
                 ->where('data_date', (string)$row['data_date'])
                 ->where('dimension', (string)($row['dimension'] ?? ''));
+            if (isset($columns['tenant_id'])) {
+                $query->where('tenant_id', (int)$row['tenant_id']);
+            }
             $this->applyOnlineDailyDataPeriodQuery($query, $row, $columns);
 
             if (!empty($row['hotel_id'])) {

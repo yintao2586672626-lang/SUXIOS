@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { readSourceAggregate } from './lib/source_aggregate.mjs';
 
 const root = process.cwd();
 const checks = [];
@@ -24,12 +25,12 @@ function excludesAll(label, source, needles) {
 }
 
 const reportSource = read('scripts/report_business_chain_status.php');
-const report = `${reportSource}\n${read('scripts/lib/business_chain_review_scope.php')}`;
+const report = `${readSourceAggregate('scripts/report_business_chain_status.php', { repoRoot: root })}\n${read('scripts/lib/business_chain_review_scope.php')}`;
 const runtimeTest = read('tests/automation/business_chain_status_report.test.mjs');
 const runtimeRunner = read('scripts/run_node_automation_tests.mjs');
 const runtimeContract = `${runtimeTest}\n${runtimeRunner}`;
 const p0ExecutionPlanTest = read('tests/BusinessChainP0ExecutionPlanTest.php');
-const revenueAi = read('app/service/RevenueAiOverviewService.php');
+const revenueAi = readSourceAggregate('app/service/RevenueAiOverviewService.php', { repoRoot: root });
 const pkg = read('package.json');
 const workflow = read('.github/workflows/php.yml');
 
@@ -102,7 +103,9 @@ includesAll('business-chain report supports explicit skip-P0 reference mode', re
   'skip-platform',
   'skip_p0_reference_only',
   'read_existing_latest_available_ota_rows_reference_only',
-  'target_date_p0_rows_missing_but_latest_real_ota_rows_exist',
+  'historical_rows_are_not_current_date_verified_facts',
+  'allowHistoricalReference',
+  'no_quality_qualified_target_date_sources',
   'forbidden_claims',
   'target_date_closure',
 ]);
@@ -274,7 +277,8 @@ includesAll('business-chain report runtime test guards operator skip output', ru
   'handoff_reference_only',
   'ctrip_target_date_ota_channel_reference',
   '--platform=ctrip',
-  'scoped_ai_review_ready',
+  "assert.equal(payload.focused_chain.status, 'not_ready')",
+  'assert.equal(payload.focused_chain.claim_allowed, false)',
   'handoff_ready_for_manual_review',
   'use_scoped_target_date_ota_rows_for_ai_review',
   'ctrip_target_date_ota_channel',
