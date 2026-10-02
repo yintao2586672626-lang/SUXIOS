@@ -155,6 +155,40 @@ test('a dynamically loaded component script remains reusable by the deferred man
   await deferredManifestReuse;
 });
 
+test('the full component bridge waits for the authenticated after-first-paint loader', async () => {
+  const deferredLoads = [];
+  const window = {
+    SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET: async asset => {
+      deferredLoads.push(asset);
+      window.SUXI_APP_MAIN_COMPONENTS_FULL = {
+        create: () => ({
+          OperatingLoopAuthority: { name: 'OperatingLoopAuthority' },
+        }),
+      };
+    },
+  };
+  const document = {
+    baseURI: 'https://hotel.example.test/',
+    scripts: [],
+    head: { appendChild: () => assert.fail('the bridge must not bypass the authenticated asset loader') },
+    createElement: () => assert.fail('the bridge must not create a script before first paint'),
+  };
+  vm.runInNewContext(appMainComponentsLoader, { window, document, URL }, {
+    filename: 'app-main-components-loader.js',
+  });
+  const Vue = {
+    defineAsyncComponent: definition => (
+      typeof definition === 'function' ? { loader: definition } : definition
+    ),
+  };
+  const components = window.SUXI_APP_MAIN_COMPONENTS.create({ Vue, h: () => null });
+
+  const component = await components.OperatingLoopAuthority.loader();
+
+  assert.deepEqual(deferredLoads, ['components/system/app-main-components.js']);
+  assert.equal(component.name, 'OperatingLoopAuthority');
+});
+
 test('floating operating consultant loads only after the user opens it and opens on the first click', async () => {
   const scripts = [];
   const createScript = () => {

@@ -335,6 +335,14 @@
         components: {
             ChartRenderFeedback,
             OperationExecutionEvidenceViewer: appMainComponents.OperationExecutionEvidenceViewer,
+            // SUXI_HOTEL_LEARNING_BEGIN
+            HotelLearningWorkbench: Vue.defineAsyncComponent({
+                loader: () => loadOnlineDataComponentScript('components/system/hotel-learning-workbench.min.js?v=hotel-learning-h254727d5a3')
+                    .then(() => requireSystemComponent('HotelLearningWorkbench')),
+                loadingComponent: { render: () => h('p', { role: 'status', class: 'p-4 text-sm' }, '正在加载业务工具…') },
+                delay: 150,
+            }),
+            // SUXI_HOTEL_LEARNING_END
             OperationTaskWorkflowPanel: appMainComponents.OperationTaskWorkflowPanel || Vue.defineAsyncComponent(() => loadOnlineDataComponentScript('components/operations/task-workflow-panel.js?v=20260908-workflow-v1').then(() => window.SUXI_TASK_WORKFLOW_PANEL.create({ Vue, h }))),
             CompassCardHeader,
             MetricCard,
@@ -1095,6 +1103,7 @@
                 'revenue-research-center',
                 'operation-optimizer',
                 'operating-opportunities',
+                'investment-payback',
                 'operating-targets',
                 'ai-daily-report',
                 'ctrip-ebooking',
@@ -17611,6 +17620,7 @@
                             },
                         },
                         { type: 'source', sourcePath: 'revenue-research-center', overrides: { name: '收益诊断' } },
+                        { type: 'source', sourcePath: 'investment-payback', overrides: { name: '投资回本' } },
                         { type: 'source', sourcePath: 'operation-optimizer', overrides: { name: '运营优化台' } },
                         { type: 'source', sourcePath: 'operating-opportunities', overrides: { name: '经营机会' } },
                         { type: 'source', sourcePath: 'operating-finance', overrides: { name: '净收与恢复' } },

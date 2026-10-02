@@ -12,7 +12,7 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourcePath = path.join(repoRoot, 'public/components/system/operating-finance-control-center.js');
 const artifactPath = path.join(repoRoot, 'public/components/system/operating-finance-control-center.min.js');
-const source = fs.readFileSync(sourcePath, 'utf8');
+const source = fs.readFileSync(sourcePath, 'utf8').replace(/\r\n?/g, '\n');
 const startMarker = '        template: `';
 const closingMarker = '\n        `,';
 const endMarker = `${closingMarker}\n    };`;

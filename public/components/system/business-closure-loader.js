@@ -35,6 +35,24 @@
         return delivery;
     });
 
+    let paybackPromise = null;
+    registry.InvestmentPaybackView = Vue.defineAsyncComponent({
+        loader: () => {
+            if (!paybackPromise) {
+                paybackPromise = loadScript('investment-scenario.min.js?v=investment-scenario-hbd86fc0366').then(() => {
+                    if (!registry.InvestmentScenarioWorkbench) throw new Error('投资经营测算组件未注册');
+                    return loadScript('investment-payback.min.js?v=investment-payback-h08207c0f84');
+                }).then(() => {
+                    if (!registry.InvestmentPaybackBody) throw new Error('投资回本组件未注册');
+                    return registry.InvestmentPaybackBody;
+                }).catch(error => { paybackPromise = null; throw error; });
+            }
+            return paybackPromise;
+        },
+        errorComponent: { render() { return Vue.h('p', { role: 'alert', class: 'text-red-700 p-4' }, '投资回本模块加载失败，请刷新重试。'); } },
+        timeout: 15000,
+    });
+
     const loadingComponent = {
         inheritAttrs: false,
         render() {

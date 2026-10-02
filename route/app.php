@@ -531,7 +531,7 @@ Route::group('api/temporal-insights', function () {
 Route::group('api/lifecycle', function () {
     Route::get('/overview', 'Lifecycle/overview');
 })->middleware(\app\middleware\Auth::class);
-// ==================== P4 投资决策辅助 API ====================
+require __DIR__ . '/domain/investment_payback.php'; // P4 投资决策辅助 API
 Route::group('api/investment-decision', function () {
     Route::get('/overview', 'InvestmentDecision/overview');
 })->middleware(\app\middleware\Auth::class);

@@ -66,6 +66,7 @@ export const FRONTEND_TEMPLATE_FRAGMENT_DEFINITIONS = Object.freeze([
   { id: 'page-ctrip-fetch-settings', domain: 'ota-ctrip', path: 'fragments/25-page-ctrip-fetch-settings.html', anchor: '<div v-if="currentPage === \'ctrip-ebooking\' &amp;&amp; onlineDataTab === \'ctrip-fetch-settings\'" class="bg-white rounded-lg shadow mt-4">' },
   { id: 'page-meituan-ebooking', domain: 'ota-meituan', path: 'fragments/26-page-meituan-ebooking.html', anchor: '<div v-if="currentPage === \'meituan-ebooking\'">' },
   { id: 'page-agent-center', domain: 'agent-center', path: 'fragments/27-page-agent-center.html', anchor: '<div v-if="currentPage === \'agent-center\'">' },
+  { id: 'page-investment-payback', domain: 'investment', path: 'fragments/28a-page-investment-payback.html', anchor: '<div v-if="currentPage === \'investment-payback\'" class="max-w-7xl mx-auto" data-testid="investment-payback-page">' },
   { id: 'page-investment-decision', domain: 'investment', path: 'fragments/28-page-investment-decision.html', anchor: '<div v-if="currentPage === \'investment-decision\'" class="max-w-7xl mx-auto space-y-5">' },
   { id: 'page-lifecycle', domain: 'lifecycle', path: 'fragments/29-page-lifecycle.html', anchor: '<div v-if="currentPage === \'lifecycle\'" class="suxi-lifecycle-view max-w-7xl mx-auto space-y-6">' },
   { id: 'page-operation-logs', domain: 'system-admin', path: 'fragments/30-page-operation-logs.html', anchor: '<div v-if="currentPage === \'operation-logs\'">' },
