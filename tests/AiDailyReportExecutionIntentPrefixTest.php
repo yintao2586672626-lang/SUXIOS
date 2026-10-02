@@ -77,6 +77,31 @@ final class AiDailyReportExecutionIntentPrefixTest extends TestCase
         self::assertNull($this->findIntent($zero));
     }
 
+    public function testLinkedIntentForAnotherActionCannotBypassActionIdentity(): void
+    {
+        $wrong = $this->insertIntent(9004, 'other-action-key');
+        self::assertNull($this->findIntent($wrong));
+        $valid = $this->insertIntent(9004, 'same-key');
+        self::assertSame($valid, (int)$this->findIntent($wrong)['id']);
+    }
+
+    public function testLinkedLegacyIntentRequiresTheSameActionIndex(): void
+    {
+        $wrong = (int)Db::name('operation_execution_intents')->insertGetId([
+            'source_module' => 'ai_daily_report', 'source_record_id' => 77,
+            'hotel_id' => 904, 'tenant_id' => 9004,
+            'evidence_json' => json_encode(['action_index' => 1], JSON_THROW_ON_ERROR),
+        ]);
+        self::assertNull($this->findIntent($wrong));
+        $valid = (int)Db::name('operation_execution_intents')->insertGetId([
+            'source_module' => 'ai_daily_report', 'source_record_id' => 77,
+            'hotel_id' => 904, 'tenant_id' => 9004,
+            'evidence_json' => json_encode(['action_index' => 0], JSON_THROW_ON_ERROR),
+        ]);
+        self::assertSame($valid, (int)$this->findIntent($valid)['id']);
+        self::assertSame($valid, (int)$this->findIntent($wrong)['id']);
+    }
+
     private function insertIntent(int $tenantId, string $key): int
     {
         return (int)Db::name('operation_execution_intents')->insertGetId([

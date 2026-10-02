@@ -127,6 +127,28 @@ trait OperationExecutionTenantConcern
         });
     }
 
+    /** Verify the original task payload inside the human-approval transaction. */
+    private function assertHumanApprovalTaskReadback(
+        ?array $task,
+        int $taskCount,
+        array $intent,
+        string $targetValueJson,
+        int $authorizedTenantId
+    ): void {
+        if (!is_array($task)
+            || $taskCount !== 1
+            || (int)($task['tenant_id'] ?? 0) <= 0
+            || (int)$task['tenant_id'] !== (int)$intent['tenant_id']
+            || (int)$task['tenant_id'] !== $authorizedTenantId
+            || (string)($task['execution_mode'] ?? '') !== 'manual'
+            || (string)($task['status'] ?? '') !== 'pending_execute'
+            || !hash_equals($targetValueJson, (string)($task['target_value_json'] ?? ''))
+            || !hash_equals((string)($intent['current_value_json'] ?? '{}'), (string)($task['current_value_json'] ?? ''))
+        ) {
+            throw new \RuntimeException('human approval task save/readback cardinality check failed');
+        }
+    }
+
     /**
      * Resolve one task together with its parent intent and enforce the durable
      * tenant boundary. Source-backed rows remain owned by the tenant that
@@ -799,15 +821,13 @@ trait OperationExecutionTenantConcern
 
     private function executionTenantSchemaHasColumn(string $table, string $column): bool
     {
-        try {
-            Db::query(
-                'SELECT `' . str_replace('`', '', $column) . '` FROM `'
-                . str_replace('`', '', $table) . '` LIMIT 0'
-            );
-            return true;
-        } catch (\Throwable) {
-            return false;
+        $inspection = \app\service\DatabaseSchemaRequirement::inspectTableColumns(str_replace('`', '', Db::name($table)->getTable()));
+        if ($inspection['status'] === \app\service\DatabaseSchemaRequirement::STATUS_UNREADABLE) {
+            throw new \RuntimeException('database_table_columns_probe_failed:' . $table, 503);
         }
+
+        return $inspection['status'] === \app\service\DatabaseSchemaRequirement::STATUS_PRESENT
+            && in_array($column, $inspection['columns'], true);
     }
 
     /** @param array{code:string,message:string} $gap */

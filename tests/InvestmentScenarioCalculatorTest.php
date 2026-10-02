@@ -408,6 +408,42 @@ final class InvestmentScenarioCalculatorTest extends TestCase
         }
     }
 
+    public function testConsumableSelectionPropagatesToProfitBreakEvenAndSensitivityWhileKeepingManualCost(): void
+    {
+        $calculator = new InvestmentScenarioCalculator();
+        $input = $this->smallScenario();
+        $input['operating_cost_basis'] = 'occupied_room_night';
+        $input['operating_cost_per_night'] = 7;
+        $input['consumables_cost'] = ['schema_version' => 'consumables-v1', 'mode' => 'derived', 'other_variable_cost_per_night' => 1,
+            'items' => [['id' => 'soap', 'name' => '合成洗液', 'enabled' => true, 'package_price' => 30, 'package_quantity' => 500, 'unit' => 'ml',
+                'usage_quantity' => 10, 'usage_basis' => 'guest_night', 'occurrences_per_occupied_night' => 1.5, 'source_label' => '合成验收', 'as_of' => '2026-10-01']]];
+        $result = $calculator->calculate($input);
+        self::assertEqualsWithDelta(0.9, $result['consumables_cost']['consumables_per_night'], 1e-10);
+        self::assertEqualsWithDelta(1.9, $result['effective_operating_cost_per_night'], 1e-10);
+        self::assertSame(7.0, $result['input']['operating_cost_per_night']);
+        self::assertEqualsWithDelta(1.9, $result['annual_rows'][0]['operating_cost'], 1e-10);
+        self::assertEqualsWithDelta(8.1, $result['annual_rows'][0]['pretax_profit'], 1e-10);
+        self::assertEqualsWithDelta(1.9, $result['break_even']['profit_adr_at_input_occupancy'], 1e-10);
+        $input['consumables_cost']['mode'] = 'manual';
+        $manual = $calculator->calculate($input);
+        self::assertSame(7.0, $manual['annual_rows'][0]['operating_cost']);
+        self::assertNotSame($manual['sensitivity_rows'], $result['sensitivity_rows']);
+        $input['consumables_cost']['mode'] = 'derived';
+        $input['consumables_cost']['items'][0]['occurrences_per_occupied_night'] = null;
+        $missing = $calculator->calculate($input);
+        self::assertSame('inputs_missing', $missing['status']);
+        self::assertSame([], $missing['annual_rows']);
+        self::assertNull($missing['effective_operating_cost_per_night']);
+        self::assertNotContains('operating_cost_per_night', $missing['missing_fields']);
+        $input['consumables_cost']['items'][0]['occurrences_per_occupied_night'] = 1.5;
+        $input['operating_cost_basis'] = 'available_room_night';
+        self::assertContains('consumables_cost.occupied_room_night_basis', $calculator->calculate($input)['missing_fields']);
+        self::assertNull($calculator->calculate($input)['effective_operating_cost_per_night']);
+        unset($input['consumables_cost']);
+        self::assertNull($calculator->calculate($input)['consumables_cost']);
+        self::assertSame(7.0, $calculator->calculate($input)['annual_rows'][0]['operating_cost']);
+    }
+
     private function smallScenario(): array
     {
         return [

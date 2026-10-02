@@ -39,6 +39,9 @@ class InvestmentPaybackImportService
 
     public function preview(array $input): array
     {
+        if (($input['review_rows'] ?? false) === true) {
+            return $this->reviewRows($input);
+        }
         $name = self::fileName($input['file_name'] ?? null);
         $extension = strtolower(pathinfo($name, PATHINFO_EXTENSION));
         if (!in_array($extension, ['csv', 'xlsx', 'xls', 'png', 'jpg', 'jpeg', 'webp'], true)) {
@@ -102,6 +105,237 @@ class InvestmentPaybackImportService
         }
     }
 
+    /** Read-only review of edited rows. No temporary import or ledger row is persisted. */
+    private function reviewRows(array $input, bool $currentRead = false): array
+    {
+        $mode = $input['mode'] ?? null;
+        if (!in_array($mode, ['projects', 'entries'], true)) {
+            throw new InvalidArgumentException('请选择累计项目或资金明细导入');
+        }
+        $rows = $input['rows'] ?? null;
+        if (!is_array($rows) || !array_is_list($rows) || count($rows) < 1 || count($rows) > self::MAX_ROWS) {
+            throw new InvalidArgumentException('每次预览须包含1至500行');
+        }
+        $projectId = $mode === 'entries' ? self::positiveInt($input['project_id'] ?? null, '目标项目编号') : null;
+        $project = null;
+        $existing = [];
+        if ($projectId !== null) {
+            // detail reuses the ledger's tenant and hotel access checks.
+            $detail = $this->ledger->detail($projectId, InvestmentPaybackCalculator::today());
+            $project = $detail['project'];
+            if ($currentRead) {
+                // Under MySQL RR, use current reads after the project lock rather
+                // than the earlier authorization read's transaction snapshot.
+                $project = Db::name('investment_payback_projects')->where('tenant_id', $this->tenantId)->where('id', $projectId)->lock(true)->find();
+                unset($project['input_digest']);
+                $detail['entries'] = Db::name('investment_payback_entries')->where('tenant_id', $this->tenantId)->where('project_id', $projectId)->order('id')->lock(true)->select()->toArray();
+                foreach ($detail['entries'] as &$entry) {
+                    $entry['date'] = $entry['business_date'];
+                    unset($entry['business_date'], $entry['input_digest']);
+                }
+                unset($entry);
+            }
+            $existing = array_values(array_filter($detail['entries'], static fn(array $row): bool => !$row['is_planned'] && $row['voided_at'] === null));
+            $snapshot = self::snapshot($project, $detail['entries']);
+        } else {
+            // Only inspect names present in this batch; inaccessible hotel projects
+            // never appear as candidate details in the response.
+            $names = array_values(array_unique(array_filter(array_map(static fn($row): string => is_array($row) ? trim((string)($row['project_name'] ?? '')) : '', $rows))));
+            $candidates = $names === [] ? [] : Db::name('investment_payback_projects')->where('tenant_id', $this->tenantId)->whereIn('project_name', $names)->order('id')->lock($currentRead)->select()->toArray();
+            foreach ($candidates as $candidate) {
+                try {
+                    $this->ledger->detail((int)$candidate['id']);
+                    $existing[] = $candidate;
+                } catch (RuntimeException $exception) {
+                    if ($exception->getCode() !== 403) {
+                        throw $exception;
+                    }
+                }
+            }
+            $snapshot = [];
+        }
+        $reviewed = [];
+        $tokenRows = [];
+        $rowNumbers = [];
+        foreach ($rows as $index => $row) {
+            if (!is_array($row)) {
+                throw new InvalidArgumentException('第' . ($index + 1) . '行格式无效');
+            }
+            $number = self::positiveInt($row['row_number'] ?? ($index + 1), '来源行号');
+            if (isset($rowNumbers[$number])) {
+                throw new InvalidArgumentException('来源行号不能重复');
+            }
+            $rowNumbers[$number] = true;
+            $selected = self::rowSelected($row);
+            $result = ['row_number' => $number, 'selected' => $selected, 'errors' => [], 'exact_matches' => [], 'batch_duplicates' => [], 'similar_matches' => [], 'impact_excluded_reason' => null];
+            try {
+                if ($mode === 'projects') {
+                    $date = self::requiredString($row['opening_as_of'] ?? null, '期初截至日');
+                    $data = InvestmentPaybackService::normalizeProject([
+                        'project_name' => self::requiredString($row['project_name'] ?? null, '项目名称'),
+                        'investor_name' => self::requiredString($row['investor_name'] ?? null, '投资主体'),
+                        'opening_invested' => self::requiredMoney($row['opening_invested'] ?? null, false),
+                        'opening_recovered' => self::requiredMoney($row['opening_recovered'] ?? null, true),
+                        'opening_as_of' => $date, 'forecast_as_of' => $date, 'opening_source' => '人工导入预览，待核对',
+                    ]);
+                    $key = mb_strtolower($data['project_name']) . "\0" . mb_strtolower($data['investor_name']);
+                } else {
+                    if (!in_array($row['kind'] ?? null, ['investment', 'recovery'], true)) {
+                        throw new InvalidArgumentException('类型须为实际投入或实际收回');
+                    }
+                    $data = InvestmentPaybackService::normalizeEntry([
+                        'date' => self::requiredString($row['date'] ?? null, '资金日期'), 'precision' => self::requiredString($row['precision'] ?? null, '日期粒度'),
+                        'kind' => $row['kind'], 'amount' => self::requiredMoney($row['amount'] ?? null, false),
+                        'is_planned' => $row['is_planned'] ?? false,
+                        'confirmed_zero' => ($row['confirmed_zero'] ?? false) === true, 'notes' => $row['note'] ?? '', 'source' => '人工导入预览，待核对',
+                    ]);
+                    if ($data['is_planned']) {
+                        throw new InvalidArgumentException('计划记录不能作为实际资金导入');
+                    }
+                    [$start, $end] = InvestmentPaybackCalculator::period($data['business_date'], $data['precision']);
+                    if ($project['archived_at'] !== null) {
+                        $result['errors'][] = '归档项目不能导入资金明细';
+                    }
+                    if ($project['opening_as_of'] !== null && $start <= $project['opening_as_of']) {
+                        $result['errors'][] = '此日期已包含在期初汇总内，请修正或排除';
+                        $result['impact_excluded_reason'] = 'opening_overlap';
+                    } elseif ($end > InvestmentPaybackCalculator::today()) {
+                        $result['impact_excluded_reason'] = 'period_after_today';
+                    }
+                    if ($data['kind'] === 'investment' && $project['first_invested_on'] !== null && $end < $project['first_invested_on']) {
+                        $result['errors'][] = '此投入早于项目首次投入日期';
+                    }
+                    $key = self::entryKey($data);
+                }
+                unset($data['source'], $data['opening_source']);
+                if ($selected) {
+                    $tokenRows[] = ['row_number' => $number, 'data' => $data];
+                }
+                $result['data'] = $data;
+                $result['key'] = $key;
+            } catch (InvalidArgumentException $exception) {
+                $result['errors'][] = $exception->getMessage();
+                $result['impact_excluded_reason'] = 'invalid';
+                if ($selected) {
+                    $tokenRows[] = ['row_number' => $number, 'invalid' => $row];
+                }
+            }
+            $reviewed[] = $result;
+        }
+        $invested = 0;
+        $recovered = 0;
+        $openingInvested = 0;
+        $openingRecovered = 0;
+        $invalidCount = 0;
+        $exactCount = 0;
+        $similarCount = 0;
+        $selectedCount = 0;
+        foreach ($reviewed as &$row) {
+            if (isset($row['data'])) {
+                foreach ($existing as $candidate) {
+                    if ($mode === 'projects') {
+                        if ($candidate['project_name'] === $row['data']['project_name'] && $candidate['investor_name'] === $row['data']['investor_name']) {
+                            $row['exact_matches'][] = self::candidate($candidate, '已存在同名且同投资主体的项目', $mode);
+                        } elseif ($candidate['project_name'] === $row['data']['project_name']) {
+                            $row['similar_matches'][] = self::candidate($candidate, '项目同名，投资主体不同', $mode);
+                        }
+                    } else {
+                        $candidateData = ['business_date' => $candidate['date'], 'precision' => $candidate['precision'], 'kind' => $candidate['kind'], 'amount' => $candidate['amount'], 'notes' => trim((string)$candidate['notes'])];
+                        if (self::entryKey($candidateData) === $row['key']) {
+                            $row['exact_matches'][] = self::candidate($candidate, '日期、粒度、类型、金额和备注完全相同', $mode);
+                        } elseif (($reason = self::similarReason($row['data'], $candidateData)) !== null) {
+                            $row['similar_matches'][] = self::candidate($candidate, $reason, $mode);
+                        }
+                    }
+                }
+                foreach ($reviewed as $other) {
+                    if ($other['row_number'] === $row['row_number'] || !$other['selected'] || !isset($other['data'])) {
+                        continue;
+                    }
+                    if ($other['key'] === $row['key']) {
+                        $row['batch_duplicates'][] = ['row_number' => $other['row_number'], 'reason' => '与本批选中行完全相同'];
+                    } elseif ($mode === 'entries' && ($reason = self::similarReason($row['data'], $other['data'])) !== null) {
+                        $row['similar_matches'][] = ['row_number' => $other['row_number'], 'date' => $other['data']['business_date'], 'precision' => $other['data']['precision'], 'kind' => $other['data']['kind'], 'amount' => $other['data']['amount'], 'note' => $other['data']['notes'], 'reason' => $reason . '（本批）'];
+                    }
+                }
+            }
+            $row['similar_match_count'] = count($row['similar_matches']);
+            $row['similar_matches'] = array_slice($row['similar_matches'], 0, 20);
+            if ($row['selected']) {
+                ++$selectedCount;
+                $invalidCount += $row['errors'] !== [] ? 1 : 0;
+                $exactCount += $row['exact_matches'] !== [] || $row['batch_duplicates'] !== [] ? 1 : 0;
+                $similarCount += $row['similar_match_count'] > 0 ? 1 : 0;
+                if ($row['errors'] === [] && $row['exact_matches'] === [] && $row['batch_duplicates'] === []) {
+                    if ($mode === 'projects') {
+                        $openingInvested += InvestmentPaybackCalculator::fen($row['data']['opening_invested']);
+                        $openingRecovered += InvestmentPaybackCalculator::fen($row['data']['opening_recovered'], true);
+                    } elseif ($row['impact_excluded_reason'] === null) {
+                        $amount = InvestmentPaybackCalculator::fen($row['data']['amount']);
+                        if ($row['data']['kind'] === 'investment') {
+                            $invested += $amount;
+                        } else {
+                            $recovered += $amount;
+                        }
+                    }
+                }
+            }
+        }
+        unset($row);
+        foreach ($reviewed as &$row) {
+            unset($row['data'], $row['key']);
+        }
+        unset($row);
+        if ($projectId === null) {
+            $selectedNames = array_column(array_column($tokenRows, 'data'), 'project_name');
+            foreach ($existing as $candidate) {
+                if (in_array($candidate['project_name'], $selectedNames, true)) {
+                    $snapshot[] = self::snapshot($candidate, []);
+                }
+            }
+        }
+        return [
+            'review_token' => hash('sha256', json_encode([$this->tenantId, $mode, $projectId, $snapshot, $tokenRows], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)),
+            'mode' => $mode, 'project_id' => $projectId, 'project_version' => $project['version'] ?? null, 'as_of' => InvestmentPaybackCalculator::today(),
+            'rows' => $reviewed, 'selected_count' => $selectedCount, 'invalid_count' => $invalidCount, 'exact_count' => $exactCount, 'similar_count' => $similarCount,
+            'can_confirm' => $selectedCount > 0 && $selectedCount <= 200 && $invalidCount === 0 && $exactCount === 0,
+            'impact' => ['actual_invested_delta' => InvestmentPaybackCalculator::yuan($invested), 'actual_net_recovered_delta' => InvestmentPaybackCalculator::yuan($recovered),
+                'opening_invested_total' => InvestmentPaybackCalculator::yuan($openingInvested), 'opening_net_recovered_total' => InvestmentPaybackCalculator::yuan($openingRecovered)],
+            'data_status' => 'manual_preview_unverified',
+        ];
+    }
+
+    private static function candidate(array $row, string $reason, string $mode): array
+    {
+        if ($mode === 'projects') {
+            return ['id' => $row['id'], 'project_name' => $row['project_name'], 'investor_name' => $row['investor_name'], 'opening_as_of' => $row['opening_as_of'], 'opening_invested' => $row['opening_invested'], 'opening_recovered' => $row['opening_recovered'], 'reason' => $reason];
+        }
+        return ['id' => $row['id'], 'date' => $row['date'], 'precision' => $row['precision'], 'kind' => $row['kind'], 'amount' => $row['amount'], 'note' => $row['notes'], 'reason' => $reason];
+    }
+
+    private static function snapshot(array $project, array $entries): array
+    {
+        $snapshot = ['project' => [(int)$project['id'], (int)$project['version'], $project['project_name'], $project['investor_name'], $project['opening_as_of'], $project['first_invested_on'], $project['archived_at']], 'entries' => []];
+        foreach ($entries as $entry) {
+            $snapshot['entries'][] = [(int)$entry['id'], (int)$entry['version'], $entry['date'], $entry['precision'], $entry['kind'], InvestmentPaybackCalculator::yuan(InvestmentPaybackCalculator::fen($entry['amount'])), (bool)$entry['is_planned'], $entry['voided_at'], trim((string)$entry['notes'])];
+        }
+        usort($snapshot['entries'], static fn(array $a, array $b): int => $a[0] <=> $b[0]);
+        return $snapshot;
+    }
+
+    private static function similarReason(array $row, array $candidate): ?string
+    {
+        if ($row['kind'] !== $candidate['kind']) {
+            return null;
+        }
+        if ($row['amount'] === $candidate['amount']) {
+            return '类型和金额相同，日期、粒度或备注不同；可能是另一笔真实资金';
+        }
+        [$start, $end] = InvestmentPaybackCalculator::period($row['business_date'], $row['precision']);
+        [$otherStart, $otherEnd] = InvestmentPaybackCalculator::period($candidate['business_date'], $candidate['precision']);
+        return $start <= $otherEnd && $otherStart <= $end ? '同类型资金日期区间重叠，金额不同' : null;
+    }
+
     public function confirm(array $input): array
     {
         if (($input['confirmed'] ?? null) !== true) {
@@ -144,6 +378,9 @@ class InvestmentPaybackImportService
                 throw new InvalidArgumentException('来源行号不能重复');
             }
             $rowNumbers[$rowNumber] = true;
+            if (!self::rowSelected($row)) {
+                continue;
+            }
             try {
                 if ($mode === 'projects') {
                     // An explicit as-of date is required; absent dates never become today's facts.
@@ -166,10 +403,14 @@ class InvestmentPaybackImportService
                         'date' => self::requiredString($row['date'] ?? null, '资金日期'),
                         'precision' => self::requiredString($row['precision'] ?? null, '日期粒度'),
                         'kind' => $kind, 'amount' => self::requiredMoney($row['amount'] ?? null, false),
+                        'is_planned' => $row['is_planned'] ?? false,
                         'source' => $source . '；row=' . $rowNumber,
                         'confirmed_zero' => ($row['confirmed_zero'] ?? false) === true,
                         'notes' => $row['note'] ?? '',
                     ]);
+                    if ($data['is_planned']) {
+                        throw new InvalidArgumentException('计划记录不能作为实际资金导入');
+                    }
                     $key = self::entryKey($data);
                 }
             } catch (InvalidArgumentException $exception) {
@@ -181,13 +422,16 @@ class InvestmentPaybackImportService
             $seen[$key] = $rowNumber;
             $normalized[] = ['row_number' => $rowNumber, 'data' => $data];
         }
+        if ($normalized === []) {
+            throw new InvalidArgumentException('请至少选择一条要导入的记录');
+        }
         $digest = hash('sha256', json_encode([$mode, $projectId, $name, $sha, $method, $normalized], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
         // system_config.config_key is VARCHAR(50). Hash the full identity rather
         // than truncate a tenant/user prefix or the caller's request UUID.
         $markerKey = 'payback_import_' . substr(hash('sha256', $this->tenantId . "\0" . $this->actorId . "\0" . $requestId), 0, 32);
         $legacyMarkerKey = 'payback_import_t' . $this->tenantId . '_u' . $this->actorId . '_' . str_replace('-', '', $requestId);
         try {
-            return Db::transaction(function () use ($normalized, $mode, $projectId, $markerKey, $legacyMarkerKey, $digest, $requestId, $name, $sha, $method): array {
+            return Db::transaction(function () use ($normalized, $mode, $projectId, $markerKey, $legacyMarkerKey, $digest, $requestId, $name, $sha, $method, $input): array {
                 // Existing row locks serialize same-project entry batches and tenant project batches.
                 if ($mode === 'entries') {
                     $this->ledger->detail($projectId);
@@ -198,6 +442,18 @@ class InvestmentPaybackImportService
                 $marker = $this->findMarker($markerKey, $legacyMarkerKey, true);
                 if ($marker) {
                     return $this->replay($marker, $digest);
+                }
+                if (array_key_exists('review_token', $input)) {
+                    $review = $this->reviewRows($input, true);
+                    if (!is_string($input['review_token']) || !hash_equals($review['review_token'], $input['review_token'])) {
+                        throw new RuntimeException('项目账目或导入内容已变化，请重新检查重复记录和金额影响', 409);
+                    }
+                    if (!$review['can_confirm']) {
+                        throw new RuntimeException('选中行仍有无效或完全重复记录，请修正或明确排除后重新检查', 409);
+                    }
+                    if ($review['similar_count'] > 0 && ($input['similar_confirmed'] ?? false) !== true) {
+                        throw new InvalidArgumentException('请核对相似候选，明确确认它们是不同的真实记录');
+                    }
                 }
                 $result = ['imported_count' => count($normalized), 'project_ids' => [], 'entry_ids' => [], 'mode' => $mode,
                     'source_file_name' => $name, 'source_sha256' => $sha, 'source_method' => $method, 'replayed' => false];
@@ -219,8 +475,9 @@ class InvestmentPaybackImportService
                                 // we waited for the project lock, even under RR.
                                 ->where('is_planned', 0)->whereNull('voided_at')->lock(true)->select()->toArray();
                             foreach ($duplicate as $existing) {
-                                if (InvestmentPaybackCalculator::fen($existing['amount']) === InvestmentPaybackCalculator::fen($data['amount'])) {
-                                    throw new RuntimeException('已有相同日期、粒度、类型和金额的有效明细，请核对，不能重复导入', 409);
+                                if (InvestmentPaybackCalculator::fen($existing['amount']) === InvestmentPaybackCalculator::fen($data['amount'])
+                                    && trim((string)$existing['notes']) === $data['notes']) {
+                                    throw new RuntimeException('已有相同日期、粒度、类型、金额和备注的有效明细，请核对，不能重复导入', 409);
                                 }
                             }
                             $data['date'] = $data['business_date'];
@@ -283,6 +540,17 @@ class InvestmentPaybackImportService
         return array_merge($saved['result'], ['replayed' => true]);
     }
 
+    private static function rowSelected(array $row): bool
+    {
+        if (!array_key_exists('selected', $row)) {
+            return true;
+        }
+        if (!is_bool($row['selected'])) {
+            throw new InvalidArgumentException('选中状态须为布尔值');
+        }
+        return $row['selected'];
+    }
+
     private static function fileName($value): string
     {
         $value = self::requiredString($value, '来源文件名');
@@ -318,7 +586,7 @@ class InvestmentPaybackImportService
 
     private static function entryKey(array $row): string
     {
-        return implode('|', [$row['business_date'], $row['precision'], $row['kind'], $row['amount']]);
+        return json_encode([$row['business_date'], $row['precision'], $row['kind'], $row['amount'], $row['notes']], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
     }
 
     private static function rowUuid(string $requestId, array $payload): string

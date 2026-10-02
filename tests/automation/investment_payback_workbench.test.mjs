@@ -18,6 +18,113 @@ const create = (request, environment = {}) => {
 const projectDetail = id => ({ project: { id, project_name: `测试项目${id}`, version: 1 }, entries: [], summary: { as_of: '2026-10-01' }, audit_history: [] });
 const ok = data => ({ code: 200, data });
 
+test('mainline template registry and runtime render expose the investment payback page', async () => {
+    const { loadFrontendTemplateSource } = await import('../../scripts/lib/frontend_template_source.mjs');
+    const root = new URL('../../', import.meta.url);
+    const { fileURLToPath } = await import('node:url');
+    const template = loadFrontendTemplateSource(fileURLToPath(root));
+    assert.match(template.templateBuffer.toString(), /investment-payback-view/);
+    const manifest = JSON.parse(fs.readFileSync(new URL('../../resources/frontend/templates/manifest.json', import.meta.url), 'utf8'));
+    assert.equal(manifest.fragments.filter(row => row.id === 'page-investment-payback').length, 1);
+    assert.match(fs.readFileSync(new URL('../../public/app-render.min.js', import.meta.url), 'utf8'), /investment-payback-view/);
+});
+
+test('compact ledger columns retain mixed provenance, missing sources, notes and excluded row status', () => {
+    const state = create(async () => ok({}));
+    const detail = projectDetail(5);
+    detail.entries = [
+        { id: 1, date: '2026-09-01', kind: 'investment', amount: '1000.00', source: '人工录入', notes: '' },
+        { id: 2, date: '2026-09-02', kind: 'recovery', amount: '100.00', source: '人工录入', is_planned: true, notes: '' },
+    ];
+    state.detail.value = detail;
+    const before = JSON.stringify(detail);
+    assert.equal(state.ledgerColumns.value.commonSource, '人工录入');
+    assert.equal(state.ledgerColumns.value.showSource, false);
+    assert.equal(state.ledgerColumns.value.showNotes, false);
+    assert.equal(state.entryState(detail.entries[1]), '计划，未计入实际');
+    assert.equal(JSON.stringify(detail), before);
+    detail.entries[1].source = '人工确认文件导入；来源未独立核验；file=合成验收.csv；sha256=' + 'a'.repeat(64) + '；method=spreadsheet；row=2';
+    detail.entries[1].notes = '到账说明';
+    assert.equal(state.ledgerColumns.value.commonSource, '');
+    assert.equal(state.ledgerColumns.value.showSource, true);
+    assert.equal(state.ledgerColumns.value.showNotes, true);
+    state.ledgerKind.value = 'recovery';
+    assert.equal(state.ledgerColumns.value.commonSource, '表格导入 · 合成验收.csv · 第2行');
+    assert.equal(state.ledgerColumns.value.commonSourceFull, detail.entries[1].source);
+    detail.entries[1].source = '';
+    detail.entries[1].notes = '';
+    detail.entries[1].voided_at = '2026-09-03';
+    detail.entries[1].void_reason = '重复记录';
+    assert.equal(state.ledgerColumns.value.commonSource, '来源未填写');
+    assert.equal(state.ledgerColumns.value.showNotes, true);
+    assert.equal(state.entryState(detail.entries[1]), '已作废');
+    state.ledgerSearch.value = '无匹配';
+    assert.equal(state.ledgerColumns.value.commonSource, '');
+    assert.equal(state.ledgerColumns.value.showSource, false);
+    assert.equal(state.ledgerColumns.value.showNotes, false);
+});
+
+test('detail headlines retain an exact yuan value whenever the short ten-thousand display is approximate', () => {
+    const state = create(async () => ok({}));
+    assert.equal(state.detailAmount('118276.55').text, '约 11.83 万元');
+    assert.equal(state.detailAmount('118276.55').exact, '118,276.55 元');
+    assert.equal(state.detailAmount('401723.45').exact, '401,723.45 元');
+    assert.equal(state.detailAmount('118400.00').text, '11.84 万元');
+    assert.equal(state.detailAmount('118400.00').exact, null);
+    assert.equal(state.detailAmount('0.01').text, '0.01 元');
+    assert.equal(state.detailAmount(null).text, '待录入');
+    assert.equal(state.detailAmount('').text, '待录入');
+    assert.equal(state.detailAmount('invalid').text, '待核对');
+});
+
+test('ledger filtering and stable date sorting retain excluded records and never mutate totals or original entries', () => {
+    const state = create(async () => ok({}));
+    const detail = projectDetail(5);
+    detail.summary = { invested_amount: '520000.00', net_recovered_amount: '401600.00', unrecovered_amount: '118400.00' };
+    detail.entries = [
+        { id: 1, date: '2026-04-01', kind: 'investment', amount: '520000.00', source: '人工录入', notes: '初始出资' },
+        { id: 2, date: '2026-09-01', kind: 'recovery', amount: '30000.00', source: '银行流水', notes: '九月分红' },
+        { id: 3, date: '2026-09-29', kind: 'refund', amount: '100.00', source: '合成退款', notes: '调整' },
+        { id: 4, date: '2026-09-29', kind: 'recovery', amount: '2000.00', source: '人工录入', voided_at: '2026-09-30', void_reason: '重复账目' },
+        { id: 5, date: '2026-10-05', kind: 'recovery', amount: '2000.00', source: '计划', is_planned: true },
+    ];
+    state.detail.value = detail;
+    const before = JSON.stringify(detail);
+    assert.deepEqual(Array.from(state.ledgerRows.value, row => row.id), [5, 4, 3, 2, 1]);
+    state.ledgerSort.value = 'oldest';
+    assert.deepEqual(Array.from(state.ledgerRows.value, row => row.id), [1, 2, 3, 4, 5]);
+    state.ledgerKind.value = 'recovery';
+    assert.deepEqual(Array.from(state.ledgerRows.value, row => row.id), [2, 4, 5]);
+    state.ledgerSearch.value = '银行 30,000';
+    assert.deepEqual(Array.from(state.ledgerRows.value, row => row.id), [2]);
+    state.ledgerSearch.value = '重复账目';
+    assert.deepEqual(Array.from(state.ledgerRows.value, row => row.id), [4]);
+    state.ledgerSearch.value = '找不到';
+    assert.equal(state.ledgerRows.value.length, 0);
+    state.clearLedgerFilters();
+    assert.equal(state.ledgerRows.value.length, 5);
+    assert.equal(state.ledgerSort.value, 'oldest');
+    assert.equal(JSON.stringify(detail), before);
+    state.detail.value = null;
+    assert.equal(state.ledgerRows.value.length, 0);
+});
+
+test('ledger controls stay scoped to the selected project and survive same-project readback', async () => {
+    const state = create(async path => ok(projectDetail(Number(path.match(/projects\/(\d+)/)[1]))));
+    state.detail.value = projectDetail(5);
+    state.ledgerKind.value = 'refund';
+    state.ledgerSearch.value = '调整';
+    state.ledgerSort.value = 'oldest';
+    await state.selectProject(5);
+    assert.equal(state.ledgerKind.value, 'refund');
+    assert.equal(state.ledgerSearch.value, '调整');
+    assert.equal(state.ledgerSort.value, 'oldest');
+    await state.selectProject(7);
+    assert.equal(state.ledgerKind.value, 'all');
+    assert.equal(state.ledgerSearch.value, '');
+    assert.equal(state.ledgerSort.value, 'newest');
+});
+
 test('imported entries show a readable filename while retaining full source provenance', () => {
     const state = create(async () => ok({}));
     const entry = { source: '人工确认文件导入；来源未独立核验；file=合成验收.png；sha256='+'a'.repeat(64)+'；method=image_ocr；row=3' };
@@ -197,6 +304,90 @@ test('leaving the detail cancels pending reads and quick entry stays on its requ
     assert.equal(state.entryForm.value, null);
 });
 
+test('project comparison separates each project gap from surplus and never changes saved card order', () => {
+    const state = create(async () => ok({list: []}));
+    state.projects.value = [
+        {id: 1, project_name:'盈余项目', summary:{invested_amount:'100.00', net_recovered_amount:'150.01', unrecovered_amount:'0.00', excess_recovered_amount:'50.01', recovery_percent:'150.01'}},
+        {id: 2, project_name:'待补项目', summary:{invested_amount:null, net_recovered_amount:null, unrecovered_amount:null, excess_recovered_amount:null, recovery_percent:null}},
+        {id: 3, project_name:'缺口项目', summary:{invested_amount:'200.03', net_recovered_amount:'0.02', unrecovered_amount:'200.01', excess_recovered_amount:'0.00', recovery_percent:'0.01'}},
+        {id: 4, project_name:'刚好覆盖项目', summary:{invested_amount:'10.00', net_recovered_amount:'10.00', unrecovered_amount:'0.00', excess_recovered_amount:'0.00', recovery_percent:'100'}},
+    ];
+    assert.equal(state.overview.value.gap.amount, '200.01');
+    assert.equal(state.overview.value.excess.amount, '50.01');
+    assert.equal(state.overview.value.gap.known, 3);
+    assert.equal(state.overview.value.covered, 2);
+    assert.deepEqual(Array.from(state.comparisonRows.value, row => row.id), [3, 1, 4, 2]);
+    state.comparisonSort.value = 'progress';
+    assert.deepEqual(Array.from(state.comparisonRows.value, row => row.id), [1, 4, 3, 2]);
+    state.comparisonSort.value = 'manual';
+    assert.deepEqual(Array.from(state.comparisonRows.value, row => row.id), [1, 2, 3, 4]);
+    assert.deepEqual(Array.from(state.projects.value, row => row.id), [1, 2, 3, 4]);
+    state.search.value = '缺口';
+    assert.equal(state.comparisonRows.value.length, 1);
+    assert.equal(state.overview.value.excess.amount, '0.00');
+});
+
+test('cumulative timeline preserves opening scope and shows an added investment and refund reopening a gap', () => {
+    const state = create(async () => ok({list: []}));
+    state.detail.value = {
+        project:{id:1, opening_as_of:'2026-09-30', opening_invested:'480000.00', opening_recovered:'493490.00'},
+        summary:{as_of:'2026-10-01', invested_amount:'500000.00', net_recovered_amount:'488490.00'},
+        entries:[
+            {date:'2026-09-01', precision:'day', kind:'recovery', amount:'493490.00'},
+            {date:'2026-10-01', precision:'day', kind:'investment', amount:'20000.00'},
+            {date:'2026-10-01', precision:'day', kind:'refund', amount:'5000.00'},
+            {date:'2026-10-01', precision:'month', kind:'recovery', amount:'9000.00'},
+            {date:'2026-10-01', precision:'day', kind:'recovery', amount:'9000.00', is_planned:true},
+            {date:'2026-10-01', precision:'day', kind:'recovery', amount:'9000.00', voided_at:'2026-10-01'},
+        ],
+    };
+    const timeline = state.cumulativeTimeline.value;
+    assert.equal(timeline.available, true);
+    assert.equal(timeline.rows.length, 2);
+    assert.equal(timeline.rows[0].excess, '13490.00');
+    assert.equal(timeline.rows[1].investment, '500000.00');
+    assert.equal(timeline.rows[1].recovery, '488490.00');
+    assert.equal(timeline.rows[1].gap, '11510.00');
+    assert.equal(timeline.rows[1].excess, '0.00');
+    assert.match(timeline.investmentPath, /H.* V/);
+    assert.match(timeline.recoveryPath, /H.* V/);
+    assert.doesNotMatch(timeline.recoveryPath, / L/);
+});
+
+test('cumulative timeline uses recorded event dates only and exact cents including negative net recovery', () => {
+    const state = create(async () => ok({list: []}));
+    state.detail.value = {
+        project:{id:1},
+        summary:{as_of:'2026-09-30', invested_amount:'100.01', net_recovered_amount:'-0.01'},
+        entries:[
+            {date:'2026-04-01', precision:'day', kind:'investment', amount:'100.01'},
+            {date:'2026-09-01', precision:'month', kind:'recovery', amount:'0.02'},
+            {date:'2026-09-30', precision:'day', kind:'refund', amount:'0.03'},
+        ],
+    };
+    const timeline = state.cumulativeTimeline.value;
+    assert.equal(timeline.available, true);
+    assert.equal(timeline.rows.length, 2);
+    assert.equal(timeline.rows[1].date, '2026-09-30');
+    assert.equal(timeline.rows[1].label, '2026-09（含按月记录）');
+    assert.equal(timeline.rows[1].recovery, '-0.01');
+    assert.equal(timeline.rows[1].gap, '100.02');
+    assert.ok(timeline.rows[1].recoveryY > timeline.zeroY);
+    assert.equal(timeline.rows[0].x, 45);
+    assert.equal(timeline.rows[1].x, 555);
+});
+
+test('a partial or conflicting ledger cannot manufacture a cumulative chart', () => {
+    const state = create(async () => ok({list: []}));
+    assert.equal(state.cumulativeTimeline.value.available, false);
+    state.detail.value = {project:{id:1}, summary:{as_of:'2026-10-01', invested_amount:null, net_recovered_amount:null}, entries:[]};
+    assert.equal(state.cumulativeTimeline.value.available, false);
+    state.detail.value = {project:{id:1}, summary:{as_of:'2026-10-01', invested_amount:'100.00', net_recovered_amount:'10.00'}, entries:[{date:'2026-09-01', precision:'day', kind:'investment', amount:'100.00'}]};
+    assert.equal(state.cumulativeTimeline.value.available, false);
+    assert.equal(state.cumulativeTimeline.value.matches, false);
+    assert.equal(state.cumulativeTimeline.value.rows.length, 0);
+});
+
 test('a late project response cannot replace the currently selected project', async () => {
     let resolveFirst;
     const state = create(path => path.includes('/projects/1?') ? new Promise(resolve => { resolveFirst = resolve; }) : Promise.resolve(ok(projectDetail(2))));
@@ -204,6 +395,39 @@ test('a late project response cannot replace the currently selected project', as
     await state.selectProject(2);
     resolveFirst(ok(projectDetail(1)));
     await first;
+    assert.equal(state.detail.value.project.id, 2);
+});
+
+test('changing cutoff cancels an older in-flight project read before the new list returns', async () => {
+    let resolveDetail, resolveList;
+    const state = create(path => path.includes('/projects/1?')
+        ? new Promise(resolve => { resolveDetail = resolve; })
+        : new Promise(resolve => { resolveList = resolve; }));
+    state.asOf.value = '2026-09-30';
+    const pendingDetail = state.selectProject(1);
+    state.asOf.value = '2026-10-01';
+    const pendingCutoff = state.changeAsOf();
+    resolveDetail(ok({ ...projectDetail(1), summary: { as_of: '2026-09-30' } }));
+    await pendingDetail;
+    const ignoredOldScope = state.detail.value === null;
+    resolveList(ok({ list: [], layout: { order: [] } }));
+    await pendingCutoff;
+    assert.equal(ignoredOldScope, true, 'old cutoff detail must stay hidden while the new scope loads');
+    assert.equal(state.detail.value, null);
+    assert.equal(state.detailLoading.value, false);
+});
+
+test('a cutoff refresh cannot reopen the old project after the user selects another project', async () => {
+    let resolveList;
+    const state = create(path => path.includes('/projects?')
+        ? new Promise(resolve => { resolveList = resolve; })
+        : Promise.resolve(ok(projectDetail(Number(path.match(/\/projects\/(\d+)/)[1])))));
+    state.detail.value = projectDetail(1);
+    state.asOf.value = '2026-10-01';
+    const pendingCutoff = state.changeAsOf();
+    await state.selectProject(2);
+    resolveList(ok({ list: [], layout: { order: [] } }));
+    await pendingCutoff;
     assert.equal(state.detail.value.project.id, 2);
 });
 

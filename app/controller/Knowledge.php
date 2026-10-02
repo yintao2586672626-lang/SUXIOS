@@ -364,7 +364,9 @@ class Knowledge extends Base
     {
         try {
             $hotelId = $this->resolveKnowledgeImportHotelId((int)$this->request->param('hotel_id', 0));
-            return $this->success((new KnowledgeReferenceService())->source($chunk_id, $hotelId, $this->currentUserId()));
+            return $this->success((new KnowledgeReferenceService())->source(
+                $chunk_id, $hotelId, $this->currentUserId(), $this->knowledgeReferenceAccessContext()
+            ));
         } catch (\Throwable $e) {
             return $this->error($e instanceof InvalidArgumentException || $e instanceof \RuntimeException ? $e->getMessage() : '读取知识来源失败', 422);
         }
@@ -375,7 +377,9 @@ class Knowledge extends Base
         try {
             $input = $this->requestData();
             $hotelId = $this->resolveKnowledgeImportHotelId((int)($input['hotel_id'] ?? 0));
-            return $this->success((new KnowledgeReferenceService())->save($hotelId, $this->currentUserId(), $input));
+            return $this->success((new KnowledgeReferenceService())->save(
+                $hotelId, $this->currentUserId(), $input, $this->knowledgeReferenceAccessContext()
+            ));
         } catch (\Throwable $e) {
             return $this->error($e instanceof InvalidArgumentException || $e instanceof \RuntimeException ? $e->getMessage() : '保存参考稿失败', str_contains($e->getMessage(), '版本冲突') ? 409 : 422);
         }
@@ -1048,7 +1052,8 @@ class Knowledge extends Base
         }
         if ($this->isFormalKnowledgeUnitRow($row)) {
             $hotelId = (int)($row['hotel_id'] ?? 0);
-            return $hotelId > 0 && in_array($hotelId, $this->permittedKnowledgeHotelIds(), true);
+            return ($row['status'] ?? '') === 'done'
+                && $hotelId > 0 && in_array($hotelId, $this->permittedKnowledgeHotelIds(), true);
         }
         if ((int)($row['created_by'] ?? 0) !== $this->currentUserId()) {
             return false;
@@ -1113,8 +1118,16 @@ class Knowledge extends Base
 
     private function isFormalKnowledgeUnitRow(array $row): bool
     {
-        return strtolower(trim((string)($row['source'] ?? ''))) === 'formal_operating_sop'
-            || trim((string)($row['stable_key'] ?? '')) !== '';
+        return ($row['source'] ?? '') === 'formal_operating_sop';
+    }
+
+    /** Only authenticated identity can grant privileged knowledge-reference access. */
+    private function knowledgeReferenceAccessContext(): array
+    {
+        return [
+            'tenant_id' => (int)($this->currentUser->tenant_id ?? 0),
+            'super_admin' => $this->isSuperAdmin(),
+        ];
     }
 
     private function currentUserId(): int

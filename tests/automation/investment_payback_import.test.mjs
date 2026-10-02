@@ -5,6 +5,7 @@ import test from 'node:test';
 import { webcrypto } from 'node:crypto';
 
 const source = fs.readFileSync(new URL('../../public/components/system/investment-payback-import.js', import.meta.url), 'utf8');
+const rowReview = payload => ({ review_token: 'b'.repeat(64), rows: payload.rows.map(row => ({ row_number: row.row_number, selected: row.selected !== false, errors: [], exact_matches: [], batch_duplicates: [], similar_matches: [], similar_match_count: 0, impact_excluded_reason: null })), can_confirm: true, similar_count: 0, invalid_count: 0, exact_count: 0, as_of: '2026-10-01', impact: { actual_invested_delta: '0.00', actual_net_recovered_delta: '0.00', opening_invested_total: '0.00', opening_net_recovered_total: '0.00' } });
 const make = (request = async () => ({ code: 200, data: {} }), props = {}, script = source) => {
     const registry = {}, events = [];
     let nonce = 0, unmount = () => {};
@@ -15,7 +16,13 @@ const make = (request = async () => ({ code: 200, data: {} }), props = {}, scrip
         FileReader: class { readAsDataURL(file) { this.result = `data:application/octet-stream;base64,${Buffer.from(file.content).toString('base64')}`; this.onload(); } },
     };
     vm.runInNewContext(script, sandbox);
-    const state = registry.InvestmentPaybackImport.setup({ request, today: '2026-10-01', projects: [], project: null, ...props }, { emit: (...args) => events.push(args) });
+    const { reviewRequest, ...componentProps } = props;
+    const routedRequest = async (path, options) => {
+        const payload = JSON.parse(options.body);
+        if (path.endsWith('/preview') && payload.review_rows) return reviewRequest ? reviewRequest(payload) : { code: 200, data: rowReview(payload) };
+        return request(path, options);
+    };
+    const state = registry.InvestmentPaybackImport.setup({ request: routedRequest, today: '2026-10-01', projects: [], project: null, ...componentProps }, { emit: (...args) => events.push(args) });
     return { state, helpers: sandbox.window.SUXI_PAYBACK_IMPORT, events, unmount: () => unmount() };
 };
 const provenance = { file_name: '合成验收.csv', sha256: 'a'.repeat(64), source_method: 'spreadsheet', sheets: [] };
@@ -50,14 +57,14 @@ test('explicit cell units take priority over the column unit without multiplying
     assert.equal(h.parseMoney('100元', 'wan'), '100.00');
     assert.equal(h.parseMoney('100万元', 'yuan'), '1000000.00');
     s.pasted.value = '日期\t类型\t金额（万元）\n2026-09-29\t收回\t100元';
-    await s.usePasted(); s.generate();
+    await s.usePasted(); await s.generate();
     assert.equal(s.staged.value[0].amount, '100.00');
 });
 
 test('Excel pasted quoted cells retain embedded tabs, newlines and escaped quotes in one record', async () => {
     const { state: s } = make(undefined, { project: { id: 81 } });
     s.pasted.value = '日期\t类型\t金额\t备注\r\n2026-09-29\t收回\t"1,234.56"\t"第一行\r\n第二行\t含""引号"""\r\n2026-09-30\t投入\t200\t普通备注';
-    await s.usePasted(); s.generate();
+    await s.usePasted(); await s.generate();
     assert.equal(s.staged.value.length, 2);
     assert.equal(s.staged.value[0].amount, '1234.56');
     assert.equal(s.staged.value[0].note, '第一行\n第二行\t含"引号"');
@@ -72,12 +79,12 @@ test('Excel pasted quoted cells retain embedded tabs, newlines and escaped quote
 test('a total label in a note or investor cell never removes a valid transaction or project', async () => {
     const { state: s } = make(undefined, { project: { id: 81 } });
     s.pasted.value = '日期\t类型\t金额\t备注\n2026-09-29\t收回\t100\t合计\n合计\t\t100\t';
-    await s.usePasted(); s.generate();
+    await s.usePasted(); await s.generate();
     assert.equal(s.staged.value.length, 1);
     assert.equal(s.staged.value[0].note, '合计');
     const { state: p } = make();
     p.pasted.value = '项目名称\t投资人\t累计投入\t累计净收回\t截至日\n测试酒店\t合计\t100\t50\t2026-09-29';
-    await p.usePasted(); p.generate();
+    await p.usePasted(); await p.generate();
     assert.equal(p.staged.value.length, 1);
     assert.equal(p.staged.value[0].investor_name, '合计');
 });
@@ -93,7 +100,7 @@ test('pasted cumulative projects recognize header after title, exact ten-thousan
     assert.equal(s.headerRow.value, 2);
     assert.equal(s.preview.value.source_method, 'pasted_table');
     assert.match(s.preview.value.sha256, /^[a-f0-9]{64}$/);
-    s.generate();
+    await s.generate();
     assert.equal(s.staged.value.length, 1);
     const row = s.staged.value[0];
     assert.equal(row.opening_invested, '480000.00');
@@ -102,7 +109,7 @@ test('pasted cumulative projects recognize header after title, exact ten-thousan
     assert.equal(s.canConfirm.value, false);
     await s.confirm();
     assert.equal(writes.length, 0, 'recognition and preview cannot write a ledger');
-    s.reviewed.value = true;
+    await s.checkRows?.(); s.reviewed.value = true;
     await s.confirm();
     assert.equal(writes.length, 1);
     assert.equal(writes[0].options.withBusinessContext, false);
@@ -117,11 +124,11 @@ test('multi-investor table requires year and supports selecting investor column 
     await s.usePasted();
     assert.equal(s.mapping.amount, 3);
     s.mapping.amount = 1;
-    s.generate();
+    await s.generate();
     assert.equal(s.staged.value[0].amount, '28245.80');
     assert.equal(s.staged.value[0].kind, '', 'unknown funds type must require a choice');
     assert.equal(s.invalidCount.value, 1);
-    s.year.value = '2026'; s.defaultKind.value = 'recovery'; s.generate();
+    s.year.value = '2026'; s.defaultKind.value = 'recovery'; await s.generate();
     assert.equal(s.staged.value[0].date, '2026-07-08');
     assert.equal(s.invalidCount.value, 0);
     assert.equal(s.projectId.value, 81);
@@ -130,13 +137,13 @@ test('multi-investor table requires year and supports selecting investor column 
 test('monthly entry preview displays a month, while cumulative opening balance cannot invent a day', async () => {
     const { state: s } = make(undefined, { project: { id: 81 } });
     s.pasted.value = '日期\t金额\n2026年9月\t66.01';
-    await s.usePasted(); s.defaultKind.value = 'recovery'; s.generate();
+    await s.usePasted(); s.defaultKind.value = 'recovery'; await s.generate();
     assert.equal(s.staged.value[0].precision, 'month');
     assert.equal(s.staged.value[0].date, '2026-09');
     assert.equal(s.invalidCount.value, 0);
     const { state: p } = make();
     p.pasted.value = '项目名称\t累计投入\t累计收回\t截至日\n月度项目\t100\t50\t2026年9月';
-    await p.usePasted(); p.generate();
+    await p.usePasted(); await p.generate();
     assert.equal(p.invalidCount.value, 1);
 });
 
@@ -149,7 +156,7 @@ test('failed confirmation retains edited rows, selection and same request id for
     }, { project: { id: 81 } });
     s.preview.value = provenance;
     s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '0.00', note: '原表明确零收回' }, { selected: false, row_number: 3, date: '', precision: 'day', kind: '', amount: '', note: '' }];
-    s.reviewed.value = true;
+    await s.checkRows?.(); s.reviewed.value = true;
     await s.confirm();
     assert.equal(s.busy.value, false);
     assert.equal(s.error.value, '合成断网');
@@ -167,7 +174,7 @@ test('unconfirmed or mismatched import result cannot dismiss the preview as succ
     const { state: s, events } = make(async () => ({ code: 200, data: { imported_count: 0 } }), { project: { id: 81 } });
     s.preview.value = provenance;
     s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '10.00', note: '' }];
-    s.reviewed.value = true;
+    await s.checkRows?.(); s.reviewed.value = true;
     await s.confirm();
     assert.match(s.error.value, /数量未确认/);
     assert.equal(events.length, 0);
@@ -179,7 +186,7 @@ test('a confirmation arriving after leaving the component cannot refresh a new p
     const { state: s, events, unmount } = make(() => new Promise(resolve => { finish = resolve; }), { project: { id: 81 } });
     s.preview.value = provenance;
     s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '10.00', note: '' }];
-    s.reviewed.value = true;
+    await s.checkRows?.(); s.reviewed.value = true;
     const pending = s.confirm();
     unmount();
     finish({ code: 200, data: { imported_count: 1, mode: 'entries', project_ids: [81] } });
@@ -218,6 +225,100 @@ test('the file picker can select the same file again after recognition fails', a
     assert.equal(s.preview.value.sheets.length, 1);
 });
 
+test('editing, excluding or changing project makes the old matches and impact unusable until checked again', async () => {
+    const checks = [], writes = [];
+    const { state: s } = make(async (path, options) => { writes.push(JSON.parse(options.body)); return { code: 200, data: { imported_count: 1 } }; }, { project: { id: 81 }, reviewRequest: async payload => {
+        checks.push(structuredClone(payload));
+        const data = rowReview(payload);
+        data.impact.actual_net_recovered_delta = payload.rows.filter(row => row.selected).reduce((sum, row) => sum + Number(row.amount), 0).toFixed(2);
+        return { code: 200, data };
+    } });
+    s.preview.value = provenance;
+    s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '10.00', note: '' }, { selected: true, row_number: 3, date: '2026-09-30', precision: 'day', kind: 'recovery', amount: '5.01', note: '' }];
+    await s.checkRows(); s.reviewed.value = true;
+    assert.equal(s.review.value.impact.actual_net_recovered_delta, '15.01');
+    assert.equal(s.canConfirm.value, true);
+    s.staged.value[0].amount = '11.02';
+    assert.equal(s.reviewCurrent.value, false, 'even a change without a UI handler must invalidate the preview');
+    await s.confirm(); assert.equal(writes.length, 0);
+    s.changed(); await s.checkRows();
+    assert.equal(s.review.value.impact.actual_net_recovered_delta, '16.03');
+    assert.equal(s.reviewed.value, false);
+    s.staged.value[1].selected = false; s.changed(); await s.checkRows();
+    assert.equal(s.review.value.impact.actual_net_recovered_delta, '11.02');
+    assert.equal(checks.at(-1).rows[1].selected, false);
+    s.projectId.value = 82;
+    assert.equal(s.reviewCurrent.value, false);
+    s.changed(); await s.checkRows();
+    assert.equal(checks.at(-1).project_id, 82);
+    s.staged.value[0].date = '2026-09-28'; s.changed(); await s.checkRows();
+    assert.equal(checks.at(-1).rows[0].date, '2026-09-28');
+    s.staged.value[0].kind = 'investment'; s.changed(); await s.checkRows();
+    assert.equal(checks.at(-1).rows[0].kind, 'investment');
+    s.mapping.amount = 1; s.resetRows();
+    assert.equal(s.review.value, null); assert.equal(s.staged.value.length, 0); assert.equal(s.canConfirm.value, false);
+});
+
+test('exact duplicates require explicit exclusion and similar receipts require a separate human confirmation', async () => {
+    const writes = [];
+    const { state: s } = make(async (path, options) => { writes.push(JSON.parse(options.body)); return { code: 200, data: { imported_count: 1 } }; }, { project: { id: 81 }, reviewRequest: async payload => {
+        const data = rowReview(payload), exact = data.rows.find(row => row.row_number === 2);
+        exact.exact_matches = [{ id: 7, date: '2026-09-29', kind: 'recovery', amount: '10.00', note: '收款A', reason: '完全相同' }];
+        data.exact_count = exact.selected ? 1 : 0; data.can_confirm = !exact.selected;
+        data.similar_count = 1; data.rows[1].similar_matches = [{ id: 7, date: '2026-09-29', kind: 'recovery', amount: '10.00', note: '收款A', reason: '备注不同，另一筆待核对' }];
+        return { code: 200, data };
+    } });
+    s.preview.value = provenance;
+    s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '10.00', note: '收款A' }, { selected: true, row_number: 3, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '10.00', note: '收款B' }];
+    await s.checkRows(); s.reviewed.value = true; s.similarConfirmed.value = true;
+    assert.equal(s.canConfirm.value, false); await s.confirm(); assert.equal(writes.length, 0);
+    s.excludeExact(); assert.equal(s.staged.value[0].selected, false); assert.equal(s.staged.value[1].selected, true);
+    await s.checkRows(); s.reviewed.value = true;
+    assert.equal(s.canConfirm.value, false);
+    s.similarConfirmed.value = true; await s.confirm();
+    assert.equal(writes.length, 1); assert.equal(writes[0].rows.length, 1); assert.equal(writes[0].rows[0].note, '收款B');
+    assert.equal(writes[0].similar_confirmed, true); assert.equal(writes[0].review_token, 'b'.repeat(64));
+});
+
+test('late review responses cannot overwrite edits and failed or incomplete reviews cannot enable confirmation', async () => {
+    const pending = [];
+    const { state: s, unmount } = make(undefined, { project: { id: 81 }, reviewRequest: payload => new Promise(resolve => pending.push({ payload, resolve })) });
+    s.preview.value = provenance;
+    s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '10.00', note: '' }];
+    const first = s.checkRows();
+    s.staged.value[0].amount = '20.00'; s.changed();
+    const second = s.checkRows();
+    pending[1].resolve({ code: 200, data: { ...rowReview(pending[1].payload), review_token: 'c'.repeat(64) } }); await second;
+    pending[0].resolve({ code: 200, data: rowReview(pending[0].payload) }); await first;
+    assert.equal(s.review.value.review_token, 'c'.repeat(64));
+    const failed = s.checkRows(); pending[2].resolve({ code: 503, message: '合成读取失败' }); await failed;
+    assert.match(s.error.value, /合成读取失败/); assert.equal(s.reviewCurrent.value, false); assert.equal(s.canConfirm.value, false);
+    const incomplete = s.checkRows(); pending[3].resolve({ code: 200, data: { review_token: 'b'.repeat(64), rows: [] } }); await incomplete;
+    assert.match(s.error.value, /未完整返回/); assert.equal(s.canConfirm.value, false);
+    const leaving = s.checkRows(); unmount(); pending[4].resolve({ code: 200, data: rowReview(pending[4].payload) }); await leaving;
+    assert.equal(s.review.value, null);
+});
+
+test('future dates and date precision mismatches stay invalid before any actual import', async () => {
+    const { state: s } = make(undefined, { project: { id: 81 } });
+    s.staged.value = [{ selected: true, row_number: 2, date: '2026-10-02', precision: 'day', kind: 'recovery', amount: '10.00', note: '' }, { selected: true, row_number: 3, date: '2026-09-29', precision: 'month', kind: 'recovery', amount: '10.00', note: '' }];
+    assert.equal(s.invalidCount.value, 2);
+    assert.match(s.rowErrors(s.staged.value[0]).join('；'), /未来/);
+    assert.match(s.rowErrors(s.staged.value[1]).join('；'), /粒度/);
+});
+
+test('a stale ledger conflict invalidates the preview and rechecking the same business rows preserves request identity', async () => {
+    const writes = []; let reviewToken = 'b'.repeat(64);
+    const { state: s } = make(async (path, options) => { writes.push(JSON.parse(options.body)); return { code: 409, message: '项目账目已变化，请重新检查' }; }, { project: { id: 81 }, reviewRequest: async payload => ({ code: 200, data: { ...rowReview(payload), review_token: reviewToken } }) });
+    s.preview.value = provenance;
+    s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '10.00', note: '' }];
+    await s.checkRows(); s.reviewed.value = true; await s.confirm();
+    assert.equal(s.review.value, null); assert.equal(s.canConfirm.value, false); assert.match(s.error.value, /重新检查/);
+    reviewToken = 'c'.repeat(64); await s.checkRows(); s.reviewed.value = true; await s.confirm();
+    assert.equal(writes[0].client_request_id, writes[1].client_request_id);
+    assert.notEqual(writes[0].review_token, writes[1].review_token);
+});
+
 test('shipped compiled bundle preserves true confirmation and zero-recovery booleans in JSON', async () => {
     const artifact = fs.readFileSync(new URL('../../public/components/system/investment-payback.min.js', import.meta.url), 'utf8');
     let payload;
@@ -228,7 +329,7 @@ test('shipped compiled bundle preserves true confirmation and zero-recovery bool
     }, { project: { id: 81 } }, artifact);
     s.preview.value = provenance;
     s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '0.00', note: '合成零收回' }];
-    s.reviewed.value = true;
+    await s.checkRows?.(); s.reviewed.value = true;
     await s.confirm();
     assert.equal(payload.confirmed, true);
     assert.equal(payload.rows[0].confirmed_zero, true);

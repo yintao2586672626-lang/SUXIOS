@@ -39,9 +39,9 @@
     registry.InvestmentPaybackView = Vue.defineAsyncComponent({
         loader: () => {
             if (!paybackPromise) {
-                paybackPromise = loadScript('investment-scenario.min.js?v=investment-scenario-ha97aae91d2').then(() => {
+                paybackPromise = loadScript('investment-scenario.min.js?v=investment-scenario-hf5b2f32461').then(() => {
                     if (!registry.InvestmentScenarioWorkbench) throw new Error('投资经营测算组件未注册');
-                    return loadScript('investment-payback.min.js?v=investment-payback-h1edaa03335');
+                    return loadScript('investment-payback.min.js?v=investment-payback-h745d88dbd8');
                 }).then(() => {
                     if (!registry.InvestmentPaybackBody) throw new Error('投资回本组件未注册');
                     return registry.InvestmentPaybackBody;

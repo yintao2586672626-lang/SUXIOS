@@ -256,6 +256,15 @@ class InvestmentPaybackService
                         throw new InvalidArgumentException('首次实际投入日期不能晚于现有实际投入');
                     }
                 }
+                // Confirmation belongs to the exact opening balance and cash
+                // basis that was reviewed. Save a changed basis first, then
+                // explicitly confirm it in a separate versioned update.
+                foreach (['investor_name', 'hotel_id', 'basis', 'currency', 'first_invested_on', 'opening_as_of', 'opening_invested', 'opening_recovered', 'opening_source'] as $field) {
+                    if ((string)($old[$field] ?? '') !== (string)($data[$field] ?? '')) {
+                        $data['history_complete_through'] = null;
+                        break;
+                    }
+                }
             }
             $digest = self::digest($data);
             if (!$old) {
@@ -351,7 +360,7 @@ class InvestmentPaybackService
             } else {
                 $id = (int)Db::name('investment_payback_entries')->insertGetId(array_merge($data, ['tenant_id' => $this->tenantId, 'project_id' => $projectId, 'client_request_id' => $requestId, 'input_digest' => $digest, 'version' => 1, 'created_by' => $this->actorId, 'updated_by' => $this->actorId, 'created_at' => $now, 'updated_at' => $now]));
             }
-            $this->touchProject($project);
+            $this->touchProject($project, $old, $data);
             $this->event($projectId, $id, $old ? 'entry_updated' : 'entry_created', $old ? $this->formatEntry($old) : null, $this->formatEntry($this->findEntry($projectId, $id)), $before);
         });
         return $this->detail($projectId, $asOf);
@@ -377,7 +386,7 @@ class InvestmentPaybackService
                 'voided_at' => date('Y-m-d H:i:s'), 'voided_by' => $this->actorId, 'void_reason' => $reason,
                 'updated_at' => date('Y-m-d H:i:s'), 'updated_by' => $this->actorId, 'version' => (int)$old['version'] + 1,
             ]);
-            $this->touchProject($project);
+            $this->touchProject($project, $old, null);
             $this->event($projectId, $entryId, 'entry_voided', $this->formatEntry($old), $this->formatEntry($this->findEntry($projectId, $entryId)), $before);
         });
         return $this->detail($projectId, $asOf);
@@ -413,7 +422,7 @@ class InvestmentPaybackService
             if ($deleted !== 1) {
                 throw new RuntimeException('记录已被修改，请重新读取后再删除', 409);
             }
-            $this->touchProject($project);
+            $this->touchProject($project, $old, null);
             // The ledger migration has no FK/cascade from audit events to entry
             // rows. Keep the historical ID and the complete before snapshot.
             $this->event($projectId, $entryId, 'entry_deleted', $this->formatEntry($old), [
@@ -684,11 +693,39 @@ class InvestmentPaybackService
         }
     }
 
-    private function touchProject(array $project): void
+    /** Shared with atomic imports; planned/voided/opening-excluded rows are not actual cash. */
+    public static function entryChangeInvalidatesHistory(array $project, ?array $before, ?array $after): bool
     {
-        Db::name('investment_payback_projects')->where('tenant_id', $this->tenantId)->where('id', (int)$project['id'])->update([
+        $checkedThrough = $project['history_complete_through'] ?? null;
+        if ($checkedThrough === null) {
+            return false;
+        }
+        foreach ([$before, $after] as $entry) {
+            if ($entry === null || !empty($entry['voided_at']) || !empty($entry['is_planned'])) {
+                continue;
+            }
+            [$start] = InvestmentPaybackCalculator::period((string)($entry['business_date'] ?? $entry['date']), (string)$entry['precision']);
+            if ($start <= $checkedThrough && (($project['opening_as_of'] ?? null) === null || $start > $project['opening_as_of'])) {
+                // A monthly record overlapping the checked interval also
+                // invalidates it; do not invent a partially checked month.
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function touchProject(array $project, ?array $before, ?array $after): void
+    {
+        $update = [
             'version' => (int)$project['version'] + 1, 'updated_by' => $this->actorId, 'updated_at' => date('Y-m-d H:i:s'),
-        ]);
+        ];
+        if (self::entryChangeInvalidatesHistory($project, $before, $after)) {
+            $update['history_complete_through'] = null;
+            // Keep retry detection aligned with the persisted project. An old
+            // digest would otherwise discard an explicit reconfirmation.
+            $update['input_digest'] = self::digest(self::normalizeProject(['history_complete_through' => null], $project));
+        }
+        Db::name('investment_payback_projects')->where('tenant_id', $this->tenantId)->where('id', (int)$project['id'])->update($update);
     }
 
     private function event(int $projectId, ?int $entryId, string $type, ?array $beforeRecord, array $afterRecord, ?array $beforeSummary = null): void

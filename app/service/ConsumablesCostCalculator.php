@@ -47,6 +47,9 @@ final class ConsumablesCostCalculator
             $unit = $row['unit'] ?? null;
             $reference = null;
             if (array_key_exists('procurement_reference', $row) && $row['procurement_reference'] !== null) {
+                if (!class_exists(ConsumablesProcurementReferenceService::class)) {
+                    throw new InvalidArgumentException('采购参考目录尚未接入，请解除引用后使用手工成本');
+                }
                 $this->references ??= new ConsumablesProcurementReferenceService();
                 $reference = $this->references->normalizeReference($row['procurement_reference']);
                 if (is_string($unit) && trim($unit) === '') $unit = null;

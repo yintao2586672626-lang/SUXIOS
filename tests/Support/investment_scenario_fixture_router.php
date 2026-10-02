@@ -60,7 +60,16 @@ try {
     } elseif ($path === '/api/investment-payback/scenario/reference-example' && $method === 'GET') {
         $data = $scenario->referenceExample();
     } elseif (preg_match('#^/api/investment-payback/projects/(\d+)/scenario$#D', (string)$path, $match)) {
-        $data = $method === 'GET' ? $scenario->detail((int)$match[1]) : ($method === 'POST' ? $scenario->save((int)$match[1], $payload) : throw new RuntimeException('Method unavailable', 405));
+        $data = $method === 'GET' ? $scenario->detail((int)$match[1], $_GET['scenario_key'] ?? 'base') : ($method === 'POST' ? $scenario->save((int)$match[1], $payload) : throw new RuntimeException('Method unavailable', 405));
+    } elseif ($path === '/api/investment-payback/scenario/compare' && $method === 'POST') {
+        $data = $scenario->compare($payload);
+    } elseif (preg_match('#^/api/investment-payback/projects/(\d+)/scenario/(library|history|consumables-reference)$#D', (string)$path, $match) && $method === 'GET') {
+        $action = ['library' => 'library', 'history' => 'history', 'consumables-reference' => 'consumablesReference'][$match[2]];
+        $data = $action === 'history' ? $scenario->history((int)$match[1], isset($_GET['before_event_id']) ? (int)$_GET['before_event_id'] : null) : $scenario->$action((int)$match[1]);
+    } elseif (preg_match('#^/api/investment-payback/projects/(\d+)/scenario/history/(\d+)$#D', (string)$path, $match) && $method === 'GET') {
+        $data = $scenario->version((int)$match[1], (int)$match[2]);
+    } elseif (preg_match('#^/api/investment-payback/projects/(\d+)/scenario/history/(\d+)/copy$#D', (string)$path, $match) && $method === 'POST') {
+        $data = $scenario->copyVersion((int)$match[1], (int)$match[2], $payload);
     } elseif (preg_match('#^/api/investment-payback/projects/(\d+)/scenario/preview$#D', (string)$path, $match) && $method === 'POST') {
         $data = $scenario->preview((int)$match[1], $payload);
     } elseif (preg_match('#^/api/investment-payback/projects/(\d+)$#D', (string)$path, $match) && $method === 'GET') {

@@ -7,6 +7,7 @@ use app\controller\InvestmentPayback;
 use app\middleware\Auth;
 use app\model\User;
 use app\service\HotelScopeService;
+use app\service\InvestmentPaybackCalculator;
 use app\service\InvestmentPaybackImportService;
 use app\service\InvestmentPaybackService;
 use app\service\LocalImageOcrService;
@@ -37,7 +38,7 @@ final class InvestmentPaybackImportTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
-        \Tests\Support\IsolatedSqliteAppFixture::create('payback_import_app_');
+        (new App(dirname(__DIR__)))->initialize();
         self::$originalConfig = Config::get('database');
         self::$databasePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'payback_import_test_' . bin2hex(random_bytes(8)) . '.sqlite';
         Config::set(['default' => 'payback_import_test', 'connections' => ['payback_import_test' => [
@@ -395,11 +396,12 @@ final class InvestmentPaybackImportTest extends TestCase
     public function testOpeningOverlapAfterFirstEntryAndAuditFailureAreAtomic(): void
     {
         $id = $this->ledger()->saveProject(['project_name' => '含期初', 'investor_name' => '测试人', 'client_request_id' => 'opening-project-001',
-            'opening_invested' => '100.00', 'opening_recovered' => '0.00', 'opening_as_of' => '2026-08-31', 'opening_source' => '测试期初', 'forecast_as_of' => '2026-09-30'])['project']['id'];
+            'opening_invested' => '100.00', 'opening_recovered' => '0.00', 'opening_as_of' => '2026-08-31', 'opening_source' => '测试期初', 'forecast_as_of' => '2026-09-30', 'history_complete_through' => '2026-09-30'])['project']['id'];
         $input = $this->batch('entries', [$this->entryRow(), $this->entryRow(['row_number' => 3, 'date' => '2026-08', 'precision' => 'month'])], ['project_id' => $id]);
         $this->runtimeFailure(fn() => $this->importer()->confirm($input), 409);
         self::assertSame(0, Db::name('investment_payback_entries')->count());
         self::assertSame(1, $this->ledger()->detail($id)['project']['version']);
+        self::assertSame('2026-09-30', $this->ledger()->detail($id)['project']['history_complete_through']);
         self::assertSame(1, Db::name('investment_payback_events')->count());
         self::assertSame(0, Db::name('system_config')->count());
         Db::execute('CREATE TRIGGER reject_import_marker BEFORE INSERT ON system_config BEGIN SELECT RAISE(ABORT, "synthetic marker failure"); END');
@@ -411,6 +413,7 @@ final class InvestmentPaybackImportTest extends TestCase
         }
         self::assertSame(0, Db::name('investment_payback_entries')->count());
         self::assertSame(1, $this->ledger()->detail($id)['project']['version']);
+        self::assertSame('2026-09-30', $this->ledger()->detail($id)['project']['history_complete_through']);
     }
 
     public function testDuplicatesInBatchAndExistingEntriesCannotDoubleCount(): void
@@ -449,6 +452,173 @@ final class InvestmentPaybackImportTest extends TestCase
         $this->runtimeFailure(fn() => $this->importer(10, 8, [81])->confirm(array_merge($base, ['project_id' => $hotelId])), 403);
         self::assertSame(0, Db::name('investment_payback_entries')->count());
         self::assertSame(0, Db::name('system_config')->count());
+    }
+
+    public function testEditedPreviewShowsExactBatchAndSimilarCandidatesWithoutWrites(): void
+    {
+        $ledger = $this->ledger();
+        $id = $ledger->saveProject(['project_name' => '重复预览测试', 'investor_name' => '测试主体', 'client_request_id' => 'review-project',
+            'opening_invested' => '100.00', 'opening_recovered' => '0.00', 'opening_as_of' => '2026-08-31', 'opening_source' => '合成期初', 'forecast_as_of' => '2026-09-30'])['project']['id'];
+        $ledger->saveEntry($id, ['kind' => 'recovery', 'amount' => '20.02', 'date' => '2026-09-15', 'source' => '合成实收', 'notes' => '收款A', 'client_request_id' => 'review-existing']);
+        $ledger->saveEntry($id, ['kind' => 'recovery', 'amount' => '20.02', 'date' => '2026-09-16', 'source' => '合成计划', 'notes' => '收款B', 'is_planned' => true, 'client_request_id' => 'review-plan']);
+        $rows = [
+            $this->entryRow(['date' => '2026-09-15', 'kind' => 'recovery', 'amount' => '20.02', 'note' => '收款A']),
+            $this->entryRow(['row_number' => 3, 'date' => '2026-09-15', 'kind' => 'recovery', 'amount' => '20.02', 'note' => '收款A']),
+            $this->entryRow(['row_number' => 4, 'date' => '2026-09-15', 'kind' => 'recovery', 'amount' => '20.02', 'note' => '收款B']),
+            $this->entryRow(['row_number' => 5, 'date' => '2026-09-17', 'amount' => '3.01']),
+            $this->entryRow(['row_number' => 6, 'date' => '2099-09-17']),
+            $this->entryRow(['row_number' => 7, 'date' => '2026-09-17', 'is_planned' => true]),
+            $this->entryRow(['row_number' => 8, 'date' => '2026-08-31']),
+        ];
+        $beforeEntries = Db::name('investment_payback_entries')->count();
+        $beforeEvents = Db::name('investment_payback_events')->count();
+        $review = $this->importer()->preview(['review_rows' => true, 'mode' => 'entries', 'project_id' => $id, 'rows' => $rows]);
+        self::assertFalse($review['can_confirm']);
+        self::assertSame(2, $review['exact_count']);
+        self::assertSame(3, $review['invalid_count']);
+        self::assertSame('收款A', $review['rows'][0]['exact_matches'][0]['note']);
+        self::assertSame(3, $review['rows'][0]['batch_duplicates'][0]['row_number']);
+        self::assertSame(2, $review['rows'][1]['batch_duplicates'][0]['row_number']);
+        self::assertSame('收款A', $review['rows'][2]['similar_matches'][0]['note']);
+        self::assertStringContainsString('可能是另一笔真实资金', $review['rows'][2]['similar_matches'][0]['reason']);
+        self::assertSame('3.01', $review['impact']['actual_invested_delta']);
+        self::assertSame('20.02', $review['impact']['actual_net_recovered_delta']);
+        self::assertSame('opening_overlap', $review['rows'][6]['impact_excluded_reason']);
+        self::assertSame($beforeEntries, Db::name('investment_payback_entries')->count());
+        self::assertSame($beforeEvents, Db::name('investment_payback_events')->count());
+        self::assertSame(0, Db::name('system_config')->count());
+        $validRows = [$rows[2], $rows[3]];
+        $review = $this->importer()->preview(['review_rows' => true, 'mode' => 'entries', 'project_id' => $id, 'rows' => $validRows]);
+        self::assertTrue($review['can_confirm']);
+        self::assertSame(1, $review['similar_count']);
+        $batch = $this->batch('entries', $validRows, ['project_id' => $id, 'review_token' => $review['review_token']]);
+        $this->validationFailure(fn() => $this->importer()->confirm($batch), '相似候选');
+        self::assertSame($beforeEntries, Db::name('investment_payback_entries')->count());
+        $batch['similar_confirmed'] = true;
+        self::assertSame(2, $this->importer()->confirm($batch)['imported_count']);
+        self::assertTrue($this->importer()->confirm($batch)['replayed']);
+        self::assertSame('40.04', $ledger->detail($id)['summary']['net_recovered_amount']);
+    }
+
+    public function testPreviewTokenRejectsEditedRowsOrChangedLedgerAndKeepsWholeBatchAtomic(): void
+    {
+        $id = $this->emptyProject();
+        $rows = [$this->entryRow(), $this->entryRow(['row_number' => 3, 'date' => '2026-09-02', 'kind' => 'recovery', 'amount' => '2.01'])];
+        $input = ['review_rows' => true, 'mode' => 'entries', 'project_id' => $id, 'rows' => $rows];
+        $review = $this->importer()->preview($input);
+        $edited = $rows;
+        $edited[1]['amount'] = '2.02';
+        $this->runtimeFailure(fn() => $this->importer()->confirm($this->batch('entries', $edited, ['project_id' => $id, 'review_token' => $review['review_token']])), 409);
+        self::assertSame(0, Db::name('investment_payback_entries')->count());
+        $this->ledger()->saveEntry($id, ['kind' => 'recovery', 'amount' => '9.00', 'date' => '2026-09-04', 'source' => '合成并发写入', 'client_request_id' => 'review-concurrent']);
+        $this->runtimeFailure(fn() => $this->importer()->confirm($this->batch('entries', $rows, ['project_id' => $id, 'review_token' => $review['review_token']])), 409);
+        self::assertSame(1, Db::name('investment_payback_entries')->count());
+        self::assertSame(0, Db::name('system_config')->count());
+        $input['rows'][1]['selected'] = false;
+        $newReview = $this->importer()->preview($input);
+        self::assertSame(1, $newReview['selected_count']);
+        self::assertSame('0.00', $newReview['impact']['actual_net_recovered_delta']);
+        self::assertSame(1, $this->importer()->confirm($this->batch('entries', [$rows[0]], ['project_id' => $id, 'review_token' => $newReview['review_token']]))['imported_count']);
+    }
+
+    public function testProjectPreviewSeparatesOpeningTotalsAndExcludedDuplicateDoesNotInvalidateConfirmation(): void
+    {
+        $this->ledger()->saveProject(['project_name' => '酒店甲', 'investor_name' => '测试人', 'client_request_id' => 'review-existing-project', 'forecast_as_of' => '2026-09-30']);
+        $rows = [$this->projectRow(['selected' => false]), $this->projectRow(['row_number' => 3, 'project_name' => '酒店乙', 'opening_recovered' => '-10.01'])];
+        $review = $this->importer()->preview(['review_rows' => true, 'mode' => 'projects', 'rows' => $rows]);
+        self::assertTrue($review['can_confirm']);
+        self::assertCount(1, $review['rows'][0]['exact_matches']);
+        self::assertSame(0, $review['exact_count']);
+        self::assertSame('0.00', $review['impact']['actual_invested_delta']);
+        self::assertSame('1000.01', $review['impact']['opening_invested_total']);
+        self::assertSame('-10.01', $review['impact']['opening_net_recovered_total']);
+        self::assertSame(1, $this->importer()->confirm($this->batch('projects', [$rows[1]], ['review_token' => $review['review_token']]))['imported_count']);
+    }
+
+    public function testConfirmPreservesSelectedProjectRowsFromTheReviewedFullPayload(): void
+    {
+        $rows = [$this->projectRow(['selected' => true]), $this->projectRow(['row_number' => 3, 'project_name' => '已排除项目', 'opening_invested' => '9000.00', 'selected' => false])];
+        $review = $this->importer()->preview(['review_rows' => true, 'mode' => 'projects', 'rows' => $rows]);
+        self::assertTrue($review['can_confirm']);
+        self::assertSame(1, $review['selected_count']);
+        $batch = $this->batch('projects', $rows, ['review_token' => $review['review_token']]);
+        $result = $this->importer()->confirm($batch);
+        self::assertSame(1, $result['imported_count']);
+        self::assertSame(1, Db::name('investment_payback_projects')->count());
+        self::assertSame(0, Db::name('investment_payback_projects')->where('project_name', '已排除项目')->count());
+        self::assertSame($review['impact']['opening_invested_total'], $this->ledger()->detail($result['project_ids'][0])['summary']['invested_amount']);
+        $batch['rows'] = [$rows[0]];
+        self::assertTrue($this->importer()->confirm($batch)['replayed']);
+    }
+
+    public function testConfirmIgnoresExcludedEntryDuplicatesAndInvalidAmountsWithoutChangingTheReviewedImpact(): void
+    {
+        $id = $this->emptyProject();
+        $rows = [$this->entryRow(['selected' => true]), $this->entryRow(['row_number' => 3, 'selected' => false]), $this->entryRow(['row_number' => 4, 'date' => '', 'amount' => '未填写', 'selected' => false])];
+        $review = $this->importer()->preview(['review_rows' => true, 'mode' => 'entries', 'project_id' => $id, 'rows' => $rows]);
+        self::assertTrue($review['can_confirm']);
+        self::assertSame(1, $review['selected_count']);
+        self::assertSame(1, $this->importer()->confirm($this->batch('entries', $rows, ['project_id' => $id, 'review_token' => $review['review_token']]))['imported_count']);
+        self::assertSame(1, Db::name('investment_payback_entries')->count());
+        self::assertSame($review['impact']['actual_invested_delta'], $this->ledger()->detail($id)['summary']['invested_amount']);
+    }
+
+    public function testAllExcludedAndMalformedSelectionsCannotWriteRecordsOrAnImportMarker(): void
+    {
+        $rows = [$this->projectRow(['selected' => false])];
+        $this->validationFailure(fn() => $this->importer()->confirm($this->batch('projects', $rows)), '至少选择');
+        foreach ([1, 'true', null, 0, 'false'] as $invalid) {
+            $rows = [$this->projectRow(['selected' => $invalid])];
+            $this->validationFailure(fn() => $this->importer()->preview(['review_rows' => true, 'mode' => 'projects', 'rows' => $rows]), '选中状态');
+            $this->validationFailure(fn() => $this->importer()->confirm($this->batch('projects', $rows)), '选中状态');
+        }
+        self::assertSame(0, Db::name('investment_payback_projects')->count());
+        self::assertSame(0, Db::name('investment_payback_events')->count());
+        self::assertSame(0, Db::name('system_config')->count());
+    }
+
+    public function testPlannedStringFlagsCannotBecomeActualCashThroughImport(): void
+    {
+        $id = $this->emptyProject();
+        foreach ([true, 1, '1'] as $planned) {
+            $rows = [$this->entryRow(['is_planned' => $planned])];
+            $review = $this->importer()->preview(['review_rows' => true, 'mode' => 'entries', 'project_id' => $id, 'rows' => $rows]);
+            self::assertFalse($review['can_confirm']);
+            self::assertSame('0.00', $review['impact']['actual_invested_delta']);
+            $this->validationFailure(fn() => $this->importer()->confirm($this->batch('entries', $rows, ['project_id' => $id])), '计划记录');
+        }
+        self::assertSame(0, Db::name('investment_payback_entries')->count());
+        self::assertSame(0, Db::name('system_config')->count());
+    }
+
+    public function testPreviewPreservesTenantHotelScopeAndDoesNotCountIncompleteCurrentMonth(): void
+    {
+        $id = $this->emptyProject();
+        $this->runtimeFailure(fn() => $this->importer(20, 8, [90])->preview(['review_rows' => true, 'mode' => 'entries', 'project_id' => $id, 'rows' => [$this->entryRow()]]), 404);
+        $hotelId = $this->ledger()->saveProject(['project_name' => '预览酒店限定', 'investor_name' => '测试主体', 'hotel_id' => 80, 'client_request_id' => 'preview-hotel-scope', 'forecast_as_of' => '2026-09-30'])['project']['id'];
+        $this->runtimeFailure(fn() => $this->importer(10, 8, [81])->preview(['review_rows' => true, 'mode' => 'entries', 'project_id' => $hotelId, 'rows' => [$this->entryRow()]]), 403);
+        $today = InvestmentPaybackCalculator::today();
+        $month = substr($today, 0, 7);
+        $review = $this->importer()->preview(['review_rows' => true, 'mode' => 'entries', 'project_id' => $id, 'rows' => [$this->entryRow(['date' => $month, 'precision' => 'month', 'kind' => 'recovery', 'amount' => '20.02'])]]);
+        [, $monthEnd] = InvestmentPaybackCalculator::period($month, 'month');
+        self::assertSame($monthEnd > $today ? '0.00' : '20.02', $review['impact']['actual_net_recovered_delta']);
+        self::assertSame($monthEnd > $today ? 'period_after_today' : null, $review['rows'][0]['impact_excluded_reason']);
+    }
+
+    public function testConfirmedImportInvalidatesPriorHistoryButReplayPreservesFreshReview(): void
+    {
+        $ledger = $this->ledger();
+        $id = $ledger->saveProject(['project_name' => '核对状态导入', 'investor_name' => '测试主体', 'client_request_id' => 'review-history-project',
+            'forecast_as_of' => '2026-09-30', 'history_complete_through' => '2026-09-30'])['project']['id'];
+        $batch = $this->batch('entries', [$this->entryRow()], ['project_id' => $id]);
+        $review = $this->importer()->preview(['review_rows' => true, 'mode' => 'entries', 'project_id' => $id, 'rows' => $batch['rows']]);
+        $batch['review_token'] = $review['review_token'];
+        self::assertSame(1, $this->importer()->confirm($batch)['imported_count']);
+        $project = $ledger->detail($id)['project'];
+        self::assertNull($project['history_complete_through']);
+        $ledger->saveProject(['id' => $id, 'expected_version' => $project['version'], 'history_complete_through' => '2026-09-30']);
+        self::assertTrue($this->importer()->confirm($batch)['replayed']);
+        self::assertSame('2026-09-30', $ledger->detail($id)['project']['history_complete_through']);
     }
 
     public function testImportControllerReturnsStandardPreviewAndSemanticErrors(): void

@@ -520,7 +520,7 @@ test('operating question action stays pending until double-confirmed approval, r
     { timeout: 5000 },
   ).toBeGreaterThan(flowReadsBeforeOpen);
   expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
-  const actionRow = page.locator('[data-operation-execution-intent-id="901"]');
+  const actionRow = page.locator('[data-operation-execution-intent-id="901"]:visible');
   await expect(actionRow).toBeVisible({ timeout: 15000 });
   expect(calls.some(call => call.pathname === '/api/operation/execution-flow'
     && call.query.hotel_id === '7' && call.query.system_hotel_id === '7'
@@ -574,7 +574,7 @@ test('operating question action stays pending until double-confirmed approval, r
   expect(mockState.approvalRequests).toHaveLength(1);
 
   await restoredAction.click();
-  const restoredRow = page.locator('[data-operation-execution-intent-id="901"]');
+  const restoredRow = page.locator('[data-operation-execution-intent-id="901"]:visible');
   await expect(restoredRow).toBeVisible({ timeout: 15000 });
   await expect(restoredRow.getByTestId('operation-approve')).toHaveCount(0);
   expect(mockState.intent.tasks).toHaveLength(1);

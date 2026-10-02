@@ -279,12 +279,14 @@ final class InvestmentPaybackPersistenceTest extends TestCase
         $id = $project['project']['id'];
         $service->saveEntry($id, $this->entry('investment', '1000.00', 'forecast-invest-001', ['date' => '2026-01-01']));
         $before = $service->saveEntry($id, $this->entry('recovery', '1000.00', 'forecast-recover-001', ['date' => '2026-02-01']));
+        $before = $service->saveProject(['id' => $id, 'history_complete_through' => '2026-09-30']);
         self::assertSame('confirmed', $before['summary']['first_payback']['status']);
         $entryId = $before['entries'][1]['id'];
         $corrected = $service->saveEntry($id, ['id' => $entryId, 'amount' => '900.00', 'notes' => '按银行流水更正']);
         self::assertSame('not_reached', $corrected['summary']['first_payback']['status']);
         self::assertSame('confirmed', $corrected['audit_history'][0]['payload']['summary_before']['first_payback']['status']);
         self::assertSame('not_reached', $corrected['audit_history'][0]['payload']['summary_after']['first_payback']['status']);
+        $service->saveProject(['id' => $id, 'history_complete_through' => '2026-09-30']);
         $forecast = $service->saveProject(['id' => $id, 'expected_monthly_amount' => '50.00', 'expected_source' => '人工假设乙', 'forecast_as_of' => '2026-09-30']);
         self::assertSame(2, $forecast['summary']['forecast']['whole_months']);
         self::assertSame('100.00', $forecast['audit_history'][0]['payload']['before']['expected_monthly_amount']);
@@ -642,6 +644,231 @@ final class InvestmentPaybackPersistenceTest extends TestCase
         self::assertNull($body['data']['summary']['invested_amount']);
         self::assertSame('entry_deleted', $body['data']['audit_history'][0]['event_type']);
         self::assertSame($service->detail($projectId), $body['data']);
+    }
+
+    public function testActualMutationClearsReviewedHistoryAndExplicitReconfirmationPersists(): void
+    {
+        $service = $this->service();
+        $created = $service->saveProject($this->project([
+            'opening_as_of' => '2026-08-31', 'opening_invested' => '1000.00',
+            'opening_recovered' => '0.00', 'opening_source' => '合成验收期初',
+        ]));
+        $id = $created['project']['id'];
+        self::assertTrue($created['summary']['data_quality']['history_complete']);
+        $input = $this->entry('recovery', '100.00', 'history-create-001', ['date' => '2026-09-30']);
+        $changed = $service->saveEntry($id, $input);
+        self::assertNull($changed['project']['history_complete_through']);
+        self::assertFalse($changed['summary']['data_quality']['history_complete']);
+        self::assertTrue($changed['audit_history'][0]['payload']['summary_before']['data_quality']['history_complete']);
+        self::assertFalse($changed['audit_history'][0]['payload']['summary_after']['data_quality']['history_complete']);
+        self::assertSame($changed, $this->service()->detail($id));
+        $confirmed = $service->saveProject(['id' => $id, 'expected_version' => $changed['project']['version'], 'history_complete_through' => '2026-09-30']);
+        self::assertSame('2026-09-30', $confirmed['project']['history_complete_through']);
+        self::assertTrue($confirmed['summary']['data_quality']['history_complete']);
+        self::assertSame($changed['project']['version'] + 1, $confirmed['project']['version']);
+        self::assertSame($confirmed, $this->service()->detail($id));
+        // A retry did not change the reviewed ledger and must preserve the new confirmation.
+        self::assertSame($confirmed, $service->saveEntry($id, $input));
+        self::assertSame($confirmed, $service->saveEntry($id, ['id' => $changed['entries'][0]['id'], 'amount' => '100.00', 'expected_version' => 1]));
+    }
+
+    public function testReviewedEditsUseBothOldAndNewDatesAndActualStates(): void
+    {
+        $cases = [
+            'amount-covered' => [['date' => '2026-09-15'], ['amount' => '120.00'], true],
+            'source-covered' => [['date' => '2026-09-15'], ['source' => '更正后的合成证据'], true],
+            'move-out' => [['date' => '2026-09-15'], ['date' => '2026-09-16'], true],
+            'move-in' => [['date' => '2026-09-16'], ['date' => '2026-09-15'], true],
+            'actual-to-plan' => [['date' => '2026-09-15'], ['is_planned' => true], true],
+            'plan-to-actual' => [['date' => '2026-09-15', 'is_planned' => true], ['is_planned' => false], true],
+            'plan-edit' => [['date' => '2026-09-15', 'is_planned' => true], ['amount' => '120.00'], false],
+            'future-plan' => [['date' => '2099-01-01', 'is_planned' => true], ['amount' => '120.00'], false],
+            'after-cutoff' => [['date' => '2026-09-16'], ['amount' => '120.00'], false],
+            'monthly-overlap' => [['date' => '2026-09', 'precision' => 'month'], ['amount' => '120.00'], true],
+            'zero-covered' => [['date' => '2026-09-15'], ['amount' => '0.00', 'confirmed_zero' => true], true],
+        ];
+        $service = $this->service();
+        foreach ($cases as $name => [$initial, $changes, $invalidates]) {
+            $before = $this->reviewedCashProject($service, 'edit-' . $name, $initial);
+            $id = $before['project']['id'];
+            $entryId = $before['entries'][0]['id'];
+            $saved = $service->saveEntry($id, array_merge($changes, ['id' => $entryId, 'expected_version' => 1]));
+            self::assertSame($invalidates ? null : '2026-09-15', $saved['project']['history_complete_through'], $name);
+            self::assertSame($before['project']['version'] + 1, $saved['project']['version'], $name);
+            self::assertSame(2, $saved['entries'][0]['version'], $name);
+            self::assertSame($saved, $this->service()->detail($id), $name);
+            self::assertSame('2026-09-15', $saved['audit_history'][0]['payload']['summary_before']['data_quality']['history_complete_through'], $name);
+            self::assertSame($saved['project']['history_complete_through'], $saved['audit_history'][0]['payload']['summary_after']['data_quality']['history_complete_through'], $name);
+        }
+    }
+
+    public function testNewInvestmentReceiptRefundAndPlanRespectReviewedDateBoundary(): void
+    {
+        $service = $this->service();
+        $cases = [
+            'covered-investment' => ['investment', ['date' => '2026-09-15'], true],
+            'covered-recovery' => ['recovery', ['date' => '2026-09-15'], true],
+            'covered-refund' => ['refund', ['date' => '2026-09-15', 'notes' => '合成原收款退回'], true],
+            'monthly-recovery' => ['recovery', ['date' => '2026-09', 'precision' => 'month'], true],
+            'later-investment' => ['investment', ['date' => '2026-09-16'], false],
+            'later-recovery' => ['recovery', ['date' => '2026-09-16'], false],
+            'past-plan' => ['recovery', ['date' => '2026-09-01', 'is_planned' => true], false],
+            'future-plan' => ['investment', ['date' => '2099-01-01', 'is_planned' => true], false],
+        ];
+        foreach ($cases as $name => [$kind, $changes, $invalidates]) {
+            $before = $this->reviewedCashProject($service, 'create-' . $name);
+            $id = $before['project']['id'];
+            if ($kind === 'refund') {
+                $changes['original_entry_id'] = $before['entries'][0]['id'];
+            }
+            $input = $this->entry($kind, '10.00', 'new-' . $name, $changes);
+            $saved = $service->saveEntry($id, $input);
+            self::assertSame($invalidates ? null : '2026-09-15', $saved['project']['history_complete_through'], $name);
+            self::assertSame($saved, $this->service()->detail($id), $name);
+            self::assertSame($saved, $service->saveEntry($id, $input), $name);
+        }
+    }
+
+    public function testChangedReviewedReceiptDowngradesPaybackAndForecastUntilReconfirmed(): void
+    {
+        $service = $this->service();
+        $id = $service->saveProject($this->project(['expected_monthly_amount' => '100.00', 'expected_source' => '合成预测来源']))['project']['id'];
+        $service->saveEntry($id, $this->entry('investment', '1000.00', 'quality-invest-001', ['date' => '2026-01-01']));
+        $cash = $service->saveEntry($id, $this->entry('recovery', '1000.00', 'quality-recover-001', ['date' => '2026-02-01']));
+        $before = $service->saveProject(['id' => $id, 'history_complete_through' => '2026-09-30']);
+        self::assertSame('confirmed', $before['summary']['first_payback']['status']);
+        self::assertSame('recovered', $before['summary']['state']);
+        self::assertSame('already_recovered', $before['summary']['forecast']['status']);
+        $saved = $service->saveEntry($id, ['id' => $cash['entries'][1]['id'], 'expected_version' => 1, 'source' => '已更正的合成收款来源']);
+        self::assertSame('recorded_only', $saved['summary']['first_payback']['status']);
+        self::assertSame('recorded_only', $saved['summary']['state']);
+        self::assertSame('trial_recovered', $saved['summary']['forecast']['status']);
+        self::assertSame('1000.00', $saved['summary']['net_recovered_amount']);
+        self::assertSame($saved, $this->service()->detail($id));
+        $confirmed = $service->saveProject(['id' => $id, 'expected_version' => $saved['project']['version'], 'history_complete_through' => '2026-09-30']);
+        self::assertSame('confirmed', $confirmed['summary']['first_payback']['status']);
+        self::assertSame('already_recovered', $confirmed['summary']['forecast']['status']);
+        self::assertSame($confirmed, $this->service()->detail($id));
+    }
+
+    public function testVoidAndDeleteInvalidateOnlyEffectiveReviewedActualRows(): void
+    {
+        $service = $this->service();
+        $cases = [
+            'actual-void' => ['void', [], false, false, true],
+            'actual-delete' => ['delete', [], false, false, true],
+            'planned-void' => ['void', ['is_planned' => true], false, false, false],
+            'planned-delete' => ['delete', ['is_planned' => true], false, false, false],
+            'future-delete' => ['delete', ['date' => '2099-01-01', 'is_planned' => true], false, false, false],
+            'voided-delete' => ['delete', [], true, false, false],
+            'opening-void' => ['void', [], false, true, false],
+            'opening-delete' => ['delete', [], false, true, false],
+            'after-void' => ['void', ['date' => '2026-09-16'], false, false, false],
+            'after-delete' => ['delete', ['date' => '2026-09-16'], false, false, false],
+        ];
+        foreach ($cases as $name => [$operation, $initial, $voided, $excluded, $invalidates]) {
+            $before = $this->reviewedCashProject($service, $name, $initial);
+            $id = $before['project']['id'];
+            $entryId = $before['entries'][0]['id'];
+            if ($voided) {
+                $service->voidEntry($id, $entryId, ['expected_version' => 1, 'reason' => '合成验收预先作废']);
+            }
+            if ($excluded) {
+                // Legacy imported overlap is excluded by the calculator. The
+                // public save path correctly rejects creating such a row.
+                Db::name('investment_payback_entries')->where('id', $entryId)->update(['business_date' => '2026-08-31']);
+            }
+            $before = $excluded ? $service->detail($id) : $service->saveProject(['id' => $id, 'history_complete_through' => '2026-09-15']);
+            $version = $before['entries'][0]['version'];
+            $saved = $operation === 'void'
+                ? $service->voidEntry($id, $entryId, ['expected_version' => $version, 'reason' => '合成核对作废'])
+                : $service->deleteEntry($id, $entryId, ['expected_version' => $version]);
+            self::assertSame($invalidates ? null : '2026-09-15', $saved['project']['history_complete_through'], $name);
+            self::assertSame($before['project']['version'] + 1, $saved['project']['version'], $name);
+            self::assertSame($saved, $this->service()->detail($id), $name);
+            if ($operation === 'void') {
+                $confirmed = $service->saveProject(['id' => $id, 'history_complete_through' => '2026-09-15']);
+                self::assertSame($confirmed, $service->voidEntry($id, $entryId, ['expected_version' => $version, 'reason' => '合成重试']), $name);
+            }
+        }
+    }
+
+    public function testOpeningAndInvestmentBasisChangesRequireSeparateReconfirmation(): void
+    {
+        $service = $this->service();
+        $cases = [
+            'opening-date' => ['opening_as_of' => '2026-08-30'],
+            'opening-invested' => ['opening_invested' => '1100.00'],
+            'opening-recovered' => ['opening_recovered' => '20.00'],
+            'opening-source' => ['opening_source' => '合成期初来源乙'],
+            'first-date' => ['first_invested_on' => '2026-08-01'],
+            'opening-remove' => ['opening_as_of' => null, 'opening_invested' => null, 'opening_recovered' => null, 'opening_source' => ''],
+        ];
+        foreach ($cases as $name => $changes) {
+            $before = $this->reviewedCashProject($service, $name);
+            $id = $before['project']['id'];
+            // An old confirmation submitted together with a changed basis is
+            // not proof that the new basis has been reviewed.
+            $saved = $service->saveProject(array_merge($changes, ['id' => $id, 'expected_version' => $before['project']['version'], 'history_complete_through' => '2026-09-15']));
+            self::assertNull($saved['project']['history_complete_through'], $name);
+            self::assertFalse($saved['summary']['data_quality']['history_complete'], $name);
+            self::assertSame($saved, $this->service()->detail($id), $name);
+            $confirmed = $service->saveProject(['id' => $id, 'expected_version' => $saved['project']['version'], 'history_complete_through' => '2026-09-15']);
+            self::assertSame('2026-09-15', $confirmed['project']['history_complete_through'], $name);
+            self::assertSame($saved['project']['version'] + 1, $confirmed['project']['version'], $name);
+            self::assertSame($confirmed, $this->service()->detail($id), $name);
+        }
+        $before = $this->reviewedCashProject($service, 'metadata');
+        $saved = $service->saveProject(['id' => $before['project']['id'], 'project_name' => '新名称', 'notes' => '合成备注', 'expected_monthly_amount' => '50.00', 'expected_source' => '合成预测', 'forecast_as_of' => '2026-09-14']);
+        self::assertSame('2026-09-15', $saved['project']['history_complete_through']);
+        self::assertSame($saved, $this->service()->detail($before['project']['id']));
+    }
+
+    public function testRejectedAndFailedMutationsPreserveReviewedReadbackAtomically(): void
+    {
+        $service = $this->service();
+        $before = $this->reviewedCashProject($service, 'boundary-failures');
+        $id = $before['project']['id'];
+        $entryId = $before['entries'][0]['id'];
+        $this->assertFailure(fn() => $service->saveEntry($id, ['id' => $entryId, 'amount' => '110.00', 'expected_version' => 99]), 409);
+        $this->assertFailure(fn() => $service->voidEntry($id, $entryId, ['expected_version' => 99, 'reason' => '过期版本']), 409);
+        $this->assertFailure(fn() => $service->deleteEntry($id, $entryId, ['expected_version' => 99]), 409);
+        $this->assertFailure(fn() => $service->saveEntry($id, $this->entry('recovery', '10.00', 'history-overlap-fail', ['date' => '2026-08-31'])), 409);
+        $this->assertFailure(fn() => $service->saveProject(['id' => $id, 'opening_as_of' => '2026-09-01']), 409);
+        $this->assertValidationFailure(fn() => $service->saveEntry($id, $this->entry('recovery', '10.00', 'history-future-fail', ['date' => '2099-01-01'])), '未来');
+        self::assertSame($before, $this->service()->detail($id));
+        $actions = [
+            'entry_created' => fn() => $service->saveEntry($id, $this->entry('recovery', '10.00', 'history-audit-fail')),
+            'entry_updated' => fn() => $service->saveEntry($id, ['id' => $entryId, 'expected_version' => 1, 'amount' => '110.00']),
+            'entry_voided' => fn() => $service->voidEntry($id, $entryId, ['expected_version' => 1, 'reason' => '合成作废失败']),
+            'entry_deleted' => fn() => $service->deleteEntry($id, $entryId, ['expected_version' => 1]),
+            'project_updated' => fn() => $service->saveProject(['id' => $id, 'opening_invested' => '1100.00']),
+        ];
+        foreach ($actions as $type => $action) {
+            Db::execute('CREATE TRIGGER reject_history_audit BEFORE INSERT ON investment_payback_events '
+                . 'WHEN NEW.event_type = "' . $type . '" BEGIN SELECT RAISE(ABORT, "synthetic history audit failure"); END');
+            $exception = null;
+            try {
+                $action();
+            } catch (\Throwable $caught) {
+                $exception = $caught;
+            }
+            self::assertNotNull($exception, $type);
+            self::assertStringContainsString('synthetic history audit failure', $exception->getMessage(), $type);
+            self::assertSame($before, $this->service()->detail($id), $type);
+            Db::execute('DROP TRIGGER reject_history_audit');
+        }
+    }
+
+    private function reviewedCashProject(InvestmentPaybackService $service, string $name, array $entryChanges = []): array
+    {
+        $created = $service->saveProject($this->project([
+            'client_request_id' => 'history-' . $name, 'history_complete_through' => null, 'forecast_as_of' => '2026-09-15',
+            'opening_as_of' => '2026-08-31', 'opening_invested' => '1000.00', 'opening_recovered' => '0.00', 'opening_source' => '合成验收期初',
+        ]));
+        $id = $created['project']['id'];
+        $service->saveEntry($id, $this->entry('recovery', '100.00', 'cash-' . $name, $entryChanges));
+        return $service->saveProject(['id' => $id, 'history_complete_through' => '2026-09-15']);
     }
 
     private function createLayoutProjects(InvestmentPaybackService $service, int $count): array

@@ -121,11 +121,26 @@ final class InvestmentScenarioRoutingTest extends TestCase
         self::assertTrue($this->router->config('url_route_must'));
     }
 
+    public function testScenarioMethodPathActionIsDeclaredOnceWithoutDuplicateRegistration(): void
+    {
+        $source = file_get_contents(dirname(__DIR__) . '/route/domain/investment_payback.php');
+        preg_match_all("~Route::(get|post)\\('([^']+)',\\s*'InvestmentScenario/([^']+)'\\)~", $source, $matches, PREG_SET_ORDER);
+        $declarations = array_map(static fn(array $match): string => strtoupper($match[1]) . ' ' . $match[2] . ' InvestmentScenario/' . $match[3], $matches);
+        self::assertCount(count(self::scenarioRoutes()), $declarations);
+        self::assertSame($declarations, array_values(array_unique($declarations)), 'Scenario route method/path/action must be registered exactly once.');
+    }
+
     public static function scenarioRoutes(): array
     {
         return [
             'reference example' => ['GET', '/api/investment-payback/scenario/reference-example', 'referenceExample', []],
             'project scenario detail' => ['GET', '/api/investment-payback/projects/37/scenario', 'detail', ['id' => '37']],
+            'project scenario library' => ['GET', '/api/investment-payback/projects/37/scenario/library', 'library', ['id' => '37']],
+            'project scenario history' => ['GET', '/api/investment-payback/projects/37/scenario/history', 'history', ['id' => '37']],
+            'project scenario version' => ['GET', '/api/investment-payback/projects/37/scenario/history/91', 'version', ['id' => '37', 'eventId' => '91']],
+            'copy historical version' => ['POST', '/api/investment-payback/projects/37/scenario/history/91/copy', 'copyVersion', ['id' => '37', 'eventId' => '91']],
+            'compare saved scenarios' => ['POST', '/api/investment-payback/scenario/compare', 'compare', []],
+            'consumables reference' => ['GET', '/api/investment-payback/projects/37/scenario/consumables-reference', 'consumablesReference', ['id' => '37']],
             'project scenario save' => ['POST', '/api/investment-payback/projects/37/scenario', 'save', ['id' => '37']],
             'project scenario preview' => ['POST', '/api/investment-payback/projects/37/scenario/preview', 'preview', ['id' => '37']],
         ];
@@ -143,6 +158,8 @@ final class InvestmentScenarioRoutingTest extends TestCase
         return [
             'reference extra child' => ['GET', '/api/investment-payback/scenario/reference-example/extra'],
             'reference unsupported method' => ['POST', '/api/investment-payback/scenario/reference-example'],
+            'consumables unsupported method' => ['POST', '/api/investment-payback/projects/37/scenario/consumables-reference'],
+            'consumables extra child' => ['GET', '/api/investment-payback/projects/37/scenario/consumables-reference/extra'],
             'unknown scenario reference' => ['GET', '/api/investment-payback/scenario/unknown'],
             'detail extra child' => ['GET', '/api/investment-payback/projects/37/scenario/extra'],
             'save extra child' => ['POST', '/api/investment-payback/projects/37/scenario/extra'],
@@ -151,6 +168,15 @@ final class InvestmentScenarioRoutingTest extends TestCase
             'save unsupported method' => ['PATCH', '/api/investment-payback/projects/37/scenario'],
             'delete unsupported method' => ['DELETE', '/api/investment-payback/projects/37/scenario'],
             'incomplete preview action' => ['POST', '/api/investment-payback/projects/37/scenario/previ'],
+            'library unsupported method' => ['POST', '/api/investment-payback/projects/37/scenario/library'],
+            'library extra child' => ['GET', '/api/investment-payback/projects/37/scenario/library/extra'],
+            'history unsupported method' => ['POST', '/api/investment-payback/projects/37/scenario/history'],
+            'version unsupported method' => ['POST', '/api/investment-payback/projects/37/scenario/history/91'],
+            'version extra child' => ['GET', '/api/investment-payback/projects/37/scenario/history/91/extra'],
+            'copy unsupported method' => ['GET', '/api/investment-payback/projects/37/scenario/history/91/copy'],
+            'copy extra child' => ['POST', '/api/investment-payback/projects/37/scenario/history/91/copy/extra'],
+            'compare unsupported method' => ['GET', '/api/investment-payback/scenario/compare'],
+            'compare extra child' => ['POST', '/api/investment-payback/scenario/compare/extra'],
         ];
     }
 

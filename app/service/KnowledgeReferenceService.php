@@ -126,7 +126,7 @@ final class KnowledgeReferenceService
         return $snapshot;
     }
 
-    public function save(int $hotelId, int $actorId, array $input): array
+    public function save(int $hotelId, int $actorId, array $input, array $accessContext = []): array
     {
         $title = $this->text($input['title'] ?? '', '标题', 180);
         $fields = [];
@@ -140,7 +140,7 @@ final class KnowledgeReferenceService
         $validated = [];
         foreach ($citations as $citation) {
             $id = (int)($citation['chunk_id'] ?? 0);
-            $source = $sources[$id] ??= $this->source($id, $hotelId, $actorId);
+            $source = $sources[$id] ??= $this->source($id, $hotelId, $actorId, $accessContext);
             $segment = array_values(array_filter($source['source_segments'], static fn($s) => $s['id'] === ($citation['segment_id'] ?? '')))[0] ?? null;
             if (!$segment || !hash_equals($source['digest'], (string)($citation['source_digest'] ?? ''))
                 || (string)($citation['quote'] ?? '') !== $segment['quote']) {

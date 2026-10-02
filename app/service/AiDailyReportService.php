@@ -806,6 +806,12 @@ class AiDailyReportService
             return null;
         }
         $linkedId = (int)($action['execution_intent_id'] ?? 0);
+        $matchesAction = function (array $intent) use ($idempotencyKey, $actionIndex): bool {
+            $evidence = $this->decodeJson((string)($intent['evidence_json'] ?? ''));
+            $storedKey = trim((string)($evidence['action_idempotency_key'] ?? ''));
+            return $storedKey !== '' ? hash_equals($idempotencyKey, $storedKey)
+                : (int)($evidence['action_index'] ?? -1) === $actionIndex;
+        };
         $intentTable = '`' . str_replace('`', '', Db::name('operation_execution_intents')->getTable()) . '`';
         $hotelTable = '`' . str_replace('`', '', Db::name('hotels')->getTable()) . '`';
         $query = Db::name('operation_execution_intents')
@@ -818,7 +824,7 @@ class AiDailyReportService
             ->whereNull('deleted_at');
         if ($linkedId > 0) {
             $linked = (clone $query)->where('id', $linkedId)->find();
-            if (is_array($linked)) {
+            if (is_array($linked) && $matchesAction($linked)) {
                 return $linked;
             }
         }
@@ -828,11 +834,7 @@ class AiDailyReportService
             if (!is_array($row)) {
                 continue;
             }
-            $evidence = $this->decodeJson((string)($row['evidence_json'] ?? ''));
-            $storedKey = trim((string)($evidence['action_idempotency_key'] ?? ''));
-            if (($storedKey !== '' && hash_equals($idempotencyKey, $storedKey))
-                || ($storedKey === '' && (int)($evidence['action_index'] ?? -1) === $actionIndex)
-            ) {
+            if ($matchesAction($row)) {
                 return $row;
             }
         }
@@ -5024,17 +5026,12 @@ class AiDailyReportService
 
     private function tableHasColumn(string $table, string $column): bool
     {
-        static $cache = [];
-        $key = spl_object_id(Db::connect()) . '.' . $table . '.' . $column;
-        if (array_key_exists($key, $cache)) {
-            return $cache[$key];
+        $inspection = DatabaseSchemaRequirement::inspectTableColumns(str_replace('`', '', Db::name($table)->getTable()));
+        if ($inspection['status'] === DatabaseSchemaRequirement::STATUS_UNREADABLE) {
+            throw new \RuntimeException('database_table_columns_probe_failed:' . $table, 503);
         }
 
-        try {
-            $columns = Db::connect()->getFields($table);
-            return $cache[$key] = isset($columns[$column]);
-        } catch (Throwable $e) {
-            return $cache[$key] = false;
-        }
+        return $inspection['status'] === DatabaseSchemaRequirement::STATUS_PRESENT
+            && in_array($column, $inspection['columns'], true);
     }
 }

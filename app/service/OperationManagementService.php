@@ -2050,14 +2050,8 @@ class OperationManagementService
                     ->where('hotel_id', (int)$intent['hotel_id'])
                     ->whereNull('deleted_at')
                     ->count();
-                if (!is_array($taskReadback)
-                    || $taskCount !== 1
-                    || (string)($taskReadback['execution_mode'] ?? '') !== 'manual'
-                    || (string)($taskReadback['status'] ?? '') !== 'pending_execute'
-                    || !hash_equals($targetValueJson, (string)($taskReadback['target_value_json'] ?? ''))
-                ) {
-                    throw new \RuntimeException('human approval task save/readback cardinality check failed');
-                }
+                $this->assertHumanApprovalTaskReadback($taskReadback, $taskCount, $intent,
+                    $targetValueJson, (int)($authorization['hotel']['tenant_id'] ?? 0));
             }
             if ($managedAction) {
                 $eventIntent = $this->executionIntentDetail($id, $hotelIds);
