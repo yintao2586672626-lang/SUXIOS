@@ -87,7 +87,12 @@ function registeredRouteFiles(string $routeDir): array
         $bootstrap,
         $manifestMatches
     );
-    $files = [$bootstrapPath];
+    // Http::loadRoutes automatically loads each root route/*.php manifest.
+    $rootFiles = glob($routeDir . DIRECTORY_SEPARATOR . '*.php');
+    if ($rootFiles === false) {
+        throw new RuntimeException("Unable to discover root route manifests: {$routeDir}");
+    }
+    $files = array_values(array_unique([$bootstrapPath, ...$rootFiles]));
     $registeredDomainFiles = [];
     foreach ($manifestMatches[1] as $fileName) {
         $domainFile = $routeDir . DIRECTORY_SEPARATOR . 'domain' . DIRECTORY_SEPARATOR . $fileName;
