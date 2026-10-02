@@ -26,9 +26,11 @@ const compiled = compileFrontendTemplate(template);
 const compiledSource = source.slice(0, markerStart)
   + `        render: (function(Vue){${compiled}})(Vue),`
   + source.slice(templateEnd + closingMarker.length);
+const options = structuredClone(FRONTEND_TEMPLATE_MINIFY_OPTIONS);
+options.compress.booleans_as_integers = false;
 const result = await minify(
   { 'operating-finance-control-center.js': compiledSource },
-  structuredClone(FRONTEND_TEMPLATE_MINIFY_OPTIONS),
+  options,
 );
 if (!result.code) throw new Error('Operating-finance component minification returned empty output.');
 const artifact = `${result.code}\n`;
@@ -45,7 +47,16 @@ const opportunityVersion = updateFrontendAssetVersion(
   opportunityAsset,
   fs.readFileSync(path.join(repoRoot, 'public', opportunityAsset)),
 );
-const nextLoaderSource = opportunityVersion.html.replace(
+let dependencyLoader = opportunityVersion.html;
+for (const asset of [
+  'components/system/operating-economics-workbench.min.js',
+  'components/system/booking-monitoring-panel.js',
+]) {
+  dependencyLoader = updateFrontendAssetVersion(
+    dependencyLoader, asset, fs.readFileSync(path.join(repoRoot, 'public', asset)),
+  ).html;
+}
+const nextLoaderSource = dependencyLoader.replace(
   loaderPattern,
   `components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h${artifactSha256.slice(0, 10)}`,
 );

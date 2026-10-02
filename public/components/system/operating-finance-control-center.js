@@ -182,6 +182,7 @@
             selectedHotelId: { type: [String, Number], default: '' },
             canExecute: { type: Boolean, default: false },
         },
+        components: { OperatingEconomicsWorkbench: components.OperatingEconomicsWorkbench, BookingMonitoringPanel: components.BookingMonitoringPanel },
         emits: ['update:selected-hotel-id'],
         data: () => ({
             hotelId: '', businessDate: shanghaiDate(), periodMonth: currentMonth(), stayDate: shanghaiDate(1), platform: 'ctrip',
@@ -214,7 +215,7 @@
             tabs() {
                 return [
                     ['settlement', '净收入对账'], ['recovery', '阻塞恢复'], ['booking', '预订节奏'],
-                    ['demand', '需求日历'], ['wecom', '企微回执'], ['finance', '月度经营贡献'], ['portfolio', '多店组合'],
+                    ['demand', '需求日历'], ['wecom', '企微回执'], ['finance', '月度经营贡献'], ['economics', '渠道贡献与耗材'], ['portfolio', '多店组合'],
                 ];
             },
             currentSettlement() { return this.overview?.settlement || {}; },
@@ -989,6 +990,8 @@
 
                 <section v-if="activeTab === 'portfolio'" class="rounded-2xl border border-slate-200 bg-white p-5" data-testid="operating-finance-portfolio"><div class="flex items-center justify-between"><h3 class="font-bold text-slate-900">多店老板组合视图</h3><span class="rounded-full border px-2 py-1 text-xs">{{ statusText(currentPortfolio.ranking_status || currentPortfolio.status) }}</span></div><div class="mt-4 overflow-x-auto"><table class="min-w-full text-left text-sm"><thead class="text-xs text-slate-400"><tr><th class="px-3 py-2">酒店</th><th class="px-3 py-2">范围</th><th class="px-3 py-2">来源</th><th class="px-3 py-2">税口径</th><th class="px-3 py-2">状态</th><th class="px-3 py-2">GOP</th><th class="px-3 py-2">GOP率</th><th class="px-3 py-2">同口径排名</th></tr></thead><tbody><tr v-for="item in currentPortfolio.items || []" :key="item.hotel_id" class="border-t border-slate-100"><td class="px-3 py-3 font-medium">{{ item.hotel_name }}</td><td class="px-3 py-3">{{ scopeText(item.fact_scope) }}</td><td class="px-3 py-3">{{ statusText(item.source_quality_status) }}</td><td class="px-3 py-3">{{ item.tax_basis === 'tax_inclusive' ? '含税' : (item.tax_basis === 'tax_exclusive' ? '不含税' : '未确认') }}</td><td class="px-3 py-3">{{ statusText(item.status) }}</td><td class="px-3 py-3">{{ money(item.gop) }}</td><td class="px-3 py-3">{{ item.gop_margin_percent ?? '未取得' }}</td><td class="px-3 py-3">{{ item.rank ?? '不可比' }}</td></tr></tbody></table></div><p class="mt-3 text-xs text-slate-500">只有所有授权酒店都具备同账期、全酒店口径、完整成本、CNY、相同含税/不含税口径、同一指标版本且已人工核对来源时才显示人工快照排名；排名不等于会计审计，也不授权员工奖惩或跨店数据外发。</p></section>
             </section>
+            <operating-economics-workbench v-if="activeTab === 'economics' && hotelId" :request="request" :hotel-id="hotelId" :period-month="periodMonth" :platform="platform" :can-execute="canExecute"></operating-economics-workbench>
+            <booking-monitoring-panel v-if="activeTab === 'booking'" :request="request" :hotels="hotels" :selected-hotel-id="hotelId" :can-execute="canExecute"></booking-monitoring-panel>
         `,
     };
 })();

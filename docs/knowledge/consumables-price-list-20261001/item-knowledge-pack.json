@@ -1,0 +1,1030 @@
+{
+  "version": "consumables-price-items-reference-20261001-v1",
+  "reviewed_at": "2026-10-01",
+  "review_due_at": "2026-11-01",
+  "source_sha256": "BF8AA1E0290BCF7F6464D6FFA63BDB653C1E11745A816EA53F517E2FC3EBA4F0",
+  "usage_policy": "reference_only",
+  "entries": [
+    {
+      "key": "item_01",
+      "item_id": 1,
+      "title": "牙具A采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C3 低端酒店：0.38以下",
+        "Sheet1!D3 房价100-200：0.35-0.45",
+        "Sheet1!E3 房价200-400：0.45-0.55",
+        "Sheet1!F3 房价400-600：0.55-0.7",
+        "Sheet1!G3 房价600以上：0.7以上"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D5 房价100-200：推荐使用软膜袋或白牛皮包装，3g牙膏",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E5 房价200-400：推荐使用塑料袋，甘蔗纸，石头纸包装，6g牙膏",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F5 房价400-600：推荐使用石头纸，卡盒包装，6g牙膏",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G5 房价600以上：推荐使用甘蔗纸卡盒包装，6g以上牙膏"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "A/B是来源款式区分，不自动同时投放，也不自行删并。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B3:G3；布局上下文行5",
+      "query": "牙具A采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_02",
+      "item_id": 2,
+      "title": "牙具B采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C4 低端酒店：0.38以下",
+        "Sheet1!D4 房价100-200：0.35-0.45",
+        "Sheet1!E4 房价200-400：0.45-0.55",
+        "Sheet1!F4 房价400-600：0.55-0.7",
+        "Sheet1!G4 房价600以上：0.7以上"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D5 房价100-200：推荐使用软膜袋或白牛皮包装，3g牙膏",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E5 房价200-400：推荐使用塑料袋，甘蔗纸，石头纸包装，6g牙膏",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F5 房价400-600：推荐使用石头纸，卡盒包装，6g牙膏",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G5 房价600以上：推荐使用甘蔗纸卡盒包装，6g以上牙膏"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "A/B是来源款式区分，不自动同时投放，也不自行删并。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B4:G4；布局上下文行5",
+      "query": "牙具B采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_03",
+      "item_id": 3,
+      "title": "梳子采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C6 低端酒店：0.24以下",
+        "Sheet1!D6 房价100-200：0.2-0.28",
+        "Sheet1!E6 房价200-400：0.28-0.35",
+        "Sheet1!F6 房价400-600：0.35-0.4",
+        "Sheet1!G6 房价600以上：0.4以上"
+      ],
+      "recommendation_lines": [],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B6:G6",
+      "query": "梳子采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_04",
+      "item_id": 4,
+      "title": "浴帽采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C7 低端酒店：0.18",
+        "Sheet1!D7 房价100-200：0.15-0.2",
+        "Sheet1!E7 房价200-400：0.2-0.23",
+        "Sheet1!F7 房价400-600：0.23-0.32",
+        "Sheet1!G7 房价600以上：0.32-0.35"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D8 房价100-200：高压浴帽",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E8 房价200-400：高压浴帽",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F8 房价400-600：玉米淀粉浴帽，可加发绳",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G8 房价600以上：玉米淀粉浴帽，加发绳"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B7:G7；布局上下文行8",
+      "query": "浴帽采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_05",
+      "item_id": 5,
+      "title": "剃须刀采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C9 低端酒店：可不配置",
+        "Sheet1!D9 房价100-200：0.45-0.6",
+        "Sheet1!E9 房价200-400：0.7-1.1",
+        "Sheet1!F9 房价400-600：1.3-1.8",
+        "Sheet1!G9 房价600以上：2元以上"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D10 房价100-200：推荐注胶剃须刀，5g膏",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E10 房价200-400：品牌类剃须刀，10g膏",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F10 房价400-600：品牌类剃须刀，10g膏+卡盒",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G10 房价600以上：品牌类剃须刀，10g膏+卡盒"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B9:G9；布局上下文行10",
+      "query": "剃须刀采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_06",
+      "item_id": 6,
+      "title": "护理包采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C11 低端酒店：可不配置",
+        "Sheet1!D11 房价100-200：0.23-0.28",
+        "Sheet1!E11 房价200-400：0.28-0.35",
+        "Sheet1!F11 房价400-600：0.35-0.4",
+        "Sheet1!G11 房价600以上：0.4-0.45"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D12 房价100-200：2棉片+4棉签 （塑料/木质）",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E12 房价200-400：2棉片+4棉签 （木质/纸质）",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F12 房价400-600：2棉片+4棉签 （纸质）+指甲锉",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G12 房价600以上：2棉片+4棉签 （纸质）+指甲锉+牙线"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B11:G11；布局上下文行12",
+      "query": "护理包采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_07",
+      "item_id": 7,
+      "title": "香皂采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C13 低端酒店：0.2左右",
+        "Sheet1!D13 房价100-200：0.2-0.25",
+        "Sheet1!E13 房价200-400：0.25-0.3",
+        "Sheet1!F13 房价400-600：0.3-0.4",
+        "Sheet1!G13 房价600以上：0.4以上"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D14 房价100-200：10克香皂",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E14 房价200-400：15克香皂",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F14 房价400-600：15克香皂/20克香皂",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G14 房价600以上：20克香皂"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B13:G13；布局上下文行14",
+      "query": "香皂采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_08",
+      "item_id": 8,
+      "title": "拖鞋A采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C15 低端酒店：1.2以下",
+        "Sheet1!D15 房价100-200：1-1.5",
+        "Sheet1!E15 房价200-400：1.5-2",
+        "Sheet1!F15 房价400-600：1.8-2.5",
+        "Sheet1!G15 房价600以上：2.5以上"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D17 房价100-200：不分AB款，推荐珍珠棉，网眼布，麻布等布料一把包拖鞋",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E17 房价200-400：可分AB款，推荐细棉绒、珊瑚绒一把包，麻布镶底拖鞋",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F17 房价400-600：分AB款，推荐珊瑚绒镶底拖鞋",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G17 房价600以上：分AB款，推荐灯芯绒拖鞋"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "A/B是来源款式区分，不自动同时投放，也不自行删并。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B15:G15；布局上下文行17",
+      "query": "拖鞋A采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_09",
+      "item_id": 9,
+      "title": "拖鞋B采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C16 低端酒店：1.2以下",
+        "Sheet1!D16 房价100-200：1-1.5",
+        "Sheet1!E16 房价200-400：1.5-2",
+        "Sheet1!F16 房价400-600：1.8-2.5",
+        "Sheet1!G16 房价600以上：2.5以上"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D17 房价100-200：不分AB款，推荐珍珠棉，网眼布，麻布等布料一把包拖鞋",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E17 房价200-400：可分AB款，推荐细棉绒、珊瑚绒一把包，麻布镶底拖鞋",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F17 房价400-600：分AB款，推荐珊瑚绒镶底拖鞋",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G17 房价600以上：分AB款，推荐灯芯绒拖鞋"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "A/B是来源款式区分，不自动同时投放，也不自行删并。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B16:G16；布局上下文行17",
+      "query": "拖鞋B采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_10",
+      "item_id": 10,
+      "title": "洗手液采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C18 低端酒店：可不配置",
+        "Sheet1!D18 房价100-200：8-10（可添加补充液）",
+        "Sheet1!E18 房价200-400：10-15（锁盖大瓶）",
+        "Sheet1!F18 房价400-600：15-20（锁盖大瓶）",
+        "Sheet1!G18 房价600以上：15-20（锁盖大瓶）"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D23 房价100-200：补充液20kg桶装150-220"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "瓶型或净含量不同不可直接比裸价；20kg桶装建议不证明各液体SKU同价，未知密度不换mL。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B18:G18；布局上下文行23",
+      "query": "洗手液采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_11",
+      "item_id": 11,
+      "title": "洗发水采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C19 低端酒店：8左右（可添加补充液）",
+        "Sheet1!D19 房价100-200：8-10（可添加补充液）",
+        "Sheet1!E19 房价200-400：10-15（锁盖大瓶）",
+        "Sheet1!F19 房价400-600：15-20（锁盖大瓶）",
+        "Sheet1!G19 房价600以上：1.5-2.5（小瓶装）"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D23 房价100-200：补充液20kg桶装150-220"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "瓶型或净含量不同不可直接比裸价；20kg桶装建议不证明各液体SKU同价，未知密度不换mL。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B19:G19；布局上下文行23",
+      "query": "洗发水采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_12",
+      "item_id": 12,
+      "title": "沐浴露采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C20 低端酒店：8左右（可添加补充液）",
+        "Sheet1!D20 房价100-200：8-10（可添加补充液）",
+        "Sheet1!E20 房价200-400：10-15（锁盖大瓶）",
+        "Sheet1!F20 房价400-600：15-20（锁盖大瓶）",
+        "Sheet1!G20 房价600以上：1.5-2.5（小瓶装）"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D23 房价100-200：补充液20kg桶装150-220"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "瓶型或净含量不同不可直接比裸价；20kg桶装建议不证明各液体SKU同价，未知密度不换mL。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B20:G20；布局上下文行23",
+      "query": "沐浴露采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_13",
+      "item_id": 13,
+      "title": "护发素采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C21 低端酒店：可不配置",
+        "Sheet1!D21 房价100-200：8-10（可添加补充液）",
+        "Sheet1!E21 房价200-400：10-15（锁盖大瓶）",
+        "Sheet1!F21 房价400-600：15-20（锁盖大瓶）",
+        "Sheet1!G21 房价600以上：1.5-2.5（小瓶装）"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D23 房价100-200：补充液20kg桶装150-220"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "瓶型或净含量不同不可直接比裸价；20kg桶装建议不证明各液体SKU同价，未知密度不换mL。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B21:G21；布局上下文行23",
+      "query": "护发素采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_14",
+      "item_id": 14,
+      "title": "润肤露采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C22 低端酒店：可不配置",
+        "Sheet1!D22 房价100-200：可不配置",
+        "Sheet1!E22 房价200-400：10-15（锁盖大瓶）",
+        "Sheet1!F22 房价400-600：15-20（锁盖大瓶）",
+        "Sheet1!G22 房价600以上：1.5-2.5（小瓶装）"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D23 房价100-200：补充液20kg桶装150-220"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "瓶型或净含量不同不可直接比裸价；20kg桶装建议不证明各液体SKU同价，未知密度不换mL。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B22:G22；布局上下文行23",
+      "query": "润肤露采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_15",
+      "item_id": 15,
+      "title": "马桶垫采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C24 低端酒店：可不配置",
+        "Sheet1!D24 房价100-200：可不配置",
+        "Sheet1!E24 房价200-400：0.25-0.35",
+        "Sheet1!F24 房价400-600：0.35-0.45",
+        "Sheet1!G24 房价600以上：0.35-0.45"
+      ],
+      "recommendation_lines": [],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B24:G24",
+      "query": "马桶垫采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_16",
+      "item_id": 16,
+      "title": "浴缸套采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C25 低端酒店：可不配置",
+        "Sheet1!D25 房价100-200：1-1.5(选配）",
+        "Sheet1!E25 房价200-400：1-1.5(选配）",
+        "Sheet1!F25 房价400-600：1-1.5(选配）",
+        "Sheet1!G25 房价600以上：1-1.5(选配）"
+      ],
+      "recommendation_lines": [],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B25:G25",
+      "query": "浴缸套采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_17",
+      "item_id": 17,
+      "title": "儿童牙刷采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C26 低端酒店：可不配置",
+        "Sheet1!D26 房价100-200：可不配置",
+        "Sheet1!E26 房价200-400：0.6-0.8",
+        "Sheet1!F26 房价400-600：0.8-1",
+        "Sheet1!G26 房价600以上：1.5以上"
+      ],
+      "recommendation_lines": [],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B26:G26",
+      "query": "儿童牙刷采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_18",
+      "item_id": 18,
+      "title": "儿童拖鞋采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C27 低端酒店：可不配置",
+        "Sheet1!D27 房价100-200：可不配置",
+        "Sheet1!E27 房价200-400：1.5-2",
+        "Sheet1!F27 房价400-600：1.8-2.5",
+        "Sheet1!G27 房价600以上：2.5以上"
+      ],
+      "recommendation_lines": [],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B27:G27",
+      "query": "儿童拖鞋采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_19",
+      "item_id": 19,
+      "title": "儿童洗沐套装采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C28 低端酒店：可不配置",
+        "Sheet1!D28 房价100-200：可不配置",
+        "Sheet1!E28 房价200-400：10-15（选配）",
+        "Sheet1!F28 房价400-600：10-15（选配）",
+        "Sheet1!G28 房价600以上：10-15"
+      ],
+      "recommendation_lines": [],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B28:G28",
+      "query": "儿童洗沐套装采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_20",
+      "item_id": 20,
+      "title": "抽纸采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C29 低端酒店：90-100",
+        "Sheet1!D29 房价100-200：90-100",
+        "Sheet1!E29 房价200-400：90-100",
+        "Sheet1!F29 房价400-600：100-150",
+        "Sheet1!G29 房价600以上：100-150"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!C30 低端酒店：散抽7.5kg",
+        "布局上下文建议，非本SKU确认报价；Sheet1!D30 房价100-200：散抽7.5kg",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E30 房价200-400：散抽7.5kg",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F30 房价400-600：散抽/独立包装（心相印，维达）",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G30 房价600以上：散抽/独立包装（心相印，维达）"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "纸品或垃圾袋克重是规格，不能替代计价包装数量；C31的50G卷纸不是50元。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B29:G29；布局上下文行30",
+      "query": "抽纸采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_21",
+      "item_id": 21,
+      "title": "卷纸采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C31 低端酒店：50G卷纸",
+        "Sheet1!D31 房价100-200：95-100",
+        "Sheet1!E31 房价200-400：110-125",
+        "Sheet1!F31 房价400-600：120-125",
+        "Sheet1!G31 房价600以上：120-125"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D32 房价100-200：50g卷纸",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E32 房价200-400：70g/80g卷纸",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F32 房价400-600：80g卷纸",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G32 房价600以上：80g卷纸"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "纸品或垃圾袋克重是规格，不能替代计价包装数量；C31的50G卷纸不是50元。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B31:G31；布局上下文行32",
+      "query": "卷纸采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_22",
+      "item_id": 22,
+      "title": "无纺布礼品袋采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C33 低端酒店：可不配置",
+        "Sheet1!D33 房价100-200：1.2-2（选配）",
+        "Sheet1!E33 房价200-400：1.2-2（选配）",
+        "Sheet1!F33 房价400-600：1.5-3",
+        "Sheet1!G33 房价600以上：1.5-3"
+      ],
+      "recommendation_lines": [],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B33:G33",
+      "query": "无纺布礼品袋采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_23",
+      "item_id": 23,
+      "title": "洗衣袋采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C34 低端酒店：可不配置",
+        "Sheet1!D34 房价100-200：0.6-0.8",
+        "Sheet1!E34 房价200-400：0.6-0.8",
+        "Sheet1!F34 房价400-600：0.8-1.5",
+        "Sheet1!G34 房价600以上：0.8-1.5"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D35 房价100-200：塑料材质（选配）",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E35 房价200-400：塑料材质（选配）",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F35 房价400-600：无纺布材质",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G35 房价600以上：无纺布材质"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B34:G34；布局上下文行35",
+      "query": "洗衣袋采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_24",
+      "item_id": 24,
+      "title": "大垃圾袋采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C36 低端酒店：根据酒店配置",
+        "Sheet1!D36 房价100-200：330-360",
+        "Sheet1!E36 房价200-400：360-390",
+        "Sheet1!F36 房价400-600：390-420",
+        "Sheet1!G36 房价600以上：420-450"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D37 房价100-200：25g/28g",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E37 房价200-400：28g/30g",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F37 房价400-600：30g/35g",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G37 房价600以上：35g/40g"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "纸品或垃圾袋克重是规格，不能替代计价包装数量；C31的50G卷纸不是50元。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B36:G36；布局上下文行37",
+      "query": "大垃圾袋采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_25",
+      "item_id": 25,
+      "title": "小垃圾袋采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C38 低端酒店：根据酒店配置",
+        "Sheet1!D38 房价100-200：320-350",
+        "Sheet1!E38 房价200-400：350-390",
+        "Sheet1!F38 房价400-600：380-440",
+        "Sheet1!G38 房价600以上：380-440"
+      ],
+      "recommendation_lines": [
+        "布局上下文建议，非本SKU确认报价；Sheet1!D39 房价100-200：2g/2.3g",
+        "布局上下文建议，非本SKU确认报价；Sheet1!E39 房价200-400：2.3g/2.7g",
+        "布局上下文建议，非本SKU确认报价；Sheet1!F39 房价400-600：2.5g/3g",
+        "布局上下文建议，非本SKU确认报价；Sheet1!G39 房价600以上：2.5g/3g"
+      ],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "纸品或垃圾袋克重是规格，不能替代计价包装数量；C31的50G卷纸不是50元。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B38:G38；布局上下文行39",
+      "query": "小垃圾袋采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_26",
+      "item_id": 26,
+      "title": "茶叶采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C40 低端酒店：可不配置",
+        "Sheet1!D40 房价100-200：0.4-0.45",
+        "Sheet1!E40 房价200-400：0.45-0.55",
+        "Sheet1!F40 房价400-600：0.55-0.65",
+        "Sheet1!G40 房价600以上：1.5-4(小罐茶）"
+      ],
+      "recommendation_lines": [],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B40:G40",
+      "query": "茶叶采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    },
+    {
+      "key": "item_27",
+      "item_id": 27,
+      "title": "咖啡采购推荐价与规格参考",
+      "summary": "用户提供价目表的原始五档内容；报价单位和日期待确认，reference_only。",
+      "quotation_lines": [
+        "Sheet1!C41 低端酒店：可不配置",
+        "Sheet1!D41 房价100-200：0.55-0.65（选配）",
+        "Sheet1!E41 房价200-400：0.55-0.65",
+        "Sheet1!F41 房价400-600：0.8-1.2",
+        "Sheet1!G41 房价600以上：2元以上（挂耳咖啡）"
+      ],
+      "recommendation_lines": [],
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "可不配置属于配置选择，不能填免费0；启用后需取得真实所选规格价格。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "method": [
+        "报价、规格和选配条件保留原文及单元格，不补未知单位、不自动采用。"
+      ],
+      "source_section": "Sheet1!B41:G41",
+      "query": "咖啡采购推荐价",
+      "maturity": "understood",
+      "gates": {
+        "reference_only": true,
+        "automatic_application": false,
+        "requires_hotel_period_and_units": true
+      },
+      "known_unknowns": [
+        "供应商、报价日期和有效期未知。",
+        "统一币种、税运费及计价包装待确认。",
+        "本店实际耗用、损耗和服务事件量未知。"
+      ]
+    }
+  ]
+}

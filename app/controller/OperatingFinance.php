@@ -18,6 +18,60 @@ use Throwable;
 
 final class OperatingFinance extends Base
 {
+    public function evidenceOverview(): Response
+    {
+        try {
+            [$scope, $permitted] = $this->evidenceScope($this->request->param(), 'operation.view');
+            $store = new \app\service\OperatingEvidenceSnapshotStore();
+            $sources = $scope['kind'] === 'channel_economics'
+                ? $this->module('channel_sources', fn(): array => (new \app\service\ChannelEconomicsService())->sourceReceipts($scope['tenant_id'], $scope['hotel_id'], $scope['platform'], $scope['period_month'])) : [];
+            return $this->success(['scope' => $scope, 'latest' => $store->latest($scope), 'history' => $store->history($scope), 'sources' => $sources,
+                'monthly_finance' => $this->module('monthly_finance', fn(): array => (new MonthlyOperatingFinanceService())->latestForHotel($scope['tenant_id'], $permitted, $scope['hotel_id'], $scope['period_month']))]);
+        } catch (Throwable $e) { return $this->error($this->safeMessage($e, '经营证据读取失败'), $this->statusCode($e)); }
+    }
+    public function previewEvidence(): Response { return $this->evidenceWrite(false); }
+    public function saveEvidence(): Response { return $this->evidenceWrite(true); }
+    public function readEvidence(int $id): Response
+    {
+        try {
+            [$scope] = $this->evidenceScope($this->request->param(), 'operation.view');
+            return $this->success((new \app\service\OperatingEvidenceSnapshotStore())->read($scope, $id));
+        } catch (Throwable $e) { return $this->error($this->safeMessage($e, '经营证据回读失败'), $this->statusCode($e)); }
+    }
+    private function evidenceWrite(bool $save): Response
+    {
+        try {
+            $request = $this->requestData();
+            [$scope] = $this->evidenceScope($request, $save ? 'operation.execute' : 'operation.view');
+            $input = is_array($request['inputs'] ?? null) ? $request['inputs'] : [];
+            if ($scope['kind'] === 'consumables_actual') {
+                foreach ($input['items'] ?? [] as $item) {
+                    if (($item['enabled'] ?? false) && !empty($item['source_date']) && substr((string)$item['source_date'], 0, 7) !== $scope['period_month']) throw new InvalidArgumentException('耗材来源日期必须属于当前核算月');
+                }
+                $result = (new \app\service\ConsumablesActualCostService())->calculate($input);
+            } else {
+                $sources = $this->module('channel_sources', fn(): array => (new \app\service\ChannelEconomicsService())->sourceReceipts($scope['tenant_id'], $scope['hotel_id'], $scope['platform'], $scope['period_month']));
+                $result = (new \app\service\ChannelEconomicsService())->calculate($input, $sources);
+            }
+            $payload = ['inputs' => $result['inputs'], 'result' => $result, 'status' => $result['status'], 'source_quality' => $result['source_quality']];
+            if (!$save) return $this->success(['scope' => $scope] + $payload + ['readback_verified' => false]);
+            $saved = (new \app\service\OperatingEvidenceSnapshotStore())->save($scope, $payload, (string)($request['idempotency_key'] ?? ''), (int)$this->currentUser->id);
+            return $this->success($saved, '经营证据已保存并精确回读');
+        } catch (Throwable $e) { return $this->error($this->safeMessage($e, '经营证据计算或保存失败'), $this->statusCode($e)); }
+    }
+    private function evidenceScope(array $input, string $capability): array
+    {
+        $hotelId = (int)($input['hotel_id'] ?? 0);
+        [$tenantId, , $permitted] = $this->resolveHotelScope($hotelId, $capability);
+        if ($tenantId <= 0 || (!$this->currentUser->isSuperAdmin()
+            && (int)($this->currentUser->tenant_id ?? 0) !== $tenantId)) {
+            throw new RuntimeException('当前租户不能访问该酒店的经营证据', 403);
+        }
+        $scope = (new \app\service\OperatingEvidenceSnapshotStore())->scope($tenantId, $permitted, $hotelId,
+            (string)($input['period_month'] ?? ''), (string)($input['platform'] ?? ''), (string)($input['kind'] ?? ''));
+        return [$scope, $permitted];
+    }
+
     public function overview(): Response
     {
         try {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
@@ -281,7 +282,6 @@ test('one validated spec drives offline HTML and macro-free editable PPTX withou
     "'html_external_requests_allowed' => false",
     "'pptx_macro_enabled' => false",
     "'pptx_editable_text_and_shapes' => true",
-    "'human_review_status' => 'pending'",
     "'external_write_authorized' => false",
     "'presentation-spec.json'",
     "'manifest.json'",
@@ -289,6 +289,24 @@ test('one validated spec drives offline HTML and macro-free editable PPTX withou
   ]) {
     assert.ok(renderer.includes(marker), marker);
   }
+  // Verify pending-by-default behavior through the actual renderer while
+  // allowing a separately verified human review context for formal exports.
+  const phpBinary = [process.env.PHP_BINARY,
+    process.platform === 'win32' ? 'C:\\xampp\\php\\php.exe' : null, 'php']
+    .find(candidate => candidate && (candidate === 'php' || existsSync(candidate)));
+  const contract = JSON.parse(execFileSync(phpBinary, ['-r', `
+    require 'tests/bootstrap.php';
+    require 'tests/AiDailyReportPresentationRendererServiceTest.php';
+    $fixture = new ReflectionClass(Tests\\AiDailyReportPresentationRendererServiceTest::class);
+    $report = $fixture->getMethod('trustedReport')->invoke($fixture->newInstanceWithoutConstructor());
+    $spec = (new app\\service\\AiDailyReportPresentationSpecService())->build($report, 'owner');
+    $artifact = (new app\\service\\AiDailyReportPresentationRendererService())->render($spec);
+    echo json_encode($artifact['manifest']['contract'], JSON_THROW_ON_ERROR);
+  `], { encoding: 'utf8', windowsHide: true, timeout: 20000 }));
+  assert.equal(contract.human_review_status, 'pending');
+  assert.equal(contract.export_mode, 'draft');
+  assert.equal(contract.external_write_authorized, false);
+  assert.equal(contract.recalculation_during_render, false);
   for (const marker of [
     'sourceRefIsVerified',
     '$dataSourceId <= 0',
@@ -566,6 +584,7 @@ test('presentation generation still downloads the exact same-scope verified bund
   const bundle = Buffer.from([1, 2, 3]);
   const bundleSha = createHash('sha256').update(bundle).digest('hex');
   const fingerprint = 'e'.repeat(64);
+  const reviewFingerprint = 'f'.repeat(64);
   const sandbox = {
     window: { atob },
     Vue: {
@@ -599,7 +618,23 @@ test('presentation generation still downloads the exact same-scope verified bund
     assistantSessionEpoch: () => 4,
     aiDailyReportDeliveryRequest: async (url, options = {}) => {
       const method = options.method || 'GET';
-      requests.push({ url, method });
+      requests.push({ url, method, body: options.body ? JSON.parse(options.body) : null });
+      if (method === 'GET' && url.includes('/presentation-review?')) {
+        return { code: 200, data: {
+          review_id: null,
+          review_fingerprint: reviewFingerprint,
+          presentation_spec_id: 903,
+          spec_fingerprint: fingerprint,
+          report_id: 89,
+          hotel_id: 80,
+          audience: 'owner',
+          status: 'pending',
+          pending_item_count: 1,
+          revision_item_count: 0,
+          readback_verified: false,
+          items: [{ id: 'check:html', is_evidence_gap: false, decision: 'pending', note: '' }],
+        } };
+      }
       if (method === 'GET') return { code: 404 };
       if (url.endsWith('/presentation-spec')) {
         return { code: 200, data: {
@@ -614,6 +649,9 @@ test('presentation generation still downloads the exact same-scope verified bund
       return { code: 200, data: {
         artifact_readback_verified: true,
         render_status: 'rendered_and_readback_verified',
+        review_fingerprint: reviewFingerprint,
+        human_review_status: 'pending',
+        export_mode: 'draft',
         content_sha256: bundleSha,
         content_bytes: bundle.byteLength,
         bundle_base64: bundle.toString('base64'),
@@ -633,9 +671,28 @@ test('presentation generation still downloads the exact same-scope verified bund
 
   await state.downloadAiDailyReportPackage();
 
-  assert.deepEqual(requests.map(row => row.method), ['GET', 'POST', 'POST']);
+  assert.deepEqual(requests.map(row => row.method), ['GET', 'POST', 'GET', 'POST']);
+  assert.deepEqual(requests.map(row => row.url), [
+    '/ai-daily-reports/89/presentation-artifacts?audience=owner',
+    '/ai-daily-reports/89/presentation-spec',
+    `/ai-daily-reports/89/presentation-review?audience=owner&presentation_spec_id=903&expected_spec_fingerprint=${fingerprint}`,
+    '/ai-daily-reports/89/presentation-artifacts',
+  ]);
+  assert.deepEqual(requests.at(-1).body, {
+    audience: 'owner',
+    presentation_spec_id: 903,
+    expected_spec_fingerprint: fingerprint,
+    export_mode: 'draft',
+    expected_review_fingerprint: reviewFingerprint,
+  });
   assert.deepEqual(downloads, ['verified-report.zip']);
   assert.equal(state.aiDailyReportPresentationResult.status, 'ready');
   assert.equal(state.aiDailyReportPresentationResult.artifactId, 904);
+  assert.equal(state.aiDailyReportPresentationResult.contentBytes, bundle.byteLength);
+  assert.equal(state.aiDailyReportPresentationResult.contentSha256, bundleSha.slice(0, 16));
+  assert.equal(state.aiDailyReportPresentationResult.specFingerprint, fingerprint.slice(0, 16));
+  assert.equal(state.aiDailyReportPresentationResult.humanReviewStatus, 'pending');
+  assert.equal(state.aiDailyReportPresentationResult.exportMode, 'draft');
+  assert.equal(state.aiDailyReportPresentationResult.reviewFingerprint, reviewFingerprint);
   assert.equal(state.aiDailyReportPresentationGenerating, false);
 });

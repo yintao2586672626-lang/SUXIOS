@@ -434,7 +434,8 @@
                                                     <option value="training">培训草案（需复核）</option>
                                                 </select>
                                                 <button type="button" @click="downloadAiDailyReportJsonPackage" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">导出 JSON</button>
-                                                <button type="button" data-testid="ai-daily-presentation-generate" @click="downloadAiDailyReportPackage" :disabled="aiDailyReportPresentationGenerating || aiDailyReportPresentationLoading || !aiDailyReport?.id" :aria-busy="aiDailyReportPresentationGenerating || aiDailyReportPresentationLoading ? 'true' : 'false'" class="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white disabled:cursor-not-allowed disabled:opacity-50">{{ aiDailyReportPresentationGenerating ? '生成并验真中…' : (aiDailyReportPresentationLoading ? '回读中…' : '生成演示包') }}</button>
+                                                <button type="button" data-testid="ai-daily-presentation-generate" @click="downloadAiDailyReportPackage" :disabled="aiDailyReportPresentationGenerating || aiDailyReportPresentationLoading || aiDailyReportPresentationReviewBusy || !aiDailyReport?.id" :aria-busy="aiDailyReportPresentationGenerating || aiDailyReportPresentationLoading ? 'true' : 'false'" class="rounded-lg bg-slate-900 px-3 py-2 text-xs text-white disabled:cursor-not-allowed disabled:opacity-50">{{ aiDailyReportPresentationGenerating ? '生成并验真中…' : (aiDailyReportPresentationLoading ? '回读中…' : '下载演示草稿') }}</button>
+                                                <button type="button" data-testid="ai-daily-presentation-formal" @click="downloadAiDailyReportPackage('formal')" :disabled="aiDailyReportPresentationGenerating || aiDailyReportPresentationReviewBusy || !aiDailyReportFormalExportReady()" class="rounded-lg border border-emerald-200 px-3 py-2 text-xs text-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">正式导出同版演示包</button>
                                             </div>
                                         </div>
                                         <div class="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
@@ -448,8 +449,38 @@
                                             <div v-if="aiDailyReportPresentationResult.status === 'ready'" class="mt-1 text-[11px] opacity-80">
                                                 产物 #{{ aiDailyReportPresentationResult.artifactId }} · {{ aiDailyReportPresentationResult.contentBytes }} bytes · SHA-256 {{ aiDailyReportPresentationResult.contentSha256 }}
                                             </div>
-                                            <div v-if="aiDailyReportPresentationResult.status === 'ready'" class="mt-1 text-[11px] opacity-80">PPTX/HTML 已生成；视觉人工复核状态仍为 pending。</div>
+                                            <div v-if="aiDailyReportPresentationResult.status === 'ready'" class="mt-1 break-all text-[11px] opacity-80">{{ aiDailyReportPresentationResult.exportMode === 'formal' ? '正式版' : '草稿' }} · 包内 PPTX/HTML 同版人工复核：{{ aiDailyReportPresentationResult.humanReviewStatus || 'pending' }} · 包内审核指纹 {{ aiDailyReportPresentationResult.reviewFingerprint || '旧包未记录人审' }}。来源缺项继续保留；经营动作仍需另行审批。</div>
                                         </div>
+                                        <section data-testid="ai-daily-presentation-review" class="mt-4 rounded-md border border-slate-200 p-3">
+                                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                                <div class="text-xs font-semibold text-slate-800">报告逐项人审与来源追踪</div>
+                                                <button type="button" @click="prepareAiDailyReportPresentationReview" :disabled="aiDailyReportPresentationReviewBusy || aiDailyReportPresentationGenerating || !aiDailyReport?.id" class="rounded border border-slate-200 px-2 py-1 text-xs disabled:opacity-50">{{ aiDailyReportPresentationReviewBusy ? '保存/回读中…' : '读取当前版本复核清单' }}</button>
+                                            </div>
+                                            <p class="mt-2 text-[11px] leading-5 text-slate-500">先下载草稿，实际打开 HTML 与 PPTX 逐页核对，再逐项选择并保存。版本或来源变化后重新待审；这里仅复核报告，不批准经营动作。JSON 为原始资料导出，演示包记录该版本审核状态。</p>
+                                            <div v-if="aiDailyReportPresentationReviewError" role="alert" class="mt-2 text-xs text-rose-700">{{ aiDailyReportPresentationReviewError }}</div>
+                                            <div v-if="aiDailyReportPresentationReview" class="mt-2 text-[11px] leading-5 text-slate-600">
+                                                <div class="break-all">规格 SHA-256：{{ aiDailyReportPresentationReview.spec_fingerprint }}</div>
+                                                <div class="break-all">来源证据 SHA-256：{{ aiDailyReportPresentationReview.source_evidence_fingerprint }}</div>
+                                                <div class="break-all">审核 SHA-256：{{ aiDailyReportPresentationReview.review_fingerprint }}</div>
+                                                <div>已保存状态：{{ aiDailyReportPresentationReview.status }} · 待审 {{ aiDailyReportPresentationReview.pending_item_count }} · 待修订 {{ aiDailyReportPresentationReview.revision_item_count }} · {{ aiDailyReportPresentationReview.readback_verified ? '已保存回读' : '尚未保存人审' }}</div>
+                                                <div v-if="aiDailyReportPresentationReview.reviewed_by">本次保存人 #{{ aiDailyReportPresentationReview.reviewed_by }} · {{ aiDailyReportPresentationReview.reviewed_at }}</div>
+                                                <div class="mt-2 max-h-96 space-y-2 overflow-auto">
+                                                    <div v-for="item in aiDailyReportPresentationReview.items" :key="item.id" class="rounded border border-slate-100 p-2">
+                                                        <div class="font-medium">{{ item.label }} · {{ item.class }}</div>
+                                                        <div v-if="item.statement" class="mt-1">{{ item.statement }}</div>
+                                                        <div v-if="item.source_refs?.length" class="mt-1 break-all text-slate-500">来源：{{ item.source_refs.join('；') }}</div>
+                                                        <select v-model="item.decision" :disabled="aiDailyReportPresentationReviewBusy || aiDailyReportPresentationGenerating" :aria-label="item.label + ' 复核结果'" class="mt-2 rounded border border-slate-200 px-2 py-1 text-xs">
+                                                            <option value="pending">待审</option>
+                                                            <option v-if="!item.is_evidence_gap" value="confirmed">已逐项核对</option>
+                                                            <option v-else value="gap_acknowledged">已阅读缺口，保留缺失/模拟边界</option>
+                                                            <option value="needs_revision">需要修订</option>
+                                                        </select>
+                                                        <input v-model="item.note" :disabled="aiDailyReportPresentationReviewBusy || aiDailyReportPresentationGenerating" maxlength="1000" :aria-label="item.label + ' 复核备注'" placeholder="复核备注；需修订时必填" class="mt-2 block w-full rounded border border-slate-200 px-2 py-1 text-xs">
+                                                    </div>
+                                                </div>
+                                                <button type="button" data-testid="ai-daily-presentation-review-save" @click="saveAiDailyReportPresentationReview" :disabled="aiDailyReportPresentationReviewBusy || aiDailyReportPresentationGenerating" class="mt-3 rounded bg-slate-800 px-3 py-2 text-xs text-white disabled:opacity-50">保存逐项人审并回读</button>
+                                            </div>
+                                        </section>
                                         <div v-if="aiDailyReport.trial_validation" class="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                                             <div class="rounded-md border border-slate-100 px-2 py-1.5">首次可信采集：{{ aiDailyReport.trial_validation.first_trusted_collection?.passed ? '通过' : '待完成' }}</div>
                                             <div class="rounded-md border border-slate-100 px-2 py-1.5">同口径复测：{{ aiDailyReport.trial_validation.second_same_scope_comparison?.passed ? '通过' : '待完成/不可比' }}</div>

@@ -9,7 +9,7 @@ test('training delivery emits only the anonymized package with a date-free filen
     readFile(new URL('../../app/service/AiDailyReportPresentationSpecService.php', import.meta.url), 'utf8'),
     readFile(new URL('../../app/service/AiDailyReportPresentationRendererService.php', import.meta.url), 'utf8'),
   ]);
-  const start = deliveryClient.indexOf('const downloadAiDailyReportPackage = async () => {');
+  const start = deliveryClient.indexOf("const downloadAiDailyReportPackage = async (mode = 'draft') => {");
   const end = deliveryClient.indexOf('\n\n        const buildSharePackage', start);
   assert.notEqual(start, -1, 'lazy AI daily presentation delivery method must exist');
   assert.notEqual(end, -1, 'lazy AI daily presentation delivery boundary must exist');

@@ -1173,6 +1173,7 @@ final class AiDailyReportPresentationSpecService
                 || str_contains($message, 'error 1062')
                 || str_contains($message, 'errno: 1062')
                 || str_contains($message, 'uk_ai_report_presentation_spec_identity')
+                || str_contains($message, 'unique constraint failed: ai_report_presentation_specs.report_id, ai_report_presentation_specs.audience, ai_report_presentation_specs.adapter_version, ai_report_presentation_specs.spec_fingerprint')
             ) {
                 return true;
             }
