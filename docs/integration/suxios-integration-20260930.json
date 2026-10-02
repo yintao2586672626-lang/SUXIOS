@@ -3,7 +3,7 @@
   "date": "2026-09-30",
   "branch": "codex/integrate-suxios-20260930",
   "base": "703dd68db8908b23a8d084868196f72318e586d7",
-  "origin_main": "535ffcc156bf434c32993f1279b28c1b024a3c45",
+  "origin_main": "d3e53e176d86d74f7868297125772116f666b3e4",
   "status": "local_integration_and_full_acceptance_complete",
   "scope": {
     "worktrees": 102,
@@ -1417,7 +1417,7 @@
       }
     },
     "delivery_20261002": {
-      "prepared_against_head": "c8cfd5c902f155486ab09f14a8a1fb0da135c420",
+      "prepared_against_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e",
       "dos_introduction": {
         "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",
         "source_blob": "72aca9496737bad552726935934d19cf2a0f4b12",
@@ -1490,20 +1490,20 @@
           "node": {
             "deduplicated": true,
             "skipped": 0,
-            "tests": 286,
-            "passed": 286,
-            "files": 26,
-            "components": "19files207 + learning35 + route2 + legacyfinance1 + hotelmigration22 + ctrip11 + ownership8",
+            "tests": 314,
+            "passed": 314,
+            "files": 28,
+            "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28; full-file runs, no repeated counting",
             "runner_breakdown": {
               "playwright": {
                 "tests": 1,
                 "files": 1
               },
               "node": {
-                "tests": 285,
-                "files": 25
+                "tests": 313,
+                "files": 27
               },
-              "caliber": "26files286 automation tests; separate seven mounted probes"
+              "caliber": "28files314 automation tests; separate seven mounted probes; four ownership files36 pass, new two28 only added once"
             }
           },
           "browser_probes": {
@@ -1528,8 +1528,15 @@
           "production_migration": false,
           "deployment": false,
           "business_chain_local": {
-            "runtime": "not locally accepted; final CI isolated database required",
-            "static_contract": "passed"
+            "runtime": "default CLI runtime verified in CI isolated MySQL; dedicated synthetic hotel case not configured and skipped",
+            "static_contract": "passed",
+            "ci_snapshot": {
+              "passed": 7,
+              "head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e",
+              "overall_ci": "failed on unrelated finance fixture, not a passed full run",
+              "skipped": 1,
+              "test_cases": 8
+            }
           }
         }
       },
@@ -1566,6 +1573,12 @@
       "latest_remote_budget": {
         "commit": "cc170219b8973dcfede93ad99934a7ae859e5b38",
         "scope": "freeze pricing evidence concern at133lines and P0 scope helper at742lines; no business source or acceptance oracle changed"
+      },
+      "latest_main_landing": {
+        "historical_pr51": "769e30977927ed7b7407096dc4c9700626b4852c",
+        "dos_pr57": "d3e53e176d86d74f7868297125772116f666b3e4",
+        "composition_content": "main landing and latest DOS merged; DOS blob already identical; business source and accepted generated assets unchanged",
+        "current_pull_request": 58
       }
     }
   },
@@ -3383,8 +3396,8 @@
     {
       "path": "docs/integration/composed-delivery-20261002.md",
       "state": "added",
-      "bytes": 2445,
-      "sha256": "9e9e94f58e2b49e594fa2dc15f36de0d1c4af0d53d7e69221cc706b254a98713",
+      "bytes": 2581,
+      "sha256": "46226e9b5668f5a363cc5e10256b5da8e6e849e75bd6783041be8ff5987622b3",
       "previous_payloads": [
         {
           "sha256": "d933ea39c62b783342fa5b6c15d0f1e85cc8c0a8d7f6085899f1cf56388dfca0",
@@ -3405,6 +3418,10 @@
         {
           "sha256": "2cbbe557dd7e13bb242dd4050041c00ddab51cd5ebdf868e41a16bc86a2d4b95",
           "prepared_before_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0"
+        },
+        {
+          "sha256": "9e9e94f58e2b49e594fa2dc15f36de0d1c4af0d53d7e69221cc706b254a98713",
+          "prepared_before_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e"
         }
       ]
     },
@@ -3429,8 +3446,8 @@
     {
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.json",
       "state": "added",
-      "bytes": 49721,
-      "sha256": "7b9e65f567811d9814159badf9ece0c6792015b186c9364578ae7a93eb209231",
+      "bytes": 50091,
+      "sha256": "e3807b8d6fdd1646f84b92cf7218a3e0b14f7a1235bf1750225c82c05a32a7d7",
       "previous_payloads": [
         {
           "sha256": "f78eca3a68bcd653ea8f7cccd301bc89f7117752e957802845bd45ecc5e0da44",
@@ -3459,6 +3476,10 @@
         {
           "sha256": "46ed2646d58fca910b0b69ed9250d81330c46adaf55784dcafd2e2e15fb3493b",
           "prepared_before_head": "c8cfd5c902f155486ab09f14a8a1fb0da135c420"
+        },
+        {
+          "sha256": "7b9e65f567811d9814159badf9ece0c6792015b186c9364578ae7a93eb209231",
+          "prepared_before_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e"
         }
       ]
     },
@@ -3466,7 +3487,7 @@
       "path": "docs/integration/receipts/changqing-main-thread-receipt-20261002.md",
       "state": "added",
       "bytes": 9018,
-      "sha256": "12fd49f6ad290313fe00ea69e865716898787a6b2421bce5f1aa9b33955f953f",
+      "sha256": "02b99b7e75778e76cefddc778d3f1429c5f3981fee57a17bcdce29781b97cdb3",
       "previous_payloads": [
         {
           "sha256": "94f5593f4fd7b33f07f88e8cfed06839a60d81c0670f8c53ed52eccf9ab06af9",
@@ -3491,6 +3512,10 @@
         {
           "sha256": "f1758779dc7b51e69104c842e1f534e5c31261ee3d985493c3e9e0b71872e240",
           "prepared_before_head": "1f33bd5cf1072666f0e769cf7a88c812ccae96f0"
+        },
+        {
+          "sha256": "12fd49f6ad290313fe00ea69e865716898787a6b2421bce5f1aa9b33955f953f",
+          "prepared_before_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e"
         }
       ]
     },
@@ -3503,8 +3528,8 @@
     {
       "path": "docs/integration/receipts/composed-main-thread-20261002.json",
       "state": "added",
-      "bytes": 49965,
-      "sha256": "f5f0476206d7d61a421d89e56ea2b5b50d24c1ccac9784c2f09bf1ea3021da35",
+      "bytes": 50920,
+      "sha256": "8bbb482c5bf82a1307a2129b1de524faf5368767f2d83777e2eee3260618a662",
       "previous_payloads": [
         {
           "sha256": "5a94e1405242f2f7f93a58e2923dc09928031d55351f190d61d6a40ac276964b",
@@ -3529,6 +3554,10 @@
         {
           "sha256": "df07e4234761a36d0b0906b6f546d97cc5ade3254de064fbf02b6e11d7ed4d48",
           "prepared_before_head": "c8cfd5c902f155486ab09f14a8a1fb0da135c420"
+        },
+        {
+          "sha256": "f5f0476206d7d61a421d89e56ea2b5b50d24c1ccac9784c2f09bf1ea3021da35",
+          "prepared_before_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e"
         }
       ]
     },
@@ -5835,8 +5864,14 @@
     {
       "state": "added",
       "path": "tests/automation/demand_event_save_ownership.test.mjs",
-      "bytes": 20029,
-      "sha256": "f64dc3b0dee25b0df45f6e030925d4cb1bdfbb4f2702b9fffca8b223e29ee606"
+      "bytes": 20400,
+      "sha256": "269d1a28132130360257286d26391c5722e719e9cfc8240bffffed7783b38252",
+      "previous_payloads": [
+        {
+          "sha256": "f64dc3b0dee25b0df45f6e030925d4cb1bdfbb4f2702b9fffca8b223e29ee606",
+          "prepared_before_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e"
+        }
+      ]
     },
     {
       "state": "added",
@@ -7401,8 +7436,14 @@
     {
       "state": "added",
       "path": "tests/automation/settlement_import_save_ownership.test.mjs",
-      "bytes": 21887,
-      "sha256": "3c01b74cc37eb29bdf307abc55aba629e44fe0cff8170eb6b1960760909c569d"
+      "bytes": 22255,
+      "sha256": "10cdc8ed8f2f63af14936bbb2998f979c53c1a23e82ff37d112d25f32a9df5eb",
+      "previous_payloads": [
+        {
+          "sha256": "3c01b74cc37eb29bdf307abc55aba629e44fe0cff8170eb6b1960760909c569d",
+          "prepared_before_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e"
+        }
+      ]
     },
     {
       "state": "added",

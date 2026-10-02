@@ -1,12 +1,12 @@
 {
   "contract": "suxios.composed_delivery.v1",
-  "at": "2026-10-02T13:09:33.495Z",
+  "at": "2026-10-02T13:28:34.575Z",
   "phase": "final",
-  "prepared_against_head": "c8cfd5c902f155486ab09f14a8a1fb0da135c420",
+  "prepared_against_head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e",
   "main_thread": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
   "target_branch": "codex/integrate-suxios-20260930",
   "baseline_main_integrated": "51a512e6bd552c9553dca81a0d1670fc116fd327",
-  "latest_main_observed": "535ffcc156bf434c32993f1279b28c1b024a3c45",
+  "latest_main_observed": "d3e53e176d86d74f7868297125772116f666b3e4",
   "packages": [
     {
       "package": "payback",
@@ -902,6 +902,7 @@
     "isolate four missing-optional-module cases in fresh processes while retaining original failure/readback oracles",
     "verify installed reference capabilities in the composed target",
     "mount real Meituan stale-scope clearing helper in the navigation fixture",
+    "inventory all four direct finance ownership fixtures and register unrelated composed sibling fixtures; all original save/readback/scope/error oracles retained; demand and settlement repairs add28 unique passing cases",
     "remove completed full-factory script only for matching origin/path when registration is absent, so authenticated deferred loading can recover on retry; preserve broker and manifest identity"
   ],
   "verification": {
@@ -916,20 +917,20 @@
     "node": {
       "deduplicated": true,
       "skipped": 0,
-      "tests": 286,
-      "passed": 286,
-      "files": 26,
-      "components": "19files207 + learning35 + route2 + legacyfinance1 + hotelmigration22 + ctrip11 + ownership8",
+      "tests": 314,
+      "passed": 314,
+      "files": 28,
+      "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28; full-file runs, no repeated counting",
       "runner_breakdown": {
         "playwright": {
           "tests": 1,
           "files": 1
         },
         "node": {
-          "tests": 285,
-          "files": 25
+          "tests": 313,
+          "files": 27
         },
-        "caliber": "26files286 automation tests; separate seven mounted probes"
+        "caliber": "28files314 automation tests; separate seven mounted probes; four ownership files36 pass, new two28 only added once"
       }
     },
     "browser_probes": {
@@ -954,11 +955,18 @@
     "production_migration": false,
     "deployment": false,
     "business_chain_local": {
-      "runtime": "not locally accepted; final CI isolated database required",
-      "static_contract": "passed"
+      "runtime": "default CLI runtime verified in CI isolated MySQL; dedicated synthetic hotel case not configured and skipped",
+      "static_contract": "passed",
+      "ci_snapshot": {
+        "passed": 7,
+        "head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e",
+        "overall_ci": "failed on unrelated finance fixture, not a passed full run",
+        "skipped": 1,
+        "test_cases": 8
+      }
     }
   },
-  "github": "final composed head not yet pushed; exact-head remote readback and CI tracked separately",
+  "github": "Current follow-up delivery is PR58 after historical PR51 merged; exact-head remote readback and full CI recorded separately",
   "latest_remote_ota": {
     "commit": "94f246e2beb3d640a5da254e5c7554514fb438a3",
     "repair_commits": [
@@ -977,6 +985,12 @@
   "latest_remote_budget": {
     "commit": "cc170219b8973dcfede93ad99934a7ae859e5b38",
     "scope": "freeze pricing evidence concern at133lines and P0 scope helper at742lines; no business source or acceptance oracle changed"
+  },
+  "latest_main_landing": {
+    "historical_pr51": "769e30977927ed7b7407096dc4c9700626b4852c",
+    "dos_pr57": "d3e53e176d86d74f7868297125772116f666b3e4",
+    "composition_content": "main landing and latest DOS merged; DOS blob already identical; business source and accepted generated assets unchanged",
+    "current_pull_request": 58
   },
   "dos_introduction": {
     "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",

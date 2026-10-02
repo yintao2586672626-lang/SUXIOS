@@ -116,6 +116,11 @@ function harness(attempt) {
   app = renderer.createApp({ methods: { showToast(message, type) { notices.push({ message, type }); } },
     render() { return Vue.h(body, { hotels: [{ id: 7, name: '合成酒店七' }, { id: 8, name: '合成酒店八' }],
       selectedHotelId: '7', canExecute: true, request }); } });
+  // The production finance facade owns these unrelated async siblings.
+  // Keep this ownership fixture isolated while retaining its warning oracle.
+  for (const name of ['BusinessFeatureWorkspace', 'OperatingEconomicsWorkbench', 'BookingMonitoringPanel', 'InvestmentOperatingBridgePanel']) {
+    app.component(name, { name: `${name}Fixture`, render: () => null });
+  }
   app.mixin({ mounted() { if (this.$options.name === 'OperatingFinanceControlCenterBody') component = this; } });
   app.config.warnHandler = msg => warnings.push(msg); app.config.errorHandler = e => errors.push(e.stack || String(e));
   app.mount(host.root);
