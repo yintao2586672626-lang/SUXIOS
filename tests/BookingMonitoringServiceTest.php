@@ -323,6 +323,76 @@ final class BookingMonitoringServiceTest extends TestCase
         self::assertFalse($other->getData()['data']['readback_verified']);
     }
 
+    public function testControllerRejectsFractionalReadbackIdentitiesInsteadOfTruncatingThem(): void
+    {
+        $snapshot = $this->service()->saveSnapshots(7, [80], [$this->row('2026-10-02 09:00:00', 8)], 9)['snapshots'][0];
+        $user = new class {
+            public int $id = 9;
+            public function getPermittedHotelIds(): array { return [80]; }
+            public function hasHotelPermission(int $hotelId, string $capability): bool { return $hotelId === 80; }
+        };
+        foreach ([['hotel_id' => 80.5, 'id' => $snapshot['id']], ['hotel_id' => 80, 'id' => $snapshot['id'] + 0.5]] as $params) {
+            $response = $this->controller($params, $user)->readSnapshot();
+            self::assertSame(422, $response->getCode());
+            self::assertFalse($response->getData()['data']['readback_verified']);
+        }
+    }
+
+    public function testImportRejectsNumbersOutsideDeclaredDecimalStorageBeforeAnyBatchWrite(): void
+    {
+        foreach (['on_books_room_nights' => 1e10, 'on_books_room_revenue' => 1e14,
+            'cumulative_cancel_room_nights' => 1e10, 'gross_booking_room_nights' => 1e10] as $field => $value) {
+            $row = $this->row('2026-10-02 09:00:00', 4);
+            $row[$field] = $value;
+            try {
+                $this->service()->saveSnapshots(7, [80], [$this->row('2026-10-01 09:00:00', 3), $row], 9);
+                self::fail($field . ' must be rejected before persistence');
+            } catch (InvalidArgumentException $error) {
+                self::assertSame($field . '_invalid', $error->getMessage());
+                self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+            }
+        }
+    }
+
+    public function testFractionalOverviewHotelScopeCannotResolveToAnIntegerHotel(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->service()->overview(7, [80], [80.5], $this->query());
+    }
+
+    public function testDefaultBusinessDateAndNineOClockUseShanghaiWhenClockReturnsUtc(): void
+    {
+        $utcClock = new BookingMonitoringService(static fn(): DateTimeImmutable => new DateTimeImmutable('2026-10-01 23:59:59', new DateTimeZone('UTC')));
+        $query = $this->query(); unset($query['business_date']);
+        $view = $utcClock->overview(7, [80], [80], $query);
+        self::assertSame('2026-10-02', $view['business_date']);
+        self::assertSame('2026-10-02 09:00:00', $view['observation_time']);
+        self::assertContains('fixed_observation_time_not_reached', $this->cell($view, 80, 1)['data_gaps']);
+        $atNine = new BookingMonitoringService(static fn(): DateTimeImmutable => new DateTimeImmutable('2026-10-02 01:00:00', new DateTimeZone('UTC')));
+        $atNine->saveSnapshots(7, [80], [$this->row('2026-10-01 09:00:00', 4), $this->row('2026-10-02 09:00:00', 5)], 9);
+        $cell = $this->cell($atNine->overview(7, [80], [80], $query), 80, 1);
+        self::assertSame('ready', $cell['status']); self::assertSame(24.0, $cell['elapsed_hours']); self::assertSame(1.0, $cell['net_pickup_24h_room_nights']);
+    }
+
+    public function testControllerDefaultBusinessDateDoesNotInheritServerTimezone(): void
+    {
+        $user = new class {
+            public int $id = 9;
+            public function getPermittedHotelIds(): array { return [80]; }
+            public function hasHotelPermission(int $hotelId, string $capability): bool { return $hotelId === 80; }
+        };
+        $shanghai = new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
+        $originalTimezone = date_default_timezone_get();
+        try {
+            date_default_timezone_set((int)$shanghai->format('H') < 20 ? 'Etc/GMT+12' : 'Pacific/Kiritimati');
+            $response = $this->controller(['hotel_ids' => '80', 'horizon_days' => 1], $user)->overview();
+            self::assertSame(200, $response->getCode());
+            self::assertSame($shanghai->format('Y-m-d'), $response->getData()['data']['business_date']);
+        } finally {
+            date_default_timezone_set($originalTimezone);
+        }
+    }
+
     private function controller(array $params, ?object $user, string $method = 'GET'): \app\controller\BookingMonitoring
     {
         $class = new ReflectionClass(\app\controller\BookingMonitoring::class);

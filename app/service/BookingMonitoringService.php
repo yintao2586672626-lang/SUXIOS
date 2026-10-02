@@ -44,6 +44,12 @@ final class BookingMonitoringService
             $row['source_method'] = 'manual_file_import';
             $row['quality_status'] = filter_var($row['operator_attested'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 'manual_confirmed' : 'unverified';
             $content = $this->planning->validatedSnapshotContent($tenantId, $permittedHotelIds, $hotelId, $row);
+            foreach (['on_books_room_nights' => 1e10, 'on_books_room_revenue' => 1e14,
+                'cumulative_cancel_room_nights' => 1e10, 'gross_booking_room_nights' => 1e10] as $field => $limit) {
+                if ($content[$field] !== null && (!is_finite($content[$field]) || $content[$field] >= $limit)) {
+                    throw new InvalidArgumentException($field . '_invalid');
+                }
+            }
             $roomId = $this->roomId($row['room_type_id'] ?? 0);
             $roomName = '酒店汇总';
             if ($roomId > 0) {
@@ -262,7 +268,7 @@ final class BookingMonitoringService
     private function authorizedHotels(int $tenantId, array $permitted, array $ids): array
     {
         if ($tenantId <= 0 || $ids === [] || count($ids) > 20) throw new InvalidArgumentException('booking_monitor_requires_1_to_20_same_tenant_hotels');
-        $ids = array_values(array_unique(array_map('intval', $ids)));
+        $ids = array_values(array_unique(array_map(fn(mixed $id): int => $this->roomId($id), $ids)));
         if (in_array(0, $ids, true) || array_diff($ids, array_map('intval', $permitted)) !== []) throw new RuntimeException('booking_monitor_hotel_outside_permitted_scope', 403);
         $rows = Db::name('hotels')->where('tenant_id', $tenantId)->whereIn('id', $ids)->field('id,tenant_id,name')->select()->toArray();
         if (count($rows) !== count($ids)) throw new RuntimeException('booking_monitor_hotel_tenant_scope_mismatch', 403);

@@ -200,6 +200,35 @@ final class AiDailyReportPresentationReviewServiceTest extends TestCase
         self::assertSame(0, Db::name('ai_report_presentation_artifacts')->count());
     }
 
+    public function testChecksumConsistentUnknownDecisionCannotUnlockFormalExport(): void
+    {
+        $stored = $this->stored();
+        $review = $this->complete($stored);
+        $payload = json_decode((string)Db::name(AiDailyReportPresentationReviewService::TABLE)->where('id', $review['review_id'])->value('review_json'), true);
+        $payload['items'][0]['decision'] = 'unsupported_decision';
+        $fingerprint = $this->rewriteReviewForFixture($review['review_id'], $payload);
+        $this->fails(fn() => (new AiDailyReportPresentationReviewService())->readForSpec($stored, [7]), 'presentation_review_items_mismatch');
+        $this->fails(fn() => (new AiDailyReportPresentationArtifactService())->saveAndReadback($stored, 9, true, 'formal', $fingerprint), 'presentation_review_items_mismatch');
+        self::assertSame(0, Db::name('ai_report_presentation_artifacts')->count());
+    }
+
+    public function testChecksumConsistentGapPromotionIsRejectedOnReadback(): void
+    {
+        $stored = $this->stored();
+        $review = $this->complete($stored);
+        $payload = json_decode((string)Db::name(AiDailyReportPresentationReviewService::TABLE)->where('id', $review['review_id'])->value('review_json'), true);
+        $foundGap = false;
+        foreach ($payload['items'] as &$item) {
+            if ($item['is_evidence_gap']) { $item['decision'] = 'confirmed'; $foundGap = true; break; }
+        }
+        unset($item);
+        self::assertTrue($foundGap);
+        $fingerprint = $this->rewriteReviewForFixture($review['review_id'], $payload);
+        $this->fails(fn() => (new AiDailyReportPresentationReviewService())->readForSpec($stored, [7]), 'presentation_review_items_mismatch');
+        $this->fails(fn() => (new AiDailyReportPresentationArtifactService())->saveAndReadback($stored, 9, true, 'formal', $fingerprint), 'presentation_review_items_mismatch');
+        self::assertSame(0, Db::name('ai_report_presentation_artifacts')->count());
+    }
+
     public function testTrainingExportOmitsScopeIdentifiersAndArbitraryPrivateReviewerNotes(): void
     {
         $stored = $this->stored('training');
@@ -260,6 +289,16 @@ final class AiDailyReportPresentationReviewServiceTest extends TestCase
             'decisions' => array_map(static fn(array $i): array => ['id' => $i['id'], 'decision' => $i['is_evidence_gap'] ? 'gap_acknowledged' : 'confirmed', 'note' => $note], $pending['items'])], 9);
     }
 
+    private function rewriteReviewForFixture(int $id, array $payload): string
+    {
+        // Simulate a checksum-consistent malformed legacy record, without weakening the product's review oracle.
+        $service = new AiDailyReportPresentationReviewService();
+        $json = (new ReflectionMethod($service, 'json'))->invoke($service, $payload);
+        $fingerprint = hash('sha256', $json);
+        Db::name($service::TABLE)->where('id', $id)->update(['review_json' => $json, 'review_fingerprint' => $fingerprint]);
+        return $fingerprint;
+    }
+
     private function stored(string $audience = 'owner'): array { return (new AiDailyReportPresentationSpecService())->saveAndReadback($this->report(), $audience, 9); }
     private function report(): array
     {
@@ -273,8 +312,9 @@ final class AiDailyReportPresentationReviewServiceTest extends TestCase
 
     private function fails(callable $action, string $message): void
     {
-        try { $action(); self::fail('expected rejection: ' . $message); }
-        catch (RuntimeException|InvalidArgumentException $e) { self::assertStringContainsString($message, $e->getMessage()); }
+        try { $action(); }
+        catch (RuntimeException|InvalidArgumentException $e) { self::assertStringContainsString($message, $e->getMessage()); return; }
+        self::fail('expected rejection: ' . $message);
     }
 
     private function unzip(string $content): array

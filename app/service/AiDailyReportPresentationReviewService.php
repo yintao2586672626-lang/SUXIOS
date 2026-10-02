@@ -164,6 +164,17 @@ final class AiDailyReportPresentationReviewService
             if (($payload[$field] ?? null) !== $pending[$field]) throw new RuntimeException('presentation_review_scope_or_source_mismatch');
         }
         $items = $payload['items'] ?? [];
+        if (!is_array($items) || !array_is_list($items)) throw new RuntimeException('presentation_review_items_mismatch');
+        foreach ($items as $item) {
+            if (!is_array($item) || !is_bool($item['is_evidence_gap'] ?? null)
+                || !in_array($item['decision'] ?? null, ['pending', 'confirmed', 'gap_acknowledged', 'needs_revision'], true)
+                || ($item['is_evidence_gap'] && $item['decision'] === 'confirmed')
+                || (!$item['is_evidence_gap'] && $item['decision'] === 'gap_acknowledged')
+                || !is_string($item['note'] ?? null) || mb_strlen($item['note']) > 1000
+                || ($item['decision'] === 'needs_revision' && trim($item['note']) === '')) {
+                throw new RuntimeException('presentation_review_items_mismatch');
+            }
+        }
         $unreviewed = array_map(static function (array $item): array { $item['decision'] = 'pending'; $item['note'] = ''; return $item; }, $items);
         if ($this->hash($unreviewed) !== $pending['required_items_fingerprint'] || $this->status($items) !== ($payload['status'] ?? null)
             || (string)$row['review_status'] !== $payload['status']

@@ -882,8 +882,8 @@
     });
     // SUXI_HOTEL_LEARNING_END
     const OperatingFinanceControlCenterAsync = systemComponents.OperatingFinanceControlCenterBody || Vue.defineAsyncComponent({
-        loader: () => loadOnlineDataComponentScript('components/system/operating-economics-workbench.min.js?v=economics-hbbff37786c')
-            .then(() => loadOnlineDataComponentScript('components/system/booking-monitoring-panel.js?v=booking-hc1723e5275'))
+        loader: () => loadOnlineDataComponentScript('components/system/operating-economics-workbench.min.js?v=economics-h55a0edb10a')
+            .then(() => loadOnlineDataComponentScript('components/system/booking-monitoring-panel.js?v=booking-h74a9f50f87'))
             .then(() => loadOnlineDataComponentScript(operatingFinanceControlCenterScript))
             .then(() => requireSystemComponent('OperatingFinanceControlCenterBody')),
         delay: 0,

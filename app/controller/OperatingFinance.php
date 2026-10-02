@@ -45,10 +45,10 @@ final class OperatingFinance extends Base
             [$scope] = $this->evidenceScope($request, $save ? 'operation.execute' : 'operation.view');
             $input = is_array($request['inputs'] ?? null) ? $request['inputs'] : [];
             if ($scope['kind'] === 'consumables_actual') {
-                foreach ($input['items'] ?? [] as $item) {
-                    if (($item['enabled'] ?? false) && !empty($item['source_date']) && substr((string)$item['source_date'], 0, 7) !== $scope['period_month']) throw new InvalidArgumentException('耗材来源日期必须属于当前核算月');
-                }
                 $result = (new \app\service\ConsumablesActualCostService())->calculate($input);
+                foreach ($result['inputs']['items'] as $item) {
+                    if ($item['enabled'] && $item['source_date'] !== '' && substr($item['source_date'], 0, 7) !== $scope['period_month']) throw new InvalidArgumentException('耗材来源日期必须属于当前核算月');
+                }
             } else {
                 $sources = $this->module('channel_sources', fn(): array => (new \app\service\ChannelEconomicsService())->sourceReceipts($scope['tenant_id'], $scope['hotel_id'], $scope['platform'], $scope['period_month']));
                 $result = (new \app\service\ChannelEconomicsService())->calculate($input, $sources);
@@ -61,7 +61,11 @@ final class OperatingFinance extends Base
     }
     private function evidenceScope(array $input, string $capability): array
     {
-        $hotelId = (int)($input['hotel_id'] ?? 0);
+        $hotelValue = $input['hotel_id'] ?? null;
+        $hotelId = filter_var($hotelValue, FILTER_VALIDATE_INT);
+        if ((!is_int($hotelValue) && !is_string($hotelValue)) || $hotelId === false || $hotelId <= 0) {
+            throw new InvalidArgumentException('经营证据酒店编号必须为正整数');
+        }
         [$tenantId, , $permitted] = $this->resolveHotelScope($hotelId, $capability);
         if ($tenantId <= 0 || (!$this->currentUser->isSuperAdmin()
             && (int)($this->currentUser->tenant_id ?? 0) !== $tenantId)) {

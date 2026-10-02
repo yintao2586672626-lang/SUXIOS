@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 const source = readFileSync(new URL('../../public/components/system/operating-economics-workbench.js', import.meta.url), 'utf8');
 function component(request = async () => ({ code:200,data:{} }), code = source) {
     const window = { confirm:()=>true, dispatchEvent:event=>window.event=event };
-    new Function('window','crypto','CustomEvent','Vue',code)(window,{randomUUID},class { constructor(type,opts){this.type=type;this.detail=opts.detail;} },new Proxy({}, {get:()=>()=>({})}));
+    new Function('window','crypto','CustomEvent','Vue','Blob','URL','document','setTimeout',code)(window,{randomUUID},class { constructor(type,opts){this.type=type;this.detail=opts.detail;} },new Proxy({}, {get:()=>()=>({})}),class {constructor(parts){window.exported=JSON.parse(parts.join(''));}}, {createObjectURL:()=> 'synthetic-blob',revokeObjectURL:()=>{}}, {createElement:()=>({click(){}})},()=>{});
     const definition = window.SUXI_SYSTEM_COMPONENTS.OperatingEconomicsWorkbench;
     const ctx = {...definition.data(),hotelId:80,periodMonth:'2026-10',platform:'ctrip',canExecute:true,request};
     for(const [key,fn] of Object.entries(definition.methods))ctx[key]=fn.bind(ctx);
@@ -13,14 +13,24 @@ function component(request = async () => ({ code:200,data:{} }), code = source) 
     return {ctx,window,definition};
 }
 test('unverified or draft actual cost cannot be adopted; verified zero can',()=>{
-    const {ctx}=component();ctx.kind='consumables_actual';ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:0};
-    ctx.saved={readback_verified:true,source_quality:'unverified'};assert.equal(ctx.canAdopt,false);
+    const {ctx}=component();ctx.kind='consumables_actual';ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:0,items:[{enabled:true,source_date:'2026-10-20'}]};
+    ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'unverified'};assert.equal(ctx.canAdopt,false);
     ctx.saved.source_quality='operator_attested';assert.equal(ctx.canAdopt,true);ctx.edit();assert.equal(ctx.canAdopt,false);
 });
 test('adoption retains same-hotel snapshot reference for next page',()=>{
-    const {ctx,window}=component();ctx.kind='consumables_actual';ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:2};
+    const {ctx,window}=component();ctx.kind='consumables_actual';ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:2,items:[{enabled:true,source_date:'2026-10-20'}]};
     ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};ctx.adopt();
     assert.equal(window.SUXI_PENDING_ACTUAL_CONSUMABLES_REFERENCE.hotel_id,80);assert.equal(window.event.detail.snapshot_id,9);
+});
+
+test('cross-month enabled source cannot be adopted; disabled legacy rows stay compatible',()=>{
+    const {ctx,window}=component();ctx.kind='consumables_actual';
+    ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:0,
+        items:[{enabled:true,source_date:'2026-09-20'}]};
+    ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};
+    assert.equal(ctx.canAdopt,false);ctx.adopt();assert.equal(window.event,undefined);
+    ctx.result.items=[{enabled:true,source_date:'2026-10-20'},{enabled:false,source_date:'2026-09-20'}];
+    assert.equal(ctx.canAdopt,true);ctx.adopt();assert.equal(window.event.detail.as_of,'2026-10-20');
 });
 test('editing invalidates in-flight preview without clearing dirty input',async()=>{
     let resolve;const {ctx}=component(()=>new Promise(r=>resolve=r));const pending=ctx.calculate(false);ctx.edit();resolve({code:200,data:{result:{net_revenue:999}}});await pending;
@@ -81,4 +91,45 @@ test('unknown marketing day coverage is distinct from verified complete zero gap
     const {ctx}=component();ctx.overview={sources:{marketing:{complete:false,missing_days:[]}}};assert.match(ctx.marketingCoverageMessage,/缺失天数未取得/);
     ctx.overview.sources.marketing={complete:true,missing_days:[]};assert.match(ctx.marketingCoverageMessage,/已取得.*缺 0 天/);
     ctx.overview.sources.marketing={complete:false,missing_days:['2026-10-01']};assert.match(ctx.marketingCoverageMessage,/尚不完整.*缺 1 天/);
+});
+
+for (const save of [false, true]) {
+    test(`a failed ${save ? 'save' : 'preview'} invalidates the previous result and saved adoption receipt`,async()=>{
+        const {ctx}=component(async()=>{throw new Error('合成计算失败');});
+        ctx.kind='consumables_actual';ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};
+        ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-room-ledger'},actual_consumables_cost_per_room_night:2};
+        await ctx.calculate(save);
+        assert.equal(ctx.result,null);assert.equal(ctx.saved,null);assert.equal(ctx.canAdopt,false);assert.equal(ctx.resultCurrent,null);
+        assert.match(ctx.error,/合成计算失败/);
+    });
+}
+
+test('a failed history restore invalidates the earlier adopted result instead of leaving it current',async()=>{
+    const {ctx}=component(async()=>{throw new Error('合成回读失败');});ctx.kind='consumables_actual';
+    ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};
+    ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-room-ledger'},actual_consumables_cost_per_room_night:2};
+    await ctx.restore(10);assert.equal(ctx.result,null);assert.equal(ctx.saved,null);assert.equal(ctx.canAdopt,false);assert.match(ctx.error,/合成回读失败/);
+});
+
+test('an incomplete save receipt cannot make the current actual cost adoptable',()=>{
+    const {ctx}=component();ctx.kind='consumables_actual';
+    ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-room-ledger'},actual_consumables_cost_per_room_night:0};
+    for(const receipt of [{readback_verified:true,source_quality:'operator_attested'},
+        {snapshot_id:9,readback_verified:true,source_quality:'operator_attested'},
+        {snapshot_id:9,content_digest:'invalid',readback_verified:true,source_quality:'operator_attested'}]){
+        ctx.saved=receipt;assert.equal(ctx.canAdopt,false);
+    }
+});
+
+test('a delayed old save cannot replace the result after a newer failed preview',async()=>{
+    let resolve;let calls=0;const {ctx}=component(async()=>++calls===1?new Promise(r=>resolve=r):Promise.reject(new Error('合成新请求失败')));
+    const first=ctx.calculate(true);await ctx.calculate(false);
+    resolve({code:200,data:{scope:{hotel_id:80,period_month:'2026-10',platform:'ctrip',kind:'channel_economics'},readback_verified:true,result:{net_revenue:999}}});
+    await first;assert.equal(ctx.result,null);assert.equal(ctx.saved,null);assert.match(ctx.error,/合成新请求失败/);assert.equal(ctx.busy,false);
+});
+
+test('export preserves the displayed source quality of an unsaved preview',()=>{
+    const {ctx,window}=component();ctx.result={status:'calculated',source_quality:'operator_attested',net_revenue:0};
+    ctx.exportSnapshot();assert.equal(window.exported.source_quality,'operator_attested');assert.equal(window.exported.snapshot_id,null);
+    assert.deepEqual(window.exported.result,ctx.result);assert.deepEqual(window.exported.scope,ctx.scope);
 });

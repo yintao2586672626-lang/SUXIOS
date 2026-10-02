@@ -193,3 +193,127 @@ test('independent snapshot readback preserves null, zero and local microseconds 
         else { assert.equal(ctx.error, ''); assert.match(ctx.notice, /精确回读1条/); assert.equal(ctx.receipt.snapshots[0].on_books_room_nights, 0); assert.equal(ctx.receipt.snapshots[0].on_books_room_revenue, null); }
     }
 });
+
+test('late correction reads cannot overwrite a changed hotel, room, draft or newer same-ID read', async () => {
+    for (const change of [ctx => { ctx.form.hotelId = '82'; }, ctx => { ctx.form.roomTypeId = '2'; },
+        ctx => { ctx.form.sourceRef = 'TEST-ONLY newly edited source'; }, ctx => { ctx.resetDrafts(); ctx.form.correctionId = '9'; }]) {
+        const pending = deferred();
+        const { ctx } = component(() => pending.promise);
+        ctx.selectedIds = ['80', '82']; ctx.form.correctionId = '9';
+        const reading = ctx.loadCorrection();
+        change(ctx);
+        const current = { ...ctx.form };
+        pending.resolve(snapshotRead(receipt())); await reading;
+        assert.deepEqual(ctx.form, current, 'the in-flight read must preserve the newer draft');
+    }
+    const first = deferred(), second = deferred(); let calls = 0;
+    const { ctx } = component(() => ++calls === 1 ? first.promise : second.promise);
+    ctx.form.correctionId = '9';
+    const oldRead = ctx.loadCorrection(), newRead = ctx.loadCorrection();
+    second.resolve(snapshotRead(receipt({ ...submittedRow(), on_books_room_nights: 12 }))); await newRead;
+    first.resolve(snapshotRead(receipt({ ...submittedRow(), on_books_room_nights: 4 }))); await oldRead;
+    assert.equal(ctx.form.rooms, '12');
+});
+
+test('file reads preserve the newest file, manual edit and reset draft when old reads finish late', async () => {
+    const fileEvent = (pending, name) => ({ target: { value: name, files: [{ size: 20, name, text: () => pending.promise }] } });
+    const first = deferred(), second = deferred();
+    const { ctx } = component();
+    const oldRead = ctx.readFile(fileEvent(first, 'old.json'));
+    const newRead = ctx.readFile(fileEvent(second, 'new.json'));
+    second.resolve('[{"TEST-ONLY":"new"}]'); await newRead;
+    first.resolve('[{"TEST-ONLY":"old"}]'); await oldRead;
+    assert.equal(ctx.importedFileName, 'new.json');
+    assert.equal(ctx.importText, '[{"TEST-ONLY":"new"}]');
+    for (const change of [current => { current.importText = '[{"TEST-ONLY":"manual"}]'; }, current => current.resetDrafts()]) {
+        const pending = deferred(); const reading = ctx.readFile(fileEvent(pending, 'late.json'));
+        change(ctx); const expected = ctx.importText;
+        pending.resolve('[{"TEST-ONLY":"late"}]'); await reading;
+        assert.equal(ctx.importText, expected);
+    }
+});
+
+test('changing snapshot hotel or room clears prior measurements, source and attestation', () => {
+    for (const label of ['快照酒店', '房型（0保留汇总）']) {
+        const { definition, ctx } = component();
+        ctx.selectedIds = ['80', '82']; ctx.overview = fixture().data;
+        ctx.correct(receipt({ ...submittedRow(), on_books_room_nights: 10 }).data.snapshots[0]);
+        ctx.form.sourceRef = 'TEST-ONLY original source'; ctx.form.attested = true;
+        const control = walk(definition.render.call(ctx)).find(node => node.type === 'select' && node.props['aria-label'] === label);
+        control.props.onChange({ target: { value: label === '快照酒店' ? '82' : '2' } });
+        assert.equal(ctx.form.rooms, ''); assert.equal(ctx.form.sourceRef, ''); assert.equal(ctx.form.attested, false);
+        assert.equal(ctx.form.correctionId, ''); assert.equal(ctx.form.correctionCapturedAt, '');
+        assert.equal(ctx.form.hotelId, label === '快照酒店' ? '82' : '80');
+        assert.equal(ctx.form.roomTypeId, label === '快照酒店' ? '0' : '2');
+    }
+});
+
+test('editing a loaded correction ID requires a fresh read before saving', async () => {
+    let calls = 0;
+    const { definition, ctx } = component(async () => { calls++; return fixture(); });
+    ctx.correct(receipt().data.snapshots[0]); ctx.form.sourceRef = 'TEST-ONLY new source';
+    const input = walk(definition.render.call(ctx)).find(node => node.type === 'input' && node.props.value === '9');
+    input.props.onInput({ target: { value: '10' } });
+    await ctx.saveForm();
+    assert.equal(calls, 0); assert.match(ctx.error, /回读.*更正/);
+});
+
+test('overflowing manual numbers cannot serialize into a missing amount and issue a save', async () => {
+    let calls = 0;
+    const { ctx } = component(async () => { calls++; return fixture(); });
+    Object.assign(ctx.form, { hotelId: '80', roomTypeId: '1', capturedAt: '2026-10-02T09:00', rooms: '1', sourceRef: 'TEST-ONLY source', revenue: '9'.repeat(400) });
+    await ctx.saveForm();
+    assert.equal(calls, 0); assert.match(ctx.error, /非负数|数值/);
+});
+
+test('snapshot exact readback rejects fractional drift and empty string substituted for null', async () => {
+    for (const change of [{ on_books_room_nights: 0.00001 }, { on_books_room_revenue: '' }]) {
+        const invalid = receipt(); Object.assign(invalid.data.snapshots[0], change);
+        const { ctx } = component(async (url, options) => options?.method === 'POST' ? invalid : url.includes('/snapshots/') ? snapshotRead(invalid) : fixture());
+        await ctx.saveRows([submittedRow()]);
+        assert.equal(ctx.receipt, null); assert.match(ctx.error, /回读.*不匹配/);
+    }
+});
+
+test('nested overview hotels and dates must match the selected scope', async () => {
+    for (const change of [{ hotel_id: 82 }, { stay_date: '2026-10-04' }, { lead_time_days: 2 }]) {
+        const invalid = fixture(); Object.assign(invalid.data.cells[0], change);
+        const { ctx } = component(async () => invalid);
+        await ctx.load();
+        assert.equal(ctx.overview, null); assert.match(ctx.error, /范围不匹配/);
+    }
+});
+
+test('delayed authorized hotel list follows the current main-page hotel instead of its first item', async () => {
+    const { definition, ctx } = component(async () => {
+        const response = fixture(); response.data.hotel_ids = [82]; response.data.cells[0].hotel_id = 82;
+        response.data.room_types[0].hotel_id = 82; return response;
+    });
+    ctx.selectedIds = []; ctx.hotels = []; ctx.selectedHotelId = 82;
+    definition.watch.selectedHotelId.handler.call(ctx, 82, undefined);
+    ctx.hotels = [{ id: 80, name: 'TEST-ONLY first hotel' }, { id: 82, name: 'TEST-ONLY selected hotel' }];
+    definition.watch.hotels.handler.call(ctx);
+    assert.deepEqual(ctx.selectedIds, ['82']); assert.equal(ctx.form.hotelId, '82');
+    await ctx.load(); assert.equal(ctx.overview.hotel_ids[0], 82);
+});
+
+test('independent readback failure retains the draft and a retry can verify the same saved snapshot', async () => {
+    let failReadback = true, posts = 0;
+    const saved = receipt();
+    const { ctx } = component(async (url, options) => {
+        if (options?.method === 'POST') { posts++; return saved; }
+        if (url.includes('/snapshots/')) {
+            if (failReadback) throw new Error('TEST-ONLY temporary read failure');
+            return snapshotRead(saved);
+        }
+        return fixture();
+    });
+    Object.assign(ctx.form, { roomTypeId: '1', capturedAt: '2026-10-02T09:00', rooms: '0', sourceRef: 'TEST-ONLY-fixture' });
+    const draft = { ...ctx.form };
+    await ctx.saveForm();
+    assert.equal(ctx.receipt, null); assert.equal(ctx.saving, false); assert.deepEqual(ctx.form, draft);
+    assert.match(ctx.error, /保存已响应.*精确回读未通过/);
+    failReadback = false; await ctx.saveForm();
+    assert.equal(posts, 2); assert.equal(ctx.error, ''); assert.equal(ctx.receipt.snapshots[0].id, 9);
+    assert.match(ctx.notice, /精确回读1条/);
+});
