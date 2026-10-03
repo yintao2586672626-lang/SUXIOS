@@ -83,6 +83,7 @@ class InvestmentPaybackCalculator
         $firstDate = !empty($project['first_invested_on']) && $project['first_invested_on'] <= $asOf
             ? (string)$project['first_invested_on'] : null;
         $firstPrecision = $firstDate ? 'day' : null;
+        $declaredFirstDate = $firstDate !== null;
         foreach ($entries as $entry) {
             if (!empty($entry['voided_at']) || !empty($entry['is_planned'])) {
                 continue;
@@ -106,7 +107,12 @@ class InvestmentPaybackCalculator
             if ($entry['kind'] === 'investment') {
                 $invested = $this->add($invested, $amount);
                 $firstStart = $firstDate !== null && strlen($firstDate) === 7 ? $firstDate . '-01' : $firstDate;
-                if (!$openingUsable && ($firstStart === null || $end < $firstStart)) {
+                // Earlier disjoint records still correct a declared date as
+                // before. Inferred dates also compare overlapping period
+                // starts, retaining month precision on a tie regardless of row order.
+                if (!$openingUsable && ($firstStart === null || $end < $firstStart
+                    || (!$declaredFirstDate && ($start < $firstStart
+                        || ($start === $firstStart && $entry['precision'] === 'month'))))) {
                     $firstDate = $entry['date'];
                     $firstPrecision = $entry['precision'];
                 }
@@ -114,7 +120,9 @@ class InvestmentPaybackCalculator
                 $recovered = $this->add($recovered, $entry['kind'] === 'refund' ? -$amount : $amount);
             }
             $active[] = $entry;
-            $hasMonthly = $hasMonthly || $entry['precision'] === 'month';
+            // A confirmed zero receipt has no intra-month cash timing that
+            // could change the first crossing. Keep its cutoff-quality checks.
+            $hasMonthly = $hasMonthly || ($entry['precision'] === 'month' && $amount !== 0);
         }
         $hasInvestment = $invested > 0 && !$beforeOpening;
         $checkedThrough = $project['history_complete_through'] ?? null;
@@ -173,7 +181,7 @@ class InvestmentPaybackCalculator
         if ($monthly) {
             $firstMonthlyPeriod = min(array_map(
                 static fn(array $entry): string => substr($entry['date'], 0, 7),
-                array_values(array_filter($entries, static fn(array $entry): bool => $entry['precision'] === 'month'))
+                array_values(array_filter($entries, static fn(array $entry): bool => $entry['precision'] === 'month' && self::fen($entry['amount']) !== 0))
             ));
             $exactPrefix = array_values(array_filter($entries, static fn(array $entry): bool => substr($entry['date'], 0, 7) < $firstMonthlyPeriod));
             $prefixResult = $this->firstPayback($project, $exactPrefix, false, $openingUsable, $firstDate, $firstPrecision, $checkedThrough);
@@ -223,7 +231,7 @@ class InvestmentPaybackCalculator
         $monthly = $project['expected_monthly_amount'] ?? null;
         $result = [
             'status' => 'missing_investment', 'base_date' => $asOf, 'monthly_amount' => $monthly,
-            'remaining_months' => null, 'whole_months' => null, 'payback_month' => null, 'full_cycle_months' => null,
+            'remaining_months' => null, 'remaining_months_exact' => null, 'whole_months' => null, 'payback_month' => null, 'full_cycle_months' => null,
             'source' => (string)($project['expected_source'] ?? ''),
             'saved_base_date' => $project['forecast_as_of'] ?? null,
             'assumptions' => ['future_equal_monthly_net_receipts', 'no_new_investment_or_extra_refund', 'no_time_value_of_money'],
@@ -247,6 +255,7 @@ class InvestmentPaybackCalculator
         $wholeMonths = intdiv($unrecovered, $monthlyFen) + ($unrecovered % $monthlyFen === 0 ? 0 : 1);
         $result['status'] = $complete ? 'ready' : 'trial';
         $result['remaining_months'] = round($unrecovered / $monthlyFen, 1);
+        $result['remaining_months_exact'] = $unrecovered / $monthlyFen;
         $result['whole_months'] = $wholeMonths;
         // Anchor on month start to avoid PHP's Jan 31 + 1 month => March rollover.
         if ($wholeMonths <= 120000) {
