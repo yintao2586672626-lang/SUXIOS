@@ -94,6 +94,20 @@ final class OperatingEvidenceChainTest extends TestCase
             self::assertSame($result, $service->calculate($result['inputs']));
         }
     }
+    public function testTinyRealDeficitBesideDecimalCancellationDoesNotBecomeKnownZero(): void
+    {
+        $input = $this->actual();
+        $input['items'][0] = array_replace($input['items'][0], ['opening_quantity' => 0.3,
+            'purchased_quantity' => 0, 'closing_quantity' => 0.1, 'transfer_out_quantity' => 0.2,
+            'returned_quantity' => 1e-20, 'written_off_quantity' => 0, 'unit_price' => 2]);
+        $service = new ConsumablesActualCostService(); $result = $service->calculate($input);
+        self::assertSame('partial', $result['status']);
+        self::assertNull($result['items'][0]['consumed_quantity']);
+        self::assertNull($result['actual_consumed_cost']);
+        self::assertNull($result['known_consumed_cost']);
+        self::assertContains('inventory_balance_negative', $result['items'][0]['missing_items']);
+        self::assertSame($result, $service->calculate($result['inputs']));
+    }
     public function testChannelCostsDeductOnceAndAttributionStaysBounded(): void { $r=(new ChannelEconomicsService())->calculate($this->channel()); self::assertSame(700.0,$r['channel_net_contribution_amount']); self::assertSame(4.0,$r['attributed_roas']); self::assertFalse($r['boundaries']['whole_hotel_profit']); self::assertFalse($r['boundaries']['incremental_ad_effect_established']); }
     public function testBlankOnlyChannelSourceReferencesStayMissingThroughSaveAndReadback(): void {
         $input=$this->channel();$input['source_refs']=['', '   ', "\t\r\n"];
