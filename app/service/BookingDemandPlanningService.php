@@ -51,6 +51,20 @@ final class BookingDemandPlanningService
         return $this->normalizeSnapshot($tenantId, $hotelId, $input);
     }
 
+    /** Internal batch normalization; scope cache is created from this call's permissions only. */
+    public function validatedSnapshotBatchContent(int $tenantId, array $permittedHotelIds, array $rows): array
+    {
+        $tenants = [];
+        $contents = [];
+        foreach ($rows as $row) {
+            $hotelId = filter_var($row['hotel_id'] ?? 0, FILTER_VALIDATE_INT);
+            if ($hotelId === false || $hotelId <= 0) throw new InvalidArgumentException('hotel_scope_required');
+            $tenants[$hotelId] ??= $this->resolveScope($tenantId, $permittedHotelIds, $hotelId);
+            $contents[] = $this->normalizeSnapshot($tenants[$hotelId], $hotelId, $row);
+        }
+        return $contents;
+    }
+
     /** Internal readback validation for already scope-filtered bulk readers. */
     public function validatedSnapshotReadback(array $row): array
     {
@@ -1023,7 +1037,9 @@ final class BookingDemandPlanningService
         if (strlen($fraction) - $exponent > 4) {
             throw new InvalidArgumentException($field . '_precision_invalid');
         }
-        return round($number, 4);
+        $rounded = round($number, 4);
+        // DECIMAL stores either signed zero as positive zero; hash the same value.
+        return $rounded === 0.0 ? 0.0 : $rounded;
     }
 
     /** @param list<string> $allowed */

@@ -86,7 +86,7 @@
         props: { hotels: { type: Array, default: () => [] }, selectedHotelId: { type: [String, Number], default: '' },
             request: { type: Function, required: true }, canExecute: { type: Boolean, default: false }, workspaceSettings: { type: Object, default: () => ({}) } },
         data() { return { selectedIds: [], businessDate: today(), platform: this.workspaceSettings?.preferred_platform || 'ctrip', fixedTime: this.workspaceSettings?.booking_fixed_time || '09:00', horizonDays: String(this.workspaceSettings?.booking_horizon_days || 7),
-            overview: null, hotelScope: null, loading: false, error: '', saving: false, notice: '', receipt: null, pendingReceipt: null, seq: 0, writeSeq: 0, correctionReadSeq: 0, fileReadSeq: 0,
+            overview: null, hotelScope: null, loading: false, error: '', saving: false, notice: '', receipt: null, receiptScope: null, pendingReceipt: null, writeAttempt: null, seq: 0, writeSeq: 0, correctionReadSeq: 0, fileReadSeq: 0,
             form: blankForm(), importText: '', importedFileName: '', expandedHistory: '' }; },
         computed: {
             normalizedHotels() {
@@ -96,6 +96,14 @@
                 return hotels.filter(hotel => String(hotel.id) === String(anchor));
             },
             scopeKey() { return [this.selectedIds.map(Number).sort((a, b) => a - b).join(','), this.businessDate, this.platform, this.fixedTime, this.horizonDays].join('|'); },
+            writableHotels() { return this.normalizedHotels.filter(hotel => this.canWriteHotel(hotel.id)); },
+            writePermissionMessage() {
+                if (!this.canExecute) return '当前账号只能查看监测结果。';
+                if (!this.hotelScope || this.hotelScope.permissionScopeKey !== this.scopeKey) return '当前酒店执行权限尚未核对，请刷新；监测结果仍可查看，核对前不能保存或导入。';
+                if (!this.hotelScope.executionMetadataComplete) return '部分酒店未提供明确执行权限；仅明确可执行的酒店能保存或导入，请刷新后重试。';
+                if (!this.writableHotels.length) return '当前所选酒店没有执行权限；可继续查看监测矩阵，请选择有执行权限的酒店后保存或导入。';
+                return '保存和导入仅限有执行权限的所选酒店；其他授权酒店仍可查看监测矩阵。';
+            },
             selectedRoomTypes() {
                 const rooms = (this.overview?.room_types || []).filter(room => Number(room.hotel_id) === Number(this.form.hotelId));
                 const loaded = this.form.correctionRoomType;
@@ -131,8 +139,13 @@
         },
         methods: {
             resetDrafts() { this.writeSeq += 1; this.correctionReadSeq += 1; this.fileReadSeq += 1; this.form = blankForm(); this.form.hotelId = String(this.selectedIds[0] || '');
+                if (this.writeAttempt?.status === 'preparing') { this.writeAttempt.status = 'cancelled'; this.writeAttempt = null; this.saving = false; }
                 this.form.stayDate = this.businessDate ? dateAfter(this.businessDate, 1) : ''; this.importText = ''; this.importedFileName = '';
-                this.receipt = null; this.pendingReceipt = null; this.notice = ''; this.error = ''; this.expandedHistory = ''; },
+                this.notice = ''; this.error = ''; this.expandedHistory = ''; },
+            canWriteHotel(id) { return this.canExecute === true && this.hotelScope?.permissionScopeKey === this.scopeKey
+                && this.selectedIds.map(Number).includes(Number(id)) && this.hotelScope.canExecuteByHotel?.[Number(id)] === true; },
+            canRetryWrite(attempt) { return this.canExecute === true && this.hotelScope?.permissionScopeKey === this.scopeKey
+                && attempt.rows.every(row => this.hotelScope.canExecuteByHotel?.[Number(row.hotel_id)] === true); },
             statusText(value) { return statuses[value] || value || '未取得'; },
             gapText(value) {
                 if (gapLabels[value]) return gapLabels[value];
@@ -144,6 +157,7 @@
                 const seq = ++this.seq;
                 const key = this.scopeKey;
                 this.overview = null; this.error = '';
+                if (this.hotelScope) this.hotelScope.permissionScopeKey = null;
                 if (this.selectedIds.length === 0) { this.loading = false; return; }
                 this.loading = true;
                 try {
@@ -167,9 +181,11 @@
                         || choices.some(hotel => !record(hotel) || !Number.isSafeInteger(Number(hotel.id)) || Number(hotel.id) <= 0
                             || Number(hotel.tenant_id) !== tenantId)
                         || ids.some(id => !choices.some(hotel => Number(hotel.id) === id))))) throw new Error('预订监测酒店租户范围不匹配，请重试。');
-                    this.hotelScope = { tenantId, hotelIds: choices === undefined ? ids : choices.map(hotel => Number(hotel.id)) };
+                    this.hotelScope = { tenantId, hotelIds: choices === undefined ? ids : choices.map(hotel => Number(hotel.id)), permissionScopeKey: key,
+                        canExecuteByHotel: Object.fromEntries((choices || []).map(hotel => [Number(hotel.id), hotel.can_execute === true])),
+                        executionMetadataComplete: choices !== undefined && choices.every(hotel => typeof hotel.can_execute === 'boolean') };
                     this.overview = data;
-                } catch (error) { if (seq === this.seq && key === this.scopeKey) { this.overview = null; this.error = error?.message || '预订监测读取失败'; } }
+                } catch (error) { if (seq === this.seq && key === this.scopeKey) { this.overview = null; this.hotelScope = null; this.error = error?.message || '预订监测读取失败'; } }
                 finally { if (seq === this.seq) this.loading = false; }
             },
             toggleHotel(id, checked) {
@@ -221,39 +237,60 @@
                 finally { if (event.target?.files?.[0] === file) event.target.value = ''; }
             },
             async saveRows(rows, sourceMethod = 'manual_file_import') {
-                if (!this.canExecute || this.saving) return;
-                if (this.pendingReceipt) { this.error = '已有快照待独立回读，请先重试下方快照回读；当前输入保留。'; return; }
+                if (this.saving) return;
+                if (!this.canExecute) { this.error = this.writePermissionMessage; return; }
+                if (this.writeAttempt || this.pendingReceipt) { this.error = '已有提交结果待确认，请先重试下方原提交或独立回读；当前输入保留。'; return; }
                 const ids = this.selectedIds.map(Number);
                 if (rows.some(row => !row || !ids.includes(Number(row.hotel_id)) || row.platform !== this.platform)) throw new Error('导入酒店或平台与当前选择不一致，请先切换到对应范围。');
+                if (rows.some(row => !this.canWriteHotel(row.hotel_id))) { this.error = '部分提交酒店没有明确执行权限，整批未提交。' + this.writePermissionMessage; return; }
                 rows = rows.map(row => ({ ...row, source_method: sourceMethod === 'manual_entry' ? 'manual_entry' : 'manual_file_import' }));
                 const key = this.scopeKey;
                 const seq = ++this.writeSeq;
-                this.saving = true; this.error = ''; this.notice = ''; this.receipt = null;
-                let postCompleted = false;
+                const capturedRows = JSON.parse(JSON.stringify(rows));
+                const attempt = { scopeKey: key, writeSeq: seq, scope: { hotelIds: [...ids], tenantId: this.hotelScope.tenantId,
+                    platform: this.platform, businessDate: this.businessDate, fixedTime: this.fixedTime, horizonDays: Number(this.horizonDays) },
+                    rows: capturedRows, body: JSON.stringify({ rows: capturedRows }), expected: null, status: 'preparing', postStarted: false, wasUnconfirmed: false, error: '' };
+                this.writeAttempt = attempt;
+                await this.executeWriteAttempt(this.writeAttempt);
+            },
+            async executeWriteAttempt(attempt) {
+                this.saving = true; this.error = ''; this.notice = ''; this.receipt = null; this.receiptScope = null;
                 try {
-                    const expected = await Promise.all(rows.map(expectedSnapshot));
-                    if (seq !== this.writeSeq || key !== this.scopeKey) return;
-                    const response = await this.request('/booking-monitoring/snapshots', { method: 'POST', body: JSON.stringify({ rows }), businessContext: { hotelId: ids[0] } });
-                    if (seq !== this.writeSeq || key !== this.scopeKey) return;
+                    if (!attempt.expected) {
+                        attempt.expected = await Promise.all(attempt.rows.map(expectedSnapshot));
+                        if (attempt !== this.writeAttempt || attempt.writeSeq !== this.writeSeq || attempt.scopeKey !== this.scopeKey) return;
+                    }
+                    if (!this.canRetryWrite(attempt)) throw new Error('原提交酒店执行权限尚未确认，请切回原范围并刷新权限；原提交和当前草稿保留。');
+                    attempt.status = 'posting'; attempt.postStarted = true;
+                    const response = await this.request('/booking-monitoring/snapshots', { method: 'POST', body: attempt.body,
+                        businessContext: { hotelId: Number(attempt.rows[0].hotel_id) } });
                     const data = response?.data;
-                    if (response?.code !== 200) throw new Error(response?.message || '快照保存失败。');
-                    postCompleted = true;
+                    if (response?.code !== 200) { const error = new Error(response?.message || '快照保存失败。');
+                        error.knownRejected = !attempt.wasUnconfirmed && Number(response?.code) >= 400 && Number(response?.code) < 500 && Number(response?.code) !== 409;
+                        throw error; }
                     const tenantId = Number(data?.tenant_id);
                     if (data?.contract_version !== 'booking_fixed_baseline_monitor.v1'
                         || data.save_status !== 'saved_readback_verified' || data.readback_verified !== true || data.external_write_count !== 0
-                        || !Number.isSafeInteger(tenantId) || tenantId <= 0
-                        || data.row_count !== rows.length || !Array.isArray(data.snapshots)
-                        || data.snapshots.length !== rows.length || data.snapshots.some((snapshot, index) => !validSnapshot(snapshot, expected[index], tenantId))) throw new Error('保存回读与提交内容或范围不匹配。');
-                    this.pendingReceipt = { scopeKey: key, writeSeq: seq, tenantId, expected: expected.map(item => ({ ...item })),
-                        data: JSON.parse(JSON.stringify(data)) };
-                    await this.verifyPendingReadback(this.pendingReceipt, seq, key);
-                } catch (error) { if (seq === this.writeSeq && key === this.scopeKey) this.error = (error?.message || '快照保存失败')
-                    + (this.pendingReceipt ? ' 保存已响应，独立回读尚未通过；可按下方快照ID重试回读，当前输入保留。'
-                        : postCompleted ? ' 保存响应未通过内容核对，当前输入保留；请核对提交内容后重试。' : ''); }
-                finally { this.saving = false; }
+                        || !Number.isSafeInteger(tenantId) || tenantId !== attempt.scope.tenantId
+                        || data.row_count !== attempt.rows.length || !Array.isArray(data.snapshots)
+                        || data.snapshots.length !== attempt.rows.length || data.snapshots.some((snapshot, index) => !validSnapshot(snapshot, attempt.expected[index], tenantId))) throw new Error('保存回读与提交内容或范围不匹配。');
+                    attempt.status = 'reading';
+                    this.pendingReceipt = { scopeKey: attempt.scopeKey, scope: { ...attempt.scope }, attempt, tenantId,
+                        expected: attempt.expected.map(item => ({ ...item })), data: JSON.parse(JSON.stringify(data)), error: '' };
+                    await this.verifyPendingReadback(this.pendingReceipt);
+                } catch (error) {
+                    const message = error?.message || '快照保存失败';
+                    if (this.pendingReceipt?.attempt === attempt) { attempt.status = 'readback_failed';
+                        this.pendingReceipt.error = message + ' 保存已响应，独立回读尚未通过；可按原快照ID重试回读，当前输入保留。';
+                    } else if (!attempt.postStarted || error.knownRejected) { attempt.status = 'rejected'; if (this.writeAttempt === attempt) this.writeAttempt = null; }
+                    else { attempt.status = 'unconfirmed'; attempt.wasUnconfirmed = true; }
+                    attempt.error = this.pendingReceipt?.attempt === attempt ? this.pendingReceipt.error : message;
+                    if (attempt.scopeKey === this.scopeKey) this.error = attempt.error;
+                }
+                finally { if (this.writeAttempt === attempt || ['verified','rejected'].includes(attempt.status)) this.saving = false; }
             },
-            async verifyPendingReadback(pending, seq, key) {
-                const current = () => seq === this.writeSeq && key === this.scopeKey && pending === this.pendingReceipt;
+            async verifyPendingReadback(pending) {
+                const current = () => pending === this.pendingReceipt && pending.attempt === this.writeAttempt;
                 if (!current()) return;
                 const { data, expected, tenantId } = pending;
                 for (let offset = 0; offset < data.snapshots.length; offset += 10) {
@@ -266,23 +303,33 @@
                         || Number(reread.data.id) !== Number(batch[index].id) || reread.data.content_digest !== batch[index].content_digest
                         || reread.data.idempotency_key !== batch[index].idempotency_key || reread.data.room_type_name !== batch[index].room_type_name)) throw new Error('独立快照回读与保存结果不匹配。');
                 }
-                this.receipt = data; this.pendingReceipt = null;
-                this.notice = `已保存并精确回读${data.row_count}条快照。来源状态由服务端保留；需覆盖固定时点才会形成24小时比较。`;
-                await this.load();
+                this.receipt = data; this.receiptScope = { ...pending.scope, scopeKey: pending.scopeKey }; this.pendingReceipt = null;
+                pending.attempt.status = 'verified'; this.writeAttempt = null;
+                if (pending.scopeKey === this.scopeKey) {
+                    this.notice = `已保存并精确回读${data.row_count}条快照。来源状态由服务端保留；需覆盖固定时点才会形成24小时比较。`;
+                    await this.load();
+                }
             },
             async retryPendingReadback() {
                 const pending = this.pendingReceipt;
                 if (!pending || this.saving) return;
-                if (pending.scopeKey !== this.scopeKey || pending.writeSeq !== this.writeSeq) { this.pendingReceipt = null; return; }
-                const key = pending.scopeKey;
-                const seq = ++this.writeSeq; pending.writeSeq = seq;
-                this.saving = true; this.error = ''; this.notice = '';
-                try { await this.verifyPendingReadback(pending, seq, key); }
-                catch (error) { if (seq === this.writeSeq && key === this.scopeKey && pending === this.pendingReceipt)
-                    this.error = (error?.message || '独立快照回读失败') + ' 仍待独立回读；快照ID和当前输入保留，可重试回读。'; }
+                this.saving = true; pending.error = ''; if (pending.scopeKey === this.scopeKey) { this.error = ''; this.notice = ''; }
+                try { await this.verifyPendingReadback(pending); }
+                catch (error) { if (pending === this.pendingReceipt) { pending.attempt.status = 'readback_failed';
+                    pending.error = (error?.message || '独立快照回读失败') + ' 仍待独立回读；快照ID和当前输入保留，可重试回读。';
+                    if (pending.scopeKey === this.scopeKey) this.error = pending.error;
+                } }
                 finally { this.saving = false; }
             },
+            async retryWriteAttempt() {
+                const attempt = this.writeAttempt;
+                if (!attempt || this.saving || this.pendingReceipt || attempt.status !== 'unconfirmed') return;
+                if (!this.canRetryWrite(attempt)) { attempt.error = '原提交酒店执行权限尚未确认，请切回原范围并刷新权限；原提交和当前草稿保留。';
+                    if (attempt.scopeKey === this.scopeKey) this.error = attempt.error; return; }
+                await this.executeWriteAttempt(attempt);
+            },
             correct(snapshot) {
+                if (!this.canWriteHotel(snapshot.hotel_id) || snapshot.platform !== this.platform) { this.error = '当前酒店或平台没有明确执行权限，不能载入更正草稿。'; return; }
                 this.form = { hotelId: String(snapshot.hotel_id), roomTypeId: String(snapshot.room_type_id), stayDate: snapshot.stay_date,
                     capturedAt: snapshot.captured_at.replace(' ', 'T').slice(0, 19), rooms: String(snapshot.on_books_room_nights ?? ''),
                     revenue: String(snapshot.on_books_room_revenue ?? ''), cancelled: String(snapshot.cumulative_cancel_room_nights ?? ''),
@@ -293,6 +340,7 @@
             async loadCorrection() {
                 const id = Number(this.form.correctionId);
                 const hotelId = Number(this.form.hotelId);
+                if (!this.canWriteHotel(hotelId)) { this.error = this.writePermissionMessage; return; }
                 if (!Number.isSafeInteger(id) || id <= 0 || !this.selectedIds.map(Number).includes(hotelId)) { this.error = '请填写当前酒店的快照ID。'; return; }
                 const key = this.scopeKey;
                 const seq = ++this.correctionReadSeq;
@@ -311,6 +359,7 @@
                 } catch (error) { if (current()) this.error = error.message; }
             },
             downloadTemplate() {
+                if (!this.canWriteHotel(this.form.hotelId)) { this.error = this.writePermissionMessage; return; }
                 const payload = { contract_version: 'booking_fixed_baseline_monitor.v1', rows: [{ hotel_id: Number(this.form.hotelId || this.selectedIds[0]),
                     room_type_id: Number(this.form.roomTypeId || 0), platform: this.platform, fact_scope: ['ctrip', 'meituan'].includes(this.platform) ? 'ota_channel' : 'accommodation_room_fee',
                     stay_date: this.form.stayDate || dateAfter(this.businessDate, 1), captured_at: '', on_books_room_nights: null,
@@ -332,6 +381,7 @@
                 slot.evidence_ref ? `依据 ${slot.evidence_ref}` : ''].filter(Boolean).join(' · '); };
             const td = value => h('td', { class: 'px-3 py-3 align-top border-t border-slate-100 whitespace-nowrap' }, value);
             const data = this.overview;
+            const receiptScopeText = scope => `原提交范围：酒店${scope.hotelIds.join('、')} · ${scope.platform} · 观察${scope.businessDate} ${scope.fixedTime}（上海） · 未来${scope.horizonDays}天。`;
             return h('section', { class: 'rounded-2xl border border-slate-200 bg-white p-5 mt-4', 'data-testid': 'booking-fixed-monitor' }, [
                 h('div', { class: 'flex flex-wrap items-start justify-between gap-3' }, [
                     h('div', [h('h3', { class: 'font-bold text-slate-900' }, '固定时点预订监测'),
@@ -372,10 +422,11 @@
                         ]))),
                     ])]),
                 ]) : null,
-                this.canExecute ? h('details', { class: 'mt-5 border-t pt-4' }, [h('summary', { class: 'cursor-pointer font-semibold text-sm' }, '保存或导入真实快照'),
+                this.canExecute && this.writableHotels.length ? h('details', { class: 'mt-5 border-t pt-4' }, [h('summary', { class: 'cursor-pointer font-semibold text-sm' }, '保存或导入真实快照'),
                     h('p', { class: 'mt-2 text-xs text-slate-500' }, '仅录入授权来源的实际观测；间夜和金额最多保留四位小数，未知留空。人工核对仍是人工来源。更正保留原快照，另存并回读。'),
+                    h('p', { class: 'mt-2 text-xs text-slate-500', 'data-testid': 'booking-monitor-write-permission' }, this.writePermissionMessage),
                     h('form', { class: 'mt-3 grid gap-3 md:grid-cols-3', 'data-testid': 'booking-monitor-form', onSubmit: event => { event.preventDefault(); void this.saveForm(); } }, [
-                        select('快照酒店', this.form.hotelId, event => { this.form.hotelId = event.target.value; this.form.roomTypeId = '0'; this.form.correctionId = ''; }, this.normalizedHotels.filter(hotel => this.selectedIds.includes(String(hotel.id))).map(hotel => option(hotel.id, hotel.name))),
+                        select('快照酒店', this.form.hotelId, event => { this.form.hotelId = event.target.value; this.form.roomTypeId = '0'; this.form.correctionId = ''; }, [option('', '请选择有执行权限的酒店'), ...this.writableHotels.map(hotel => option(hotel.id, hotel.name))]),
                         select('房型（0保留汇总）', this.form.roomTypeId, event => { this.form.roomTypeId = event.target.value; }, [option(0, '酒店汇总'), ...this.selectedRoomTypes.map(room => option(room.id, `${room.name} · ID ${room.id}`))]),
                         input('stayDate', '实际入住日', { type: 'date', required: true }), input('capturedAt', '实际捕获时间（上海）', { type: 'datetime-local', step: 1, required: true, disabled: Boolean(this.form.correctionId && this.form.correctionCapturedAt) }),
                         input('rooms', '在手间夜（必填，实际0可填写）', { inputmode: 'decimal', required: true }), input('revenue', '在手房费（未知留空）', { inputmode: 'decimal' }),
@@ -383,25 +434,35 @@
                         input('sourceRef', '授权来源引用或文件指纹', { required: true }), input('correctionId', '更正原快照ID（选填）', { inputmode: 'numeric' }),
                         h('button', { type: 'button', class: 'rounded-lg border px-3 py-2 text-xs', disabled: !this.form.correctionId || this.saving, onClick: () => this.loadCorrection() }, '按ID回读并载入更正'),
                         h('label', { class: 'flex items-start gap-2 text-xs md:col-span-2' }, [h('input', { type: 'checkbox', checked: this.form.attested, onChange: event => { this.form.attested = event.target.checked; } }), '我已核对酒店、房型、平台、入住日、实际捕获时间和来源。未勾选保存为未核验，不能进入24小时比较。']),
-                        h('button', { type: 'submit', class: 'operating-finance-primary-action rounded-xl px-4 py-2.5 text-sm text-white disabled:opacity-50', disabled: this.saving || Boolean(this.pendingReceipt) }, this.saving ? '保存并回读中…' : '保存并精确回读'),
+                        h('button', { type: 'submit', class: 'operating-finance-primary-action rounded-xl px-4 py-2.5 text-sm text-white disabled:opacity-50', disabled: this.saving || Boolean(this.writeAttempt) || Boolean(this.pendingReceipt) || !this.canWriteHotel(this.form.hotelId) }, this.saving ? '保存并回读中…' : '保存并精确回读'),
                     ]),
                     h('div', { class: 'mt-4 grid gap-2' }, [h('label', { class: 'text-xs text-slate-600' }, ['批量JSON文件（1至200行）', h('input', { type: 'file', accept: '.json,application/json', onChange: event => this.readFile(event), class: 'block mt-1 text-xs' })]),
                         h('textarea', { class: 'rounded-lg border p-2 text-xs w-full', rows: 5, value: this.importText, placeholder: '下载空白模板，填写实际观测后导入；未知字段保留null。', onInput: event => { this.importText = event.target.value; } }),
                         h('div', { class: 'flex flex-wrap gap-2' }, [h('button', { type: 'button', class: 'rounded-lg border px-3 py-2 text-xs', onClick: () => this.downloadTemplate() }, '下载空白模板'),
-                            h('button', { type: 'button', class: 'rounded-lg border px-3 py-2 text-xs', disabled: this.saving || Boolean(this.pendingReceipt) || !this.importText.trim(), onClick: () => this.saveImport() }, '校验、保存整批并回读')]),
+                            h('button', { type: 'button', class: 'rounded-lg border px-3 py-2 text-xs', disabled: this.saving || Boolean(this.writeAttempt) || Boolean(this.pendingReceipt) || !this.importText.trim(), onClick: () => this.saveImport() }, '校验、保存整批并回读')]),
                     ]),
-                ]) : h('p', { class: 'mt-4 text-xs text-slate-500' }, '当前账号只能查看监测结果。'),
+                ]) : h('p', { class: 'mt-4 text-xs text-slate-500', 'data-testid': 'booking-monitor-write-permission' }, this.writePermissionMessage),
+                this.writeAttempt && !this.pendingReceipt ? h('div', { class: 'mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs', 'data-testid': 'booking-monitor-write-attempt' }, [
+                    h('p', { role: 'status' }, receiptScopeText(this.writeAttempt.scope)),
+                    h('p', { class: 'mt-2' }, this.writeAttempt.status === 'unconfirmed' ? '原提交结果尚未确认；当前草稿保留。重试仅重放原始提交，不提交当前编辑草稿。' : '原提交正在校验或等待保存响应；编辑和范围切换不会取消已发出的保存。'),
+                    this.writeAttempt.error ? h('p', { class: 'mt-2 text-red-700' }, this.writeAttempt.error) : null,
+                    this.writeAttempt.status === 'unconfirmed' && !this.canRetryWrite(this.writeAttempt) ? h('p', { class: 'mt-2 text-amber-800' }, '原提交酒店执行权限尚未确认，请切回原范围并刷新权限后重试；原提交记录仍保留。') : null,
+                    this.writeAttempt.status === 'unconfirmed' ? h('button', { type: 'button', class: 'mt-3 rounded-lg border px-3 py-2 text-xs', 'data-testid': 'booking-monitor-retry-submit',
+                        disabled: this.saving || !this.canRetryWrite(this.writeAttempt), onClick: () => this.retryWriteAttempt() }, '重试原提交') : null,
+                ]) : null,
                 this.pendingReceipt ? h('div', { class: 'mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs', 'data-testid': 'booking-monitor-pending-readback' }, [
+                    h('p', { class: 'mb-2' }, receiptScopeText(this.pendingReceipt.scope)),
                     h('p', { role: 'status' }, '已收到保存响应，以下快照待独立回读；通过后才显示正式回执。当前输入可继续编辑。'),
+                    this.pendingReceipt.error ? h('p', { class: 'mt-2 text-red-700' }, this.pendingReceipt.error) : null,
                     ...this.pendingReceipt.data.snapshots.map(snapshot => h('p', { class: 'mt-2' },
                         `快照#${snapshot.id} · 酒店${snapshot.hotel_id} · ${snapshot.room_type_name} · 入住${snapshot.stay_date} · 捕获${snapshot.captured_at.slice(0, 19)} · 待独立回读`)),
                     h('button', { type: 'button', class: 'mt-3 rounded-lg border px-3 py-2 text-xs', 'data-testid': 'booking-monitor-retry-readback',
                         disabled: this.saving, onClick: () => this.retryPendingReadback() }, this.saving ? '独立回读中…' : '重试独立回读'),
                 ]) : null,
-                this.receipt ? h('div', { class: 'mt-4 text-xs', 'data-testid': 'booking-monitor-save-receipt' }, this.receipt.snapshots.map(snapshot => h('p', { class: 'mt-2' }, [
+                this.receipt ? h('div', { class: 'mt-4 text-xs', 'data-testid': 'booking-monitor-save-receipt' }, [h('p', { class: 'mb-2' }, receiptScopeText(this.receiptScope)), ...this.receipt.snapshots.map(snapshot => h('p', { class: 'mt-2' }, [
                     `快照#${snapshot.id} · 酒店${snapshot.hotel_id} · ${snapshot.room_type_name} · ${snapshot.stay_date} · 捕获${snapshot.captured_at.slice(0, 19)} · 在手${this.number(snapshot.on_books_room_nights)} · ${snapshot.quality_status === 'manual_confirmed' ? '人工核对' : '未核验'} · 回读指纹${snapshot.content_digest.slice(0, 12)}`,
-                    this.canExecute ? h('button', { type: 'button', class: 'ml-2 underline', onClick: () => this.correct(snapshot) }, '追加更正') : null,
-                ]))) : null,
+                    this.receiptScope.scopeKey === this.scopeKey && this.canWriteHotel(snapshot.hotel_id) ? h('button', { type: 'button', class: 'ml-2 underline', onClick: () => this.correct(snapshot) }, '追加更正') : null,
+                ]))]) : null,
             ]);
         },
     };

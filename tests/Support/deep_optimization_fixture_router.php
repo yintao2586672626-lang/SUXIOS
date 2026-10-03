@@ -89,7 +89,12 @@ try {
         echo $response->getContent(); exit;
     } elseif ($path==='/booking-monitoring/overview') {
         $data=$monitor->overview(7,[80],array_map('intval',explode(',',(string)($input['hotel_ids']??''))),$input);
-    } elseif ($path==='/booking-monitoring/snapshots' && $_SERVER['REQUEST_METHOD']==='POST') $data=$monitor->saveSnapshots(7,[80],$input['rows']??[],1);
+        foreach ($data['selectable_hotels'] as &$hotel) $hotel['can_execute'] = (int)$hotel['id']===80;
+        unset($hotel);
+    } elseif ($path==='/booking-monitoring/snapshots' && $_SERVER['REQUEST_METHOD']==='POST') {
+        $data=$monitor->saveSnapshots(7,[80],$input['rows']??[],1);
+        usleep(max(0,min(5000,(int)getenv('DEEP_OPTIMIZATION_SAVE_DELAY_MS')))*1000);
+    }
     elseif (preg_match('~/booking-monitoring/snapshots/(\d+)$~',$path,$match)) $data=$monitor->readSnapshot(7,[80],(int)($input['hotel_id']??0),(int)$match[1]);
     else { http_response_code(404); exit; }
     header('Content-Type: application/json; charset=utf-8');

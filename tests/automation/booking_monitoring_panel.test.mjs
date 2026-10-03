@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createHash, webcrypto } from 'node:crypto';
+import { isReactive, reactive } from 'vue';
 
 const source = readFileSync(new URL('../../public/components/system/booking-monitoring-panel.js', import.meta.url), 'utf8');
 const h = (type, props, children) => children === undefined && (Array.isArray(props) || typeof props === 'string')
@@ -13,6 +14,7 @@ const fixture = () => ({ code: 200, message: 'TEST-ONLY synthetic', data: {
     contract_version: 'booking_fixed_baseline_monitor.v1', tenant_id: 7, hotel_ids: [80], platform: 'ctrip', business_date: '2026-10-02',
     fixed_time: '09:00', horizon_days: 1, timezone: 'Asia/Shanghai', observation_time: '2026-10-02 09:00:00', baseline_time: '2026-10-01 09:00:00',
     boundaries: { external_write_count: 0 }, status: 'partial', ready_cell_count: 0, cell_count: 1,
+    selectable_hotels: [{id:80,tenant_id:7,name:'TEST-ONLY酒店',can_execute:true}],
     room_types: [{ id: 1, hotel_id: 80, name: 'TEST-ONLY大床' }], cells: [{ hotel_id: 80, hotel_name: 'TEST-ONLY酒店', room_type_id: 1, room_type_name: 'TEST-ONLY大床',
         stay_date: '2026-10-03', lead_time_days: 1, status: 'partial', current: { status: 'ready', captured_at: '2026-10-02 09:00:00', quality_status: 'manual_confirmed', on_books_room_nights: 0 },
         baseline: { status: 'missing', captured_at: null }, net_pickup_24h_room_nights: null, room_revenue_delta_24h: null,
@@ -30,14 +32,16 @@ const receipt = (row = submittedRow(), id = 9) => ({ code: 200, data: { contract
         idempotency_key: 'b'.repeat(64), content_digest: 'a'.repeat(64) }] } });
 const snapshotRead = saved => ({ code: 200, data: saved.data.snapshots[0] });
 
-function component(request = async () => fixture(), canExecute = true) {
+function component(request = async () => fixture(), canExecute = true, reactiveRuntime = false) {
     const window = { crypto: webcrypto };
     new Function('window', 'Vue', 'TextEncoder', source)(window, { h }, TextEncoder);
     const definition = window.SUXI_SYSTEM_COMPONENTS.BookingMonitoringPanel;
-    const ctx = { ...definition.data(), hotels: [{ id: 80, name: 'TEST-ONLY酒店' }, { id: 82, name: 'TEST-ONLY酒店82' }],
+    const state = { ...definition.data(), hotels: [{ id: 80, name: 'TEST-ONLY酒店' }, { id: 82, name: 'TEST-ONLY酒店82' }],
         selectedHotelId: 80, request, canExecute, selectedIds: ['80'], businessDate: '2026-10-02', horizonDays: '1' };
+    const ctx = reactiveRuntime ? reactive(state) : state;
     for (const [key, method] of Object.entries(definition.methods)) ctx[key] = method.bind(ctx);
     for (const [key, getter] of Object.entries(definition.computed)) Object.defineProperty(ctx, key, { get: () => getter.call(ctx) });
+    ctx.hotelScope = {tenantId:7,hotelIds:[80],canExecuteByHotel:{80:true},permissionScopeKey:ctx.scopeKey,executionMetadataComplete:true};
     ctx.resetDrafts();
     return { definition, ctx };
 }
@@ -298,16 +302,23 @@ test('save reads exact receipt then reloads current data without overwriting rec
     assert.equal(ctx.saving, false);
 });
 
-test('scope switch during save discards old receipt and preserves new blank draft', async () => {
-    const pending = deferred();
-    const { ctx } = component(() => pending.promise);
+test('scope switch after POST keeps its original receipt and preserves the new draft without a second POST', async () => {
+    const pending = deferred();const calls=[];const saved=receipt();
+    const { ctx } = component(async(url,options)=>{
+        calls.push({url,options});return options?.method==='POST'?pending.promise:snapshotRead(saved);
+    });
     const saving = ctx.saveRows([submittedRow()]);
+    while(!calls.some(call=>call.options?.method==='POST'))await new Promise(setImmediate);
     ctx.selectedIds = ['82']; ctx.resetDrafts();
-    pending.resolve(receipt()); await saving;
-    assert.equal(ctx.receipt, null);
+    ctx.form.rooms='77';ctx.form.sourceRef='TEST-ONLY new hotel draft';
+    await ctx.saveRows([{...submittedRow(),hotel_id:82}]);assert.equal(ctx.saving,true);
+    pending.resolve(saved); await saving;
+    assert.equal(ctx.receipt.snapshots[0].hotel_id,80);assert.equal(ctx.receiptScope.platform,'ctrip');
+    assert.deepEqual(ctx.receiptScope.hotelIds,[80]);assert.equal(calls.filter(call=>call.options?.method==='POST').length,1);
+    assert.match(calls.at(-1).url,/snapshots\/9\?hotel_id=80/);
     assert.equal(ctx.notice, '');
     assert.equal(ctx.form.hotelId, '82');
-    assert.equal(ctx.form.sourceRef, '');
+    assert.equal(ctx.form.sourceRef, 'TEST-ONLY new hotel draft');assert.equal(ctx.form.rooms,'77');
 });
 
 test('malformed or other-scope imports cannot issue requests', async () => {
@@ -638,7 +649,7 @@ test('a partial batch read failure retains every pending ID until the complete b
     assert.equal(posts, 1); assert.equal(requestedIds.length, 24);
 });
 
-test('scope changes during pending GET recovery discard both late success and late error', async () => {
+test('scope changes during pending GET recovery retain the old receipt or its pending error without changing the new draft', async () => {
     for (const failed of [false, true]) {
         const saved = receipt(submittedRow(), 41); const old = deferred(); let reads = 0; const calls = [];
         const { ctx } = component(async (url, options) => {
@@ -653,7 +664,8 @@ test('scope changes during pending GET recovery discard both late success and la
         const draft = structuredClone(ctx.form);
         if (failed) old.reject(new Error('TEST-ONLY obsolete recovery failed')); else old.resolve(snapshotRead(saved));
         await retry;
-        assert.equal(ctx.pendingReceipt, null); assert.equal(ctx.receipt, null);
+        if(failed){assert.equal(ctx.receipt,null);assert.equal(ctx.pendingReceipt.data.snapshots[0].id,41);assert.match(ctx.pendingReceipt.error,/obsolete recovery failed/);}
+        else {assert.equal(ctx.pendingReceipt,null);assert.equal(ctx.receipt.snapshots[0].id,41);assert.deepEqual(ctx.receiptScope.hotelIds,[80]);}
         assert.equal(ctx.notice, ''); assert.equal(ctx.error, ''); assert.equal(ctx.saving, false);
         assert.deepEqual(ctx.form, draft);
         assert.equal(calls.filter(call => call.options?.method === 'POST').length, 1);
@@ -668,5 +680,144 @@ test('unacknowledged or invalid save responses never create pending recovery IDs
         await ctx.saveRows([submittedRow()]);
         assert.equal(ctx.receipt, null); assert.equal(ctx.pendingReceipt, null);
         assert.equal(ctx.notice, ''); assert.ok(ctx.error);
+        assert.equal(Boolean(ctx.writeAttempt),response?.code!==422,'only explicit rejection can release the captured POST attempt');
     }
+});
+
+test('editing while an acknowledged GET is in flight preserves captured values and cannot unlock another POST',async()=>{
+    const old=deferred();const saved=receipt();let posts=0;let reads=0;
+    const {ctx}=component(async(url,options)=>{
+        if(options?.method==='POST'){posts++;return saved;}
+        if(url.includes('/snapshots/')){reads++;return old.promise;}
+        return fixture();
+    });
+    const saving=ctx.saveRows([submittedRow()]);while(!reads)await new Promise(setImmediate);
+    ctx.form.rooms='77';ctx.form.sourceRef='TEST-ONLY edited source';ctx.importText='TEST-ONLY new import';
+    await ctx.saveRows([submittedRow()]);assert.equal(posts,1);assert.equal(ctx.saving,true);
+    old.resolve(snapshotRead(saved));await saving;
+    assert.equal(ctx.receipt.snapshots[0].on_books_room_nights,0);assert.equal(ctx.form.rooms,'77');
+    assert.equal(ctx.form.sourceRef,'TEST-ONLY edited source');assert.equal(ctx.importText,'TEST-ONLY new import');
+});
+
+test('unknown POST retries its original raw rows after scope changes and edits, never the new draft',async()=>{
+    const bodies=[];const saved=receipt();const {ctx,definition}=component(async(url,options)=>{
+        if(options?.method==='POST'){bodies.push({body:options.body,hotelId:options.businessContext.hotelId});if(bodies.length===1)throw new TypeError('Failed to fetch');return saved;}
+        return url.includes('/snapshots/')?snapshotRead(saved):fixture();
+    });
+    const row=submittedRow();await ctx.saveRows([row]);assert.equal(ctx.writeAttempt.status,'unconfirmed');
+    ctx.selectedIds=['82'];ctx.platform='meituan';ctx.resetDrafts();ctx.form.rooms='77';ctx.importText='TEST-ONLY new import';row.on_books_room_nights=99;
+    ctx.hotelScope={tenantId:7,hotelIds:[80,82],canExecuteByHotel:{80:true,82:true},permissionScopeKey:ctx.scopeKey,executionMetadataComplete:true};
+    await ctx.saveRows([{...submittedRow(),hotel_id:82,platform:'meituan'}]);assert.equal(bodies.length,1);
+    const retry=walk(definition.render.call(ctx)).find(node=>node.props?.['data-testid']==='booking-monitor-retry-submit');
+    assert.ok(retry);await retry.props.onClick();
+    assert.equal(bodies.length,2);assert.deepEqual(bodies[0],bodies[1]);assert.equal(JSON.parse(bodies[1].body).rows[0].on_books_room_nights,0);
+    assert.equal(ctx.receipt.snapshots[0].hotel_id,80);assert.equal(ctx.receiptScope.platform,'ctrip');
+    assert.equal(ctx.form.rooms,'77');assert.equal(ctx.importText,'TEST-ONLY new import');
+});
+
+test('a lost response followed by explicit retry rejection keeps the original unknown attempt',async()=>{
+    let posts=0;const {ctx}=component(async()=>{posts++;if(posts===1)throw new TypeError('Failed to fetch');return {code:403,message:'TEST-ONLY permission revoked'};});
+    await ctx.saveRows([submittedRow()]);const attempt=ctx.writeAttempt;await ctx.retryWriteAttempt();
+    assert.equal(posts,2);assert.equal(ctx.writeAttempt,attempt);assert.equal(ctx.writeAttempt.status,'unconfirmed');
+    assert.equal(ctx.pendingReceipt,null);assert.equal(ctx.receipt,null);assert.match(ctx.error,/permission revoked/);
+});
+
+for(const flag of [undefined,false,1,'true'])test('missing or non-boolean execution permission '+String(flag)+' keeps the view matrix but disables all writes',async()=>{
+    const scoped=fixture();scoped.data.selectable_hotels[0].can_execute=flag;
+    const calls=[];const {ctx,definition}=component(async(url,options)=>{calls.push({url,options});return scoped;});
+    await ctx.load();assert.ok(ctx.overview);assert.deepEqual(ctx.normalizedHotels.map(hotel=>hotel.id),[80]);assert.deepEqual(ctx.writableHotels,[]);
+    const tree=definition.render.call(ctx);assert.ok(walk(tree).some(node=>node.props?.['data-testid']==='booking-monitor-matrix'));
+    assert.ok(!walk(tree).some(node=>node.props?.['data-testid']==='booking-monitor-form'));assert.match(text(tree),/执行权限/);
+    await ctx.saveRows([submittedRow()]);assert.equal(calls.filter(call=>call.options?.method==='POST').length,0);assert.match(ctx.error,/执行权限/);
+});
+
+test('mixed view-only and executable hotels remain visible while form and whole-batch import require executable hotels',async()=>{
+    const scoped=fixture();scoped.data.hotel_ids=[80,82];
+    scoped.data.selectable_hotels=[{id:80,tenant_id:7,name:'TEST-ONLY酒店',can_execute:false},{id:82,tenant_id:7,name:'TEST-ONLY酒店82',can_execute:true}];
+    scoped.data.cells.push({...scoped.data.cells[0],hotel_id:82,hotel_name:'TEST-ONLY酒店82',room_type_id:2});
+    const calls=[];let saved;const {ctx,definition}=component(async(url,options)=>{
+        calls.push({url,options});if(options?.method==='POST'){saved=receipt(JSON.parse(options.body).rows[0]);return saved;}
+        return url.includes('/snapshots/')?snapshotRead(saved):scoped;
+    });
+    ctx.selectedIds=['80','82'];await ctx.load();
+    assert.deepEqual(ctx.normalizedHotels.map(hotel=>hotel.id),[80,82]);assert.deepEqual(ctx.writableHotels.map(hotel=>hotel.id),[82]);
+    const tree=definition.render.call(ctx);const select=walk(tree).find(node=>node.type==='select'&&node.props?.['aria-label']==='快照酒店');
+    assert.deepEqual(select.children.filter(node=>node.type==='option'&&node.props.value).map(node=>node.props.value),['82']);
+    assert.match(text(tree),/TEST-ONLY酒店/);assert.match(text(tree),/TEST-ONLY酒店82/);
+    ctx.importText=JSON.stringify([submittedRow(),{...submittedRow(),hotel_id:82}]);await ctx.saveImport();
+    assert.equal(calls.filter(call=>call.options?.method==='POST').length,0);assert.match(ctx.error,/执行权限/);
+    await ctx.saveRows([{...submittedRow(),hotel_id:82}]);assert.equal(calls.filter(call=>call.options?.method==='POST').length,1);
+    assert.equal(calls.find(call=>call.options?.method==='POST').options.businessContext.hotelId,82);
+    assert.equal(ctx.receipt.snapshots[0].hotel_id,82);
+});
+
+test('legacy overview without execution metadata stays viewable but cannot authorize a write',async()=>{
+    const scoped=fixture();delete scoped.data.selectable_hotels;let posts=0;
+    const {ctx,definition}=component(async(url,options)=>{if(options?.method==='POST')posts++;return scoped;});
+    await ctx.load();assert.ok(ctx.overview);assert.deepEqual(ctx.writableHotels,[]);
+    assert.ok(walk(definition.render.call(ctx)).some(node=>node.props?.['data-testid']==='booking-monitor-matrix'));
+    await ctx.saveRows([submittedRow()]);assert.equal(posts,0);assert.match(ctx.error,/执行权限/);
+});
+
+test('an acknowledged readback remains GET-only when global execution permission is lost',async()=>{
+    const saved=receipt();let fail=true;let posts=0;let reads=0;
+    const {ctx}=component(async(url,options)=>{
+        if(options?.method==='POST'){posts++;return saved;}
+        if(url.includes('/snapshots/')){reads++;if(fail)throw new Error('TEST-ONLY first GET failed');return snapshotRead(saved);}
+        return fixture();
+    });
+    await ctx.saveRows([submittedRow()]);ctx.canExecute=false;fail=false;await ctx.retryPendingReadback();
+    assert.equal(posts,1);assert.equal(reads,2);assert.equal(ctx.pendingReceipt,null);assert.equal(ctx.receipt.snapshots[0].id,9);
+    assert.deepEqual(ctx.writableHotels,[]);
+});
+
+test('Vue reactive form save posts and independently verifies the mounted write attempt', async () => {
+    const saved = receipt({ ...submittedRow(), source_method: 'manual_entry' });
+    let posts = 0; let reads = 0;
+    const { ctx } = component(async (url, options) => {
+        if (options?.method === 'POST') { posts++; return saved; }
+        if (url.includes('/snapshots/')) { reads++; return snapshotRead(saved); }
+        return fixture();
+    }, true, true);
+    Object.assign(ctx.form, { hotelId: '80', roomTypeId: '1', stayDate: '2026-10-03', capturedAt: '2026-10-02T09:00:00',
+        rooms: '0', sourceRef: 'TEST-ONLY-fixture' });
+    assert.equal(isReactive(ctx), true); assert.equal(isReactive(ctx.form), true);
+    await ctx.saveForm();
+    assert.equal(posts, 1); assert.equal(reads, 1); assert.equal(ctx.saving, false);
+    assert.equal(ctx.writeAttempt, null); assert.equal(ctx.pendingReceipt, null);
+    assert.equal(ctx.receipt.snapshots[0].id, 9); assert.equal(ctx.receiptScope.platform, 'ctrip');
+});
+
+test('Vue reactive pending receipt retains attempt identity and retries only the original GET after scope edits', async () => {
+    const saved = receipt(); let fail = true; let posts = 0; let reads = 0;
+    const { ctx } = component(async (url, options) => {
+        if (options?.method === 'POST') { posts++; return saved; }
+        if (url.includes('/snapshots/')) { reads++; if (fail) throw new Error('TEST-ONLY reactive GET failed'); return snapshotRead(saved); }
+        return fixture();
+    }, true, true);
+    await ctx.saveRows([submittedRow()]);
+    assert.equal(posts, 1); assert.equal(ctx.saving, false);
+    assert.equal(isReactive(ctx.writeAttempt), true); assert.equal(isReactive(ctx.pendingReceipt), true);
+    assert.equal(ctx.pendingReceipt.attempt, ctx.writeAttempt); assert.equal(ctx.writeAttempt.status, 'readback_failed');
+    ctx.platform = 'meituan'; ctx.resetDrafts(); ctx.form.rooms = '77';
+    fail = false; await ctx.retryPendingReadback();
+    assert.equal(posts, 1); assert.equal(reads, 2); assert.equal(ctx.saving, false);
+    assert.equal(ctx.pendingReceipt, null); assert.equal(ctx.writeAttempt, null);
+    assert.equal(ctx.receiptScope.platform, 'ctrip'); assert.equal(ctx.form.rooms, '77');
+});
+
+test('Vue reactive unknown POST recovery replays the captured body and clears the mounted attempt', async () => {
+    const saved = receipt(); const bodies = [];
+    const { ctx } = component(async (url, options) => {
+        if (options?.method === 'POST') {
+            bodies.push(options.body); if (bodies.length === 1) throw new TypeError('Failed to fetch'); return saved;
+        }
+        return url.includes('/snapshots/') ? snapshotRead(saved) : fixture();
+    }, true, true);
+    await ctx.saveRows([submittedRow()]);
+    assert.equal(bodies.length, 1); assert.equal(ctx.saving, false); assert.equal(ctx.writeAttempt.status, 'unconfirmed');
+    ctx.form.rooms = '77'; await ctx.retryWriteAttempt();
+    assert.equal(bodies.length, 2); assert.equal(bodies[1], bodies[0]);
+    assert.equal(ctx.saving, false); assert.equal(ctx.writeAttempt, null); assert.equal(ctx.pendingReceipt, null);
+    assert.equal(ctx.receipt.snapshots[0].id, 9); assert.equal(ctx.form.rooms, '77');
 });

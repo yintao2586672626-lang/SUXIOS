@@ -17,12 +17,17 @@ final class BookingMonitoring extends Base
         try {
             $ids = $this->hotelIds($this->request->param('hotel_ids', ''));
             [$tenantId, $permitted] = $this->scope($ids, 'operation.view');
-            return $this->success((new BookingMonitoringService())->overview($tenantId, $permitted, $ids, [
+            $overview = (new BookingMonitoringService())->overview($tenantId, $permitted, $ids, [
                 'platform' => $this->request->param('platform', 'ctrip'),
                 'business_date' => $this->request->param('business_date', date('Y-m-d')),
                 'fixed_time' => $this->request->param('fixed_time', '09:00'),
                 'horizon_days' => $this->request->param('horizon_days', 7),
-            ]));
+            ]);
+            foreach ($overview['selectable_hotels'] as &$hotel) {
+                $hotel['can_execute'] = $this->currentUser->hasHotelPermission((int)$hotel['id'], 'operation.execute');
+            }
+            unset($hotel);
+            return $this->success($overview);
         } catch (Throwable $error) {
             return $this->failure($error, '固定基线预订读取失败');
         }
@@ -96,6 +101,7 @@ final class BookingMonitoring extends Base
             'booking_monitor_snapshot_not_found' => '当前酒店没有这条快照',
             'booking_monitor_idempotency_conflict' => '导入标识已用于不同内容，请更正标识或追加更正快照',
             'booking_monitor_snapshot_limit_narrow_scope' => '快照量超出本次读取上限，请缩小酒店或日期范围',
+            'booking_monitor_cell_limit_narrow_scope' => '展示规模超过1,000格，请减少酒店或展示天数后重试',
             'booking_monitor_import_requires_1_to_200_rows' => '每次须导入1至200条快照',
             'booking_monitor_correction_scope_mismatch' => '更正快照须保留原酒店、平台、入住日、捕获时点和指标范围',
             'booking_monitor_correction_room_type_mismatch' => '更正快照须保留原房型',

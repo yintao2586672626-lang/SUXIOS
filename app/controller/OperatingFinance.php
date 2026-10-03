@@ -45,7 +45,10 @@ final class OperatingFinance extends Base
             [$scope] = $this->evidenceScope($request, $save ? 'operation.execute' : 'operation.view');
             $input = is_array($request['inputs'] ?? null) ? $request['inputs'] : [];
             $store = new \app\service\OperatingEvidenceSnapshotStore();
-            if ($scope['kind'] === 'consumables_actual' && $scope['period_month'] > (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m')) throw new InvalidArgumentException('实际耗材核算月不得晚于当前上海营业月份');
+            if ($scope['period_month'] > (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m')) {
+                $label = $scope['kind'] === 'consumables_actual' ? '实际耗材' : '实际渠道';
+                throw new InvalidArgumentException($label . '核算月不得晚于当前上海营业月份');
+            }
             if ($save) {
                 $replay = $store->replayRequest($scope,(string)($request['idempotency_key'] ?? ''),$input);
                 if ($replay !== null) return $this->success($replay,'既有经营证据已精确回读，未新增版本');

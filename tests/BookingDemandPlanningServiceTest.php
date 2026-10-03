@@ -305,6 +305,19 @@ final class BookingDemandPlanningServiceTest extends TestCase
         }
     }
 
+    public function testSignedZeroCanonicalizesAllSnapshotMetricsBeforeSaveAndReadback(): void
+    {
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            foreach ([-0.0, '-0.0000'] as $index => $value) {
+                $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-signed-zero-' . $field . '-' . $index), [$field => $value]);
+                $saved = $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+                self::assertSame('0.0', json_encode($saved[$field], JSON_PRESERVE_ZERO_FRACTION));
+                self::assertSame($saved, $this->service()->readSnapshot(7, 80, $saved['id']) + ['idempotent' => false]);
+                self::assertSame($saved['id'], $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11)['id']);
+            }
+        }
+    }
+
     public function testSnapshotMetricsOverCompatibleMaximumAreRejectedBeforePersistence(): void
     {
         foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {

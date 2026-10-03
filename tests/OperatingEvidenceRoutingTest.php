@@ -409,6 +409,41 @@ final class OperatingEvidenceRoutingTest extends TestCase
         }
     }
 
+    public function testFutureChannelActualsCannotPreviewSaveOrReplayAnOldVersion(): void
+    {
+        $this->database();
+        $today = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $inputs = ['net_revenue'=>1000, 'advertising_spend'=>100, 'attributed_order_amount'=>400,
+            'effective_order_amount'=>1200, 'refund_amount'=>50, 'attribution_basis'=>'synthetic-same-window',
+            'advertising_included_in_net_revenue'=>false, 'advertising_in_direct_costs'=>false,
+            'cost_coverage_complete'=>true, 'operator_attested'=>true, 'source_refs'=>['synthetic-monthly-ledger'],
+            'costs'=>[['label'=>'合成履约成本', 'amount'=>200, 'source_ref'=>'synthetic-cost', 'included_in_net_revenue'=>false]]];
+        foreach (['ctrip','meituan'] as $platform) {
+            $input = $this->input(['kind'=>'channel_economics', 'platform'=>$platform, 'inputs'=>$inputs,
+                'period_month'=>$today->format('Y-m'), 'idempotency_key'=>'synthetic-future-'.$platform]);
+            foreach (['previewEvidence','saveEvidence'] as $action) {
+                $allowed = $this->call($action, $input, $this->user());
+                self::assertSame(200, $allowed->getCode(), $allowed->getContent());
+            }
+            $input['period_month'] = $today->modify('first day of next month')->format('Y-m');
+            $store = new OperatingEvidenceSnapshotStore();
+            $scope = $store->scope(10,[80],80,$input['period_month'],$platform,'channel_economics');
+            // An old future-dated record remains readable, but cannot bypass the actual-period write guard.
+            $old = $store->save($scope,['inputs'=>$inputs,'result'=>['status'=>'calculated']],$input['idempotency_key'],7,$inputs);
+            $before = $this->storedRows();
+            foreach (['previewEvidence','saveEvidence'] as $action) {
+                $blocked = $this->call($action, $input, $this->user());
+                self::assertSame(422, $blocked->getCode(), $blocked->getContent());
+                self::assertStringContainsString('渠道', $blocked->getData()['message']);
+                self::assertNull($blocked->getData()['data']);
+                self::assertSame($before, $this->storedRows());
+            }
+            $read = $this->call('readEvidence',$input,$this->user(),['id'=>$old['snapshot_id']]);
+            self::assertSame(200,$read->getCode(),$read->getContent());
+            self::assertSame($old['content_digest'],$read->getData()['data']['content_digest']);
+        }
+    }
+
     private function database(): void
     {
         $this->databasePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'investment-scenario-test-' . bin2hex(random_bytes(6)) . '.sqlite';
