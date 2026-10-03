@@ -32,7 +32,17 @@ final class CheckoutRuntimeBootstrapTest extends TestCase
         $this->assertCurrentCheckout(true, true, false, true);
     }
 
-    private function assertCurrentCheckout(bool $foreignMapping, bool $optimizedMapping = false, bool $authoritative = false, bool $multipleClasses = false): void
+    public function testStaleOptimizedMappingsAllowAbsentClassesAndCurrentPsr4FilesWithoutWarnings(): void
+    {
+        $this->assertCurrentCheckout(true, true, false, false, true);
+    }
+
+    public function testOutdatedExistingMappedFileDoesNotOverrideTheCurrentPsr4Class(): void
+    {
+        $this->assertCurrentCheckout(true, true, false, false, true, true);
+    }
+
+    private function assertCurrentCheckout(bool $foreignMapping, bool $optimizedMapping = false, bool $authoritative = false, bool $multipleClasses = false, bool $staleMapping = false, bool $outdatedExistingFile = false): void
     {
         $root = dirname(__DIR__);
         $foreignRoot = sys_get_temp_dir() . '/suxi-foreign-app-' . bin2hex(random_bytes(8));
@@ -43,6 +53,12 @@ final class CheckoutRuntimeBootstrapTest extends TestCase
             file_put_contents($foreignFile, "<?php\nnamespace app\\service;\nfinal class BookingMonitoringService {}\n");
             file_put_contents($multipleClassFile, "<?php\nnamespace app\\service;\nfinal class BrowserCaptureNativeProcessRuntime {}\n");
         }
+        $staleForeignFile = $foreignRoot . '/service/' . ($outdatedExistingFile ? 'ChannelEconomicsService.php' : 'OldBookingMonitoringService.php');
+        $removedForeignFile = $foreignRoot . '/service/RemovedApplicationFixture.php';
+        if ($staleMapping) {
+            file_put_contents($staleForeignFile, "<?php\nnamespace app\\service;\nfinal class BookingMonitoringService {}\n");
+            file_put_contents($removedForeignFile, "<?php\nnamespace app\\service;\nfinal class CheckoutRemovedApplicationFixture {}\n");
+        }
         try {
             $code = '$root=getcwd();';
             if ($foreignMapping) {
@@ -50,7 +66,12 @@ final class CheckoutRuntimeBootstrapTest extends TestCase
             }
             if ($optimizedMapping) {
                 $code .= '$loader->addClassMap([app\\service\\BookingMonitoringService::class=>'
-                    . var_export($foreignFile, true) . ']);';
+                    . var_export($staleMapping ? $staleForeignFile : $foreignFile, true) . ']);';
+            }
+            if ($staleMapping) {
+                $code .= '$loader->addClassMap([app\\service\\CheckoutRemovedApplicationFixture::class=>'
+                    . var_export($removedForeignFile, true) . ']);'
+                    . 'set_error_handler(static function($severity,$message){throw new ErrorException($message,0,$severity);});';
             }
             if ($multipleClasses) {
                 $code .= '$loader->addClassMap([app\\service\\BrowserCaptureNativeProcessRuntime::class=>'
@@ -63,11 +84,15 @@ final class CheckoutRuntimeBootstrapTest extends TestCase
                     . '$framework=new think\\App($root);$loader->setClassMapAuthoritative(true);';
             }
             $code .= '$application=require $root."/bootstrap.php";';
+            if ($staleMapping) {
+                // Repeated initialization must also handle invalidated entries consistently.
+                $code .= '$application=require $root."/bootstrap.php";$removedExists=class_exists(app\\service\\CheckoutRemovedApplicationFixture::class);';
+            }
             if ($multipleClasses) {
                 // Load the secondary class first: loading the primary class would conceal a broken map.
                 $code .= '$multipleSource=(new ReflectionClass(app\\service\\BrowserCaptureNativeProcessRuntime::class))->getFileName();';
             }
-            $code .= 'echo json_encode(["root"=>$application->getRootPath(),"app"=>$application->getAppPath(),"source"=>(new ReflectionClass(app\\service\\BookingMonitoringService::class))->getFileName(),"secondary_source"=>class_exists(app\\service\\ChannelEconomicsService::class)?(new ReflectionClass(app\\service\\ChannelEconomicsService::class))->getFileName():null,"multiple_source"=>$multipleSource??null],JSON_THROW_ON_ERROR);';
+            $code .= 'echo json_encode(["root"=>$application->getRootPath(),"app"=>$application->getAppPath(),"source"=>(new ReflectionClass(app\\service\\BookingMonitoringService::class))->getFileName(),"secondary_source"=>class_exists(app\\service\\ChannelEconomicsService::class)?(new ReflectionClass(app\\service\\ChannelEconomicsService::class))->getFileName():null,"multiple_source"=>$multipleSource??null,"removed_exists"=>$removedExists??null],JSON_THROW_ON_ERROR);';
             $process = proc_open([PHP_BINARY, '-r', $code], [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes, $root, null, ['bypass_shell'=>true]);
             self::assertIsResource($process);
             fclose($pipes[0]);
@@ -84,8 +109,16 @@ final class CheckoutRuntimeBootstrapTest extends TestCase
             if ($multipleClasses) {
                 self::assertSame($normalize($root.'/app/service/BrowserCaptureProcessRunner.php'), $normalize($actual['multiple_source']));
             }
+            if ($staleMapping) {
+                self::assertFalse($actual['removed_exists']);
+                self::assertSame('', $error, 'stale map probes must not emit warnings');
+            }
         } finally {
             if ($foreignMapping) {
+                if ($staleMapping) {
+                    unlink($staleForeignFile);
+                    unlink($removedForeignFile);
+                }
                 unlink($foreignFile);
                 unlink($multipleClassFile);
                 rmdir($foreignRoot . '/service');
