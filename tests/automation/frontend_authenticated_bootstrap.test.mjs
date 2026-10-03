@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { parse } from 'acorn';
 import {
   extractAuthenticatedAssetEntries,
   extractAuthenticatedAssetReferences,
@@ -19,6 +20,36 @@ const operatingIntelligenceComponents = fs.readFileSync('public/components/syste
 const operatingIntelligenceLoader = fs.readFileSync('public/components/system/operating-intelligence-loader.js', 'utf8');
 const systemStatic = fs.readFileSync('public/system-static.js', 'utf8');
 const style = fs.readFileSync('public/style.css', 'utf8');
+
+test('authenticated root setup returns only identifiers bound in its lexical scope', () => {
+  const program = parse(appMain, { ecmaVersion: 'latest' });
+  const root = program.body.flatMap(statement => statement.declarations || [])
+    .find(declaration => declaration.id?.name === 'suxiRootComponent')?.init;
+  const setup = root?.properties.find(property => property.key?.name === 'setup')?.value;
+  assert.equal(setup?.type, 'FunctionExpression', 'Inspect the production root setup');
+  const returned = setup.body.body.findLast(statement => statement.type === 'ReturnStatement')?.argument;
+  assert.equal(returned?.type, 'ObjectExpression', 'Inspect the actual exposed root bindings');
+  const bindings = new Set();
+  const bindPattern = pattern => {
+    if (!pattern) return;
+    if (pattern.type === 'Identifier') bindings.add(pattern.name);
+    else if (pattern.type === 'RestElement') bindPattern(pattern.argument);
+    else if (pattern.type === 'AssignmentPattern') bindPattern(pattern.left);
+    else if (pattern.type === 'ObjectPattern') pattern.properties.forEach(property => bindPattern(property.value || property.argument));
+    else if (pattern.type === 'ArrayPattern') pattern.elements.forEach(bindPattern);
+  };
+  for (const statement of [...program.body, ...setup.body.body]) {
+    if (statement.type === 'VariableDeclaration') statement.declarations.forEach(declaration => bindPattern(declaration.id));
+    else if (['FunctionDeclaration', 'ClassDeclaration'].includes(statement.type)) bindPattern(statement.id);
+  }
+  setup.params.forEach(bindPattern);
+  const exposed = returned.properties.flatMap(property => {
+    const value = property.type === 'SpreadElement' ? property.argument : property.value;
+    return value?.type === 'Identifier' ? [value.name] : [];
+  });
+  assert.deepEqual([...new Set(exposed.filter(name => !bindings.has(name)))].sort(), [],
+    'Every exposed identifier must resolve before authenticated root setup can complete');
+});
 
 function createAuthenticatedAssetLoaderHarness(timeoutMs = 20, manifestTimeoutMs = 80, timerHost = globalThis) {
   const loaderStart = bootstrap.indexOf('const resolveAssetUrl = (src) => {');

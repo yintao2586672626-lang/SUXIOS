@@ -1,11 +1,11 @@
 {
   "schema_version": "suxios.prior_changes_three_round_acceptance.v1",
-  "observed_at": "2026-10-03T10:10:36.868Z",
+  "observed_at": "2026-10-03T10:32:35.063Z",
   "cutoff": "2026-10-03T00:00:00+08:00",
   "branch": "codex/prior-changes-three-reviews-20261003",
-  "candidate_base": "18f820eb99edb100ce98ecc1c9e78139a292625c",
+  "candidate_base": "9f63f69224eeff8367c714fc26caf07907f23745",
   "source_commit": "fef961e8f826ac9193b200735bc2357971199181",
-  "origin_main": "babecb3b57aa7f098c0fcea26ccf06ff6495f17e",
+  "origin_main": "81308aad3d74f9db9b94958661beaba128ff568f",
   "status": "local_full_acceptance_complete_github_delivery_recorded_separately",
   "scope": {
     "worktrees": 114,
@@ -84,11 +84,36 @@
     },
     "node": {
       "files": 665,
-      "tests": 7231,
-      "pass": 7230,
+      "tests": 7232,
+      "pass": 7231,
       "fail": 0,
       "skipped": 1,
-      "portable_authority_cases": "Two workstation-specific authority cases are excluded by the committed portable runner; separately reported skips are not counted as passed."
+      "portable_authority_cases": "Two workstation-specific authority cases are excluded by the committed portable runner; separately reported skips are not counted as passed.",
+      "evidence_reuse": "After the startup-only return repair, 120 affected frontend test files / 1511 tests were reverified; unchanged full-suite evidence is reused."
+    },
+    "startup_followup": {
+      "previous_candidate": "9f63f69224eeff8367c714fc26caf07907f23745",
+      "previous_github_result": "Authenticated shell failed before interactive; performance result unverified.",
+      "removed_unbound_legacy_exports": [
+        "ctripOverviewApiKeywords",
+        "ctripFlowOverviewApiKeywords",
+        "ctripOverviewMetricCards",
+        "ctripOverviewTopRankTables",
+        "ctripFlowOverviewInterfaceRows"
+      ],
+      "current_consumer_check": "No current template/online-data component consumers; retired capability not restored.",
+      "direct_root_binding_oracle": {
+        "tests": 25,
+        "passed": 25,
+        "missing_before": 5,
+        "missing_after": 0
+      },
+      "affected_frontend": {
+        "files": 120,
+        "tests": 1511,
+        "failed": 0
+      },
+      "github_latest_candidate": "Current PR64 head verification is recorded separately; do not reuse earlier head checks."
     },
     "pipeline": {
       "observed_at": "2026-10-03T09:54:58.911Z",
@@ -122,21 +147,36 @@
           "name": "integration_gate_followup",
           "exit_code": 0,
           "log": "final-integration_gate_followup.log"
+        },
+        {
+          "name": "lazy_frontend_entry",
+          "exit_code": 0,
+          "log": "final-lazy_frontend_entry.log"
+        },
+        {
+          "name": "lazy_startup_helpers",
+          "exit_code": 0,
+          "log": "final-lazy_startup_helpers.log"
+        },
+        {
+          "name": "integration_gate_followup",
+          "exit_code": 0,
+          "log": "final-integration_gate_followup.log"
         }
       ],
       "complete": true
     },
     "entry_budget": {
-      "startup_gzip_bytes": 614202,
+      "startup_gzip_bytes": 614158,
       "startup_budget": {
         "metric": "startup_gzip_bytes",
         "status": "within_target",
-        "actual": 614202,
+        "actual": 614158,
         "target": 620000,
         "warning": 625000,
         "hard_limit": 650000,
-        "headroom_to_target_bytes": 5798,
-        "headroom_to_hard_limit_bytes": 35798
+        "headroom_to_target_bytes": 5842,
+        "headroom_to_hard_limit_bytes": 35842
       },
       "failures": []
     },
@@ -2047,7 +2087,7 @@
           "final_method_review": "semantic merged"
         }
       ],
-      "final_sha256": "6187c46cbc1327740778822a9e9d2721abecfb436305dc39c6cd27cf111cc532"
+      "final_sha256": "7e177059b14e896c6240cdc0a51d61f011179ea9a8387f43579af6395936a91d"
     },
     {
       "path": "public/components/system/app-main-components-loader.js",
@@ -2253,15 +2293,15 @@
     },
     {
       "path": "output/three-round-integration-20261003/node-full-summary.json",
-      "sha256": "43ba89d1ca8a760ecbd8722e7025ebc786e77309e5ebfb8727fe8e79c54cc95a"
+      "sha256": "6f41ad47087970f601911f0f32cf61da62ba64e4a22bf189cb02f05ae2b53af7"
     },
     {
       "path": "output/three-round-integration-20261003/final-pipeline.json",
-      "sha256": "7553d25f06f1ae3c30e691e5864f5dae294cc15c95398af8de8c805239100777"
+      "sha256": "878cb19144b4dbea58c3631b55e880e0ef54e6b7e394b361da0e53908c15728b"
     },
     {
       "path": "output/three-round-integration-20261003/final-entry-budget.json",
-      "sha256": "15068a51a877d977f31c4e471d92c40038391009d69fab7194aea23bddb95851"
+      "sha256": "95a53251baafa49baa9400d548a09e1ccc9d25280946635ca8055cd157925bef"
     }
   ],
   "boundaries": [
@@ -3841,8 +3881,8 @@
     {
       "path": "docs/integration/suxios-prior-three-reviews-20261003.md",
       "state": "integration_followup",
-      "bytes": 6215,
-      "sha256": "028c8e565eae68fd73fdf6b42211665f8abf81b87a808c371e5de552900bd1c7"
+      "bytes": 6879,
+      "sha256": "91c29e76ffcc7d76289fff2ce1da290215fd6572fb7f667ee7ea850b7b5a3d4b"
     },
     {
       "path": "docs/investment-payback-github-delivery-20261002.md",
@@ -4427,14 +4467,14 @@
     {
       "path": "public/app-main.js",
       "state": "modified",
-      "bytes": 3365353,
-      "sha256": "6187c46cbc1327740778822a9e9d2721abecfb436305dc39c6cd27cf111cc532"
+      "bytes": 3365211,
+      "sha256": "7e177059b14e896c6240cdc0a51d61f011179ea9a8387f43579af6395936a91d"
     },
     {
       "path": "public/app-main.min.js",
       "state": "modified",
-      "bytes": 1307454,
-      "sha256": "64d2b6b07352cdef5bc8f72dfa4aadaed9ef5309cf3d043dbaa5bc499558a094"
+      "bytes": 1307317,
+      "sha256": "29e1fdb78c42c8c78d9f4fd3c5f664058c48a14aa9bcc00e087d1ed8dd3ebfa5"
     },
     {
       "path": "public/app-render.min.js",
@@ -4726,7 +4766,7 @@
       "path": "public/index.html",
       "state": "modified",
       "bytes": 8585,
-      "sha256": "5cf289c07e98a577975011498f93600423da27943583337619f4b4a94bf4719b"
+      "sha256": "60b77afce68f56774efdaadf815a939397debd8674f2b8eb80675bb6f34ee47e"
     },
     {
       "path": "public/meituan-static.js",
@@ -8085,8 +8125,8 @@
     {
       "path": "tests/automation/frontend_authenticated_bootstrap.test.mjs",
       "state": "modified",
-      "bytes": 53112,
-      "sha256": "e8c796ba2ee999ec2ef87fc1023c025c4f2ec354a3274762528395d408e957e7"
+      "bytes": 55119,
+      "sha256": "9233c1f4de2f158d73e52b8c41dc3e0c427bf83492fdb745f57f198b7d3d58c0"
     },
     {
       "path": "tests/automation/frontend_business_draft_boundary.test.mjs",
