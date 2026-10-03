@@ -45,9 +45,15 @@ const opportunityVersion = updateFrontendAssetVersion(
   opportunityAsset,
   fs.readFileSync(path.join(repoRoot, 'public', opportunityAsset)),
 );
-const dependencyLoader = opportunityVersion.html
-  .replace(/components\/system\/operating-economics-workbench\.min\.js\?v=[A-Za-z0-9-]+/, `components/system/operating-economics-workbench.min.js?v=economics-h${crypto.createHash('sha256').update(fs.readFileSync(path.join(repoRoot,'public/components/system/operating-economics-workbench.min.js'))).digest('hex').slice(0,10)}`)
-  .replace(/components\/system\/booking-monitoring-panel\.js\?v=[A-Za-z0-9-]+/, `components/system/booking-monitoring-panel.js?v=booking-h${crypto.createHash('sha256').update(fs.readFileSync(path.join(repoRoot,'public/components/system/booking-monitoring-panel.js'))).digest('hex').slice(0,10)}`);
+const economicsAsset = 'components/system/operating-economics-workbench.min.js';
+const economicsVersion = updateFrontendAssetVersion(
+  opportunityVersion.html, economicsAsset, fs.readFileSync(path.join(repoRoot, 'public', economicsAsset)),
+);
+const bookingAsset = 'components/system/booking-monitoring-panel.js';
+const bookingVersion = updateFrontendAssetVersion(
+  economicsVersion.html, bookingAsset, fs.readFileSync(path.join(repoRoot, 'public', bookingAsset)),
+);
+const dependencyLoader = bookingVersion.html;
 const nextLoaderSource = dependencyLoader.replace(
   loaderPattern,
   `components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h${artifactSha256.slice(0, 10)}`,
@@ -79,6 +85,8 @@ console.log(JSON.stringify({
   changed: existing !== artifact,
   loader_cache_identity_changed: nextLoaderSource !== loaderSource,
   opportunity_cache_identity_changed: opportunityVersion.changed,
+  economics_cache_identity_changed: economicsVersion.changed,
+  booking_cache_identity_changed: bookingVersion.changed,
   app_main_components_sha256: fullComponentSha256,
   bridge_cache_identity_changed: nextBridgeSource !== bridgeSource,
   index_cache_identity_changed: nextIndexSource !== indexSource,

@@ -109,7 +109,10 @@ function overview(call, snapshot = null) {
 function harness(attempt) {
   const calls = [], notices = [], errors = [], warnings = [], diagnostics = [];
   const scope = Vue.effectScope(), host = memoryHost(); let app, component;
-  const sandbox = { ...Vue, window: {}, h: Vue.h, crypto: webcrypto, TextEncoder, JSON, Date, Intl, Headers, Response, URL, URLSearchParams, FormData,
+  const sandbox = { ...Vue, window: { SUXI_SYSTEM_COMPONENTS: {
+    BookingMonitoringPanel: { name: 'BookingMonitoringPanel', render: () => null },
+    OperatingEconomicsWorkbench: { name: 'OperatingEconomicsWorkbench', render: () => null },
+  } }, h: Vue.h, crypto: webcrypto, TextEncoder, JSON, Date, Intl, Headers, Response, URL, URLSearchParams, FormData,
     AbortController, DOMException, setTimeout, clearTimeout, API_BASE: 'https://synthetic.invalid/api',
     authSessionEpoch: 1, pageRequestGeneration: 1, pageLoadRequests: new Map(),
     token: Vue.ref(marker), user: Vue.ref({ id: 77, tenant_id: 70, is_super_admin: true, capabilities: ['all'] }),

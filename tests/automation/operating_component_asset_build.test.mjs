@@ -19,6 +19,8 @@ const names = {
     finance: 'components/system/operating-finance-control-center.js',
     artifact: 'components/system/operating-finance-control-center.min.js',
     lab: 'components/system/operating-opportunity-lab.js',
+    economics: 'components/system/operating-economics-workbench.min.js',
+    booking: 'components/system/booking-monitoring-panel.js',
     component: 'components/system/app-main-components.js',
     bridge: 'components/system/app-main-components-loader.js',
     index: 'index.html',
@@ -31,9 +33,13 @@ function fixture() {
         finance: 'x = {\n        template: ' + tick + '内容\n        ' + tick + ',\n    };',
         artifact: 'compiled-finance;\n',
         lab: '// synthetic 今日事项 A\n',
+        economics: '// synthetic 渠道贡献与耗材\n',
+        booking: '// synthetic 房型监测\n',
         component: "const business = 'preserve';\n"
             + "const finance = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h0123456789';\n"
-            + "const lab = 'components/system/operating-opportunity-lab.js?v=20260831-impact-estimate-h0123456789';\n",
+            + "const lab = 'components/system/operating-opportunity-lab.js?v=20260831-impact-estimate-h0123456789';\n"
+            + "const economics = 'components/system/operating-economics-workbench.min.js?v=economics-h0123456789';\n"
+            + "const booking = 'components/system/booking-monitoring-panel.js?v=booking-h0123456789';\n",
         bridge: "const exposed = ['OperatingFinanceControlCenter'];\nconst full = 'components/system/app-main-components.js?v=20260830-operating-finance-h0123456789';",
         index: '<script src="components/system/app-main-components.js?v=20260830-operating-finance-h0123456789"></script>',
     };
@@ -70,6 +76,11 @@ function assertChain(f) {
     const child = readFrontendAssetVersion(f.get('component'), names.lab);
     assert.equal(child.hash, hash(f.get('lab')), 'nested URL follows exact child bytes');
     assert.equal(child.versionPrefix, '20260831-impact-estimate');
+    for (const name of ['economics', 'booking']) {
+        const version = readFrontendAssetVersion(f.get('component'), names[name]);
+        assert.equal(version.hash, hash(f.get(name)), name + ' follows exact child bytes');
+        assert.equal(version.versionPrefix, name);
+    }
     for (const name of ['bridge', 'index']) {
         assert.equal(readFrontendAssetVersion(f.get(name), names.component).hash, hash(f.get('component')),
             name + ' follows updated parent bytes');
@@ -106,14 +117,31 @@ test('changing only nested lab bytes invalidates the chain and repeated identica
 });
 
 test('missing or ambiguous nested reference fails before publishing loader or entry', async () => {
-    for (const variant of ['missing', 'duplicate']) {
+    for (const name of ['lab', 'economics', 'booking']) for (const variant of ['missing', 'duplicate']) {
         const f = fixture();
         const current = f.get('component');
         f.set('component', variant === 'missing'
-            ? current.split('\n').filter(line => !line.includes(names.lab)).join('\n')
-            : current + current.split('\n').find(line => line.includes(names.lab)) + '\n');
+            ? current.split('\n').filter(line => !line.includes(names[name])).join('\n')
+            : current + current.split('\n').find(line => line.includes(names[name])) + '\n');
         const before = ['component', 'bridge', 'index'].map(name => f.get(name));
         await assert.rejects(f.run(), /exactly once/);
         ['component', 'bridge', 'index'].forEach((name, index) => assert.equal(f.get(name), before[index]));
+    }
+});
+
+test('each new workflow asset invalidates the parent and entry and identical rebuild stays stable', async () => {
+    for (const name of ['economics', 'booking']) {
+        const f = fixture();
+        await f.run();
+        const previous = ['component', 'bridge', 'index'].map(key => f.get(key));
+        f.set(name, f.get(name) + '// synthetic changed saved/readback behavior\n');
+        const changed = await f.run();
+        assertChain(f);
+        assert.equal(changed[name + '_cache_identity_changed'], true);
+        ['component', 'bridge', 'index'].forEach((key, index) => assert.notEqual(f.get(key), previous[index]));
+        f.writes.length = 0;
+        const repeat = await f.run();
+        assert.deepEqual(f.writes, []);
+        assert.equal(repeat[name + '_cache_identity_changed'], false);
     }
 });

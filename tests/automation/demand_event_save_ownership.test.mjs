@@ -77,7 +77,11 @@ function memoryHost() {
 }
 function harness(attempt) {
   const calls = [], notices = [], errors = [], warnings = [], host = memoryHost(); let app, component;
-  const sandbox = { window: {}, crypto: webcrypto, TextEncoder, Date, Intl, URLSearchParams };
+  // Sibling workflows have separate runtime coverage; keep demand transport isolated.
+  const sandbox = { window: { SUXI_SYSTEM_COMPONENTS: {
+    BookingMonitoringPanel: { name: 'BookingMonitoringPanel', render: () => null },
+    OperatingEconomicsWorkbench: { name: 'OperatingEconomicsWorkbench', render: () => null },
+  } }, crypto: webcrypto, TextEncoder, Date, Intl, URLSearchParams };
   vm.runInNewContext(componentSource, sandbox);
   const body = sandbox.window.SUXI_SYSTEM_COMPONENTS.OperatingFinanceControlCenterBody;
   body.render = new Function('Vue', compile(body.template, { mode: 'function', prefixIdentifiers: true }).code)(Vue); delete body.template;

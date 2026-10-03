@@ -141,7 +141,10 @@ function receipt(call, override = {}) {
 
 function harness() {
   const host = memoryHost(), calls = [], notices = [], errors = [], warnings = [];
-  const sandbox = { window: {}, crypto: webcrypto, TextEncoder, Date, Intl, URLSearchParams, FormData };
+  const sandbox = { window: { SUXI_SYSTEM_COMPONENTS: {
+    BookingMonitoringPanel: { name: 'BookingMonitoringPanel', render: () => null },
+    OperatingEconomicsWorkbench: { name: 'OperatingEconomicsWorkbench', render: () => null },
+  } }, crypto: webcrypto, TextEncoder, Date, Intl, URLSearchParams, FormData };
   vm.runInNewContext(source, sandbox);
   const body = sandbox.window.SUXI_SYSTEM_COMPONENTS.OperatingFinanceControlCenterBody;
   body.render = new Function('Vue', compile(body.template, { mode: 'function', prefixIdentifiers: true }).code)(Vue);
