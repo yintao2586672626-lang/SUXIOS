@@ -24,7 +24,8 @@ function excludesAll(label, source, needles) {
   check(label, present.length === 0, present.join(', '));
 }
 
-const report = readSourceAggregate('scripts/report_business_chain_status.php', { repoRoot: root });
+const reportSource = read('scripts/report_business_chain_status.php');
+const report = `${readSourceAggregate('scripts/report_business_chain_status.php', { repoRoot: root })}\n${read('scripts/lib/business_chain_review_scope.php')}`;
 const runtimeTest = read('tests/automation/business_chain_status_report.test.mjs');
 const runtimeRunner = read('scripts/run_node_automation_tests.mjs');
 const runtimeContract = `${runtimeTest}\n${runtimeRunner}`;
@@ -32,6 +33,12 @@ const p0ExecutionPlanTest = read('tests/BusinessChainP0ExecutionPlanTest.php');
 const revenueAi = readSourceAggregate('app/service/RevenueAiOverviewService.php', { repoRoot: root });
 const pkg = read('package.json');
 const workflow = read('.github/workflows/php.yml');
+
+includesAll('business-chain report calls its pure review-scope guard', reportSource, [
+  "require_once __DIR__ . '/lib/business_chain_review_scope.php'",
+  'business_chain_manual_review_scope($handoff, $revenueDiagnosis, $firstAction, $blockers, $actionReason)',
+  'business_chain_review_resolution_plan($requiredInputs',
+]);
 
 includesAll('business-chain report is registered', pkg, [
   '"report:business-chain": "node scripts/run_php.mjs scripts/report_business_chain_status.php"',
@@ -277,7 +284,7 @@ includesAll('business-chain report runtime test guards operator skip output', ru
   'ctrip_target_date_ota_channel',
   'manual_review_packet',
   'format=markdown',
-  'manual_review_packet: `blocked_ready_for_manual_review`',
+  'manual_review_packet: `(?:blocked_ready_for_manual_review|blocked_by_diagnosis_scope)`',
   'manual_review_next_blockers',
   'manual_review_forbidden_actions',
   'ai_decision_review_contract',

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { readRouteContractSource } from './lib/route_contract_source.mjs';
 
 const root = process.cwd();
 const checks = [];
@@ -25,7 +26,7 @@ function excludesAll(file, label, source, needles) {
 
 const service = read('app/service/InvestmentDecisionSupportService.php');
 const controller = read('app/controller/InvestmentDecision.php');
-const route = read('route/app.php');
+const route = readRouteContractSource(root);
 const frontend = [
   read('public/index.html'),
   read('resources/frontend/app-template.html'),
@@ -88,8 +89,8 @@ includesAll('app/service/InvestmentDecisionSupportService.php', 'P4 service cons
   'P0OtaDownstreamGateService',
   'blocked_by_p0_ota_gate',
   'p0_ota_gate_not_ready',
-  'p0_ota_field_loop.ready + operation_execution.roi_ready',
-  'p0_ota_field_loop.ready + operation_execution.roi_ready + decision_record.readiness_ready',
+  'p0_ota_field_loop.ready + operating_loop_kernel.completed + operation_execution.roi_ready',
+  'p0_ota_field_loop.ready + operating_loop_kernel.completed + operation_execution.roi_ready + decision_record.readiness_ready',
   '先完成授权浏览器 Profile 登录态、目标日 OTA/流量入库和 P0 field-loop verifier ready',
 ]);
 
@@ -114,41 +115,12 @@ includesAll('app/service/InvestmentDecisionSupportService.php', 'P4 service expo
   'RevPAR = ADR * OCC; payback_months from base scenario net cashflow',
 ]);
 
-includesAll('public/index.html', 'P4 frontend page loads the overview endpoint and displays all five sections', frontend, [
+excludesAll('public/app-main.js', 'retired P4 UI and requests are absent from current runtime', frontend, [
   "currentPage === 'investment-decision'",
   'loadInvestmentDecisionOverview',
   "request('/investment-decision/overview')",
   'investmentDecisionSummaryCards',
-  'investmentDecisionBusinessChainRows',
   'investmentDecisionActionQueueRows',
-  'investmentDecisionPriorityClass',
-  'investmentDecisionSectionRows',
-  'investmentDecisionRiskRows',
-  'investmentDecisionRecordRows',
-  'investmentDecisionFormulaRows',
-  '业务闭环拆解',
-  '下一步动作队列',
-  'business_closure_chain',
-  'action_queue',
-]);
-
-includesAll('public/index.html', 'P4 frontend renders P0 gate as an explicit blocking state', frontend, [
-  "blocked_by_p0_ota_gate: 'P0未就绪'",
-  "'blocked_by_p0_ota_gate'",
-  'investmentDecisionOverview?.operating_data_gate?.status',
-  'investmentDecisionOverview?.business_closure_chain?.judgement_gate',
-]);
-
-includesAll('public/index.html', 'P4 frontend exposes backend action queue with fallback evidence gaps', frontend, [
-  'const investmentDecisionGapTitle = (gap) =>',
-  'const investmentDecisionGapAction = (gap) =>',
-  'const investmentDecisionActionQueueRows = computed(() =>',
-  'investmentDecisionOverview.value?.action_queue?.items',
-  'investmentDecisionOverview.value?.operating_data_gate?.missing_evidence',
-  'investmentDecisionRiskRows.value.forEach',
-  'sourceLabel: \'业务闭环\'',
-  'sourceLabel: \'经营准入\'',
-  'sourceLabel: \'风险提示\'',
 ]);
 
 excludesAll('public/system-static.js', 'P4 menu entry stays frozen while backend compatibility remains', systemStatic, [
@@ -169,7 +141,7 @@ includesAll('tests/InvestmentDecisionSupportServiceTest.php', 'P4 tests block P0
   'blocked_by_p0_ota_gate',
   'p0_ota_gate_not_ready',
   'closed_operating_data_missing',
-  'p0_ota_field_loop.ready + operation_execution.roi_ready + decision_record.readiness_ready',
+  'p0_ota_field_loop.ready + operating_loop_kernel.completed + operation_execution.roi_ready + decision_record.readiness_ready',
 ]);
 
 excludesAll('app/service/InvestmentDecisionSupportService.php', 'P4 service does not create or mutate persistence', service, [

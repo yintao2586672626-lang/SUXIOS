@@ -10,6 +10,32 @@ use PHPUnit\Framework\TestCase;
 
 final class PmsFactReconciliationServiceTest extends TestCase
 {
+    public function testLargeFinitePmsAmountsDoNotTurnIntoVerifiedZeroFacts(): void
+    {
+        $capture = $this->dingdandaoCapture(2, '2026-07-28 10:10:00', 1e308, 1e308, 1, 1, 100, 1e308);
+        $result = (new PmsFactReconciliationService())->summarize(80, '2026-07-28', [
+            DingdandaoOperatingTargetCaptureService::PROVIDER => $capture,
+        ], [], 1);
+        $facts = $result['sources'][DingdandaoOperatingTargetCaptureService::PROVIDER]['facts'];
+        foreach (['room_revenue', 'adr', 'revpar'] as $metric) {
+            self::assertSame(1e308, $facts[$metric]['value'], $metric);
+        }
+        json_encode($result, JSON_THROW_ON_ERROR);
+    }
+
+    public function testLargePmsPickupStaysFiniteAndOverflowedPaceStaysMissing(): void
+    {
+        $current = $this->dingdandaoCapture(2, '2026-07-28 10:01:00', 1e308, 1e308, 1, 1, 100, 1e308);
+        $previous = $this->dingdandaoCapture(1, '2026-07-28 10:00:00', 0, 0, 1, 1, 100, 0);
+        $result = (new PmsFactReconciliationService())->summarize(80, '2026-07-28', [
+            DingdandaoOperatingTargetCaptureService::PROVIDER => $current,
+        ], [DingdandaoOperatingTargetCaptureService::PROVIDER => [$current, $previous]], 1);
+        $delta = $result['source_deltas'][DingdandaoOperatingTargetCaptureService::PROVIDER];
+        self::assertSame(1e308, $delta['delta_vector']['room_revenue']);
+        self::assertNull($delta['pace']['room_revenue_per_hour']);
+        json_encode($result, JSON_THROW_ON_ERROR);
+    }
+
     public function testDualVerifiedSourcesKeepIndependentIdentityAndAlignComparableFacts(): void
     {
         $dingdandaoCurrent = $this->dingdandaoCapture(

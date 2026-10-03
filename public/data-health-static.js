@@ -2,17 +2,17 @@ window.SUXI_DATA_HEALTH_STATIC = (() => {
     const DATA_HEALTH_STATIC_CONTRACT_VERSION = '20260811-full-render-v1';
 
     const onlineDataQualityStatusText = (quality) => {
-        const status = quality?.status || 'ok';
-        if (status === 'error') return '异常';
-        if (status === 'warning') return '需复核';
-        return '完整';
+        if (String(quality?.status || '').trim().toLowerCase() === 'error') return '异常';
+        if (String(quality?.status || '').trim().toLowerCase() === 'warning') return '需复核';
+        if (String(quality?.status || '').trim().toLowerCase() === 'ok') return '完整';
+        return '未验证';
     };
 
     const onlineDataQualityStatusClass = (quality) => {
-        const status = quality?.status || 'ok';
-        if (status === 'error') return 'bg-red-50 text-red-700 border-red-200';
-        if (status === 'warning') return 'bg-amber-50 text-amber-700 border-amber-200';
-        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        if (String(quality?.status || '').trim().toLowerCase() === 'error') return 'bg-red-50 text-red-700 border-red-200';
+        if (String(quality?.status || '').trim().toLowerCase() === 'warning') return 'bg-amber-50 text-amber-700 border-amber-200';
+        if (String(quality?.status || '').trim().toLowerCase() === 'ok') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+        return 'bg-gray-50 text-gray-700 border-gray-200';
     };
 
     const onlineDataQualityPromptList = (quality, limit = 3) => {

@@ -854,11 +854,11 @@ test('public login keeps the same-origin transport warm without delaying submit'
   assert(warmupAwait < 0 || warmupAwait > loginRequest, 'connection warmup must never delay the login request');
 });
 
-test('dual OTA loss-chain grid follows the actual node count', () => {
-  assert.match(
-    style,
-    /grid-template-columns:\s*repeat\(var\(--dual-ota-loss-columns,\s*5\),\s*minmax\(0,\s*1fr\)\)/,
-  );
+test('retired dual OTA loss-chain grid has no active template or stylesheet entry', () => {
+  const template = fs.readFileSync('resources/frontend/app-template.html', 'utf8');
+  assert.doesNotMatch(template, /dual-ota-loss-node|dual-ota-loss-columns|home-ai-workbench/);
+  assert.doesNotMatch(style, /--dual-ota-loss-columns/);
+  assert.doesNotMatch(style, /data-current-page="ai-workbench"/);
 });
 
 test('authenticated dashboard defers secondary API requests beyond the first measurement window', () => {

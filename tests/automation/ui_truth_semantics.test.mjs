@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFrontendTestFileSync as readFileSync } from './helpers/retired_frontend_source.mjs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 
 const read = path => readFileSync(path, 'utf8');
 const appMain = read('public/app-main.js');
@@ -84,7 +85,7 @@ test('Ctrip field chain starts from its returned visitor stage without a duplica
   assert.match(appMain, /const dualOtaLossChainSubtitle = computed\(\(\) => \{[\s\S]*携程曝光字段未返回/);
   assert.match(dualOtaPage, /\{\{ dualOtaLossChainSubtitle \}\}/);
   assert.match(dualOtaPage, /--dual-ota-loss-columns/);
-  assert.match(appStyle, /repeat\(var\(--dual-ota-loss-columns, 5\), minmax\(82px, 1fr\)\)/);
+  assert.doesNotMatch(appStyle, /main\[data-current-page="ai-workbench"\]/);
 });
 
 test('home temporal cards do not coerce null into zero or probability confidence', () => {
@@ -184,25 +185,30 @@ test('revenue research UI presents scenarios and study plans, not causal promise
   assert.match(appMain, /研究输出已生成/);
 });
 
-test('expansion collaboration starts unverified and exposes the evidence needed for execution readiness', () => {
+test('retired collaboration preserves historical evidence labels without runtime state or helpers', () => {
   const api = loadWindowApi(simulationStatic, 'SUXI_SIMULATION_STATIC');
-  const project = api.createCollaborationProject('2026-08-31');
-  const tasks = api.buildCollaborationTasks('2026-08-31');
-
-  assert.equal(project.source_evidence, '');
-  assert.equal(project.review_status, 'pending');
-  assert.deepEqual(Array.from(tasks, task => task.name), ['市场调研', '物业评估', '合同谈判', '装修筹建', '证照办理', 'OTA上线', '运营交接']);
-  assert.ok(tasks.every(task => task.status === '待确认' && task.owner === '待分配' && task.due_date === ''));
-  assert.doesNotMatch(simulationStatic, /【示例】市场调研/);
+  assert.equal(api.createCollaborationProject, undefined);
+  assert.equal(api.buildCollaborationTasks, undefined);
+  assert.doesNotMatch(appMain, /collaborationProject|collaborationTasks|handleCollaborationEfficiency/);
   assert.match(collaborationPage, /v-model="collaborationProject\.source_evidence"/);
   assert.match(collaborationPage, /v-model="collaborationProject\.review_status"/);
   assert.match(collaborationPage, /示例值不能作为立项或执行依据/);
-  assert.match(appMain, /source_evidence: input\.source_evidence/);
-  assert.match(appMain, /review_status: input\.review_status/);
 });
 
-test('transfer source metrics keep whole-hotel reports separate from per-metric OTA truth', () => {
+test('retired transfer UI preserves historical scope labels while its active runtime cannot fetch or write transfer data', () => {
   const api = loadWindowApi(simulationStatic, 'SUXI_SIMULATION_STATIC');
+  for (const key of Object.keys(api)) assert.doesNotMatch(key, /^(?:transfer|buildTransfer|createTransfer|resolveTransfer)/);
+  assert.doesNotMatch(appMain, /transferSourceSnapshot|buildTransferSourceMetricRows|loadTransferSource|handleTransferPricing|handleTransferTiming|handleTransferDashboard|request\(['"]\/transfer/);
+  assert.match(transferContextPage, /全酒店经营日报与 OTA 渠道指标分开呈现/);
+  assert.match(transferContextPage, /onlineTruthStatusText\(row\.truth\)/);
+  assert.doesNotMatch(transferContextPage, /transferSourceSnapshot\.current\?\.(?:revenue|adr|occupancy_rate)/);
+});
+
+test('archived transfer metric oracle retains same-scope zero, missing and failed OTA evidence', () => {
+  const archived = JSON.parse(read('tests/fixtures/retired-transfer-source-20261002.json'));
+  assert.equal(archived.runtime, false);
+  assert.equal(createHash('sha256').update(archived.static_source).digest('hex'), archived.static_source_sha256);
+  const api = loadWindowApi(archived.static_source, 'SUXI_SIMULATION_STATIC');
   const snapshot = {
     hotel_id: 7,
     hotel_name: '虹桥样板店',
@@ -293,12 +299,4 @@ test('transfer source metrics keep whole-hotel reports separate from per-metric 
   assert.equal(failedOtaRevenue.truth.status, 'collection_failed');
   assert.match(failedOtaRevenue.truth.failure_reason, /capture_failed/);
 
-  assert.match(appMain, /const transferSourceMetricRows = computed/);
-  assert.match(appMain, /snapshot: transferSourceSnapshot\.value/);
-  assert.match(transferContextPage, /v-for="row in transferSourceMetricRows"/);
-  assert.match(transferContextPage, /transfer-source-metric-\$\{row\.key\}-calculation-status/);
-  assert.match(transferContextPage, /onlineTruthStatusText\(row\.truth\)/);
-  assert.match(transferContextPage, /<online-truth-summary :truth="row\.truth"/);
-  assert.match(transferContextPage, /全酒店经营日报与 OTA 渠道指标分开呈现/);
-  assert.doesNotMatch(transferContextPage, /transferSourceSnapshot\.current\?\.(?:revenue|adr|occupancy_rate)/);
 });
