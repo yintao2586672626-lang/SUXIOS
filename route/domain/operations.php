@@ -57,6 +57,15 @@ Route::group('api/booking-monitoring', function () {
     Route::get('/snapshots/:id', 'BookingMonitoring/readSnapshot')->completeMatch(true);
 })->middleware(\app\middleware\Auth::class);
 
+Route::group('api/operating-workbench', function () {
+    Route::get('/overview', 'OperatingWorkbench/overview')->completeMatch(true);
+    Route::get('/report', 'OperatingWorkbench/report')->completeMatch(true);
+    Route::get('/appeals', 'OperatingWorkbench/cases')->completeMatch(true);
+    Route::get('/booking', 'OperatingWorkbench/booking')->completeMatch(true);
+    Route::post('/snapshots', 'OperatingWorkbench/save')->completeMatch(true);
+    Route::get('/snapshots/:id', 'OperatingWorkbench/read')->completeMatch(true);
+})->middleware(\app\middleware\Auth::class);
+
 Route::group('api/operation', function () {
     Route::get('/full-data', 'OperationManagement/fullData');
     Route::post('/root-cause', 'OperationManagement/rootCause');

@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\CampaignOperationsService;
+use app\service\CampaignMarketingWeeklyService;
+use app\service\CampaignCreativePayloadService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\Response;
@@ -24,6 +26,31 @@ final class CampaignOperations extends Base
         return $this->handle(function (): array {
             [$tenantId, $hotelId] = $this->scope('operation.view');
             return $this->service->overview($tenantId, $hotelId, (string)$this->request->param('business_date', date('Y-m-d')));
+        });
+    }
+
+    public function weekly(): Response
+    {
+        return $this->handle(function (): array {
+            $raw = (string)$this->request->param('hotel_ids', '');
+            if (!preg_match('/^[1-9][0-9]*(?:,[1-9][0-9]*){0,99}$/', $raw)) throw new InvalidArgumentException('请选择同一租户的酒店范围');
+            $ids = array_values(array_unique(array_map('intval', explode(',', $raw))));
+            $tenant = null;
+            foreach ($ids as $id) {
+                [$hotelTenant] = $this->scope('operation.view', $id);
+                if ($tenant !== null && $hotelTenant !== $tenant) throw new RuntimeException('不能跨租户生成营销周榜', 403);
+                $tenant = $hotelTenant;
+            }
+            return (new CampaignMarketingWeeklyService())->overview((int)$tenant, $ids,
+                (string)$this->request->param('week_start', ''), (int)$this->request->param('rule_id', 0) ?: null);
+        });
+    }
+
+    public function creativeCapability(): Response
+    {
+        return $this->handle(function (): array {
+            [$tenantId, $hotelId] = $this->scope('operation.view');
+            return CampaignCreativePayloadService::capability() + ['tenant_id' => $tenantId, 'hotel_id' => $hotelId];
         });
     }
 

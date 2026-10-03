@@ -887,7 +887,7 @@
             });
         },
     };
-    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h418c853722';
+    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h1e53b291f2';
     // SUXI_HOTEL_LEARNING_BEGIN
     const HotelLearningWorkbench = Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript('components/system/hotel-learning-workbench.min.js?v=hotel-learning-h7acbb52ee7')

@@ -17,6 +17,8 @@ async function mount(page, initialTab = 'video') {
     await page.goto('http://campaign.test/');
     await page.addScriptTag({ path: vue });
     await page.addStyleTag({ path: path.join(root, 'public/tailwind.min.css') });
+    await page.addScriptTag({ path: path.join(root, 'public/components/system/campaign-local-media.js') });
+    await page.addScriptTag({ path: path.join(root, 'public/components/system/campaign-marketing-weekly.js') });
     await page.addScriptTag({ path: panel });
     await page.evaluate(initialTab => {
         window.fixtureRows = [];

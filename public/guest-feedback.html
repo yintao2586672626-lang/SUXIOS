@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer">
+<title>房间宾客反馈 · 宿析OS</title>
+<style>body{margin:0;padding:24px 16px;background:#f4f6f4;color:#1c3028;font:16px/1.6 Arial,sans-serif}main{max-width:600px;margin:auto;background:white;border:1px solid #d5dfd8;border-radius:14px;padding:24px}h1{font-size:28px}label{display:grid;gap:8px;margin:16px 0}input,select,textarea,button{font:inherit;box-sizing:border-box;width:100%;min-height:44px;border:1px solid #426c5b;border-radius:8px;padding:10px}textarea{min-height:150px;resize:vertical}button{background:#214c3d;color:white;cursor:pointer}button:disabled{opacity:.65;cursor:default}[role=alert]{color:#a83232}:focus-visible{outline:3px solid #b38c32;outline-offset:3px}</style>
+</head>
+<body><main><h1>房间宾客反馈</h1><p id="entry-status" role="status">正在检查反馈入口…</p><p id="error" role="alert" hidden></p><form id="feedback-form" hidden><p id="privacy"></p><label>反馈类型<select name="category"><option value="feedback">建议 / 反馈</option><option value="complaint">问题 / 客诉</option></select></label><label>反馈内容（请勿填写姓名、电话、证件号）<textarea name="summary" maxlength="1500" required></textarea></label><button type="submit">提交房间反馈</button><p>紧急事项请直接联系前台。本入口不提供员工账号登录或反馈记录查询。</p></form></main><script src="/guest-feedback.js"></script></body>
+</html>

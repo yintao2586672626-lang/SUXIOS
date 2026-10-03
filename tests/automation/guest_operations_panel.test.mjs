@@ -34,7 +34,7 @@ test('standard QR v6-L decodes through the installed independent ZXing WASM scan
     const scanner = await factory({ wasmBinary: binary });
     const context = { window: {}, TextEncoder }; vm.runInNewContext(qrSource, context);
     const options = { formats: '', tryHarder: true, tryRotate: true, tryInvert: true, tryDownscale: true, tryDenoise: false, binarizer: 2, isPure: true, downscaleFactor: 3, downscaleThreshold: 500, minLineCount: 2, maxNumberOfSymbols: 1, validateOptionalChecksum: false, returnErrors: false, eanAddOnSymbol: 0, textMode: 2, characterSet: 0, tryCode39ExtendedMode: true };
-    for (const url of ['http://127.0.0.1:8080/?page=operating-finance&workspace=guests&hotel_id=80&feedback_entry=room101', `https://hotel.example.test/?page=operating-finance&workspace=guests&hotel_id=12345&feedback_entry=${'a'.repeat(32)}`]) {
+    for (const url of ['http://127.0.0.1:8080/?page=operating-finance&workspace=guests&hotel_id=80&feedback_entry=room101', `https://hotel.example.test/?page=operating-finance&workspace=guests&hotel_id=12345&feedback_entry=${'a'.repeat(32)}`, `https://hotel.example.test/guest-feedback.html#${'a'.repeat(64)}`]) {
         const matrix = context.window.SUXI_GUEST_FEEDBACK_QR.encode(url), scale = 5, width = 49 * scale;
         const pixels = new Uint8Array(width * width).fill(255);
         matrix.forEach((row, y) => row.forEach((dark, x) => { if (dark) for (let dy = 0; dy < scale; dy++) for (let dx = 0; dx < scale; dx++) pixels[((y + 4) * scale + dy) * width + (x + 4) * scale + dx] = 0; }));
