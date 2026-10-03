@@ -21,7 +21,7 @@ const splitMbThreshold = numberArg(args.splitMbThreshold, 1);
 const topLimit = Math.max(1, numberArg(args.top, 12));
 
 const codeExtensions = new Set(['.php', '.html', '.js', '.mjs', '.ts', '.tsx', '.vue', '.css', '.scss', '.py', '.ps1', '.sh']);
-const textExtensions = new Set([...codeExtensions, '.md', '.json', '.xml', '.yml', '.yaml', '.sql', '.txt', '.env', '.example']);
+const textExtensions = new Set([...codeExtensions, '.md', '.json', '.xml', '.yml', '.yaml', '.sql', '.txt', '.example']);
 const splitDispositions = loadSplitDispositions();
 
 const trackedFiles = listTrackedFiles();
@@ -113,7 +113,9 @@ function loadSplitDispositions() {
   }
 
   try {
-    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const content = safeReadText(file);
+    if (content === null) throw new Error('Split disposition path is unreadable, protected, or linked.');
+    const data = JSON.parse(content);
     const accepted = Array.isArray(data.accepted) ? data.accepted : [];
     for (const item of accepted) {
       const itemPath = normalizePath(item?.path || '');
@@ -219,6 +221,7 @@ function measureLineStats(files) {
   const code = emptyLineSummary();
   const text = emptyLineSummary();
   for (const relativePath of files) {
+    if (isProtectedAuditPath(relativePath)) continue;
     const extension = path.extname(relativePath).toLowerCase();
     const absolutePath = path.join(repoRoot, relativePath);
     const stat = safeStat(absolutePath);
@@ -362,9 +365,19 @@ function countNonblankLines(content) {
   return content.split(/\r\n|\n|\r/).filter((line) => line.trim().length > 0).length;
 }
 
+function isProtectedAuditPath(relativePath) {
+  const normalized = normalizePath(relativePath);
+  return /^(?:storage|output|reports|database\/backups)(?:\/|$)/i.test(normalized)
+    || /(?:^|\/)(?:\.env(?:\..*)?|auth\.json|cookies?(?:\.[^/]*)?|session[-_]tokens?(?:\.[^/]*)?|ctrip_profile_[^/]*|meituan_profile_[^/]*|browser[-_]profiles?)(?:\/|$)/i.test(normalized);
+}
+
 function safeReadText(absolutePath) {
+  if (isProtectedAuditPath(path.relative(repoRoot, absolutePath))) return null;
   try {
-    const buffer = fs.readFileSync(absolutePath);
+    if (!isUnlinkedAuditPath(absolutePath)) return null;
+    const resolved = fs.realpathSync(absolutePath);
+    if (isProtectedAuditPath(path.relative(repoRoot, resolved))) return null;
+    const buffer = fs.readFileSync(resolved);
     if (buffer.includes(0)) {
       return null;
     }
@@ -405,7 +418,6 @@ function measureTopLevel() {
 
 function measureCleanupTargets() {
   const candidates = [
-    'output',
     'test-results',
     '.pytest_cache',
     '.gstack',
@@ -421,40 +433,8 @@ function measureCleanupTargets() {
   for (const runtimeName of runtimeCleanupNames) {
     candidates.push(path.join('runtime', runtimeName));
   }
-  const storagePath = path.join(repoRoot, 'storage');
-  if (safeStat(storagePath)?.isDirectory()) {
-    for (const entry of fs.readdirSync(storagePath, { withFileTypes: true })) {
-      if (entry.isDirectory() && /^(ctrip_profile_phpunit|meituan_profile_phpunit)/.test(entry.name)) {
-        candidates.push(path.join('storage', entry.name));
-      }
-      if (entry.isDirectory() && /^(ctrip_profile_|meituan_profile_)/.test(entry.name)) {
-        candidates.push(...collectProfileCacheCandidates(path.join('storage', entry.name)));
-      }
-      if (entry.isFile() && entry.name.endsWith('.log')) {
-        candidates.push(path.join('storage', entry.name));
-      }
-    }
-  }
-  const reportsPath = path.join(repoRoot, 'reports');
-  if (safeStat(reportsPath)?.isDirectory()) {
-    for (const entry of fs.readdirSync(reportsPath, { withFileTypes: true })) {
-      if (!entry.isFile()) {
-        continue;
-      }
-      if (
-        /^ctrip_browser_capture_.*\.json$/.test(entry.name)
-        || /^meituan_browser_capture_.*\.json$/.test(entry.name)
-        || /^ctrip_capture_target_.*\.json$/.test(entry.name)
-      ) {
-        candidates.push(path.join('reports', entry.name));
-      }
-    }
-  }
   if (includeDependencies) {
     candidates.push('node_modules', 'vendor');
-  }
-  if (includeSensitiveBackups) {
-    candidates.push(path.join('database', 'backups'));
   }
 
   const uniqueCandidates = [...new Set(candidates.map((candidate) => normalizePath(candidate)))];
@@ -484,54 +464,14 @@ function measureCleanupTargets() {
   };
 }
 
-function collectProfileCacheCandidates(profileRelativePath) {
-  const cacheRelativePaths = [
-    path.join('Default', 'Cache'),
-    path.join('Default', 'Code Cache'),
-    path.join('Default', 'Service Worker', 'CacheStorage'),
-    path.join('Default', 'Service Worker', 'ScriptCache'),
-    path.join('Default', 'GPUCache'),
-    path.join('Default', 'DawnGraphiteCache'),
-    path.join('Default', 'DawnWebGPUCache'),
-    'GrShaderCache',
-    'ShaderCache',
-    'GraphiteDawnCache',
-  ];
-  const candidates = [];
-  for (const relativePath of cacheRelativePaths) {
-    candidates.push(path.join(profileRelativePath, relativePath));
-  }
-
-  const profileAbsolutePath = path.join(repoRoot, profileRelativePath);
-  const stack = [profileAbsolutePath];
-  while (stack.length > 0) {
-    const current = stack.pop();
-    let entries = [];
-    try {
-      entries = fs.readdirSync(current, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-
-    for (const entry of entries) {
-      const absolutePath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        stack.push(absolutePath);
-      } else if (entry.isFile() && entry.name.startsWith('BrowserMetrics')) {
-        candidates.push(path.relative(repoRoot, absolutePath));
-      }
-    }
-  }
-
-  return candidates;
-}
-
 function measurePath(absolutePath) {
   let bytes = 0;
   let files = 0;
   const stack = [absolutePath];
   while (stack.length > 0) {
     const current = stack.pop();
+    const relative = normalizePath(path.relative(repoRoot, current));
+    if (relative === 'storage' || relative.startsWith('storage/') || /(?:^|\/)\.env(?:\..*)?$/.test(relative)) continue;
     const stat = safeLstat(current);
     if (!stat) {
       continue;
@@ -603,7 +543,8 @@ function resolveStatus({ cleanup, git, splitCandidates, splitDispositions, dirty
 
 function safeStat(absolutePath) {
   try {
-    return fs.statSync(absolutePath);
+    if (!isUnlinkedAuditPath(absolutePath)) return null;
+    return fs.lstatSync(absolutePath);
   } catch {
     return null;
   }
@@ -611,10 +552,24 @@ function safeStat(absolutePath) {
 
 function safeLstat(absolutePath) {
   try {
+    if (!isUnlinkedAuditPath(absolutePath)) return null;
     return fs.lstatSync(absolutePath);
   } catch {
     return null;
   }
+}
+
+function isUnlinkedAuditPath(absolutePath) {
+  if (!isInsideRepo(absolutePath)) return false;
+  let cursor = path.resolve(absolutePath);
+  while (true) {
+    if (fs.lstatSync(cursor).isSymbolicLink()) return false;
+    if (path.relative(repoRoot, cursor) === '') break;
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return false;
+    cursor = parent;
+  }
+  return isInsideRepo(fs.realpathSync(absolutePath));
 }
 
 function isInsideRepo(absolutePath) {

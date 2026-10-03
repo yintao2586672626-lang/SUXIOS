@@ -44,6 +44,7 @@ foreach ($routes as $key => $route) {
 }
 
 echo "Route coverage check\n";
+echo "Route manifests scanned: " . count($routeFiles) . PHP_EOL;
 echo "Controllers scanned: " . count(array_unique(array_column($actions, 'controller'))) . PHP_EOL;
 echo "Public actions scanned: " . count($actions) . PHP_EOL;
 echo "Route targets scanned: " . count($routes) . PHP_EOL;
@@ -76,34 +77,37 @@ exit(0);
  */
 function registeredRouteFiles(string $routeDir): array
 {
+    // ThinkPHP Http::loadRoutes automatically includes every root route/*.php.
+    // Domain manifests are still required explicitly by one of those roots.
+    $rootRouteFiles = glob($routeDir . DIRECTORY_SEPARATOR . '*.php') ?: [];
+    sort($rootRouteFiles);
     $bootstrapPath = $routeDir . DIRECTORY_SEPARATOR . 'app.php';
-    $bootstrap = file_get_contents($bootstrapPath);
-    if (!is_string($bootstrap)) {
-        throw new RuntimeException("Unable to read route bootstrap: {$bootstrapPath}");
+    if (!in_array($bootstrapPath, $rootRouteFiles, true)) {
+        throw new RuntimeException("Route bootstrap is missing: {$bootstrapPath}");
     }
-
-    preg_match_all(
-        "/require __DIR__ \\. '\/domain\/([a-z0-9_]+\\.php)';/",
-        $bootstrap,
-        $manifestMatches
-    );
-    // Http::loadRoutes automatically loads each root route/*.php manifest.
-    $rootFiles = glob($routeDir . DIRECTORY_SEPARATOR . '*.php');
-    if ($rootFiles === false) {
-        throw new RuntimeException("Unable to discover root route manifests: {$routeDir}");
-    }
-    $files = array_values(array_unique([$bootstrapPath, ...$rootFiles]));
+    $files = $rootRouteFiles;
     $registeredDomainFiles = [];
-    foreach ($manifestMatches[1] as $fileName) {
-        $domainFile = $routeDir . DIRECTORY_SEPARATOR . 'domain' . DIRECTORY_SEPARATOR . $fileName;
-        if (in_array($domainFile, $registeredDomainFiles, true)) {
-            throw new RuntimeException("Duplicate route domain manifest registration: {$fileName}");
+    foreach ($rootRouteFiles as $rootRouteFile) {
+        $source = file_get_contents($rootRouteFile);
+        if (!is_string($source)) {
+            throw new RuntimeException("Unable to read root route file: {$rootRouteFile}");
         }
-        if (!is_file($domainFile)) {
-            throw new RuntimeException("Registered route domain manifest is missing: {$fileName}");
+        preg_match_all(
+            "/require __DIR__ \\. '\/domain\/([a-z0-9_]+\\.php)';/",
+            $source,
+            $manifestMatches
+        );
+        foreach ($manifestMatches[1] as $fileName) {
+            $domainFile = $routeDir . DIRECTORY_SEPARATOR . 'domain' . DIRECTORY_SEPARATOR . $fileName;
+            if (in_array($domainFile, $registeredDomainFiles, true)) {
+                throw new RuntimeException("Duplicate route domain manifest registration: {$fileName}");
+            }
+            if (!is_file($domainFile)) {
+                throw new RuntimeException("Registered route domain manifest is missing: {$fileName}");
+            }
+            $registeredDomainFiles[] = $domainFile;
+            $files[] = $domainFile;
         }
-        $registeredDomainFiles[] = $domainFile;
-        $files[] = $domainFile;
     }
 
     $discoveredDomainFiles = glob($routeDir . DIRECTORY_SEPARATOR . 'domain' . DIRECTORY_SEPARATOR . '*.php') ?: [];
@@ -162,7 +166,7 @@ function collectControllerActions(string $controllerDir, array $ignoredControlle
 function collectRouteActions(array $routeFiles, string $root): array
 {
     $routes = [];
-    $pattern = '/Route::(?:get|post|put|delete|patch|any|rule)\s*\(\s*([\'"])(?:(?!\1).)*\1\s*,\s*([\'"])([A-Za-z_][A-Za-z0-9_.]*\/[A-Za-z_][A-Za-z0-9_]*)\2/s';
+    $pattern = '/Route::(?:get|post|put|delete|patch|any|rule|head|options)\s*\(\s*([\'"])(?:(?!\1).)*\1\s*,\s*([\'"])([A-Za-z_][A-Za-z0-9_.]*\/[A-Za-z_][A-Za-z0-9_]*)\2/s';
 
     foreach ($routeFiles as $routeFile) {
         $content = file_get_contents($routeFile);

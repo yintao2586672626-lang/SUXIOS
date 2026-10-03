@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import * as Vue from 'vue';
 import { compile } from '@vue/compiler-dom';
 import { renderToString } from '@vue/server-renderer';
+import { readFrontendTestSource, retiredFrontendManifest } from './helpers/retired_frontend_source.mjs';
 
 const files = {
   main: process.env.TRANSFER_SOURCE_MAIN_PATH || 'public/app-main.js', system: 'public/system-static.js', simulation: 'public/simulation-static.js',
@@ -12,12 +14,35 @@ const files = {
   pricing: 'resources/frontend/templates/fragments/09-page-asset-pricing.html',
   timing: 'resources/frontend/templates/fragments/10-page-timing-strategy.html',
 };
-const raw = Object.fromEntries(Object.entries(files).map(([k, path]) => [k, readFileSync(path, 'utf8')]));
+const raw = Object.fromEntries(Object.entries(files).map(([k, path]) => [k,
+  ['context', 'pricing', 'timing'].includes(k) ? readFrontendTestSource(path) : readFileSync(path, 'utf8'),
+]));
+const retired = JSON.parse(readFileSync(new URL('../fixtures/retired-transfer-recovery-20261002.json', import.meta.url), 'utf8'));
+const base = JSON.parse(readFileSync(new URL('../fixtures/retired-transfer-source-20261002.json', import.meta.url), 'utf8'));
+const sha256 = text => createHash('sha256').update(text).digest('hex');
+for (const fixture of [retired, base]) {
+  assert.equal(fixture.runtime, false, 'historical transfer oracle cannot enter runtime');
+  assert.equal(fixture.source_commit, 'd3e53e176d86d74f7868297125772116f666b3e4');
+}
+assert.equal(sha256(base.static_source), base.static_source_sha256);
+assert.equal(base.static_source_sha256, retired.base_static_source_sha256);
+for (const [key, text] of Object.entries(retired.segments)) {
+  assert.equal(sha256(text), retired.segment_sha256[key], `pinned historical segment: ${key}`);
+  assert.equal(Buffer.byteLength(text), retired.segment_bytes[key]);
+}
+const archivedSimulation = base.static_source + '\n' + retired.segments.staticSource;
 const source = raw.main.replaceAll('\r\n', '\n');
 const extract = (start, end) => {
   const a = source.indexOf(start), b = source.indexOf(end, a + start.length);
   assert.ok(a >= 0 && b > a, `source boundaries: ${start}`);
   return source.slice(a, b);
+};
+const withHistoricalTransferBinding = live => {
+  const bindingEnd = '            ];';
+  const resetEnd = '            };\n            const syncUnifiedHotelContexts =';
+  assert.ok(live.includes(bindingEnd) && live.includes(resetEnd), 'active unified context boundaries');
+  return live.replace(bindingEnd, '                ' + retired.segments.unifiedBinding + ',\n' + bindingEnd)
+    .replace(resetEnd, '                ' + retired.segments.unifiedReset.replaceAll('\n', '\n                ') + '\n' + resetEnd);
 };
 const parts = {
   businessContext: extract('            const BUSINESS_CONTEXT_ENDPOINT_PREFIXES =', '            const userHasPermission ='),
@@ -26,10 +51,19 @@ const parts = {
   coordinatorAndAdapter: extract('            const COORDINATED_GET_MAX_CONCURRENCY =', '            // API 请求'),
   request: extract('            const request = async (', '            const apiRequest = request;'),
   hotelOptions: extract('            const reportHotelOptionExists =', '            const resolveDefaultReportHotelId ='),
-  transferRefs: extract('            const transferPricingForm = ref({});', '            const transferAiModelOptions ='),
-  loadSource: extract('            const applyDefinedFields =', '            const loadTransferRecords ='),
-  unified: extract('            const unifiedHotelContextBindings =', '            return {'),
+  transferRefs: retired.segments.transferRefs,
+  loadSource: retired.segments.loadSource,
+  unified: withHistoricalTransferBinding(extract('            const unifiedHotelContextBindings =', '            return {')),
 };
+test('historical transfer source scope oracle stays archived and absent from live runtime', () => {
+  assert.doesNotMatch(raw.main, /\b(?:loadTransferSource|loadTransferRecords|loadTransferDetail|reuseTransferRecord|transferPricingForm|transferSourceSnapshot)\b/);
+  const live = vm.createContext({ window: {} });
+  vm.runInContext(raw.simulation, live);
+  for (const key of Object.keys(live.window.SUXI_SIMULATION_STATIC)) assert.doesNotMatch(key, /^(?:transfer|buildTransfer|createTransfer|resolveTransfer)/);
+  for (const id of ['shared-transfer-context', 'page-asset-pricing', 'page-timing-strategy']) {
+    assert.equal(retiredFrontendManifest.fragments.find(fragment => fragment.id === id)?.runtime, false);
+  }
+});
 const render = new Function('Vue', compile(raw.context + raw.pricing + raw.timing, { mode: 'function', prefixIdentifiers: true }).code)(Vue);
 const tick = async () => { await Vue.nextTick(); await new Promise(resolve => setImmediate(resolve)); };
 const check = (value, description) => assert.ok(value, description);
@@ -64,15 +98,15 @@ function harness({ delayStatic = false, page = 'asset-pricing' } = {}) {
       requests.push({ url, options, resolve, reject });
     }),
   };
-  // Execute the complete original unified binding/watch/reset block. Only unrelated
-  // modules receive empty ref/counter fixtures; no transfer statement is replaced.
+  // Execute the active unified watcher/reset block with the pinned historical
+  // transfer binding and reset statements. Unrelated modules use empty refs.
   const transferDeclared = new Set([...parts.transferRefs.matchAll(/const (\w+) =/g)].map(m => m[1]));
   for (const [, name] of parts.unified.matchAll(/\b(\w+)\.value/g)) {
     if (!(name in sandbox) && !transferDeclared.has(name)) sandbox[name] = Vue.ref({ hotel_id: '7' });
   }
   for (const [, name] of parts.unified.matchAll(/\b(\w+)\s*\+=\s*1/g)) sandbox[name] = 0;
   vm.createContext(sandbox);
-  vm.runInContext(raw.system + '\n' + raw.simulation, sandbox);
+  vm.runInContext(raw.system + '\n' + archivedSimulation, sandbox);
   sandbox.appSystemStatic = sandbox.window.SUXI_SYSTEM_STATIC;
   sandbox.requireAppSystemStatic = name => sandbox.appSystemStatic[name];
   sandbox.requireSimulationStatic = name => sandbox.window.SUXI_SIMULATION_STATIC[name];

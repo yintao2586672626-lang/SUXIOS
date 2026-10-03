@@ -1,0 +1,79 @@
+--- a/tests/RouteDomainManifestContractTest.php
++++ b/tests/RouteDomainManifestContractTest.php
+@@ -155,6 +155,9 @@
+             'route/domain/ai_governance.php',
+             'route/domain/investment.php',
+             'route/domain/operations.php',
++            'route/domain/business_workspace.php',
++            'route/domain/guest_operations.php',
++            'route/domain/campaign_operations.php',
+             'route/domain/wecom_admin.php',
+             'route/domain/wecom_api.php',
+             'route/domain/agent_guidance.php',
+
+--- a/rules/source-concern-contract-registry.json
++++ b/rules/source-concern-contract-registry.json
+@@ -57,7 +57,8 @@
+     "app/service/RevenueAiOverviewService.php": [
+       "app/service/concern/RevenueAiOverviewLabelConcern.php",
+       "app/service/concern/RevenueAiOverviewManualOrderConcern.php",
+-      "app/service/concern/RevenueAiOverviewOtaStructureSignalConcern.php"
++      "app/service/concern/RevenueAiOverviewOtaStructureSignalConcern.php",
++      "app/service/concern/RevenueAiOverviewCompetitorSignalConcern.php"
+     ],
+     "scripts/report_business_chain_status.php": [
+       "scripts/lib/business_chain_p0_scope.php"
+
+--- a/scripts/lib/source_hotspot_budget.mjs
++++ b/scripts/lib/source_hotspot_budget.mjs
+@@ -66,6 +66,7 @@
+   { path: 'app/service/concern/RevenueAiOverviewLabelConcern.php', max_lines: 50, boundary: 'Revenue AI overview label mapping' },
+   { path: 'app/service/concern/RevenueAiOverviewManualOrderConcern.php', max_lines: 174, boundary: 'manual-order exact readback, source identity, and nullable channel summaries' },
+   { path: 'app/service/concern/RevenueAiOverviewOtaStructureSignalConcern.php', max_lines: 190, boundary: 'OTA booking-window ADR and channel-month signals with independent scope and exact-readback evidence' },
++  { path: 'app/service/concern/RevenueAiOverviewCompetitorSignalConcern.php', max_lines: 105, boundary: 'paired competitor price signal evidence and pricing readiness gates' },
+   { path: 'scripts/lib/business_chain_p0_scope.php', max_lines: 742, boundary: 'pure P0 hotel/date identity, readback coverage, and source-quality projections' },
+   { path: 'scripts/lib/ctrip_profile_panel_contract.mjs', max_lines: 42, boundary: 'Ctrip profile panel source and compiled lazy-render contract' },
+   { path: 'route/app.php', max_lines: 500, ratchet_max_lines: 773, boundary: 'legacy route bootstrap; AI daily reports, Agent guidance, AI governance, operations, and WeCom including manual notifications extracted; zero-growth until the next authenticated domain manifest' },
+
+--- a/scripts/cloud_hotel_id_column_registry.php
++++ b/scripts/cloud_hotel_id_column_registry.php
+@@ -27,6 +27,7 @@
+         ['daily_reports', 'hotel_id', 'hotel_id'],
+         ['monthly_tasks', 'hotel_id', 'hotel_id'],
+         ['ai_daily_reports', 'hotel_id', 'hotel_id'],
++        ['ai_report_presentation_reviews', 'hotel_id', 'hotel_id'],
+         ['ai_model_call_logs', 'hotel_id', 'hotel_id'],
+         ['online_daily_data', 'system_hotel_id', 'canonical_foreign_key'],
+         ['ota_ctrip_metric_facts', 'system_hotel_id', 'canonical_foreign_key'],
+@@ -168,6 +169,8 @@
+         ['wecom_task_receipts', 'hotel_id', 'hotel_id'],
+         ['ota_settlement_import_batches', 'hotel_id', 'hotel_id'],
+         ['hotel_on_books_snapshots', 'hotel_id', 'hotel_id'],
++        ['hotel_room_type_on_books_snapshots', 'hotel_id', 'hotel_id'],
++        ['hotel_operating_evidence_snapshots', 'hotel_id', 'hotel_id'],
+         ['hotel_demand_event_facts', 'hotel_id', 'hotel_id'],
+         ['hotel_monthly_operating_finance_snapshots', 'hotel_id', 'hotel_id'],
+         // Optional new business ledgers use the canonical SUXIOS hotel identity.
+@@ -196,6 +199,7 @@
+         ['wecom_task_receipts', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+         ['ota_settlement_import_batches', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+         ['hotel_on_books_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
++        ['hotel_room_type_on_books_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+         ['hotel_demand_event_facts', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+         ['hotel_monthly_operating_finance_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+         // OTA/competitor/provider identifiers are not SUXIOS system hotel IDs.
+
+--- a/database/migration_checksums.lock.json
++++ b/database/migration_checksums.lock.json
+@@ -223,7 +223,10 @@
+     "20260908_remove_duplicate_online_daily_trust_index.sql": "4fa93f160c3d8f8e0a0626c8239254401c3f5e94263cc1f9bf156128c27be556",
+     "20260926_create_manager_coaching.sql": "e396d540f0dc2978b10fc819478cf18c796151ec4936b670ff412b56539a121d",
+     "20260908_create_operation_task_workflow.sql": "455fe679ff17860256ff9bac515ae0977edac17f322806d37b3f324a3f232b18",
+-    "20260908_create_promotion_experiment_versions.sql": "3a6f9dbd9afdd12b6eb35db99a220a358d0a47e7488de2564e2485fcc2f78954"
++    "20260908_create_promotion_experiment_versions.sql": "3a6f9dbd9afdd12b6eb35db99a220a358d0a47e7488de2564e2485fcc2f78954",
++    "20261002_create_operating_evidence_snapshots.sql": "5bc7b5bf8b0329207f1b0362f75bea9298473a832c05b695344b8a1083efd852",
++    "20261002_create_room_type_on_books_snapshots.sql": "e65bc37f410f7edf99b9431a883458b9bfefea372f23e908fbc7a26412677c8e",
++    "20261002_create_ai_report_presentation_reviews.sql": "32dadf8990bf355050f601972e36defa0fb9da625b64f388f923b869a57edb23"
+   },
+   "frozen_sources": {
+     "database/complaint_tables.sql": "0b691d925eca181aaffe7281e89855f662a2741fe92e7f673adedcbb4c630e66",

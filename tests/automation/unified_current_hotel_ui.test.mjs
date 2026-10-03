@@ -36,11 +36,12 @@ test('ordinary hotel selectors share one system context while OTA project hotels
     'aiDailyReportForm.value.hotel_id',
     'operationOptimizerFilter.value.hotel_id',
     'revenueResearchHotelId.value',
-    'aiFeasibilityHotelId.value',
-    'transferSelectedHotelId.value',
     'otaDiagnosisForm.value.hotel_id',
   ]) {
     assert.ok(bindings.includes(expectedBinding), `missing unified hotel binding: ${expectedBinding}`);
+  }
+  for (const retiredBinding of ['aiFeasibilityHotelId', 'transferSelectedHotelId', 'expansionExecutionHotelId']) {
+    assert.doesNotMatch(source, new RegExp(`\\b${retiredBinding}\\b`), `retired hotel state must not remain in active runtime: ${retiredBinding}`);
   }
 
   for (const platformScopedBinding of [
@@ -118,9 +119,10 @@ test('switching the current hotel invalidates old-store results instead of displ
   assert.match(resetResults, /operatingTargetResult\.value = null/);
   assert.match(resetResults, /operationOptimizerData\.value = null/);
   assert.match(resetResults, /otaDiagnosisResult\.value = null/);
-  assert.match(resetResults, /aiFeasibilityResult\.value = null/);
-  assert.match(resetResults, /transferSourceSnapshot\.value = null/);
-  assert.match(resetResults, /transferPricingResult\.value = null/);
+  for (const requestSequence of ['coreOperationsRequestSeq', 'hotelDashboardRequestSeq', 'aiDailyReportRequestSeq', 'aiDailyReportGenerationRequestSeq', 'operationOptimizerRequestSeq', 'operatingMemoryRequestSeq', 'operatingGrowthRequestSeq']) {
+    assert.match(resetResults, new RegExp(`${requestSequence} \\+= 1`), `${requestSequence} must invalidate an old hotel's in-flight response`);
+  }
+  assert.doesNotMatch(source, /\b(?:aiFeasibilityResult|transferSourceSnapshot|transferPricingResult)\b/);
 });
 
 test('ordinary page defaults use only the explicit system current hotel', () => {
@@ -148,10 +150,6 @@ test('ordinary page defaults use only the explicit system current hotel', () => 
     'const homeTemporalSelectedHotelId = computed(() => {',
     'const homeTemporalPastMetric = computed',
   );
-  const transferDefault = sliceBetween(
-    'const defaultTransferHotelId = () => {',
-    'const resolveTransferHotelId =',
-  );
   const dashboardLoad = sliceBetween(
     'const loadHotelDataDashboard = async () => {',
     'const dataHealthLightCacheKey =',
@@ -168,10 +166,6 @@ test('ordinary page defaults use only the explicit system current hotel', () => 
     'watch(revenueResearchHotelOptions, (options) => {',
     'const revenueResearchSteps = ref',
   );
-  const feasibilityDefault = sliceBetween(
-    'watch(aiFeasibilityHotelOptions, (options) => {',
-    'watch(aiFeasibilityHotelId,',
-  );
   const otaPlatformWatch = sliceBetween(
     'watch(() => otaDiagnosisForm.value.platform',
     'const setOtaDiagnosisRange =',
@@ -187,14 +181,11 @@ test('ordinary page defaults use only the explicit system current hotel', () => 
   assert.doesNotMatch(manualNotificationContext, /operationHotelOptions\.value\[0\]|length === 1/);
   assert.match(homeTemporalDefault, /return String\(filterReportHotel\.value \|\| ''\)\.trim\(\)/);
   assert.doesNotMatch(homeTemporalDefault, /permittedHotels|hotels\.value|\[0\]|length === 1/);
-  assert.match(transferDefault, /filterReportHotel\.value/);
-  assert.match(transferDefault, /transferHotelOptions\.value[\s\S]*\.some\(/);
-  assert.doesNotMatch(transferDefault, /\[0\]|length === 1/);
+  assert.doesNotMatch(source, /\b(?:defaultTransferHotelId|resolveTransferHotelId|transferHotelOptions|aiFeasibilityHotelOptions)\b/);
   assert.match(dashboardLoad, /dashboardHotelId\.value \|\| filterReportHotel\.value \|\| ''/);
   assert.doesNotMatch(dashboardLoad, /getAutoFetchHotelId\(\)/);
   assert.doesNotMatch(optimizerDefault, /autoFetchHotelId|options\[0\]/);
   assert.doesNotMatch(optimizerLoad, /optionsList\[0\]/);
   assert.doesNotMatch(revenueDefault, /options\[0\]/);
-  assert.doesNotMatch(feasibilityDefault, /normalized\[0\]/);
   assert.match(otaPlatformWatch, /reportHotelOptionExists\(systemHotelId\) \? systemHotelId : ''/);
 });

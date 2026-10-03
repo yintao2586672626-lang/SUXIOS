@@ -1,7 +1,7 @@
 import { readSourceAggregate as readStaticContractSource } from '../../scripts/lib/source_aggregate.mjs';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { readFileSync } from 'node:fs';
+import { readFrontendTestFileSync as readFileSync } from './helpers/retired_frontend_source.mjs';
 import test from 'node:test';
 import vm from 'node:vm';
 
@@ -261,7 +261,7 @@ test('frozen AI workbench logic retains per-account hotel order and manual captu
 
 test('business date defaults and filenames use local calendar dates', () => {
   const appBusinessDateSections = [
-    sliceBetween(appMain, 'const operationToday', 'const lifecycleMetricLabels'),
+    sliceBetween(appMain, 'const operationToday', 'const operationFullData'),
     sliceBetween(appMain, 'const priceSuggestionFilter', 'const manualCtripPricingInputMeta'),
     sliceBetween(appMain, 'const forecastFilter', 'const createDemandForecastForm'),
     sliceBetween(appMain, 'const competitorFilter', 'const createCompetitorPriceForm'),
@@ -315,10 +315,8 @@ test('frontend fallbacks keep missing risk and forecast metrics unknown instead 
   assert.match(appTemplate, /\{\{ card\.truthDetail \}\}/);
 });
 
-test('frozen feasibility source retains the target hotel truth boundary', () => {
-  const feasibilityFlow = sliceBetween(appMain, 'const buildFeasibilityPayload', 'const createFeasibilityExecutionIntent');
-  assert.match(feasibilityFlow, /hotel_id:\s*Number\(aiFeasibilityHotelId\.value \|\| 0\) \|\| null/);
-  assert.match(feasibilityFlow, /record\.input\.hotel_id \|\| record\.input\.system_hotel_id/);
+test('retired feasibility retains its historical truth labels without runtime forms or mutations', () => {
+  assert.doesNotMatch(appMain, /buildFeasibilityPayload|createFeasibilityExecutionIntent|aiFeasibilityHotelId|\/agent\/feasibility-report\//);
   assert.doesNotMatch(appTemplate, /data-testid="feasibility-target-hotel"/);
   assert.match(frozenFeasibilityTemplate, /data-testid="feasibility-target-hotel"/);
   assert.match(frozenFeasibilityTemplate, /未绑定门店（仅未验证情景）/);

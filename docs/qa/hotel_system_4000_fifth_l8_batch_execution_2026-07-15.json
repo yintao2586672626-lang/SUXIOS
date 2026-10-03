@@ -4,7 +4,7 @@
   "batch": "fifth",
   "generated_at": "2026-07-16T10:09:03.455Z",
   "runner": "node:scripts/run_hotel_diagnostic_l8_batch.mjs/phpunit-per-case/batch=fifth",
-  "source_matrix": "docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl",
+  "source_matrix": "docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl.gz",
   "execution_ledger": "docs/qa/hotel_system_4000_execution_evidence_2026-07-15.json",
   "execution_boundary": {
     "automated_scope": "Each case is independently executed with one PHPUnit --filter invocation and must parse as exactly one test.",

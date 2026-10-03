@@ -72,571 +72,6 @@ window.SUXI_SIMULATION_STATIC = (() => {
         insuranceTaxCost: 6000,
         adminMiscCost: 15000,
     };
-    const benchmarkModelDetailFields = [
-        { key: 'competitor_count', label: '竞品数量（家）' },
-        { key: 'avg_competitor_price', label: '竞品均价（元）' },
-        { key: 'avg_competitor_score', label: '竞品均分', step: 0.1 },
-        { key: 'avg_review_count', label: '平均点评量' },
-        { key: 'ota_heat_index', label: 'OTA热度指数' },
-        { key: 'traffic_radius_km', label: '采样半径（km）', step: 0.1 },
-    ];
-    const collaborationStatusOptions = ['待确认', '未开始', '进行中', '已完成', '风险'];
-    const expansionRecordPageTypes = {
-        'market-evaluation': 'market',
-        'market-eval': 'market',
-        'benchmark-model': 'benchmark',
-        'collaboration-efficiency': 'collaboration',
-        'sync-efficiency': 'collaboration',
-    };
-    const createBenchmarkModelForm = () => ({
-        city: '上海',
-        business_area: '【示例数据】核心商务区',
-        target_price_band: '220-320',
-        hotel_type: '中端商务',
-        target_room_count: 72,
-        competitor_count: 16,
-        avg_competitor_price: 268,
-        avg_competitor_score: 4.6,
-        avg_review_count: 420,
-        ota_heat_index: 86,
-        traffic_radius_km: 3,
-    });
-    const createCollaborationProject = (expectedOnlineDate = '') => ({
-        project_name: '【示例数据】新店扩张项目（不可用于真实决策）',
-        city_area: '【示例】上海核心商务区',
-        current_stage: '筹建',
-        owner: '项目负责人',
-        expected_online_date: expectedOnlineDate,
-        source_evidence: '',
-        review_status: 'pending',
-    });
-    const createTransferPricingForm = () => ({
-        hotel_id: '',
-        hotel_name: '【示例数据】城市中端精选酒店（不可用于真实决策）',
-        location: '【示例】上海陆家嘴商圈',
-        room_count: 86,
-        monthly_revenue: 80,
-        monthly_rent: 18,
-        labor_cost: 7.2,
-        utility_cost: 2.6,
-        ota_commission: 6,
-        other_fixed_cost: 3,
-        decoration_investment: 200,
-        remaining_lease_months: 60,
-        expected_transfer_price: 280,
-        occupancy_rate: 76,
-        adr: 268,
-        rating: 4.7,
-        order_count: 420,
-        licenses_complete: true,
-        has_data_anomaly: false,
-        model_key: 'deepseek_chat',
-        require_ai_evaluation: true,
-    });
-    const createTransferTimingForm = () => ({
-        hotel_id: '',
-        current_revenue: 80,
-        previous_revenue: 76,
-        current_orders: 420,
-        previous_orders: 390,
-        current_adr: 268,
-        previous_adr: 260,
-        current_occupancy_rate: 76,
-        previous_occupancy_rate: 74,
-        rating: 4.7,
-        holiday_days: 30,
-        is_peak_season: false,
-        has_data_anomaly: false,
-        has_data_gap: false,
-        exposure: 12000,
-        visitors: 1800,
-        conversion_rate: 6.5,
-        order_count: 420,
-        room_nights: 980,
-    });
-    const buildCollaborationTasks = () => [
-        '市场调研',
-        '物业评估',
-        '合同谈判',
-        '装修筹建',
-        '证照办理',
-        'OTA上线',
-        '运营交接',
-    ].map(name => ({
-        name,
-        status: '待确认',
-        owner: '待分配',
-        due_date: '',
-        risk_note: '请填写真实负责人、截止时间和当前状态',
-    }));
-    const transferPricingFields = [
-        { key: 'hotel_name', label: '酒店名称', type: 'text', full: true },
-        { key: 'location', label: '城市/商圈', type: 'text', full: true },
-        { key: 'room_count', label: '房间数', type: 'number' },
-        { key: 'monthly_revenue', label: '月营业额（万元）', type: 'number' },
-        { key: 'monthly_rent', label: '月租金（万元）', type: 'number' },
-        { key: 'labor_cost', label: '人工成本（万元）', type: 'number' },
-        { key: 'utility_cost', label: '水电能耗（万元）', type: 'number' },
-        { key: 'ota_commission', label: 'OTA佣金（万元）', type: 'number' },
-        { key: 'other_fixed_cost', label: '其他固定成本（万元）', type: 'number' },
-        { key: 'decoration_investment', label: '装修投入（万元）', type: 'number' },
-        { key: 'remaining_lease_months', label: '剩余租期（月）', type: 'number' },
-        { key: 'expected_transfer_price', label: '业主预期转让价（万元）', type: 'number' },
-        { key: 'occupancy_rate', label: '入住率（%）', type: 'number' },
-        { key: 'adr', label: 'ADR（元）', type: 'number' },
-        { key: 'rating', label: '评分', type: 'number' },
-        { key: 'order_count', label: '订单量', type: 'number' },
-    ];
-    const transferTimingCompareFields = [
-        { key: 'current_revenue', label: '近30天营业额（万元）' },
-        { key: 'previous_revenue', label: '对比期30天营业额（万元）' },
-        { key: 'current_orders', label: '近30天订单量' },
-        { key: 'previous_orders', label: '对比期30天订单量' },
-        { key: 'current_adr', label: '近30天ADR（元）' },
-        { key: 'previous_adr', label: '对比期30天ADR（元）' },
-        { key: 'current_occupancy_rate', label: '近30天入住率（%）' },
-        { key: 'previous_occupancy_rate', label: '对比期30天入住率（%）' },
-    ];
-    const transferTimingNumberFields = [
-        { key: 'rating', label: '评分' },
-        { key: 'holiday_days', label: '距离节假日天数' },
-    ];
-    const transferTimingDataFields = [
-        { key: 'exposure', label: '曝光', hint: 'OTA曝光口径；缺失时留空并标记未返回', min: 0 },
-        { key: 'visitors', label: '访客', hint: 'OTA访客/浏览口径', min: 0 },
-        { key: 'conversion_rate', label: '转化率（%）', hint: '平台展示百分比，不按小数填', min: 0, step: 0.1 },
-        { key: 'order_count', label: '订单量', hint: '近30天有效订单', min: 0 },
-        { key: 'room_nights', label: '间夜', hint: '近30天已售间夜', min: 0 },
-    ];
-    const roundTransferMetric = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits));
-    const nullableTransferMetric = (value) => {
-        if (value === null || value === undefined || value === '') return null;
-        const number = Number(value);
-        return Number.isFinite(number) ? Math.max(0, number) : null;
-    };
-    const buildTransferTimingDataCheck = (form = {}) => {
-        const rawMetrics = {
-            exposure: nullableTransferMetric(form.exposure),
-            visitors: nullableTransferMetric(form.visitors),
-            conversion_rate: nullableTransferMetric(form.conversion_rate),
-            order_count: nullableTransferMetric(form.order_count),
-            room_nights: nullableTransferMetric(form.room_nights),
-        };
-        const metricLabels = {
-            exposure: '曝光',
-            visitors: '访客',
-            conversion_rate: '转化率',
-            order_count: '订单',
-            room_nights: '间夜',
-        };
-        const missingMetricKeys = Object.keys(rawMetrics).filter(key => rawMetrics[key] === null);
-        const exposure = rawMetrics.exposure ?? 0;
-        const visitors = rawMetrics.visitors ?? 0;
-        const conversionRate = rawMetrics.conversion_rate ?? 0;
-        const orderCount = rawMetrics.order_count ?? 0;
-        const roomNights = rawMetrics.room_nights ?? 0;
-        const derivedConversion = visitors > 0 ? roundTransferMetric((orderCount / visitors) * 100, 1) : null;
-        const roomNightPerOrder = orderCount > 0 ? roundTransferMetric(roomNights / orderCount, 2) : null;
-        const issues = [];
-        let hasDataAnomaly = false;
-        let hasDataGap = missingMetricKeys.length > 0;
-
-        if (missingMetricKeys.length > 0) {
-            issues.push(`${missingMetricKeys.map(key => metricLabels[key]).join('、')}未返回`);
-        }
-
-        const hasAnyMetric = Object.values(rawMetrics).some(value => value !== null);
-        const suspectedCollectionAnomaly = exposure === 0 && visitors === 0 && conversionRate === 0 && (orderCount > 0 || roomNights > 0);
-
-        if (!hasAnyMetric) {
-            hasDataGap = true;
-            issues.splice(0, issues.length, '流量、转化、订单与间夜均未返回，无法判断真实经营趋势');
-        } else if (suspectedCollectionAnomaly) {
-            hasDataAnomaly = true;
-            issues.push('曝光、访客、转化率为0，但订单或间夜大于0');
-        } else {
-            if (exposure > 0 && visitors === 0) {
-                hasDataGap = true;
-                issues.push('有曝光但访客为0，需确认访客口径是否缺失');
-            }
-            if (visitors > exposure && exposure > 0) {
-                hasDataAnomaly = true;
-                issues.push('访客大于曝光，存在口径冲突');
-            }
-            if (conversionRate > 100) {
-                hasDataAnomaly = true;
-                issues.push('转化率超过100%，需复核百分比填写口径');
-            }
-            if (orderCount > 0 && roomNights === 0) {
-                hasDataGap = true;
-                issues.push('有订单但间夜为0，需补齐间夜数据');
-            }
-            if (roomNights > 0 && orderCount === 0) {
-                hasDataGap = true;
-                issues.push('有间夜但订单为0，需补齐订单数据');
-            }
-        }
-
-        if (suspectedCollectionAnomaly) {
-            return {
-                status: '疑似采集异常',
-                message: issues.join('；'),
-                suggestion: '本次推演会自动纳入异常标记，建议先复核OTA采集口径再解读下滑原因。',
-                panelClass: 'bg-amber-50 border-amber-200',
-                badgeClass: 'bg-amber-100 text-amber-700 border-amber-200',
-                iconClass: 'fas fa-exclamation-triangle text-amber-500',
-                suggestionClass: 'text-amber-700',
-                derivedConversionLabel: derivedConversion === null ? '--' : `${derivedConversion}%`,
-                roomNightPerOrderLabel: roomNightPerOrder === null ? '--' : roomNightPerOrder,
-                hasDataAnomaly,
-                hasDataGap,
-            };
-        }
-
-        if (hasDataAnomaly || hasDataGap) {
-            const status = hasDataAnomaly ? '口径冲突' : '数据断档';
-            return {
-                status,
-                message: issues.join('；'),
-                suggestion: hasDataAnomaly ? '本次推演会自动纳入异常标记，建议先校正冲突字段。' : '本次推演会自动纳入断档标记，建议补齐缺失字段后再判断挂牌窗口。',
-                panelClass: hasDataAnomaly ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200',
-                badgeClass: hasDataAnomaly ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-amber-100 text-amber-700 border-amber-200',
-                iconClass: hasDataAnomaly ? 'fas fa-exclamation-circle text-rose-500' : 'fas fa-exclamation-triangle text-amber-500',
-                suggestionClass: hasDataAnomaly ? 'text-rose-700' : 'text-amber-700',
-                derivedConversionLabel: derivedConversion === null ? '--' : `${derivedConversion}%`,
-                roomNightPerOrderLabel: roomNightPerOrder === null ? '--' : roomNightPerOrder,
-                hasDataAnomaly,
-                hasDataGap,
-            };
-        }
-
-        return {
-            status: '未发现明显口径冲突',
-            message: '曝光、访客、转化、订单与间夜关系未发现明显冲突。',
-            suggestion: '仅可用于本次本地时机推演；不等同于已验证真实数据，也不直接进入投资决策。',
-            panelClass: 'bg-emerald-50 border-emerald-100',
-            badgeClass: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-            iconClass: 'fas fa-check-circle text-emerald-500',
-            suggestionClass: 'text-emerald-700',
-            derivedConversionLabel: derivedConversion === null ? '--' : `${derivedConversion}%`,
-            roomNightPerOrderLabel: roomNightPerOrder === null ? '--' : roomNightPerOrder,
-            hasDataAnomaly: false,
-            hasDataGap: false,
-        };
-    };
-    const transferTruthStatusLabel = (status = '') => ({
-        verified: '已验证',
-        partial: '部分数据',
-        unverified: '未验证',
-        collection_failed: '采集失败',
-    }[String(status || '').trim().toLowerCase()] || '未验证');
-    const transferFiniteMetric = (value) => {
-        if (value === null || value === undefined || value === '') return null;
-        const number = Number(value);
-        return Number.isFinite(number) ? number : null;
-    };
-    const transferMetricFailureReason = (...reasons) => [...new Set(reasons
-        .flatMap(reason => String(reason || '').split(/[；;]/))
-        .map(reason => reason.trim())
-        .filter(Boolean))]
-        .join('；');
-    const transferSnapshotHotelTruth = (snapshot = {}) => {
-        const hotelId = transferFiniteMetric(snapshot?.hotel_id);
-        const hotelName = String(snapshot?.hotel_name || '').trim();
-        return hotelId !== null || hotelName
-            ? [{ system_hotel_id: hotelId !== null && hotelId > 0 ? hotelId : null, name: hotelName }]
-            : [];
-    };
-    const buildTransferOtaMetricTruth = (snapshot = {}, metricKey = '', observed = false) => {
-        const base = snapshot?.truth_context && typeof snapshot.truth_context === 'object'
-            ? snapshot.truth_context
-            : {};
-        const rawStatus = String(base.status || 'unverified').trim().toLowerCase();
-        const allowedStatus = ['verified', 'partial', 'unverified', 'collection_failed'].includes(rawStatus)
-            ? rawStatus
-            : 'unverified';
-        const verifiedRowCount = Math.max(0, transferFiniteMetric(base.included_verified_count) ?? 0);
-        const sourceRecordCount = Math.max(0, transferFiniteMetric(base?.persistence?.record_count) ?? 0);
-        const status = observed
-            ? allowedStatus
-            : (allowedStatus === 'collection_failed'
-                ? 'collection_failed'
-                : (verifiedRowCount > 0 || sourceRecordCount > 0 ? 'partial' : 'unverified'));
-        const sourceMethods = Array.isArray(base.source_methods) ? base.source_methods.filter(Boolean) : [];
-        const sourceTable = String(base.source_table || base?.source?.table || 'online_daily_data').trim();
-        const missingReason = observed ? '' : `${metricKey || 'ota_metric'}_value_not_observed`;
-        const failureReason = transferMetricFailureReason(base.failure_reason, missingReason);
-
-        return {
-            ...base,
-            status,
-            status_label: transferTruthStatusLabel(status),
-            calculation_status: observed ? 'calculated' : 'missing',
-            metric_scope: 'ota_channel',
-            scope_label: 'OTA渠道汇总，不代表全酒店经营',
-            hotels: Array.isArray(base.hotels) && base.hotels.length
-                ? base.hotels
-                : transferSnapshotHotelTruth(snapshot),
-            platforms: Array.isArray(base.platforms) && base.platforms.length
-                ? base.platforms
-                : (Array.isArray(base?.scope?.platforms) ? base.scope.platforms : []),
-            date_range: base.date_range && typeof base.date_range === 'object'
-                ? base.date_range
-                : (snapshot?.current_window || {}),
-            source_methods: sourceMethods,
-            source: {
-                ...(base.source && typeof base.source === 'object' ? base.source : {}),
-                table: sourceTable,
-                methods: sourceMethods,
-            },
-            collected_at_range: base.collected_at_range && typeof base.collected_at_range === 'object'
-                ? base.collected_at_range
-                : {},
-            persistence: base.persistence && typeof base.persistence === 'object'
-                ? base.persistence
-                : {
-                    record_count: 0,
-                    stored_count: 0,
-                    readback_verified_count: 0,
-                    excluded_untrusted_count: 0,
-                },
-            failure_reason: failureReason,
-        };
-    };
-    const buildTransferDailyReportMetricTruth = (snapshot = {}, metricKey = '', observed = false) => {
-        const sourceCount = Math.max(0, transferFiniteMetric(snapshot?.source_counts?.daily_reports) ?? 0);
-        const status = observed ? 'partial' : 'unverified';
-        const missingReason = observed ? '' : `${metricKey || 'daily_report_metric'}_value_not_observed`;
-        return {
-            status,
-            status_label: transferTruthStatusLabel(status),
-            calculation_status: observed ? 'calculated' : 'missing',
-            metric_scope: 'whole_hotel_operating_report',
-            scope_label: '全酒店经营日报口径；与OTA渠道数据分开，当前未完成外部来源核验',
-            hotels: transferSnapshotHotelTruth(snapshot),
-            platforms: ['internal'],
-            date_range: snapshot?.current_window || {},
-            source_methods: ['daily_report'],
-            source: {
-                table: 'daily_reports',
-                methods: ['daily_report'],
-            },
-            collected_at_range: {},
-            persistence: {
-                record_count: sourceCount,
-                stored_count: sourceCount,
-                readback_verified_count: sourceCount,
-                excluded_untrusted_count: 0,
-            },
-            failure_reason: transferMetricFailureReason(
-                sourceCount > 0 ? 'daily_report_collection_time_not_returned；daily_report_source_not_externally_verified' : 'whole_hotel_daily_report_rows_missing',
-                missingReason
-            ),
-        };
-    };
-    const buildTransferSourceMetricRows = ({
-        snapshot = null,
-        formatWan = value => value === null ? '—' : `${value}万元`,
-        aiRound = (value, digits = 0) => Number(Number(value).toFixed(digits)),
-    } = {}) => {
-        if (!snapshot || typeof snapshot !== 'object') return [];
-        const current = snapshot.current && typeof snapshot.current === 'object' ? snapshot.current : {};
-        const dailyReportCount = Math.max(
-            0,
-            transferFiniteMetric(snapshot?.source_counts?.daily_reports)
-                ?? transferFiniteMetric(current.daily_report_days)
-                ?? 0
-        );
-        const dailyRevenue = transferFiniteMetric(current.revenue);
-        const roomNights = transferFiniteMetric(current.room_nights);
-        const adr = transferFiniteMetric(current.adr);
-        const occupancyRate = transferFiniteMetric(current.occupancy_rate);
-        const dailyMetricObserved = (key, value) => dailyReportCount > 0 && value !== null
-            && (Object.prototype.hasOwnProperty.call(current, `${key}_observed`)
-                ? current[`${key}_observed`] === true
-                : value > 0);
-        const dailyRevenueObserved = dailyMetricObserved('revenue', dailyRevenue);
-        const adrObserved = dailyMetricObserved('adr', adr) && roomNights !== null && roomNights > 0;
-        const occupancyObserved = dailyMetricObserved('occupancy_rate', occupancyRate);
-        const otaRevenue = transferFiniteMetric(current.ota_channel_revenue);
-        const otaOrders = transferFiniteMetric(current.ota_channel_orders);
-        const otaRoomNights = transferFiniteMetric(current.ota_channel_room_nights);
-        const otaRevenueObserved = current.ota_channel_revenue_observed === true && otaRevenue !== null;
-        const otaOrdersObserved = current.ota_channel_orders_observed === true && otaOrders !== null;
-        const otaRoomNightsObserved = current.ota_channel_room_nights_observed === true && otaRoomNights !== null;
-        const row = ({ key, label, sourceLabel, observed, value, truth }) => ({
-            key,
-            label,
-            sourceLabel,
-            value: observed ? value : '—',
-            calculationStatus: observed ? 'calculated' : 'missing',
-            calculationStatusLabel: observed ? '已计算' : '缺失',
-            truth,
-        });
-
-        return [
-            row({
-                key: 'whole_hotel_revenue',
-                label: '近30天营收',
-                sourceLabel: '全酒店经营日报',
-                observed: dailyRevenueObserved,
-                value: dailyRevenueObserved ? formatWan(dailyRevenue / 10000) : '—',
-                truth: buildTransferDailyReportMetricTruth(snapshot, 'whole_hotel_revenue', dailyRevenueObserved),
-            }),
-            row({
-                key: 'whole_hotel_adr',
-                label: 'ADR',
-                sourceLabel: '全酒店经营日报',
-                observed: adrObserved,
-                value: adrObserved ? `¥${aiRound(adr, 0)}` : '—',
-                truth: buildTransferDailyReportMetricTruth(snapshot, 'whole_hotel_adr', adrObserved),
-            }),
-            row({
-                key: 'whole_hotel_occupancy_rate',
-                label: '入住率',
-                sourceLabel: '全酒店经营日报',
-                observed: occupancyObserved,
-                value: occupancyObserved ? `${aiRound(occupancyRate, 1)}%` : '—',
-                truth: buildTransferDailyReportMetricTruth(snapshot, 'whole_hotel_occupancy_rate', occupancyObserved),
-            }),
-            row({
-                key: 'ota_channel_revenue',
-                label: '近30天渠道营收',
-                sourceLabel: 'OTA渠道',
-                observed: otaRevenueObserved,
-                value: otaRevenueObserved ? formatWan(otaRevenue / 10000) : '—',
-                truth: buildTransferOtaMetricTruth(snapshot, 'ota_channel_revenue', otaRevenueObserved),
-            }),
-            row({
-                key: 'ota_channel_orders',
-                label: '渠道订单',
-                sourceLabel: 'OTA渠道',
-                observed: otaOrdersObserved,
-                value: otaOrdersObserved ? `${aiRound(otaOrders, 0)}单` : '—',
-                truth: buildTransferOtaMetricTruth(snapshot, 'ota_channel_orders', otaOrdersObserved),
-            }),
-            row({
-                key: 'ota_channel_room_nights',
-                label: '渠道间夜',
-                sourceLabel: 'OTA渠道',
-                observed: otaRoomNightsObserved,
-                value: otaRoomNightsObserved ? `${aiRound(otaRoomNights, 2)}间夜` : '—',
-                truth: buildTransferOtaMetricTruth(snapshot, 'ota_channel_room_nights', otaRoomNightsObserved),
-            }),
-        ];
-    };
-    const buildTransferDecisionLayerRows = ({
-        snapshot = null,
-        sourceDate = '',
-        pricingResult = null,
-        timingResult = null,
-        dashboardResult = null,
-        pricingForm = {},
-        timingForm = {},
-    } = {}) => {
-        const pricingReady = !!pricingResult;
-        const timingReady = !!timingResult;
-        const dashboardReady = !!dashboardResult;
-        const snapshotVerified = !!snapshot && snapshot.source_verified === true;
-        const exampleAssumptions = String(pricingForm?.hotel_name || '').includes('示例数据');
-        const assumptionsReady = !!(pricingForm?.hotel_name || timingForm?.current_revenue) && !exampleAssumptions;
-        const decisionReady = dashboardReady && snapshotVerified;
-        return [
-            {
-                key: 'facts',
-                label: '事实数据',
-                status: snapshotVerified ? '已验证快照' : (snapshot ? '快照待核验' : '待取数'),
-                className: snapshotVerified ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                detail: snapshotVerified
-                    ? (String(snapshot.source_date || '').trim()
-                        ? `近30天营收、ADR、入住率来自 ${String(snapshot.source_date).trim()} 经营快照。`
-                        : '经营快照日期未返回，无法确认近30天营收、ADR、入住率的来源日期。')
-                    : (snapshot ? '经营快照状态未通过验证，只能作为模拟输入。' : '请先绑定酒店并从可验证来源记录带入。'),
-                evidence: snapshot ? `data_status: ${snapshot.data_status || '未返回'}` : '暂无经营快照',
-            },
-            {
-                key: 'assumptions',
-                label: '人工假设',
-                status: exampleAssumptions ? '示例待替换' : (assumptionsReady ? '已填写' : '待填写'),
-                className: assumptionsReady ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-amber-50 text-amber-700 border-amber-100',
-                detail: exampleAssumptions
-                    ? '当前为系统示例参数，不代表任何真实酒店，必须替换并复核后再测算。'
-                    : '转让价、租金、装修投入、剩余租期等仍属于人工输入假设，需要单独复核。',
-                evidence: '表单输入不自动等同于已验证事实。',
-            },
-            {
-                key: 'calculation',
-                label: '测算结果',
-                status: pricingReady || timingReady ? (snapshotVerified ? '已生成' : '仅供模拟') : '待测算',
-                className: (pricingReady || timingReady) ? (snapshotVerified ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-amber-50 text-amber-700 border-amber-100') : 'bg-gray-50 text-gray-500 border-gray-200',
-                detail: pricingReady && timingReady
-                    ? (snapshotVerified ? '资产定价和时机推演均已形成结果。' : '结果基于示例或未验证输入，只能用于本地模拟。')
-                    : '需分别完成资产定价和时机推演。',
-                evidence: `定价 ${pricingReady ? '有' : '无'} / 时机 ${timingReady ? '有' : '无'}`,
-            },
-            {
-                key: 'risk',
-                label: '风险与决策',
-                status: decisionReady ? '可汇总' : (dashboardReady ? '不可进入真实决策' : '待汇总'),
-                className: decisionReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : (dashboardReady ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-gray-50 text-gray-500 border-gray-200'),
-                detail: decisionReady
-                    ? '决策板已汇总估值、时机、风险点和下一步建议。'
-                    : (dashboardReady ? '示例或未验证模拟结果不得作为真实投资决策结论。' : '最终建议需在决策板汇总，不直接由单一测算替代。'),
-                evidence: decisionReady ? (dashboardResult?.final_judgement || '已生成决策看板') : '缺少已验证经营快照',
-            },
-        ];
-    };
-    const applyDefinedFields = (target, source) => {
-        Object.entries(source || {}).forEach(([key, value]) => {
-            if (value !== null && value !== undefined && value !== '') {
-                target[key] = value;
-            }
-        });
-    };
-    const applyTransferSourceFields = (target, source) => {
-        Object.entries(source || {}).forEach(([key, value]) => {
-            if (value !== undefined) target[key] = value;
-        });
-    };
-    const buildTransferPricingPayload = ({
-        form = {},
-        hotelId = '',
-        selectedHotelId = '',
-        snapshot = null,
-    } = {}) => ({
-        ...form,
-        hotel_id: hotelId || selectedHotelId || form.hotel_id || snapshot?.hotel_id || '',
-        snapshot: snapshot || {},
-    });
-    const buildTransferTimingPayload = ({
-        form = {},
-        dataCheck = {},
-        hotelId = '',
-        selectedHotelId = '',
-        snapshot = null,
-    } = {}) => ({
-        ...form,
-        has_data_anomaly: Boolean(form.has_data_anomaly || dataCheck.hasDataAnomaly),
-        has_data_gap: Boolean(form.has_data_gap || dataCheck.hasDataGap || !snapshot),
-        hotel_id: hotelId || selectedHotelId || form.hotel_id || snapshot?.hotel_id || '',
-        snapshot: snapshot || {},
-    });
-    const buildTransferDashboardPayload = ({
-        pricing = null,
-        timing = null,
-        pricingInput = {},
-        timingInput = {},
-        hotelId = '',
-        snapshot = null,
-    } = {}) => ({
-        pricing,
-        timing,
-        metrics: {},
-        pricing_input: pricingInput || {},
-        timing_input: timingInput || {},
-        hotel_id: hotelId,
-        snapshot: snapshot || {},
-    });
     const simulationCostFields = [
         { key: 'monthlyRent', label: '月租金' },
         { key: 'laborCost', label: '人工成本' },
@@ -1010,7 +445,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
 
     const simulationStateStorage = {
         save(input, result, scenarios, modelAnalysis = null) {
-            localStorage.setItem('suxios_simulation_input', JSON.stringify(input));
+            simulationStateStorage.saveInputOnly(input);
             localStorage.setItem('suxios_simulation_result', JSON.stringify(result));
             localStorage.setItem('suxios_simulation_scenarios', JSON.stringify(scenarios));
             if (modelAnalysis) {
@@ -1033,19 +468,23 @@ window.SUXI_SIMULATION_STATIC = (() => {
             }));
         },
         saveInputOnly(input) {
-            localStorage.setItem('suxios_simulation_input', JSON.stringify(input));
             localStorage.removeItem('suxios_simulation_result');
             localStorage.removeItem('suxios_simulation_scenarios');
             localStorage.removeItem('suxios_simulation_model_analysis');
             localStorage.removeItem('suxios_report_simulation_seed');
+            localStorage.setItem('suxios_simulation_input', JSON.stringify(input));
         },
         load(defaultInput, normalizeInput, normalizeModelAnalysis) {
             let input = { ...defaultInput };
             try {
                 const savedInput = JSON.parse(localStorage.getItem('suxios_simulation_input') || 'null');
-                if (savedInput) input = { ...input, ...normalizeInput(savedInput) };
-                const seed = JSON.parse(localStorage.getItem('suxios_simulation_seed') || 'null');
-                if (seed) {
+                const normalizedSavedInput = savedInput && typeof savedInput === 'object' && !Array.isArray(savedInput)
+                    ? normalizeInput(savedInput) : null;
+                const hasSavedDraft = normalizedSavedInput && (normalizedSavedInput.operatingScenario
+                    || Object.keys(normalizedSavedInput).some(key => key !== 'operatingScenario'));
+                if (hasSavedDraft) input = { ...input, ...normalizedSavedInput };
+                const seed = !hasSavedDraft ? JSON.parse(localStorage.getItem('suxios_simulation_seed') || 'null') : null;
+                if (seed && typeof seed === 'object' && !Array.isArray(seed)) {
                     input = {
                         ...input,
                         ...normalizeInput(seed),
@@ -1057,9 +496,11 @@ window.SUXI_SIMULATION_STATIC = (() => {
                 const savedResult = JSON.parse(localStorage.getItem('suxios_simulation_result') || 'null');
                 const savedScenarios = JSON.parse(localStorage.getItem('suxios_simulation_scenarios') || 'null');
                 const savedModelAnalysis = JSON.parse(localStorage.getItem('suxios_simulation_model_analysis') || 'null');
-                const result = savedResult && Object.prototype.hasOwnProperty.call(savedResult, 'monthlyRevenue') ? savedResult : null;
-                const scenarios = Array.isArray(savedScenarios) && savedScenarios[0] && Object.prototype.hasOwnProperty.call(savedScenarios[0], 'monthlyRevenue') ? savedScenarios : null;
-                const modelAnalysis = normalizeModelAnalysis(savedModelAnalysis || result?.modelAnalysis || result?.model_analysis);
+                const hasSavedResults = hasSavedDraft && savedResult && Object.prototype.hasOwnProperty.call(savedResult, 'monthlyRevenue')
+                    && Array.isArray(savedScenarios) && savedScenarios[0] && Object.prototype.hasOwnProperty.call(savedScenarios[0], 'monthlyRevenue');
+                const result = hasSavedResults ? savedResult : null;
+                const scenarios = hasSavedResults ? savedScenarios : null;
+                const modelAnalysis = result && scenarios ? normalizeModelAnalysis(savedModelAnalysis || result?.modelAnalysis || result?.model_analysis) : null;
                 return { input, result, scenarios, modelAnalysis };
             } catch (err) {
                 return { input, result: null, scenarios: null, modelAnalysis: null };
@@ -1093,26 +534,8 @@ window.SUXI_SIMULATION_STATIC = (() => {
         return readinessMissingText(readiness, '暂无显式缺口；执行前仍需保留审批、任务和效果证据。');
     }
 
-    function transferReadinessBadgeClass(stage) {
-        return readinessBadgeClass(
-            stage,
-            ['decision_ready', 'review_ready'],
-            ['approved_pending_tracking', 'diligence_required', 'partial_calculation'],
-            ['data_recheck_required']
-        );
-    }
 
-    function transferReadinessMissingText(readiness) {
-        return readinessMissingText(readiness, '暂无显式缺口；进入投决前仍需保留审批和跟踪证据。');
-    }
 
-    function transferRecordTypeLabel(type) {
-        return {
-            pricing: '资产定价',
-            timing: '时机推演',
-            dashboard: '数据看板',
-        }[type] || type || '--';
-    }
 
     function executionIntentIdFromRecord(record) {
         const result = record?.result || {};
@@ -1386,6 +809,32 @@ window.SUXI_SIMULATION_STATIC = (() => {
         }
     }
 
+    function simulationInputReadbackMatches(submitted, readback) {
+        if (!readback || typeof readback !== 'object' || Array.isArray(readback)) return false;
+        const expected = normalizeSimulationInput(submitted);
+        const groups = [...simulationInvestmentFieldGroups, ...simulationCostFieldGroups];
+        const keys = ['roomCount', ...groups.flatMap(group => group.fields.map(field => field.key)),
+            ...simulationRoomRevenueDefinitions.flatMap(row => [row.daysKey, row.adrKey, row.occupancyKey]),
+            ...simulationOtherIncomeFields.map(field => field.key),
+            ...simulationOtaCommissionChannelDefinitions.flatMap(row => [row.shareKey, row.rateKey])];
+        const numeric = value => ['number', 'string'].includes(typeof value)
+            && String(value).trim() !== '' && Number.isFinite(Number(value));
+        // QuantSimulationService::number and investmentGroup/costGroup round
+        // primitive values and group totals to four decimal places. Derived ADR
+        // and occupancy summaries may change during the formal normalization.
+        const rounded = value => {
+            const [mantissa, exponent = '0'] = String(Number(value)).split('e');
+            return Math.round(Number(`${mantissa}e${Number(exponent) + 4}`)) / 10000;
+        };
+        if (!keys.every(key => numeric(expected[key]) && numeric(readback[key])
+            && Number(readback[key]) === rounded(expected[key]))) return false;
+        if (!groups.every(group => numeric(readback[group.totalKey])
+            && Number(readback[group.totalKey]) === rounded(group.fields.reduce(
+                (total, field) => total + rounded(expected[field.key]), 0)))) return false;
+        return String(readback.input_source_status || '') === String(submitted.input_source_status || 'manual_unverified').trim()
+            && (Boolean(submitted.operatingScenario) || readback.operatingScenario == null);
+    }
+
     async function runSimulationCalculationFlow({ input = {}, projectName = '', request, applyRecord, loadRecords, isCurrent = () => true, clientRequestId } = {}) {
         const payloadInput = JSON.parse(JSON.stringify(input));
         const hotelId = Number(payloadInput.hotel_id || 0);
@@ -1400,6 +849,17 @@ window.SUXI_SIMULATION_STATIC = (() => {
         });
         if (res.code !== 200) throw new Error(res.message || '量化模拟保存失败');
         if (!isCurrent()) return null;
+        const record = res.data;
+        if (!Number.isSafeInteger(record?.id) || record.id <= 0
+            || Number(record?.truth_context?.hotel_id) !== hotelId
+            || Number(record?.input?.hotel_id ?? record?.input?.system_hotel_id) !== hotelId
+            || (record?.input?.system_hotel_id !== undefined && Number(record.input.system_hotel_id) !== hotelId)
+            || record?.truth_context?.persistence?.readback_verified !== true) {
+            throw new Error('保存回读的记录、酒店或确认状态与本次输入不一致');
+        }
+        if (!simulationInputReadbackMatches(payloadInput, record.input)) {
+            throw new Error('保存回读的测算输入与本次输入不一致');
+        }
         if (payloadInput.operatingScenario) {
             const expected = normalizedOperatingScenario(payloadInput.operatingScenario);
             const readback = res.data?.input?.operatingScenario;
@@ -1577,127 +1037,6 @@ window.SUXI_SIMULATION_STATIC = (() => {
         }
     }
 
-    const trimMetricZeros = (value) => String(value).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
-
-    function benchmarkStrategyLabel(key) {
-        return {
-            room_type: '房型',
-            price: '价格',
-            channel: '渠道',
-            review: '点评',
-            image: '图片',
-            service: '服务',
-            data: '数据',
-        }[key] || key;
-    }
-
-    function benchmarkMetricValue(value, suffix = '', decimals = 0) {
-        const number = Number(value);
-        if (!Number.isFinite(number)) return '--';
-        return `${trimMetricZeros(number.toFixed(decimals))}${suffix}`;
-    }
-
-    function buildBenchmarkModelDetailCards(metrics = {}) {
-        return [
-            { label: '竞品数量', value: benchmarkMetricValue(metrics.competitor_count, '家') },
-            { label: '竞品均价', value: benchmarkMetricValue(metrics.avg_competitor_price, '元') },
-            { label: '竞品均分', value: benchmarkMetricValue(metrics.avg_competitor_score, '分', 1) },
-            { label: '平均点评量', value: benchmarkMetricValue(metrics.avg_review_count) },
-            { label: 'OTA热度指数', value: benchmarkMetricValue(metrics.ota_heat_index, '%') },
-            { label: '采样半径', value: benchmarkMetricValue(metrics.traffic_radius_km, 'km', 1) }
-        ];
-    }
-
-    function benchmarkModelDetailCompletenessText(metrics = {}) {
-        const completeness = metrics.data_completeness;
-        return completeness ? `录入完整度 ${completeness}` : '录入完整度 --';
-    }
-
-    function benchmarkModelEstimatedFields(metrics = {}) {
-        const fields = metrics.estimated_fields;
-        return Array.isArray(fields) ? fields : [];
-    }
-
-    function buildTransferPricingCards({
-        result = null,
-        suggestion = '--',
-        formatWan = (value) => value ?? '--',
-        formatPaybackMonth = (value) => value ?? '--',
-        transferRiskTextClass = () => '',
-        toNumber = Number,
-    } = {}) {
-        if (!result) return [];
-        const profit = result.profit || {};
-        const valuation = result.valuation || {};
-        const monthlyNetProfit = profit.monthly_net_profit;
-        const hasMonthlyNetProfit = monthlyNetProfit !== null && monthlyNetProfit !== undefined && monthlyNetProfit !== '' && Number.isFinite(Number(monthlyNetProfit));
-        return [
-            {
-                label: '当前月净利润',
-                value: formatWan(monthlyNetProfit),
-                className: hasMonthlyNetProfit ? (toNumber(monthlyNetProfit) >= 0 ? 'text-green-600' : 'text-red-600') : 'text-gray-500'
-            },
-            { label: '年净利润', value: formatWan(profit.annual_net_profit) },
-            { label: '投资回收周期', value: formatPaybackMonth(profit.payback_months) },
-            { label: '报价判断', value: valuation.quote_judgement || '--' },
-            { label: '接盘风险等级', value: result.risk_level || '--', className: transferRiskTextClass(result.risk_level) },
-            { label: '建议动作', value: suggestion },
-        ];
-    }
-
-    function buildTransferPricingValuationRows({
-        valuation = null,
-        formatWan = (value) => value ?? '--',
-        aiRound = (value, digits = 0) => Number((Number(value) || 0).toFixed(digits)),
-    } = {}) {
-        if (!valuation) return [];
-        return [
-            { label: '保守估值', value: formatWan(valuation.conservative_valuation) },
-            { label: '合理估值', value: formatWan(valuation.reasonable_valuation) },
-            { label: '乐观估值', value: formatWan(valuation.optimistic_valuation) },
-            { label: '业主预期转让价', value: formatWan(valuation.expected_transfer_price) },
-            {
-                label: '估值倍数',
-                value: valuation.valuation_multiple === null || valuation.valuation_multiple === undefined || valuation.valuation_multiple === ''
-                    ? '--'
-                    : `${aiRound(valuation.valuation_multiple, 1)}个月`
-            },
-        ];
-    }
-
-    function transferPricingAiEvaluationSourceLabel(analysis = null) {
-        const source = analysis?.source;
-        if (source === 'llm') return 'AI模型生成';
-        if (source === 'fallback') return '本地兜底（非AI）';
-        return '来源未核验';
-    }
-
-    function resolveTransferCurrentReadiness({ dashboardResult = null, pricingResult = null, timingResult = null } = {}) {
-        return dashboardResult?.decision_readiness
-            || pricingResult?.decision_readiness
-            || timingResult?.decision_readiness
-            || null;
-    }
-
-    function expansionRecordTypeForPage(page, pageTypes = expansionRecordPageTypes) {
-        return pageTypes?.[page] || '';
-    }
-
-    function filterExpansionRecords(records = [], recordType = '') {
-        const rows = Array.isArray(records) ? records : [];
-        if (!recordType) return rows;
-        return rows.filter(record => record?.record_type === recordType);
-    }
-
-    function hasExpansionRecordType(records = [], recordType = '') {
-        const rows = Array.isArray(records) ? records : [];
-        return rows.some(record => record?.record_type === recordType);
-    }
-
-    function hasAnyExpansionRecord(records = []) {
-        return Array.isArray(records) && records.length > 0;
-    }
-
     async function loadSimulationRecordPage({ state, records, append, request, isCurrent }) {
         if (!isCurrent()) return false;
         const pageSize = 30;
@@ -1766,36 +1105,10 @@ window.SUXI_SIMULATION_STATIC = (() => {
         ];
     }
 
-    function benchmarkSignedValue(value, suffix = '', decimals = 0) {
-        const number = Number(value);
-        if (!Number.isFinite(number)) return '--';
-        const sign = number > 0 ? '+' : '';
-        return `${sign}${trimMetricZeros(number.toFixed(decimals))}${suffix}`;
-    }
 
     return {
         defaultSimulationInput,
         createOperatingScenario, operatingScenarioFields, validateOperatingScenario, normalizedOperatingScenario, operatingPaybackText, compareOperatingRecords, runSimulationComparisonFlow,
-        benchmarkModelDetailFields,
-        collaborationStatusOptions,
-        expansionRecordPageTypes,
-        createBenchmarkModelForm,
-        createCollaborationProject,
-        createTransferPricingForm,
-        createTransferTimingForm,
-        buildCollaborationTasks,
-        transferPricingFields,
-        transferTimingCompareFields,
-        transferTimingNumberFields,
-        transferTimingDataFields,
-        buildTransferTimingDataCheck,
-        buildTransferSourceMetricRows,
-        buildTransferDecisionLayerRows,
-        applyDefinedFields,
-        applyTransferSourceFields,
-        buildTransferPricingPayload,
-        buildTransferTimingPayload,
-        buildTransferDashboardPayload,
         simulationCostFields,
         simulationCostFieldGroups,
         simulationOtaCommissionChannelDefinitions,
@@ -1820,9 +1133,6 @@ window.SUXI_SIMULATION_STATIC = (() => {
         simulationStateStorage,
         simulationReadinessBadgeClass,
         simulationReadinessMissingText,
-        transferReadinessBadgeClass,
-        transferReadinessMissingText,
-        transferRecordTypeLabel,
         executionIntentIdFromRecord,
         buildSimulationReportDownload, simulationRecordSummary,
         simulationTaskDisabled,
@@ -1834,21 +1144,7 @@ window.SUXI_SIMULATION_STATIC = (() => {
         runSimulationCalculationFlow,
         applySimulationRecord,
         runSimulationArchiveFlow,
-        benchmarkStrategyLabel,
-        benchmarkMetricValue,
-        buildBenchmarkModelDetailCards,
-        benchmarkModelDetailCompletenessText,
-        benchmarkModelEstimatedFields,
-        buildTransferPricingCards,
-        buildTransferPricingValuationRows,
-        transferPricingAiEvaluationSourceLabel,
-        resolveTransferCurrentReadiness,
-        expansionRecordTypeForPage,
-        filterExpansionRecords,
-        hasExpansionRecordType,
-        hasAnyExpansionRecord,
         loadSimulationRecordPage,
         buildSimulationMetricCards,
-        benchmarkSignedValue,
-    };
+        };
 })();

@@ -47,7 +47,11 @@ final class DatabaseVersionGovernanceTest extends TestCase
             $sql
         );
         self::assertStringNotContainsString($migrationName, $initFull);
-        self::assertStringContainsString("->where('city', \$city)", $strategy);
+        // The city-based generator is retired; its schema remains historical.
+        // The current controller keeps authenticated, tenant-scoped records.
+        self::assertStringContainsString('private function applyTenantScope(', $strategy);
+        self::assertStringContainsString("->where('tenant_id', \$tenantId)", $strategy);
+        self::assertStringContainsString("RetiredFeatureReadOnly::response('战略推演')", $strategy);
         self::assertStringNotContainsString('UPDATE `hotels`', $sql);
     }
 

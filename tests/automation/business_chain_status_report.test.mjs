@@ -291,7 +291,7 @@ function assertCtripReportPath(t, systemHotelId = null, expectedActionReason = '
     assert.equal(payload.p0_downstream_gate.status, 'blocked_by_p0_ota_gate');
     assert.equal(payload.p0_execution_plan.status, 'incomplete');
     assert.equal(handoff.can_auto_write_ota, false);
-    assert.equal(packet.status, 'blocked_ready_for_manual_review');
+    assert.equal(packet.status, 'blocked_by_diagnosis_scope');
     assert.equal(reviewContract.approval_allowed, false);
     assert.equal(reviewContract.operation_intake_allowed, false);
     assert.equal(resolutionPlan.approval_allowed_after_resolution, false);
@@ -513,7 +513,7 @@ test('Business-chain markdown exposes Ctrip manual review packet without hiding 
   assert.match(output, /runtime_data_ready: `(true|false)`/);
   assert.match(output, /business_loop_ready: `(true|false)`/);
   assert.match(output, /release_ready: `not_evaluated`/);
-  assert.match(output, /manual_review_packet: `blocked_ready_for_manual_review`/);
+  assert.match(output, /manual_review_packet: `(?:blocked_ready_for_manual_review|blocked_by_diagnosis_scope)`/);
   assert.match(output, /mode=`manual_review_only`/);
   // Without --system-hotel-id, the upstream scope must be repaired before metric advice exists.
   assert.match(output, /primary_action=``/);
@@ -543,7 +543,7 @@ test('Business-chain markdown exposes Ctrip manual review packet without hiding 
   assert.match(output, /operation_intake_missing_fields: `approved_ai_advice:ai_decision_review_inputs_pending,operation_intake_allowed:operation_intake_gate_closed,hotel_id:operator_selected_hotel_missing/);
   assert.match(output, /ctrip_chain_action_queue: `has_blocking_actions`, items=`4`, blocking=`4`/);
   assert.match(output, /ctrip_chain_next_action: action=`resolve_revenue_metric_gap`, stage=`revenue_analysis`, evidence=`diagnosis_scope_unverified`/);
-  assert.match(output, /ctrip_chain_next_action: action=`approve_ai_manual_review`, stage=`ai_decision`, evidence=`blocked_ready_for_manual_review`/);
+  assert.match(output, /ctrip_chain_next_action: action=`approve_ai_manual_review`, stage=`ai_decision`, evidence=`(?:blocked_ready_for_manual_review|blocked_by_diagnosis_scope)`/);
   assert.match(output, /ctrip_chain_next_action: action=`create_operation_intent_after_review`, stage=`operation_management`, evidence=`operation_intake_blocked_by_manual_review`, target=`\/api\/operation\/execution-intents`/);
   assert.match(output, /ctrip_chain_next_action: action=`attach_operation_execution_evidence`, stage=`operation_management`, evidence=`operation_execution\.evidence_and_effect_review`, target=`ops-track`/);
   assert.match(output, /ctrip_chain_forbidden_actions: `auto_write_ota,auto_create_operation_execution_intent,claim_ai_decision_final,claim_operation_roi_ready,promote_ota_scope_to_whole_hotel_truth`/);

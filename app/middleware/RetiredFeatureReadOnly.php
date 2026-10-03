@@ -16,6 +16,11 @@ final class RetiredFeatureReadOnly
             return $next($request);
         }
 
+        return self::response($feature);
+    }
+
+    public static function response(string $feature = '历史辅助模块'): Response
+    {
         return json([
             'code' => 410,
             'message' => $feature . '已停用生成与执行，仅保留历史记录查询。请使用经营分析和任务执行与复盘。',

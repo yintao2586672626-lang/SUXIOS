@@ -69,6 +69,6 @@
 
 ## 生成物
 
-- 完整 4,000 条 JSONL：`docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl`
+- 完整 4,000 条 JSONL：`docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl.gz`
 - 汇总 JSON：`docs/qa/hotel_system_4000_diagnostic_results_2026-07-15.json`
 - 生成脚本：`scripts/generate_hotel_diagnostic_4000.mjs`

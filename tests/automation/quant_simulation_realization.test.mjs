@@ -63,7 +63,8 @@ test('extracted simulation UI flow preserves the permitted-hotel and loading con
     setLoading: value => { loadingStates.push(value); },
     request: async () => {
       requestCount += 1;
-      return { code: 200, data: { id: 901, hotel_id: 80 } };
+      return { code: 200, data: { id: 901, hotel_id: 80, input: { ...validInput, system_hotel_id: 80 },
+        truth_context: { hotel_id: 80, persistence: { readback_verified: true } } } };
     },
     applyRecord: value => { applied = value; },
     loadRecords: async () => { recordsLoaded += 1; },

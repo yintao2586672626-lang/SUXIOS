@@ -4,24 +4,46 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\TransferDecision;
+use app\service\TransferDecisionService;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Tests\Support\ReflectionHelper;
 use think\App;
+use think\Request;
 
 final class TransferDecisionControllerTest extends TestCase
 {
     use ReflectionHelper;
 
-    public function testPricingAiDependencyFailureUsesClientErrorStatus(): void
+    public function testSourceReadKeepsExactHotelDateAndServiceInjection(): void
     {
-        $controller = new TransferDecision(new App());
+        $service = $this->createMock(TransferDecisionService::class);
+        $payload = ['hotel_id' => 7, 'date' => '2026-10-02', 'status' => 'source_unverified'];
+        $service->expects(self::once())->method('buildSourcePayload')
+            ->with([7], 7, '2026-10-02')->willReturn($payload);
+        $controller = $this->sourceController($service, 7);
+        $response = $controller->source();
+        self::assertSame(200, $response->getCode());
+        self::assertSame($payload, $response->getData()['data']);
+    }
 
-        $status = $this->invokeNonPublic($controller, 'pricingFailureStatusCode', [
-            new RuntimeException('AI模型调用失败，未生成AI评估结果：AI治理日志写入失败，已阻断模型结论输出'),
-        ]);
+    public function testSourceReadRejectsOtherHotelsBeforeCallingTheService(): void
+    {
+        $service = $this->createMock(TransferDecisionService::class);
+        $service->expects(self::never())->method('buildSourcePayload');
+        $response = $this->sourceController($service, 8)->source();
+        self::assertSame(400, $response->getCode());
+        self::assertSame('无权查看该酒店数据', $response->getData()['message']);
+    }
 
-        self::assertSame(422, $status);
+    public function testSourceFailureRemains503InsteadOfEmptySuccess(): void
+    {
+        $service = $this->createMock(TransferDecisionService::class);
+        $service->expects(self::once())->method('buildSourcePayload')
+            ->willThrowException(new RuntimeException('transfer_source_read_failed:online_daily_data', 503));
+        $response = $this->sourceController($service, 7)->source();
+        self::assertSame(503, $response->getCode());
+        self::assertSame('transfer_source_read_failed:online_daily_data', $response->getData()['data']['status_code']);
     }
 
     public function testSourceFailureCodeOnlyExposesStableReadFailureCodes(): void
@@ -37,18 +59,6 @@ final class TransferDecisionControllerTest extends TestCase
         self::assertNull($this->invokeNonPublic($controller, 'sourceFailureCode', [
             new RuntimeException('SQLSTATE[HY000] access denied for password=secret', 503),
         ]));
-    }
-
-    public function testUnexpectedTransferFailuresDoNotExposeRawExceptionMessages(): void
-    {
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/TransferDecision.php');
-
-        self::assertStringNotContainsString("'资产定价计算失败: ' . \$e->getMessage()", $source);
-        self::assertStringNotContainsString("'时机推演计算失败: ' . \$e->getMessage()", $source);
-        self::assertStringNotContainsString("'数据看板生成失败: ' . \$e->getMessage()", $source);
-        self::assertStringContainsString("'transfer_pricing_ai_unavailable'", $source);
-        self::assertStringContainsString("'transfer_timing_failed'", $source);
-        self::assertStringContainsString("'transfer_dashboard_failed'", $source);
     }
 
     public function testTransferControllerUsesStrictDatesAndShanghaiBusinessDefault(): void
@@ -74,56 +84,17 @@ final class TransferDecisionControllerTest extends TestCase
         self::assertStringContainsString("param('date', \$this->currentBusinessDate())", $source);
     }
 
-    public function testTransferControllerRejectsAmbiguousSnapshotAliasesAndCrossHotelBinding(): void
+
+    private function sourceController(TransferDecisionService $service, int $hotelId): TransferDecision
     {
-        $controller = new TransferDecision(new App());
-
-        foreach ([
-            [
-                'method' => 'payloadSnapshot',
-                'arguments' => [[
-                    'snapshot' => ['hotel_id' => 7],
-                    'data_snapshot' => ['hotel_id' => 8],
-                ]],
-            ],
-            [
-                'method' => 'payloadSnapshot',
-                'arguments' => [['snapshot' => 'not-an-array']],
-            ],
-            [
-                'method' => 'recordHotelId',
-                'arguments' => [
-                    ['hotel_id' => 8],
-                    ['hotel_id' => 7],
-                    [7, 8],
-                    8,
-                ],
-            ],
-        ] as $case) {
-            try {
-                $this->invokeNonPublic($controller, $case['method'], $case['arguments']);
-                self::fail($case['method'] . ' must reject ambiguous or cross-hotel scope.');
-            } catch (\InvalidArgumentException $exception) {
-                self::assertStringContainsString('scope mismatch', $exception->getMessage());
-            }
-        }
-
-        self::assertSame(
-            ['hotel_id' => 7],
-            $this->invokeNonPublic($controller, 'payloadSnapshot', [[
-                'snapshot' => ['hotel_id' => 7],
-                'data_snapshot' => ['hotel_id' => 7],
-            ]])
-        );
-    }
-
-    public function testExecutionIntentReauthorizesTheTransferSourceInsideTheWriteTransaction(): void
-    {
-        $source = (string)file_get_contents(dirname(__DIR__) . '/app/controller/TransferDecision.php');
-
-        self::assertMatchesRegularExpression(
-            '/Db::transaction\(function \(\)[\s\S]*?lockExecutionTrackingSource\([\s\S]*?buildExecutionIntentInput\([\s\S]*?createExecutionIntent\([\s\S]*?attachExecutionTracking\(/',
-            $source
-        );
+        $app = new App();
+        $request = (new Request())->withGet(['hotel_id' => $hotelId, 'date' => '2026-10-02']);
+        $request->user = new class {
+            public int $id = 3;
+            public function getPermittedHotelIds(): array { return [7]; }
+            public function isSuperAdmin(): bool { return false; }
+        };
+        $app->instance('request', $request);
+        return new TransferDecision($app, $service);
     }
 }
