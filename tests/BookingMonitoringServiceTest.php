@@ -644,6 +644,85 @@ final class BookingMonitoringServiceTest extends TestCase
         $this->service()->overview(7, [80, 81, 82], [80, 81], $this->query());
     }
 
+    public function testSourceReferencesRejectNonTextWithoutSavingAnyBatchRows(): void
+    {
+        $service = $this->service();
+        foreach ([true, 9, 9.5, [], ['export' => 'TEST-ONLY-report'], false, new \stdClass()] as $invalid) {
+            $first = $this->row('2026-10-01 09:00:00', 8);
+            $second = array_replace($this->row('2026-10-02 09:00:00', 10), ['source_ref' => $invalid]);
+            $failure = null;
+            try {
+                $service->saveSnapshots(7, [80], [$first, $second], 9);
+            } catch (InvalidArgumentException $error) {
+                $failure = $error;
+            }
+            self::assertInstanceOf(InvalidArgumentException::class, $failure, 'a coerced source reference cannot become saved provenance');
+            self::assertSame('on_books_snapshot_source_ref_invalid', $failure->getMessage());
+            self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+        }
+        $user = new class {
+            public int $id = 9;
+            public function getPermittedHotelIds(): array { return [80]; }
+            public function hasHotelPermission(int $hotelId, string $capability): bool { return $hotelId === 80; }
+        };
+        $response = $this->controller(['rows' => [array_replace($this->row('2026-10-02 09:00:00', 10), ['source_ref' => ['TEST-ONLY-report']])]], $user, 'POST')->saveSnapshots();
+        self::assertSame(422, $response->getCode());
+        self::assertSame('on_books_snapshot_source_ref_invalid', $response->getData()['data']['reason_code']);
+        self::assertFalse($response->getData()['data']['readback_verified']);
+        self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    public function testDisabledHotelCannotUseStalePermissionsForSaveReplayCorrectionReadOrOverview(): void
+    {
+        $service = $this->service();
+        $row = $this->row('2026-10-02 09:00:00', 10);
+        $original = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        Db::name('hotels')->where('id', 80)->update(['status' => 0]);
+        $otherHotel = array_replace($this->row('2026-10-02 09:00:00', 12, 3), ['hotel_id' => 82]);
+        foreach ([
+            fn() => $service->saveSnapshots(7, [80, 82], [$otherHotel, $this->row('2026-10-02 10:00:00', 11)], 9),
+            fn() => $service->saveSnapshots(7, [80], [$row], 9),
+            fn() => $service->saveSnapshots(7, [80], [array_replace($row, ['on_books_room_nights' => 11, 'supersedes_snapshot_id' => $original['id']])], 9),
+            fn() => $service->readSnapshot(7, [80], 80, $original['id']),
+            fn() => $service->overview(7, [80], [80], $this->query()),
+        ] as $operation) {
+            $failure = null;
+            try {
+                $operation();
+            } catch (RuntimeException $error) {
+                $failure = $error;
+            }
+            self::assertInstanceOf(RuntimeException::class, $failure, 'an enabled-hotel requirement must survive stale permissions');
+            self::assertSame(403, $failure->getCode());
+            self::assertSame(1, Db::name(BookingMonitoringService::TABLE)->count());
+        }
+        $view = $service->overview(7, [80, 82], [82], $this->query());
+        self::assertSame([82], array_column($view['selectable_hotels'], 'id'));
+        Db::name('hotels')->where('id', 80)->update(['status' => 1]);
+        $replay = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        self::assertTrue($replay['idempotent']);
+        self::assertSame($original['id'], $replay['id']);
+        self::assertSame($original['content_digest'], $service->readSnapshot(7, [80], 80, $original['id'])['content_digest']);
+    }
+
+    public function testControllerRechecksHotelDisabledAfterCapabilityLookupBeforeSaving(): void
+    {
+        $user = new class {
+            public int $id = 9;
+            public function getPermittedHotelIds(): array { return [80]; }
+            public function hasHotelPermission(int $hotelId, string $capability): bool {
+                Db::name('hotels')->where('id', $hotelId)->update(['status' => 0]);
+                return true;
+            }
+        };
+        $response = $this->controller(['rows' => [$this->row('2026-10-02 09:00:00', 10)]], $user, 'POST')->saveSnapshots();
+        self::assertSame(403, $response->getCode());
+        self::assertSame('hotel_disabled', $response->getData()['data']['reason_code']);
+        self::assertSame('酒店已停用，请刷新酒店目录后重试', $response->getData()['message']);
+        self::assertFalse($response->getData()['data']['readback_verified']);
+        self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
     public function testMatrixAllows1000CellsAndRejectsTheNextDimensionBeforeSnapshotReads(): void
     {
         for ($id = 100; $id < 147; $id++) Db::name('room_types')->insert(['id'=>$id,'hotel_id'=>80,'name'=>'TEST-ONLY-cap-'.$id]);
@@ -1236,6 +1315,207 @@ final class BookingMonitoringServiceTest extends TestCase
         $class->getProperty('request')->setValue($controller, $request);
         $class->getProperty('currentUser')->setValue($controller, $user);
         return $controller;
+    }
+
+    public function testLegacyScalarSourceReferencesReplayOriginalAndCorrectionWithBothKeyForms(): void
+    {
+        foreach ([9, 9.5, true] as $index => $source) {
+            foreach ([false, true] as $explicit) {
+                $row = array_replace($this->row('2026-10-02 09:00:00', 10 + $index), ['source_ref' => (string)$source]);
+                if ($explicit) $row['idempotency_key'] = 'TEST-ONLY-legacy-scalar-' . $index;
+                $saved = $this->service()->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+                $row['source_ref'] = $source;
+                $replay = $this->service()->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+                self::assertSame(array_replace($saved, ['idempotent' => true]), $replay);
+                $correction = array_replace($row, ['source_ref' => (string)$source, 'on_books_room_nights' => 20 + $index,
+                    'supersedes_snapshot_id' => $saved['id']]);
+                if ($explicit) $correction['idempotency_key'] .= '-corrected';
+                $corrected = $this->service()->saveSnapshots(7, [80], [$correction], 9)['snapshots'][0];
+                Db::name('room_types')->where('id', 1)->update(['name' => 'TEST-ONLY renamed after legacy correction']);
+                $correction['source_ref'] = $source;
+                $replay = $this->service()->saveSnapshots(7, [80], [$correction], 9)['snapshots'][0];
+                self::assertSame(array_replace($corrected, ['idempotent' => true]), $replay);
+                $recovery = $this->service(transactionRunner: static function (callable $callback): array {
+                    throw new RuntimeException('SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry');
+                })->saveSnapshots(7, [80], [$correction], 9)['snapshots'][0];
+                self::assertSame($replay, $recovery);
+                self::assertSame($saved, $this->service()->readSnapshot(7, [80], 80, $saved['id']) + ['idempotent' => false]);
+                self::assertSame($corrected, $this->service()->readSnapshot(7, [80], 80, $corrected['id']) + ['idempotent' => false]);
+            }
+        }
+    }
+
+    public function testHotelDisabledAfterPreflightRejectsReplayInsertAndCorrectionBeforeBatchWrites(): void
+    {
+        foreach (['insert', 'replay', 'correction'] as $operation) {
+            Db::name('hotels')->where('id', 82)->update(['status' => 1]);
+            $otherHotel = array_replace($this->row('2026-10-02 09:00:00', 10), ['hotel_id' => 82, 'room_type_id' => 3,
+                'idempotency_key' => 'TEST-ONLY-racing-' . $operation]);
+            if ($operation !== 'insert') {
+                $original = $this->service()->saveSnapshots(7, [82], [$otherHotel], 9)['snapshots'][0];
+                if ($operation === 'correction') $otherHotel = array_replace($otherHotel, ['on_books_room_nights' => 11,
+                    'supersedes_snapshot_id' => $original['id'], 'idempotency_key' => 'TEST-ONLY-racing-correction-new']);
+            }
+            $count = Db::name(BookingMonitoringService::TABLE)->count();
+            $first = array_replace($this->row('2026-10-01 09:00:00', 8), ['idempotency_key' => 'TEST-ONLY-first-' . $operation]);
+            $entered = 0;
+            $service = $this->service(transactionRunner: static function (callable $callback) use (&$entered): array {
+                $entered++;
+                // The simulated admin change commits after preparation, before the write transaction.
+                Db::name('hotels')->where('id', 82)->update(['status' => 0]);
+                return Db::transaction($callback);
+            });
+            $failure = null;
+            $queries = $this->captureSql(function () use ($service, $first, $otherHotel, &$failure): void {
+                try { $service->saveSnapshots(7, [80, 82], [$first, $otherHotel], 9); }
+                catch (RuntimeException $error) { $failure = $error; }
+            });
+            self::assertSame(1, $entered, 'failure must occur after preflight, at the transaction boundary');
+            self::assertInstanceOf(RuntimeException::class, $failure, $operation . ' must revalidate hotel status');
+            self::assertSame('hotel_disabled', $failure->getMessage());
+            self::assertSame($count, Db::name(BookingMonitoringService::TABLE)->count());
+            self::assertSame([], array_values(array_filter($queries, static fn(string $sql): bool =>
+                preg_match('/^INSERT\\b.*hotel_room_type_on_books_snapshots/i', $sql) === 1)), 'validate all hotels before any write');
+        }
+    }
+
+    public function testLegacyScalarReplayRejectsChangesAndUnsavedMixedBatchWithoutPartialWrite(): void
+    {
+        $row = array_replace($this->row('2026-10-02 09:00:00', 10), ['source_ref' => '9', 'idempotency_key' => 'TEST-ONLY-legacy-mixed']);
+        $saved = $this->service()->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        $row['source_ref'] = 9;
+        foreach ([['on_books_room_nights' => 11], ['source_ref' => true], ['operator_attested' => false], ['platform' => 'meituan']] as $change) {
+            try {
+                $this->service()->saveSnapshots(7, [80], [array_replace($row, $change)], 9);
+                self::fail('a changed scalar request must not replay');
+            } catch (RuntimeException $error) { self::assertSame('booking_monitor_idempotency_conflict', $error->getMessage()); }
+        }
+        $fresh = array_replace($this->row('2026-10-01 09:00:00', 8), ['idempotency_key' => 'TEST-ONLY-fresh-text-mixed']);
+        $unsavedScalar = array_replace($row, ['idempotency_key' => 'TEST-ONLY-unsaved-scalar']);
+        foreach ([[$fresh, $row], [$fresh, $row, $unsavedScalar]] as $index => $batch) {
+            if ($index === 0) {
+                $result = $this->service()->saveSnapshots(7, [80], $batch, 9)['snapshots'];
+                self::assertFalse($result[0]['idempotent']);
+                self::assertSame(array_replace($saved, ['idempotent' => true]), $result[1]);
+                Db::name(BookingMonitoringService::TABLE)->where('id', $result[0]['id'])->delete();
+            } else {
+                try {
+                    $this->service()->saveSnapshots(7, [80], $batch, 9);
+                    self::fail('an unsaved scalar must reject the whole batch');
+                } catch (InvalidArgumentException $error) { self::assertSame('on_books_snapshot_source_ref_invalid', $error->getMessage()); }
+            }
+            self::assertSame(1, Db::name(BookingMonitoringService::TABLE)->count());
+            self::assertSame($saved, $this->service()->readSnapshot(7, [80], 80, $saved['id']) + ['idempotent' => false]);
+        }
+    }
+
+    public function testLegacyReplayMissingAtTransactionBoundaryCannotInsertAndRollsBackEarlierRows(): void
+    {
+        $row = array_replace($this->row('2026-10-02 09:00:00', 10), ['source_ref' => '9']);
+        $saved = $this->service()->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        $row['source_ref'] = 9;
+        $service = $this->service(transactionRunner: static function (callable $callback) use ($saved): array {
+            Db::name(BookingMonitoringService::TABLE)->where('id', $saved['id'])->delete();
+            return Db::transaction($callback);
+        });
+        try {
+            $service->saveSnapshots(7, [80], [$this->row('2026-10-01 09:00:00', 8), $row], 9);
+            self::fail('a replay-only row must never become an insert');
+        } catch (InvalidArgumentException $error) { self::assertSame('on_books_snapshot_source_ref_invalid', $error->getMessage()); }
+        self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count(), 'the earlier new text row rolls back too');
+    }
+
+    public function testHotelRevalidationAlsoGuardsWinnerRecoveryAndTenantChanges(): void
+    {
+        $row = array_replace($this->row('2026-10-02 09:00:00', 10), ['idempotency_key' => 'TEST-ONLY-winner-hotel-guard']);
+        $saved = $this->service()->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        foreach ([['status' => 0], ['tenant_id' => 8]] as $change) {
+            Db::name('hotels')->where('id', 80)->update(['status' => 1, 'tenant_id' => 7]);
+            $attempts = 0;
+            $service = $this->service(transactionRunner: static function (callable $callback) use (&$attempts, $change): array {
+                $attempts++;
+                Db::name('hotels')->where('id', 80)->update($change);
+                throw new RuntimeException('SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry');
+            });
+            try {
+                $service->saveSnapshots(7, [80], [$row], 9);
+                self::fail('a concurrent winner cannot bypass the current hotel gate');
+            } catch (RuntimeException $error) {
+                self::assertSame(isset($change['status']) ? 'hotel_disabled' : 'hotel_tenant_scope_mismatch', $error->getMessage());
+            }
+            self::assertSame(1, $attempts);
+            self::assertSame(1, Db::name(BookingMonitoringService::TABLE)->count());
+        }
+        Db::name('hotels')->where('id', 80)->update(['status' => 1, 'tenant_id' => 7]);
+        self::assertSame($saved, $this->service()->readSnapshot(7, [80], 80, $saved['id']) + ['idempotent' => false]);
+        $service = $this->service(transactionRunner: static function (callable $callback): array {
+            Db::name('hotels')->where('id', 80)->update(['tenant_id' => 8]);
+            return Db::transaction($callback);
+        });
+        $this->expectExceptionMessage('hotel_tenant_scope_mismatch');
+        $service->saveSnapshots(7, [80], [$this->row('2026-10-01 09:00:00', 8)], 9);
+    }
+
+    public function testDeadlockAfterFirstInsertRollsBackAndRetriesTheWholeGuardedBatch(): void
+    {
+        $attempts = 0;
+        $injected = false;
+        $service = $this->service(transactionRunner: static function (callable $callback) use (&$attempts): array {
+            if (++$attempts === 2) self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count(), 'the failed transaction rolled back its first insert');
+            return Db::transaction($callback);
+        });
+        $queries = $this->captureSql(function () use ($service): void {
+            $result = $service->saveSnapshots(7, [80], [$this->row('2026-10-01 09:00:00', 8), $this->row('2026-10-02 09:00:00', 10)], 9);
+            self::assertSame(2, $result['row_count']);
+            self::assertSame([false, false], array_column($result['snapshots'], 'idempotent'));
+        }, static function (string $sql) use (&$injected): void {
+            if (!$injected && preg_match('/^INSERT\\b.*hotel_room_type_on_books_snapshots/i', $sql) === 1) {
+                $injected = true;
+                throw new RuntimeException('Deadlock found when trying to get lock', 1213);
+            }
+        });
+        self::assertTrue($injected, 'the failure was injected only after the first actual INSERT');
+        self::assertSame(2, $attempts);
+        self::assertSame(2, Db::name(BookingMonitoringService::TABLE)->count());
+        $guards = array_values(array_filter($this->selectQueriesFor($queries, 'hotels'), static fn(string $sql): bool => str_contains($sql, 'ORDER BY')));
+        self::assertCount(3, $guards, 'first transaction, winner lookup and retry all guard the hotel');
+    }
+
+    public function testTransactionHotelQueryLocksDistinctHotelsInSortedOrderBeforeReceiptQueries(): void
+    {
+        $connection = Db::connect();
+        $builderProperty = new ReflectionProperty($connection, 'builder');
+        $originalBuilder = $builderProperty->getValue($connection);
+        $probe = new class($connection) extends \think\db\builder\Sqlite {
+            public array $hotelLocks = [];
+            public function select(\think\db\BaseQuery $query, bool $one = false): string
+            {
+                $options = $query->getOptions();
+                if ($options['table'] === 'hotels' && $options['lock'] === true) {
+                    $this->hotelLocks[] = ['transaction_active' => $this->connection->getPdo()->inTransaction(),
+                        'mysql_sql' => (new \think\db\builder\Mysql($this->connection))->select(clone $query, $one)];
+                }
+                return parent::select($query, $one);
+            }
+        };
+        $builderProperty->setValue($connection, $probe);
+        try {
+            $other = array_replace($this->row('2026-10-02 09:00:00', 10, 3), ['hotel_id' => 82]);
+            $last = array_replace($other, ['captured_at' => '2026-10-01 09:00:00']);
+            $queries = $this->captureSql(fn() => $this->service()->saveSnapshots(7, [82, 80], [$other, $this->row('2026-10-02 09:00:00', 10), $last], 9));
+        } finally { $builderProperty->setValue($connection, $originalBuilder); }
+        self::assertCount(1, $probe->hotelLocks, 'one bounded hotel lock query for all repeated rows');
+        self::assertTrue($probe->hotelLocks[0]['transaction_active']);
+        self::assertStringContainsString('FOR UPDATE', $probe->hotelLocks[0]['mysql_sql'], 'the production builder emits a row lock');
+        self::assertMatchesRegularExpression('/ORDER BY\\s+[`"]?id[`"]?\\s+ASC/i', $probe->hotelLocks[0]['mysql_sql']);
+        $guard = array_values(array_filter($this->selectQueriesFor($queries, 'hotels'), static fn(string $sql): bool => str_contains($sql, 'ORDER BY')));
+        self::assertCount(1, $guard);
+        self::assertMatchesRegularExpression('/IN\\s*\\(80,82\\)/i', str_replace(' ', '', $guard[0]));
+        $guardIndex = array_search($guard[0], $queries, true);
+        $followingSelects = array_values(array_filter(array_slice($queries, $guardIndex + 1), static fn(string $sql): bool => str_starts_with($sql, 'SELECT')));
+        self::assertNotEmpty($followingSelects);
+        self::assertStringContainsString(BookingMonitoringService::TABLE, $followingSelects[0], 'the hotel gate precedes the first transactional receipt lookup');
+        self::assertSame(3, Db::name(BookingMonitoringService::TABLE)->count());
     }
 
     private function service(string $now = '2026-10-02 12:00:00', ?callable $transactionRunner = null): BookingMonitoringService

@@ -97,7 +97,8 @@ final class DatabaseVersionGovernanceTest extends TestCase
             '/Assert-DatabaseReady\s*\RAssert-DatabaseVersion\s*\Rif \(\$DatabaseOnly\) \{.*?'
                 . '\R\s*return\s*\R\}\s*\R\$NodeExe = Resolve-CommandSource "node".*?'
                 . '\R\$ProjectIdentity = Get-ProjectIdentity -NodeBinary \$NodeExe.*?'
-                . '\RInvoke-OtaRetentionPreview/s',
+                . '\Rif \(-not \$CoreOnly\) \{ Invoke-OtaRetentionPreview \}'
+                . '\s*\RStart-ThinkPhp\s*\Rif \(-not \$CoreOnly\) \{ Start-WecomAibot \}/s',
             $powerShell
         );
 

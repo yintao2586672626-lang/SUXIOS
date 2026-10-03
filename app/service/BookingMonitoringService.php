@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\model\Hotel;
 use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
@@ -45,7 +46,8 @@ final class BookingMonitoringService
             $row['quality_status'] = filter_var($row['operator_attested'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 'manual_confirmed' : 'unverified';
             $normalizedRows[] = $row;
         }
-        $contents = $this->planning->validatedSnapshotBatchContent($tenantId, $permittedHotelIds, $normalizedRows);
+        $contents = $this->planning->validatedSnapshotBatchContent($tenantId, $permittedHotelIds, $normalizedRows,
+            requireEnabledHotels: true, allowLegacySourceReferences: true);
         $prepared = [];
         $keys = [];
         $rooms = [];
@@ -77,6 +79,8 @@ final class BookingMonitoringService
             // An original receipt keeps its saved room name even after catalogue edits.
             // Scope authorization and all submitted facts were validated above.
             $replay = $this->findSubmittedReplay($content, $key);
+            $replayOnly = !is_string($row['source_ref'] ?? null);
+            if ($replayOnly && $replay === null) throw new InvalidArgumentException('on_books_snapshot_source_ref_invalid');
             $roomName = $replay['room_type_name'] ?? '酒店汇总';
             if ($replay === null && $roomId > 0) {
                 if ($old !== null) $roomName = $old['room_type_name'];
@@ -96,9 +100,12 @@ final class BookingMonitoringService
             $scopeKey = $hotelId . '|' . $key;
             if (isset($keys[$scopeKey])) throw new InvalidArgumentException('booking_monitor_import_duplicate_key');
             $keys[$scopeKey] = true;
-            $prepared[] = ['content' => $content, 'content_digest' => $digest, 'idempotency_key' => $key];
+            $prepared[] = ['content' => $content, 'content_digest' => $digest, 'idempotency_key' => $key, 'replay_only' => $replayOnly];
         }
-        $transaction = function () use ($prepared, $actorId): array {
+        $hotelIds = array_values(array_unique(array_column(array_column($prepared, 'content'), 'hotel_id')));
+        sort($hotelIds, SORT_NUMERIC);
+        $transaction = function () use ($prepared, $actorId, $tenantId, $permittedHotelIds, $hotelIds): array {
+            $this->lockWritableHotels($tenantId, $permittedHotelIds, $hotelIds);
             $saved = [];
             foreach ($prepared as $item) {
                 $content = $item['content'];
@@ -108,6 +115,7 @@ final class BookingMonitoringService
                     $saved[] = $this->verifiedReplay($existing, $item['content_digest']);
                     continue;
                 }
+                if ($item['replay_only']) throw new InvalidArgumentException('on_books_snapshot_source_ref_invalid');
                 $id = (int)Db::name(self::TABLE)->insertGetId($content + [
                     'content_digest' => $item['content_digest'], 'idempotency_key' => $item['idempotency_key'],
                     'created_by' => $actorId, 'created_at' => $this->now()->format('Y-m-d H:i:s.u'),
@@ -121,7 +129,10 @@ final class BookingMonitoringService
             return $saved;
         };
         $saved = $this->planning->runIdempotentWrite($transaction,
-            fn(): ?array => $this->findBatchReplay($prepared), static fn(array $receipts): array => $receipts);
+            fn(): ?array => Db::transaction(function () use ($prepared, $tenantId, $permittedHotelIds, $hotelIds): ?array {
+                $this->lockWritableHotels($tenantId, $permittedHotelIds, $hotelIds);
+                return $this->findBatchReplay($prepared);
+            }), static fn(array $receipts): array => $receipts);
         return ['contract_version' => self::CONTRACT, 'tenant_id' => $tenantId, 'save_status' => 'saved_readback_verified',
             'readback_verified' => true, 'row_count' => count($saved), 'snapshots' => $saved, 'external_write_count' => 0];
     }
@@ -233,7 +244,7 @@ final class BookingMonitoringService
         }
         $readyCount = count(array_filter($cells, static fn(array $cell): bool => $cell['status'] === 'ready'));
         $completeBaselineCount = count(array_filter($cells, static fn(array $cell): bool => $cell['baseline_readiness']['status'] === 'ready'));
-        $selectableHotels = Db::name('hotels')->where('tenant_id', $tenantId)->whereIn('id', array_map('intval', $permittedHotelIds))
+        $selectableHotels = Db::name('hotels')->where('tenant_id', $tenantId)->where('status', Hotel::STATUS_ENABLED)->whereIn('id', array_map('intval', $permittedHotelIds))
             ->field('id,tenant_id,name')->order('id', 'asc')->select()->toArray();
         foreach ($selectableHotels as &$hotel) {
             $hotel['id'] = (int)$hotel['id'];
@@ -328,12 +339,24 @@ final class BookingMonitoringService
         if ($tenantId <= 0 || $ids === [] || count($ids) > 20) throw new InvalidArgumentException('booking_monitor_requires_1_to_20_same_tenant_hotels');
         $ids = array_values(array_unique(array_map(fn(mixed $id): int => $this->roomId($id), $ids)));
         if (in_array(0, $ids, true) || array_diff($ids, array_map('intval', $permitted)) !== []) throw new RuntimeException('booking_monitor_hotel_outside_permitted_scope', 403);
-        $rows = Db::name('hotels')->where('tenant_id', $tenantId)->whereIn('id', $ids)->field('id,tenant_id,name')->select()->toArray();
+        $rows = Db::name('hotels')->where('tenant_id', $tenantId)->where('status', Hotel::STATUS_ENABLED)->whereIn('id', $ids)->field('id,tenant_id,name')->select()->toArray();
         if (count($rows) !== count($ids)) throw new RuntimeException('booking_monitor_hotel_tenant_scope_mismatch', 403);
         $result = [];
         foreach ($rows as $row) $result[(int)$row['id']] = $row;
         ksort($result);
         return $result;
+    }
+
+    /** Lock every batch hotel in a stable order before any receipt replay or write. */
+    private function lockWritableHotels(int $tenantId, array $permittedHotelIds, array $hotelIds): void
+    {
+        if (array_diff($hotelIds, array_map('intval', $permittedHotelIds)) !== []) throw new RuntimeException('hotel_outside_permitted_scope', 403);
+        $rows = Db::name('hotels')->whereIn('id', $hotelIds)->field('id,tenant_id,status')->order('id', 'asc')->lock(true)->select()->toArray();
+        if (count($rows) !== count($hotelIds)) throw new RuntimeException('hotel_not_found', 404);
+        foreach ($rows as $row) {
+            if ((int)$row['tenant_id'] !== $tenantId) throw new RuntimeException('hotel_tenant_scope_mismatch', 403);
+            if ((int)$row['status'] !== Hotel::STATUS_ENABLED) throw new RuntimeException('hotel_disabled', 403);
+        }
     }
 
     /** Match immutable submitted facts before consulting the mutable room catalogue. */

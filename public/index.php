@@ -13,10 +13,10 @@ use think\App;
 
 // [ 应用入口文件 ]
 
-require __DIR__ . '/../vendor/autoload.php';
+$application = require __DIR__ . '/../bootstrap.php';
 
 // 执行HTTP应用并响应
-$http = (new App())->http;
+$http = $application->http;
 
 $response = $http->run();
 
