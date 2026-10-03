@@ -277,7 +277,7 @@ class InvestmentPaybackService
                 $now = date('Y-m-d H:i:s');
                 $new = array_merge($data, ['tenant_id' => $this->tenantId, 'client_request_id' => $requestId, 'input_digest' => $digest, 'version' => 1, 'created_by' => $this->actorId, 'updated_by' => $this->actorId, 'created_at' => $now, 'updated_at' => $now]);
                 $newId = (int)Db::name('investment_payback_projects')->insertGetId($new);
-                $this->event($newId, null, 'project_created', null, $this->formatProject($this->findProject($newId)));
+                $this->event($newId, null, 'project_created', null, $this->formatProject($this->findProject($newId)), null, $digest);
                 return $newId;
             }
             if (hash_equals((string)$old['input_digest'], $digest)) {
@@ -361,7 +361,7 @@ class InvestmentPaybackService
                 $id = (int)Db::name('investment_payback_entries')->insertGetId(array_merge($data, ['tenant_id' => $this->tenantId, 'project_id' => $projectId, 'client_request_id' => $requestId, 'input_digest' => $digest, 'version' => 1, 'created_by' => $this->actorId, 'updated_by' => $this->actorId, 'created_at' => $now, 'updated_at' => $now]));
             }
             $this->touchProject($project, $old, $data);
-            $this->event($projectId, $id, $old ? 'entry_updated' : 'entry_created', $old ? $this->formatEntry($old) : null, $this->formatEntry($this->findEntry($projectId, $id)), $before);
+            $this->event($projectId, $id, $old ? 'entry_updated' : 'entry_created', $old ? $this->formatEntry($old) : null, $this->formatEntry($this->findEntry($projectId, $id)), $before, $old ? null : $digest);
         });
         return $this->detail($projectId, $asOf);
     }
@@ -681,14 +681,57 @@ class InvestmentPaybackService
 
     private function assertVersion(array $row, array $input): void
     {
-        if (isset($input['expected_version']) && (int)$input['expected_version'] !== (int)$row['version']) {
+        if (!array_key_exists('expected_version', $input)) {
+            return;
+        }
+        $version = $input['expected_version'];
+        // Omission remains compatible with older clients; an explicit value
+        // must never turn null, decimals, booleans or malformed text into a
+        // bypass or a different integer version through PHP coercion.
+        if (!(is_int($version) && $version > 0)
+            && !(is_string($version) && preg_match('/^[1-9]\d*$/D', $version) && (string)(int)$version === $version)) {
+            throw new InvalidArgumentException('记录版本须为正整数或规范数字字符串');
+        }
+        if ((int)$version !== (int)$row['version']) {
             throw new RuntimeException('记录已被修改，请重新读取后再保存', 409);
         }
     }
 
     private function assertRetry(array $row, string $digest): void
     {
-        if (!hash_equals((string)$row['input_digest'], $digest)) {
+        $isEntry = array_key_exists('project_id', $row);
+        $projectId = (int)($isEntry ? $row['project_id'] : $row['id']);
+        $query = Db::name('investment_payback_events')->where('tenant_id', $this->tenantId)->where('actor_id', $this->actorId)
+            ->where('project_id', $projectId)->where('event_type', $isEntry ? 'entry_created' : 'project_created');
+        $isEntry ? $query->where('entry_id', (int)$row['id']) : $query->whereNull('entry_id');
+        $event = $query->order('id')->find();
+        try {
+            $payload = $event ? json_decode((string)$event['payload_json'], true, 512, JSON_THROW_ON_ERROR) : null;
+        } catch (\JsonException $exception) {
+            throw new RuntimeException('首次保存证据无效，请重新读取后确认记录，不能自动确认重试', 409, $exception);
+        }
+        $after = is_array($payload) ? ($payload['after'] ?? null) : null;
+        if (!is_array($after) || ($after['version'] ?? null) !== 1
+            || ($after['id'] ?? null) !== (int)$row['id']
+            || ($after['tenant_id'] ?? null) !== $this->tenantId
+            || ($after['created_by'] ?? null) !== $this->actorId
+            || ($after['client_request_id'] ?? null) !== $row['client_request_id']
+            || ($isEntry && ($after['project_id'] ?? null) !== $projectId)) {
+            throw new RuntimeException('首次保存证据缺失或作用域不一致，请重新读取后确认记录，不能自动确认重试', 409);
+        }
+        if (array_key_exists('create_input_digest', $payload)) {
+            $createdDigest = $payload['create_input_digest'];
+        } else {
+            // Older audit snapshots did not preserve the digest. Version 1 and
+            // the scoped creation evidence prove the current digest is still
+            // the original one; edited legacy rows require an explicit reread.
+            if ((int)$row['version'] !== 1) {
+                throw new RuntimeException('旧记录已变化且缺首次保存摘要，请重新读取后确认记录，不能自动确认重试', 409);
+            }
+            $createdDigest = $row['input_digest'];
+        }
+        if (!is_string($createdDigest) || !preg_match('/^[0-9a-f]{64}$/D', $createdDigest)
+            || !hash_equals($createdDigest, $digest) || !hash_equals((string)$row['input_digest'], $digest)) {
             throw new RuntimeException('重复保存标识已用于不同内容，请重新读取或使用新的保存标识', 409);
         }
     }
@@ -728,14 +771,20 @@ class InvestmentPaybackService
         Db::name('investment_payback_projects')->where('tenant_id', $this->tenantId)->where('id', (int)$project['id'])->update($update);
     }
 
-    private function event(int $projectId, ?int $entryId, string $type, ?array $beforeRecord, array $afterRecord, ?array $beforeSummary = null): void
+    private function event(int $projectId, ?int $entryId, string $type, ?array $beforeRecord, array $afterRecord, ?array $beforeSummary = null, ?string $createInputDigest = null): void
     {
         $project = $this->formatProject($this->findProject($projectId));
         $afterSummary = $this->calculator->summarize($project, $this->entries($projectId));
+        $payload = ['before' => $beforeRecord, 'after' => $afterRecord, 'summary_before' => $beforeSummary, 'summary_after' => $afterSummary];
+        if ($createInputDigest !== null) {
+            // Preserve the exact initial normalized request; later edits update
+            // the record digest but never this immutable creation evidence.
+            $payload['create_input_digest'] = $createInputDigest;
+        }
         Db::name('investment_payback_events')->insert([
             'tenant_id' => $this->tenantId, 'project_id' => $projectId, 'entry_id' => $entryId, 'actor_id' => $this->actorId,
             'event_type' => $type, 'project_version' => $project['version'], 'created_at' => date('Y-m-d H:i:s'),
-            'payload_json' => json_encode(['before' => $beforeRecord, 'after' => $afterRecord, 'summary_before' => $beforeSummary, 'summary_after' => $afterSummary], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+            'payload_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
         ]);
     }
 

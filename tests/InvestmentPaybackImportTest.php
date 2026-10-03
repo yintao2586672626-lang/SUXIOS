@@ -17,6 +17,8 @@ use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Shared\Date;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use think\App;
@@ -533,6 +535,120 @@ final class InvestmentPaybackImportTest extends TestCase
         self::assertSame('1000.01', $review['impact']['opening_invested_total']);
         self::assertSame('-10.01', $review['impact']['opening_net_recovered_total']);
         self::assertSame(1, $this->importer()->confirm($this->batch('projects', [$rows[1]], ['review_token' => $review['review_token']]))['imported_count']);
+    }
+
+    public function testInaccessibleSameTenantProjectBlocksPreviewWithoutDisclosingHiddenDetails(): void
+    {
+        $owner = $this->ledger();
+        $hiddenId = $owner->saveProject([
+            'project_name' => '权限边界同名', 'investor_name' => '合成投资人', 'hotel_id' => 80,
+            'opening_as_of' => '2026-09-30', 'opening_invested' => '987654.32', 'opening_recovered' => '123456.78',
+            'opening_source' => '仅用于隔离测试的私有来源', 'notes' => '不应出现在其他酒店账号预览中',
+            'client_request_id' => 'hidden-import-duplicate', 'forecast_as_of' => '2026-09-30',
+        ])['project']['id'];
+        $before = $owner->detail($hiddenId);
+        $importer = $this->importer(10, 8, [81]);
+        $rows = [$this->projectRow(['project_name' => '权限边界同名', 'investor_name' => '合成投资人'])];
+        $review = $importer->preview(['review_rows' => true, 'mode' => 'projects', 'rows' => $rows]);
+        self::assertFalse($review['can_confirm']);
+        self::assertSame(1, $review['invalid_count']);
+        self::assertSame([], $review['rows'][0]['exact_matches']);
+        self::assertSame([], $review['rows'][0]['similar_matches']);
+        self::assertSame(['当前租户已存在同名且同投资主体的项目，当前账号无权查看；请核对项目归属后处理'], $review['rows'][0]['errors']);
+        self::assertSame('inaccessible_project_duplicate', $review['rows'][0]['impact_excluded_reason']);
+        self::assertSame('0.00', $review['impact']['opening_invested_total']);
+        $encodedReview = json_encode($review, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        foreach (['987654.32', '123456.78', '仅用于隔离测试的私有来源', '不应出现在其他酒店账号预览中'] as $privateText) {
+            self::assertStringNotContainsString($privateText, $encodedReview);
+        }
+        $batch = $this->batch('projects', $rows, ['review_token' => $review['review_token']]);
+        $this->runtimeFailure(fn() => $importer->confirm($batch), 409);
+        unset($batch['review_token']);
+        $this->runtimeFailure(fn() => $importer->confirm($batch), 409);
+        self::assertSame(1, Db::name('investment_payback_projects')->count());
+        self::assertSame(1, Db::name('investment_payback_events')->count());
+        self::assertSame(0, Db::name('system_config')->count());
+        self::assertSame($before, $owner->detail($hiddenId));
+
+        // The same name with another investor does not disclose the hidden row
+        // or become a full-tenant exact duplicate.
+        $otherRows = [$this->projectRow(['project_name' => '权限边界同名', 'investor_name' => '另一合成投资人'])];
+        $otherReview = $importer->preview(['review_rows' => true, 'mode' => 'projects', 'rows' => $otherRows]);
+        self::assertTrue($otherReview['can_confirm']);
+        self::assertSame([], $otherReview['rows'][0]['exact_matches']);
+        self::assertSame([], $otherReview['rows'][0]['similar_matches']);
+        self::assertSame(1, $importer->confirm($this->batch('projects', $otherRows, ['review_token' => $otherReview['review_token']]))['imported_count']);
+
+        // An accessible exact candidate keeps its normal review details.
+        $visibleId = $this->ledger(10, 7, [81])->saveProject([
+            'project_name' => '可见项目', 'investor_name' => '合成投资人', 'hotel_id' => 81,
+            'client_request_id' => 'visible-import-duplicate', 'forecast_as_of' => '2026-09-30',
+        ])['project']['id'];
+        $visibleReview = $importer->preview(['review_rows' => true, 'mode' => 'projects', 'rows' => [$this->projectRow(['project_name' => '可见项目', 'investor_name' => '合成投资人'])]]);
+        self::assertFalse($visibleReview['can_confirm']);
+        self::assertSame(1, $visibleReview['exact_count']);
+        self::assertSame($visibleId, $visibleReview['rows'][0]['exact_matches'][0]['id']);
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testMonthEndInvalidatesReviewedImpactBeforeWritesButSuccessfulRequestStillReplays(): void
+    {
+        // Override only today() in this isolated test process. The application
+        // file and the machine clock remain unchanged.
+        self::assertFalse(class_exists(InvestmentPaybackCalculator::class, false));
+        $source = file_get_contents(dirname(__DIR__) . '/app/service/InvestmentPaybackCalculator.php');
+        $source = str_replace(
+            "return (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d');",
+            'return (string)$GLOBALS[\'payback_import_test_today\'];',
+            $source,
+            $clockReplacements
+        );
+        self::assertSame(1, $clockReplacements);
+        eval(substr($source, 5));
+        $GLOBALS['payback_import_test_today'] = '2026-10-30';
+        $id = $this->emptyProject();
+        $ledger = $this->ledger();
+        $importer = $this->importer();
+        $rows = [$this->entryRow(['date' => '2026-10', 'precision' => 'month', 'amount' => '100.01'])];
+        $previewInput = ['review_rows' => true, 'mode' => 'entries', 'project_id' => $id, 'rows' => $rows];
+        $before = $ledger->detail($id);
+        $october30 = $importer->preview($previewInput);
+        self::assertSame('2026-10-30', $october30['as_of']);
+        self::assertSame('0.00', $october30['impact']['actual_invested_delta']);
+        self::assertSame('period_after_today', $october30['rows'][0]['impact_excluded_reason']);
+        $staleBatch = $this->batch('entries', $rows, ['project_id' => $id, 'review_token' => $october30['review_token']]);
+
+        $GLOBALS['payback_import_test_today'] = '2026-10-31';
+        $this->runtimeFailure(fn() => $importer->confirm($staleBatch), 409);
+        self::assertSame(0, Db::name('investment_payback_entries')->count());
+        self::assertSame(1, Db::name('investment_payback_events')->count());
+        self::assertSame(0, Db::name('system_config')->count());
+        self::assertSame($before, $ledger->detail($id));
+        $october31 = $importer->preview($previewInput);
+        self::assertSame('2026-10-31', $october31['as_of']);
+        self::assertSame('100.01', $october31['impact']['actual_invested_delta']);
+        self::assertNull($october31['rows'][0]['impact_excluded_reason']);
+        self::assertNotSame($october30['review_token'], $october31['review_token']);
+        $freshBatch = array_merge($staleBatch, ['review_token' => $october31['review_token']]);
+        $saved = $importer->confirm($freshBatch);
+        self::assertSame(1, $saved['imported_count']);
+        self::assertFalse($saved['replayed']);
+        $readback = $ledger->detail($id, '2026-10-31');
+        self::assertSame('100.01', $readback['summary']['invested_amount']);
+        Db::connect('payback_import_test')->close();
+        Db::connect(null, true);
+        self::assertSame($readback, $this->ledger()->detail($id, '2026-10-31'));
+
+        $GLOBALS['payback_import_test_today'] = '2026-11-01';
+        $replay = $this->importer()->confirm($freshBatch);
+        self::assertTrue($replay['replayed']);
+        self::assertSame($saved['entry_ids'], $replay['entry_ids']);
+        self::assertSame(1, Db::name('investment_payback_entries')->count());
+        self::assertSame(2, Db::name('investment_payback_events')->count());
+        self::assertSame(1, Db::name('system_config')->count());
+        self::assertSame($readback, $this->ledger()->detail($id, '2026-10-31'));
+        unset($GLOBALS['payback_import_test_today']);
     }
 
     public function testConfirmPreservesSelectedProjectRowsFromTheReviewedFullPayload(): void

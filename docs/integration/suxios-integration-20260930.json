@@ -3,7 +3,7 @@
   "date": "2026-09-30",
   "branch": "codex/integrate-suxios-20260930",
   "base": "703dd68db8908b23a8d084868196f72318e586d7",
-  "origin_main": "5821434c4839c9b9fd70bd0106ad176ba37d4b21",
+  "origin_main": "d5bc8f6d2362d8ebbae3b9213b1c57d15475b238",
   "status": "local_integration_and_full_acceptance_complete",
   "scope": {
     "worktrees": 102,
@@ -2778,20 +2778,38 @@
     {
       "path": "app/service/InvestmentPaybackCalculator.php",
       "state": "added",
-      "bytes": 14046,
-      "sha256": "82a43c181a35c0afde00be3f6818e9a3f650a7ba86a4f10eeaee486510c0d51f"
+      "bytes": 14810,
+      "sha256": "189477139b964864d888b7feb891b67dbfbf30975056cace05195f8c50da34a5",
+      "previous_payloads": [
+        {
+          "sha256": "82a43c181a35c0afde00be3f6818e9a3f650a7ba86a4f10eeaee486510c0d51f",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "app/service/InvestmentPaybackImportService.php",
       "state": "added",
-      "bytes": 51004,
-      "sha256": "70cfe378e89297699e6ee01180be093803b755964445f0134ef9b4a28c7f55e8"
+      "bytes": 51850,
+      "sha256": "a9c87b82850e37caf68ac43a8ef4a83e4d1705064bea6a4e91cbaf13e216df0d",
+      "previous_payloads": [
+        {
+          "sha256": "70cfe378e89297699e6ee01180be093803b755964445f0134ef9b4a28c7f55e8",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "app/service/InvestmentPaybackService.php",
       "state": "added",
-      "bytes": 43723,
-      "sha256": "674511541270beb2be7bcf7c84f667804a7d5c27153374e0de2997b8ca544f04"
+      "bytes": 46982,
+      "sha256": "d0fd6b426e5089771913fdaf2091fe5b600cbe9c899d816751365f98f8554883",
+      "previous_payloads": [
+        {
+          "sha256": "674511541270beb2be7bcf7c84f667804a7d5c27153374e0de2997b8ca544f04",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "app/service/InvestmentScenarioCalculator.php",
@@ -3556,8 +3574,8 @@
     {
       "path": "docs/integration/functional-hardening-20261003.md",
       "state": "added",
-      "bytes": 11767,
-      "sha256": "d8ad8a76ccf082850ad57c3d8f65e90ce31db8c40e5b47c6df9167e934f33b00",
+      "bytes": 12701,
+      "sha256": "f5b63a210daf2188f5b23b4b4cddaa9742ca323c95e7b3f286f988773e410f69",
       "previous_payloads": [
         {
           "sha256": "92d950a66aa6c9e9bc82a91b7e35814e681e4e9dccee985b71459261eff9df62",
@@ -3566,6 +3584,10 @@
         {
           "sha256": "9b1380c84b2dd27fa15439b1442bd6a5c385da045bdf5c0466827b0bebccffb4",
           "prepared_before_head": "8ff70d7bedab3fa42d4b9afbcdac032a1950fe92"
+        },
+        {
+          "sha256": "d8ad8a76ccf082850ad57c3d8f65e90ce31db8c40e5b47c6df9167e934f33b00",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
         }
       ]
     },
@@ -3744,8 +3766,8 @@
     {
       "path": "docs/integration/receipts/functional-hardening-20261003.json",
       "state": "added",
-      "bytes": 43219,
-      "sha256": "e3361459eade3947060a73f002109b9fd457fde26c5ffb17493c613fbdf9bf44",
+      "bytes": 63702,
+      "sha256": "5d7e5e37f151acf43d68c5b30714844f6073c9f1c7e6a408946fbd5cbb4f49ba",
       "previous_payloads": [
         {
           "sha256": "12fe4468f3a40f68ec14749ba70841d8940bfedd8144ef81bb19f3cc3cd6c308",
@@ -3754,6 +3776,10 @@
         {
           "sha256": "9c32e987bbb21c225a7c008f1f8c38b4b7609be207ce718f8cb7154d673717d6",
           "prepared_before_head": "8ff70d7bedab3fa42d4b9afbcdac032a1950fe92"
+        },
+        {
+          "sha256": "e3361459eade3947060a73f002109b9fd457fde26c5ffb17493c613fbdf9bf44",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
         }
       ]
     },
@@ -4453,11 +4479,15 @@
       "state": "modified",
       "path": "public/components/system/business-closure-loader.js",
       "bytes": 4206,
-      "sha256": "9f29f62722e23f3d395592b1234a6c284c08856dc0e92aec944bdad0f1a47698",
+      "sha256": "65a7dc3b4e518c1f92cc53e20c3607bb651439967752503ec00dd86629b67d0f",
       "previous_payloads": [
         {
           "sha256": "a6ae1827456452284ace325cd6168e444e726b8b02e3c1aa8ce3e74e4a611a42",
           "prepared_before_head": "d342b73c3ed80f619d746f9ffecb6044db59015f"
+        },
+        {
+          "sha256": "9f29f62722e23f3d395592b1234a6c284c08856dc0e92aec944bdad0f1a47698",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
         }
       ]
     },
@@ -4566,20 +4596,38 @@
     {
       "path": "public/components/system/investment-payback-import.js",
       "state": "added",
-      "bytes": 42048,
-      "sha256": "3ba72b80e8a81297527672f8a34ad694704ee1de7ec2d58edffd3bb1da150a93"
+      "bytes": 50217,
+      "sha256": "b91369b1442ee7333a89ffa20d4625180a23e017e7c13804266a9113fdcc677a",
+      "previous_payloads": [
+        {
+          "sha256": "3ba72b80e8a81297527672f8a34ad694704ee1de7ec2d58edffd3bb1da150a93",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "public/components/system/investment-payback.js",
       "state": "added",
-      "bytes": 105416,
-      "sha256": "c231e1ca7043ab0ad88da8d3e49c929e5f925e669a08b6c1c5f0e223d0e567cb"
+      "bytes": 114478,
+      "sha256": "6f5fda334267a0dadf147765c2bceea6414442dda8be38c7674511314cac03e5",
+      "previous_payloads": [
+        {
+          "sha256": "c231e1ca7043ab0ad88da8d3e49c929e5f925e669a08b6c1c5f0e223d0e567cb",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "public/components/system/investment-payback.min.js",
       "state": "added",
-      "bytes": 115151,
-      "sha256": "08207c0f84749fd88716e10ceff60dac6e9b7efd08452d6ce602860abfbf38cb"
+      "bytes": 127335,
+      "sha256": "b76f42ea8f180de438ebe6a445555bb77587237b8cbfa38b54166ef97fd783cb",
+      "previous_payloads": [
+        {
+          "sha256": "08207c0f84749fd88716e10ceff60dac6e9b7efd08452d6ce602860abfbf38cb",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "public/components/system/investment-scenario.js",
@@ -4720,7 +4768,7 @@
     {
       "path": "public/index.html",
       "bytes": 8588,
-      "sha256": "977fab6578fd42a945259f415f32a984fc5fbe5c0a4b93709637f7927669a743",
+      "sha256": "6b23a09cb6391741543fba2bdfd28244b292e5450892d31d8e6cfa995ca0c5ef",
       "state": "modified",
       "previous_payloads": [
         {
@@ -4750,6 +4798,10 @@
         {
           "sha256": "48b362b229de658e0db47837b71fb8120df7bfb64ccb3ba486b7990c92a319ac",
           "prepared_before_head": "8ff70d7bedab3fa42d4b9afbcdac032a1950fe92"
+        },
+        {
+          "sha256": "977fab6578fd42a945259f415f32a984fc5fbe5c0a4b93709637f7927669a743",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
         }
       ]
     },
@@ -4858,8 +4910,8 @@
     {
       "state": "modified",
       "path": "public/tailwind.min.css",
-      "bytes": 55127,
-      "sha256": "a8b2ad41b1f05591a6ba1b535a140c4f75866d464120a2481fcc12a6e91db4df",
+      "bytes": 55152,
+      "sha256": "8c64abd68e01f764518bcb6b60a5525ac9bdd7224aa863a7e9dbf1474170d3a6",
       "previous_payloads": [
         {
           "sha256": "646c40c2cb8867db36603ac25ecf140bdc6470d08ff86655531fb8ef6f243238",
@@ -4868,6 +4920,10 @@
         {
           "sha256": "641c76fdbc3d40f2c56970741331fcfe3ddbe7572f46ffa39a2a72683f025a2a",
           "prepared_before_head": "66f04671fda8aaeea04d7e8948a387a4934f0fa0"
+        },
+        {
+          "sha256": "a8b2ad41b1f05591a6ba1b535a140c4f75866d464120a2481fcc12a6e91db4df",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
         }
       ]
     },
@@ -6588,20 +6644,38 @@
     {
       "path": "tests/automation/investment_payback_import.test.mjs",
       "state": "added",
-      "bytes": 21682,
-      "sha256": "4386d4e6b0857b3e4f3f21319d8650d92b519e9f16b0baf74bee358c3aa73767"
+      "bytes": 40947,
+      "sha256": "e0abd3845f5b415fa66869b485a1d392b528a8697bbe999d0c02828b0b715f58",
+      "previous_payloads": [
+        {
+          "sha256": "4386d4e6b0857b3e4f3f21319d8650d92b519e9f16b0baf74bee358c3aa73767",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "tests/automation/investment_payback_workbench.test.mjs",
       "state": "added",
-      "bytes": 42078,
-      "sha256": "e81c212a26538e6ed9b3bccd93154bfd92128be9ed7e40657948bd98b59700d8"
+      "bytes": 51097,
+      "sha256": "9e811007a6a2faa3691ac951778ecdb38320ec72ade1f122ca076c2b2e38a1b5",
+      "previous_payloads": [
+        {
+          "sha256": "e81c212a26538e6ed9b3bccd93154bfd92128be9ed7e40657948bd98b59700d8",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "tests/automation/investment_scenario_workbench.test.mjs",
       "state": "added",
-      "bytes": 51347,
-      "sha256": "517cf78e63c389bc8d1330fb83974e65b1fbf539f6dd2b344995b279f5d19532"
+      "bytes": 51482,
+      "sha256": "50912bc20eba502454f50f935668fac5e82db0f208f8fffae8e8d68cf127f252",
+      "previous_payloads": [
+        {
+          "sha256": "517cf78e63c389bc8d1330fb83974e65b1fbf539f6dd2b344995b279f5d19532",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "state": "added",
@@ -8602,20 +8676,38 @@
     {
       "path": "tests/InvestmentPaybackCalculatorTest.php",
       "state": "added",
-      "bytes": 13413,
-      "sha256": "641fb909e9f44bd6faea6c7fcc7748b881af2c28c17373df3cadb0e58e37c384"
+      "bytes": 19068,
+      "sha256": "9f13ea65a1d6b3d0acd20f01e83aea8b243e2e983d6f6d5e50e4dc4169093a80",
+      "previous_payloads": [
+        {
+          "sha256": "641fb909e9f44bd6faea6c7fcc7748b881af2c28c17373df3cadb0e58e37c384",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "tests/InvestmentPaybackImportTest.php",
       "state": "added",
-      "bytes": 50431,
-      "sha256": "dba4109dae164fe66f4222ca295f10f7e62cdc8177243739f6a1179e68699522"
+      "bytes": 58146,
+      "sha256": "b43495521c701810e3185ca14d5219af5bdfc4242db2ea95eac00e05c5146abc",
+      "previous_payloads": [
+        {
+          "sha256": "dba4109dae164fe66f4222ca295f10f7e62cdc8177243739f6a1179e68699522",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "tests/InvestmentPaybackPersistenceTest.php",
       "state": "added",
-      "bytes": 63417,
-      "sha256": "ed8c6d865bbd0a4152007a458ed58a4e956878e8f258e9a09ff63a9e1e3f45bd"
+      "bytes": 79213,
+      "sha256": "ba9d592d195cf70f4ce33ff7b555ea0ed89937592e28c1fe8ede1bd10ea431d3",
+      "previous_payloads": [
+        {
+          "sha256": "ed8c6d865bbd0a4152007a458ed58a4e956878e8f258e9a09ff63a9e1e3f45bd",
+          "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        }
+      ]
     },
     {
       "path": "tests/InvestmentPaybackRoutingTest.php",
@@ -9529,8 +9621,9 @@
     "additional_committed_source": "7c77dd64bf9cd6c56fc4672d749808c5c4ce6874",
     "root_checkpoint": "d7d0370a70f776028727339192f530167820f3e7",
     "final_combined_acceptance": true,
-    "latest_main": "5821434c4839c9b9fd70bd0106ad176ba37d4b21",
+    "latest_main": "d5bc8f6d2362d8ebbae3b9213b1c57d15475b238",
     "previous_combined_checkpoint": "8ff70d7bedab3fa42d4b9afbcdac032a1950fe92",
-    "dependency_audit": "0 vulnerabilities; PurgeCSS7.0.2"
+    "dependency_audit": "0 vulnerabilities; PurgeCSS7.0.2",
+    "previous_main_dependency_checkpoint": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
   }
 }
