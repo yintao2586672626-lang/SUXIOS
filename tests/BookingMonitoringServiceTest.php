@@ -25,7 +25,7 @@ final class BookingMonitoringServiceTest extends TestCase
         $config['connections']['sqlite'] = ['type' => 'sqlite', 'database' => self::$sqlitePath, 'prefix' => '', 'fields_strict' => false];
         Config::set($config, 'database');
         Db::connect(null, true);
-        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL)');
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL, status INTEGER NOT NULL DEFAULT 1)');
         Db::execute('CREATE TABLE room_types (id INTEGER PRIMARY KEY, hotel_id INTEGER NOT NULL, name TEXT NOT NULL, is_enabled INTEGER NOT NULL DEFAULT 1)');
         $shared = 'id INTEGER PRIMARY KEY AUTOINCREMENT, contract_version TEXT NOT NULL, tenant_id INTEGER NOT NULL,
             hotel_id INTEGER NOT NULL, source_hotel_id INTEGER NOT NULL, platform TEXT NOT NULL, fact_scope TEXT NOT NULL,
@@ -505,6 +505,74 @@ final class BookingMonitoringServiceTest extends TestCase
         self::assertSame($automatic['content_digest'], $replay['content_digest']);
         self::assertTrue($replay['idempotent']);
         self::assertSame(2, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    #[DataProvider('automaticReplayRoomIdentities')]
+    public function testAutomaticReplayRequiresExactRoomIdentityBeforeUsingSavedName(int $roomId, bool $enabled, ?string $expectedName): void
+    {
+        $row = $this->row('2026-10-02 09:00:00.123456', 10.1234);
+        $service = $this->service();
+        $original = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        Db::name('room_types')->where('id', 1)->delete();
+        if (!$enabled) Db::name('room_types')->where('id', $roomId)->update(['is_enabled' => 0]);
+        $changedRoom = array_replace($row, ['room_type_id' => $roomId]);
+        if ($expectedName === null) {
+            try {
+                $service->saveSnapshots(7, [80], [$changedRoom], 9);
+                self::fail('a different room must pass its own enabled hotel catalogue check');
+            } catch (RuntimeException $error) {
+                self::assertSame('booking_monitor_room_type_outside_hotel', $error->getMessage());
+                self::assertSame(403, $error->getCode());
+            }
+            self::assertSame(1, Db::name(BookingMonitoringService::TABLE)->count());
+        } else {
+            $saved = $service->saveSnapshots(7, [80], [$changedRoom], 9)['snapshots'][0];
+            self::assertNotSame($original['id'], $saved['id']);
+            self::assertSame($roomId, $saved['room_type_id']);
+            self::assertSame($expectedName, $saved['room_type_name']);
+            self::assertFalse($saved['idempotent']);
+            self::assertSame($saved['id'], $service->saveSnapshots(7, [80], [$changedRoom], 9)['snapshots'][0]['id']);
+            self::assertSame(2, Db::name(BookingMonitoringService::TABLE)->count());
+        }
+        $replay = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        self::assertSame($original['id'], $replay['id']);
+        self::assertSame($original['room_type_name'], $replay['room_type_name']);
+        self::assertSame($original['content_digest'], $replay['content_digest']);
+        self::assertTrue($replay['idempotent']);
+    }
+
+    public static function automaticReplayRoomIdentities(): array
+    {
+        return [
+            'enabled second room' => [2, true, 'TEST-ONLY双床'],
+            'hotel aggregate' => [0, true, '酒店汇总'],
+            'disabled second room' => [2, false, null],
+            'nonexistent room' => [999, true, null],
+            'room belonging to another hotel' => [3, true, null],
+        ];
+    }
+
+    public function testAutomaticReplayRequiresExactCorrectionIdentity(): void
+    {
+        $row = $this->row('2026-10-02 09:00:00.123456', 10.1234);
+        $service = $this->service();
+        $original = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        Db::name('room_types')->where('id', 1)->update(['is_enabled' => 0]);
+        $firstInput = array_replace($row, ['supersedes_snapshot_id' => $original['id']]);
+        $first = $service->saveSnapshots(7, [80], [$firstInput], 9)['snapshots'][0];
+        $secondInput = array_replace($row, ['supersedes_snapshot_id' => $first['id']]);
+        $second = $service->saveSnapshots(7, [80], [$secondInput], 9)['snapshots'][0];
+        self::assertCount(3, array_unique([$original['id'], $first['id'], $second['id']]));
+        self::assertSame($original['id'], $first['supersedes_snapshot_id']);
+        self::assertSame($first['id'], $second['supersedes_snapshot_id']);
+        foreach ([[$row, $original], [$firstInput, $first], [$secondInput, $second]] as [$input, $saved]) {
+            $replay = $service->saveSnapshots(7, [80], [$input], 9)['snapshots'][0];
+            self::assertSame($saved['id'], $replay['id']);
+            self::assertSame($saved['content_digest'], $replay['content_digest']);
+            self::assertSame($saved['supersedes_snapshot_id'], $replay['supersedes_snapshot_id']);
+            self::assertTrue($replay['idempotent']);
+        }
+        self::assertSame(3, Db::name(BookingMonitoringService::TABLE)->count());
     }
 
     public function testAutomaticReplaySelectsEarliestValidHistoricalDuplicateWithoutRewritingIt(): void

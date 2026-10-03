@@ -378,7 +378,9 @@ final class OperatingEvidenceRoutingTest extends TestCase
             Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$original['snapshot_id'])->update(['payload_json'=>$json,'content_digest'=>hash('sha256',$json)]);
             $original = $store->read($scope,$original['snapshot_id']);
         }
-        self::assertNull($store->replayRequest($scope,$request['idempotency_key'],$request['inputs']));
+        $expected = $original;
+        $expected['idempotent'] = true;
+        self::assertSame($expected,$store->replayRequest($scope,$request['idempotency_key'],$request['inputs']));
         $legacyReplay = $store->save($scope,$payload,$request['idempotency_key'],7);
         self::assertSame($original['snapshot_id'],$legacyReplay['snapshot_id']);
         self::assertSame($original['content_digest'],$legacyReplay['content_digest']);
@@ -390,6 +392,32 @@ final class OperatingEvidenceRoutingTest extends TestCase
         self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
     }
     public static function legacyStorageFormats(): array { return ['original full format'=>[true],'compact format without request digest'=>[false]]; }
+
+    public function testControllerReplaysLegacyChannelVersionBeforeNewEvidenceFieldsAreCalculated(): void
+    {
+        $this->database();
+        $request = $this->input(['kind'=>'channel_economics','platform'=>'ctrip','inputs'=>[
+            'net_revenue'=>1000,'advertising_spend'=>100,'attributed_order_amount'=>400,'effective_order_amount'=>1200,'refund_amount'=>50,
+            'attribution_basis'=>'synthetic-legacy-same-window','advertising_included_in_net_revenue'=>false,'advertising_in_direct_costs'=>false,
+            'cost_coverage_complete'=>true,'operator_attested'=>true,'source_refs'=>['synthetic-legacy-ledger'],'costs'=>[],
+        ]]);
+        $result = (new \app\service\ChannelEconomicsService())->calculate($request['inputs']);
+        unset($result['evidence_chain'],$result['evidence_refs_by_metric'],$result['source_receipts'],$result['inputs']['evidence_refs_by_metric']);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10,[80],80,'2026-09','ctrip','channel_economics');
+        $original = $store->save($scope,['inputs'=>$result['inputs'],'result'=>$result,'status'=>$result['status'],'source_quality'=>$result['source_quality']],$request['idempotency_key'],7);
+        $originalJson = Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$original['snapshot_id'])->value('payload_json');
+        $response = $this->call('saveEvidence',$request,$this->user());
+        self::assertSame(200,$response->getCode(),$response->getContent());
+        $expected = $original;
+        $expected['idempotent'] = true;
+        self::assertSame($expected,$response->getData()['data']);
+        self::assertArrayNotHasKey('evidence_chain',$response->getData()['data']['result']);
+        self::assertSame($originalJson,Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$original['snapshot_id'])->value('payload_json'));
+        $request['inputs']['net_revenue'] = 1001;
+        self::assertSame(409,$this->call('saveEvidence',$request,$this->user())->getCode());
+        self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
 
     public function testFutureActualAccountingMonthAndInventoryDateCannotPreviewOrSave(): void
     {

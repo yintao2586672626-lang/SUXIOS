@@ -205,6 +205,159 @@ final class OperatingEvidenceChainTest extends TestCase
     }
     public function testUntrustedClientSourcesCannotOverrideManualInput(): void { $i=$this->channel(); $r=(new ChannelEconomicsService())->calculate($i,['settlement'=>['readback_verified'=>false,'basis_ledger'=>['components'=>['net_revenue'=>['value'=>9999]]]]]); self::assertSame(1000.0,$r['net_revenue']); }
     public function testImmutableSaveExactReadbackAndIdempotency(): void { $store=new OperatingEvidenceSnapshotStore(); $scope=$store->scope(7,[80],80,'2026-10','whole_hotel','consumables_actual'); $result=(new ConsumablesActualCostService())->calculate($this->actual()); $r=$store->save($scope,['inputs'=>$result['inputs'],'result'=>$result,'source_quality'=>'operator_attested'],'request-test-123',1); self::assertTrue($r['readback_verified']); self::assertSame(2,(int)$r['result']['actual_consumables_cost_per_room_night']); self::assertSame($r['snapshot_id'],$store->save($scope,['inputs'=>$result['inputs'],'result'=>$result,'source_quality'=>'operator_attested'],'request-test-123',1)['snapshot_id']); self::assertSame($r['content_digest'],$store->read($scope,$r['snapshot_id'])['content_digest']); }
+    private function legacySnapshot(array $scope, array $result, string $key, bool $compact = false): array
+    {
+        $payload = ['contract_version'=>'operating_evidence.v1','scope'=>$scope,'inputs'=>$result['inputs'],
+            'result'=>$result,'status'=>$result['status'],'source_quality'=>$result['source_quality']];
+        if ($compact) {
+            $payload['result']['inputs'] = ['$ref'=>'inputs'];
+            $payload['result']['items'] = ['$ref'=>'inputs.items'];
+            $payload['_storage_encoding'] = 'consumables_inputs_once.v1';
+        }
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $id = (int)Db::name(OperatingEvidenceSnapshotStore::TABLE)->insertGetId($scope + [
+            'source_hotel_id'=>$scope['hotel_id'],'payload_json'=>$json,'content_digest'=>hash('sha256',$json),
+            'idempotency_key'=>$key,'created_by'=>1,'created_at'=>'2026-10-02 12:00:00']);
+        return ['id'=>$id,'json'=>$json,'digest'=>hash('sha256',$json)];
+    }
+    private function assertLegacyConflict(OperatingEvidenceSnapshotStore $store, array $scope, string $key, array $input): void
+    {
+        $conflict = false;
+        try { $store->replayRequest($scope,$key,$input); }
+        catch (RuntimeException $error) {
+            $conflict = true;
+            self::assertSame('operating_evidence_idempotency_conflict',$error->getMessage());
+            self::assertSame(409,$error->getCode());
+        }
+        self::assertTrue($conflict,'Changed or unprovable legacy inputs must conflict');
+    }
+    public function testLegacyChannelLostResponseReplaysOriginalVersionDespiteNewEvidenceFieldsAndSourceDrift(): void
+    {
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(7,[80],80,'2026-10','ctrip','channel_economics');
+        $input = $this->channel(); $result = (new ChannelEconomicsService())->calculate($input);
+        unset($result['inputs']['evidence_refs_by_metric'],$result['evidence_chain']);
+        foreach ($result['inputs']['costs'] as &$cost) unset($cost['cost_type']); unset($cost);
+        $result['inputs']['source_refs'] = ['synthetic-monthly-order#1'];
+        $result['source_receipts']['settlement'] = ['batch_id'=>55,'lines'=>[['net_revenue'=>1000]],'content_digest'=>'original-source'];
+        $legacy = $this->legacySnapshot($scope,$result,'legacy-channel-response-loss');
+        // Current calculation has new metric evidence/defaults and a newly collected amount.
+        $fresh = (new ChannelEconomicsService())->calculate($input,['settlement'=>[
+            'readback_verified'=>true,'projection_status'=>'latest_attempt','latest_attempt'=>['batch_status'=>'available'],
+            'source'=>['source_quality_status'=>'operator_attested'],'basis_ledger'=>['components'=>['net_revenue'=>['value'=>9000]]]]]);
+        self::assertSame(9000.0,$fresh['net_revenue']);
+        $replay = $store->replayRequest($scope,'legacy-channel-response-loss',$input);
+        self::assertNotNull($replay); self::assertSame($legacy['id'],$replay['snapshot_id']);
+        self::assertSame($legacy['digest'],$replay['content_digest']); self::assertTrue($replay['idempotent']);
+        self::assertSame(1000,$replay['result']['net_revenue']); self::assertArrayNotHasKey('evidence_chain',$replay['result']);
+        self::assertArrayNotHasKey('request_digest',$replay);
+        self::assertSame($legacy['json'],Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$legacy['id'])->value('payload_json'));
+        // The store's transactional/recovery replay must use the original request too.
+        $again = $store->save($scope,['inputs'=>$fresh['inputs'],'result'=>$fresh],'legacy-channel-response-loss',1,$input);
+        self::assertSame($legacy['id'],$again['snapshot_id']); self::assertSame($legacy['digest'],$again['content_digest']);
+    }
+    public function testLegacyChannelRequestComparisonRejectsChangedMissingAndUnknownInputs(): void
+    {
+        $store = new OperatingEvidenceSnapshotStore(); $scope = $store->scope(7,[80],80,'2026-10','meituan','channel_economics');
+        $input = $this->channel(); $input['refund_amount'] = 0;
+        $result = (new ChannelEconomicsService())->calculate($input);
+        unset($result['inputs']['evidence_refs_by_metric'],$result['evidence_chain']);
+        foreach ($result['inputs']['costs'] as &$cost) unset($cost['cost_type']); unset($cost);
+        $legacy = $this->legacySnapshot($scope,$result,'legacy-channel-conflict-proof');
+        $equivalent = $input; $equivalent['net_revenue'] = '1000.00'; $equivalent['source_refs'] = [' synthetic-monthly-order#1 ','synthetic-monthly-order#1'];
+        self::assertSame($legacy['id'],$store->replayRequest($scope,'legacy-channel-conflict-proof',$equivalent)['snapshot_id']);
+        foreach (['net_revenue'=>0,'refund_amount'=>null,'operator_attested'=>false,'unknown_future_input'=>null,
+            'evidence_refs_by_metric'=>['net_revenue'=>['new-source']]] as $field=>$value) {
+            $changed = $input; $changed[$field] = $value; $this->assertLegacyConflict($store,$scope,'legacy-channel-conflict-proof',$changed);
+        }
+        foreach (['source_ref'=>'changed-source','amount'=>201,'cost_type'=>'advertising','included_in_net_revenue'=>true,'unknown_cost_field'=>null] as $field=>$value) {
+            $changed = $input; $changed['costs'][0][$field] = $value; $this->assertLegacyConflict($store,$scope,'legacy-channel-conflict-proof',$changed);
+        }
+        self::assertSame($legacy['json'],Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$legacy['id'])->value('payload_json'));
+    }
+    public function testLegacyFullAndCompactConsumablesRequestsReplayWithoutRecalculatingStoredFacts(): void
+    {
+        $store = new OperatingEvidenceSnapshotStore(); $scope = $store->scope(7,[80],80,'2026-10','whole_hotel','consumables_actual');
+        $input = $this->actual(); $input['items'][0]['budget_unit_price'] = 0;
+        $result = (new ConsumablesActualCostService())->calculate($input);
+        // Historical arithmetic is immutable even if a later calculator changes rounding.
+        $result['actual_consumed_cost'] = 199.99;
+        foreach ([false,true] as $compact) {
+            $key = 'legacy-consumables-'.($compact ? 'compact' : 'full'); $legacy = $this->legacySnapshot($scope,$result,$key,$compact);
+            $equivalent = $input; $equivalent['occupied_room_nights'] = '100'; $equivalent['items'][0]['unit_price'] = '2.00';
+            $read = $store->replayRequest($scope,$key,$equivalent);
+            self::assertNotNull($read); self::assertSame($legacy['id'],$read['snapshot_id']); self::assertSame($legacy['digest'],$read['content_digest']);
+            self::assertSame(199.99,$read['result']['actual_consumed_cost']); self::assertSame($read['inputs'],$read['result']['inputs']);
+            self::assertSame($legacy['id'],$store->replayRequest($scope,$key,$read['inputs'])['snapshot_id']);
+            foreach (['budget_unit_price'=>null,'source_ref'=>'changed-inventory','enabled'=>false,'unknown_item_field'=>null,'consumed_cost'=>999] as $field=>$value) {
+                $changed = $input; $changed['items'][0][$field] = $value; $this->assertLegacyConflict($store,$scope,$key,$changed);
+            }
+            $changed = $input; $changed['operator_attested'] = false; $this->assertLegacyConflict($store,$scope,$key,$changed);
+            self::assertSame($legacy['json'],Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$legacy['id'])->value('payload_json'));
+        }
+    }
+    public function testLegacyAutomaticallyReplacedClientValuesAreNotGuessedFromLaterSources(): void
+    {
+        $store = new OperatingEvidenceSnapshotStore(); $scope = $store->scope(7,[80],80,'2026-10','ctrip','channel_economics');
+        $input = $this->channel(); $result = (new ChannelEconomicsService())->calculate($input);
+        $result['inputs']['net_revenue'] = 3210; $result['net_revenue'] = 3210;
+        $legacy = $this->legacySnapshot($scope,$result,'legacy-unrecoverable-client-input');
+        $this->assertLegacyConflict($store,$scope,'legacy-unrecoverable-client-input',$input);
+        self::assertSame($legacy['digest'],$store->read($scope,$legacy['id'])['content_digest']);
+    }
+    public function testLegacyReplayDoesNotRecalculatePreviouslyAcceptedAdvertisingRules(): void
+    {
+        $store = new OperatingEvidenceSnapshotStore(); $scope = $store->scope(7,[80],80,'2026-10','ctrip','channel_economics');
+        $input = $this->channel(); $result = (new ChannelEconomicsService())->calculate($input);
+        $input['advertising_in_direct_costs'] = true; $input['costs'] = [];
+        $result['inputs']['advertising_in_direct_costs'] = true; $result['inputs']['costs'] = [];
+        unset($result['inputs']['evidence_refs_by_metric'],$result['evidence_chain']);
+        $result['channel_net_contribution_amount'] = 1000;
+        $legacy = $this->legacySnapshot($scope,$result,'legacy-old-advertising-rules');
+        try { (new ChannelEconomicsService())->calculate($input); self::fail('Current rules require advertising evidence'); }
+        catch (InvalidArgumentException $error) { self::assertSame('channel_advertising_direct_cost_evidence_required',$error->getMessage()); }
+        $replay = $store->replayRequest($scope,'legacy-old-advertising-rules',$input);
+        self::assertSame($legacy['id'],$replay['snapshot_id']); self::assertSame($legacy['digest'],$replay['content_digest']);
+        self::assertSame(1000,$replay['result']['channel_net_contribution_amount']);
+    }
+    public function testRequestDigestReplayRetainsExactRawRequestContractAndOriginalFacts(): void
+    {
+        $store = new OperatingEvidenceSnapshotStore(); $scope = $store->scope(7,[80],80,'2026-10','ctrip','channel_economics');
+        $input = $this->channel(); $result = (new ChannelEconomicsService())->calculate($input);
+        $saved = $store->save($scope,['inputs'=>$result['inputs'],'result'=>$result],'modern-request-digest-proof',1,$input);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/D',$saved['request_digest']);
+        $replay = $store->replayRequest($scope,'modern-request-digest-proof',array_reverse($input,true));
+        self::assertSame($saved['snapshot_id'],$replay['snapshot_id']); self::assertSame($saved['content_digest'],$replay['content_digest']);
+        $drifted = $result; $drifted['net_revenue'] = 9000; $drifted['inputs']['net_revenue'] = 9000;
+        self::assertSame($saved['content_digest'],$store->save($scope,['inputs'=>$drifted['inputs'],'result'=>$drifted],'modern-request-digest-proof',1,$input)['content_digest']);
+        foreach (['net_revenue'=>'1000.00','operator_attested'=>false,'unknown_future_input'=>null] as $field=>$value) {
+            $changed = $input; $changed[$field] = $value; $this->assertLegacyConflict($store,$scope,'modern-request-digest-proof',$changed);
+        }
+    }
+    public function testLegacyReplayChecksStoredIntegrityAndScopeBeforeComparingInputs(): void
+    {
+        $store = new OperatingEvidenceSnapshotStore(); $scope = $store->scope(7,[80],80,'2026-10','ctrip','channel_economics');
+        $input = $this->channel(); $result = (new ChannelEconomicsService())->calculate($input);
+        foreach (['integrity','scope'] as $case) {
+            $key = 'legacy-gate-'.$case; $legacy = $this->legacySnapshot($scope,$result,$key);
+            $wrongScope = $scope; $wrongScope['tenant_id'] = 8;
+            self::assertNull($store->replayRequest($wrongScope,$key,$input));
+            if ($case === 'integrity') $changes = ['payload_json'=>'{}'];
+            else {
+                $payload = json_decode($legacy['json'],true,512,JSON_THROW_ON_ERROR); $payload['scope']['hotel_id'] = 81;
+                $json = json_encode($payload,JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+                $changes = ['payload_json'=>$json,'content_digest'=>hash('sha256',$json)];
+            }
+            Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$legacy['id'])->update($changes);
+            $rejected = false;
+            try { $store->replayRequest($scope,$key,$input); }
+            catch (RuntimeException $error) {
+                $rejected = true; self::assertSame(409,$error->getCode());
+                self::assertSame($case === 'integrity' ? 'operating_evidence_integrity_failed' : 'operating_evidence_scope_mismatch',$error->getMessage());
+            }
+            self::assertTrue($rejected);
+        }
+    }
     public function testIdempotencyDoesNotOverwriteChanges(): void { $s=new OperatingEvidenceSnapshotStore(); $scope=$s->scope(7,[80],80,'2026-10','ctrip','channel_economics'); $s->save($scope,['value'=>1],'request-conflict',1); $this->expectException(RuntimeException::class); $s->save($scope,['value'=>2],'request-conflict',1); }
     public function testCrossTenantHotelIsRejected(): void { $this->expectException(RuntimeException::class); (new OperatingEvidenceSnapshotStore())->scope(7,[80,81],81,'2026-10','whole_hotel','consumables_actual'); }
     public function testTamperedSavedPayloadFailsReadback(): void { $s=new OperatingEvidenceSnapshotStore(); $scope=$s->scope(7,[80],80,'2026-10','ctrip','channel_economics'); $r=$s->save($scope,['value'=>1],'request-integrity',1); Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$r['snapshot_id'])->update(['payload_json'=>'{}']); $this->expectException(RuntimeException::class); $s->read($scope,$r['snapshot_id']); }

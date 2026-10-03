@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace app\controller;
 
+use app\model\Hotel;
+use app\model\User;
 use app\service\BookingMonitoringService;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -25,8 +27,9 @@ final class BookingMonitoring extends Base
                 'fixed_time' => $this->request->param('fixed_time', '09:00'),
                 'horizon_days' => $this->request->param('horizon_days', 7),
             ]);
+            $superAdmin = $this->currentUser instanceof User && $this->currentUser->isSuperAdmin();
             foreach ($overview['selectable_hotels'] as &$hotel) {
-                $hotel['can_execute'] = $this->currentUser->hasHotelPermission((int)$hotel['id'], 'operation.execute');
+                $hotel['can_execute'] = $superAdmin || $this->currentUser->hasHotelPermission((int)$hotel['id'], 'operation.execute');
             }
             unset($hotel);
             return $this->success($overview);
@@ -85,14 +88,19 @@ final class BookingMonitoring extends Base
     {
         if (!$this->currentUser) throw new RuntimeException('booking_monitor_login_required', 401);
         if ($ids === [] || count($ids) > 20 || min($ids) <= 0) throw new InvalidArgumentException('booking_monitor_hotel_scope_required');
-        $permitted = array_map('intval', (array)$this->currentUser->getPermittedHotelIds());
-        foreach ($ids as $hotelId) {
-            if (!in_array($hotelId, $permitted, true) || !$this->currentUser->hasHotelPermission($hotelId, $capability)) throw new RuntimeException('booking_monitor_hotel_outside_permitted_scope', 403);
-        }
-        $hotels = Db::name('hotels')->whereIn('id', $ids)->field('id,tenant_id')->select()->toArray();
+        $hotels = Db::name('hotels')->whereIn('id', $ids)->where('status', Hotel::STATUS_ENABLED)->field('id,tenant_id')->select()->toArray();
         $tenants = array_values(array_unique(array_map(static fn(array $hotel): int => (int)$hotel['tenant_id'], $hotels)));
         if (count($hotels) !== count($ids) || count($tenants) !== 1 || $tenants[0] <= 0) throw new RuntimeException('booking_monitor_hotel_tenant_scope_mismatch', 403);
-        $permitted = array_values(array_filter($permitted, fn(int $hotelId): bool => $this->currentUser->hasHotelPermission($hotelId,$capability)));
+        $superAdmin = $this->currentUser instanceof User && $this->currentUser->isSuperAdmin();
+        if (!$superAdmin && $this->currentUser instanceof User && (int)$this->currentUser->tenant_id !== $tenants[0]) throw new RuntimeException('booking_monitor_hotel_tenant_scope_mismatch', 403);
+        $permitted = array_map('intval', Db::name('hotels')->where('tenant_id', $tenants[0])->where('status', Hotel::STATUS_ENABLED)->order('id', 'asc')->column('id'));
+        // PermissionService authorizes a real super admin for any enabled hotel.
+        // Reuse this tenant's bulk enabled result for both view and execute.
+        if (!$superAdmin) {
+            $permitted = array_values(array_intersect($permitted, array_map('intval', (array)$this->currentUser->getPermittedHotelIds())));
+            $permitted = array_values(array_filter($permitted, fn(int $hotelId): bool => $this->currentUser->hasHotelPermission($hotelId, $capability)));
+        }
+        if (array_diff($ids, $permitted) !== []) throw new RuntimeException('booking_monitor_hotel_outside_permitted_scope', 403);
         return [$tenants[0], $permitted];
     }
 
