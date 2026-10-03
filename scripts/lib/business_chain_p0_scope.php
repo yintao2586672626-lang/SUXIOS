@@ -304,7 +304,6 @@ function business_chain_compact_p0_execution_plan(
             $trigger = is_array($step['profile_login_trigger'] ?? null) ? $step['profile_login_trigger'] : [];
             $afterLoginSync = is_array($trigger['after_login_sync'] ?? null) ? $trigger['after_login_sync'] : [];
             $manualLoginVerified = ($step['manual_login_state_verified'] ?? false) === true;
-            $skipWithVerifiedLogin = $operatorSkipActive && $manualLoginVerified;
             $hotelFactReady = $scopeReady && business_chain_p0_hotel_ready($gate, $stepHotelId, $platformReady);
             $hotelReady = $hotelFactReady && $readbackReady;
             $readbackOnly = $hotelFactReady && !$readbackReady;
@@ -315,15 +314,15 @@ function business_chain_compact_p0_execution_plan(
                 'data_source_status' => (string)($step['data_source_status'] ?? ''),
                 'last_sync_status' => (string)($step['last_sync_status'] ?? ''),
                 'manual_login_state_verified' => $manualLoginVerified,
-                'login_trigger_entry' => (!$dateReady || $hotelReady || $readbackOnly || $skipWithVerifiedLogin) ? '' : (string)($trigger['entry'] ?? ''),
-                'login_trigger_status' => !$dateReady ? 'blocked_by_business_date_identity' : ($readbackOnly ? 'blocked_by_readback_coverage' : ($hotelReady
-                    ? 'already_ready_no_login'
-                    : ($skipWithVerifiedLogin ? 'login_verified_reference_only' : (string)($trigger['status'] ?? '')))),
+                'login_trigger_entry' => (!$dateReady || $hotelReady || $readbackOnly || $operatorSkipActive) ? '' : (string)($trigger['entry'] ?? ''),
+                'login_trigger_status' => !$dateReady ? 'blocked_by_business_date_identity' : ($operatorSkipActive
+                    ? ($manualLoginVerified ? 'login_verified_reference_only' : 'skipped_by_operator_no_login')
+                    : ($readbackOnly ? 'blocked_by_readback_coverage' : ($hotelReady ? 'already_ready_no_login' : (string)($trigger['status'] ?? '')))),
                 'after_login_sync_entry' => (!$dateReady || $hotelReady || $readbackOnly || $operatorSkipActive) ? '' : (string)($afterLoginSync['entry'] ?? ''),
-                'after_login_sync_status' => !$dateReady ? 'blocked_by_business_date_identity' : ($readbackOnly ? 'blocked_by_readback_coverage' : ($hotelReady
-                    ? 'already_ready_no_sync'
-                    : ($operatorSkipActive ? 'skipped_by_operator_no_sync' : ''))),
-                'verifier_command' => $dateReady ? (string)($step['p0_verifier_command'] ?? '') : '',
+                'after_login_sync_status' => !$dateReady ? 'blocked_by_business_date_identity' : ($operatorSkipActive
+                    ? 'skipped_by_operator_no_sync'
+                    : ($readbackOnly ? 'blocked_by_readback_coverage' : ($hotelReady ? 'already_ready_no_sync' : ''))),
+                'verifier_command' => $dateReady && !$operatorSkipActive ? (string)($step['p0_verifier_command'] ?? '') : '',
                 'platform_ready' => $platformReady,
                 'hotel_ready' => $hotelReady,
                 'operator_skip_active' => $operatorSkipActive,
@@ -332,7 +331,7 @@ function business_chain_compact_p0_execution_plan(
             if (!$dateReady) {
                 continue;
             }
-            if ($hotelReady) {
+            if ($hotelReady && !$operatorSkipActive) {
                 $operatorSequence[] = [
                     'type' => 'already_ready',
                     'platform' => $platform,
@@ -359,14 +358,6 @@ function business_chain_compact_p0_execution_plan(
                     'data_source_id' => $compact['data_source_id'],
                     'status' => 'p0_skipped_by_operator',
                     'boundary' => 'No OTA collection or after-login sync should be started for this platform while the operator skip is active.',
-                ];
-                $operatorSequence[] = [
-                    'type' => 'single_scope_verifier',
-                    'platform' => $platform,
-                    'system_hotel_id' => $compact['system_hotel_id'],
-                    'data_source_id' => $compact['data_source_id'],
-                    'command' => $compact['verifier_command'],
-                    'required_result' => 'ready',
                 ];
                 continue;
             }

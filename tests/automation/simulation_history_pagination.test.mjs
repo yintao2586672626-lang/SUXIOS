@@ -46,7 +46,7 @@ const methods = [
   cut(main, '            const request = async (', '            const apiRequest = request;'), 'const apiRequest = request;',
   cut(main, '            const simulationStaticScript =', '            const ensureSimulationStaticReady ='),
   cut(main, '            const simulationStaticOption =', '            const requireSimulationStaticFunction ='),
-  cut(main, '            const defaultSimulationInput =', '                const aiFeasibilityResult ='),
+  cut(main, '            const defaultSimulationInput =', '            const simulationCostFields ='),
   cut(main, '            function saveSimulationState(', '            const simulationExportLoadingId ='),
   cut(main, '            const reuseSimulationRecord =', '            const operatingScenarioFields ='),
   statement('const hydrateSimulationStateFromStorage ='),

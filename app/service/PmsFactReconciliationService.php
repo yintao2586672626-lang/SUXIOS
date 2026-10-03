@@ -860,7 +860,7 @@ final class PmsFactReconciliationService
             return null;
         }
         $difference = round((float)$currentValue - (float)$previousValue, 2);
-        return floor($difference) === $difference ? (int)$difference : $difference;
+        return $this->numberOrNull($difference);
     }
 
     private function perHour(int|float|null $value, float $elapsedHours): ?float
@@ -868,7 +868,8 @@ final class PmsFactReconciliationService
         if ($value === null || $elapsedHours <= 0) {
             return null;
         }
-        return round((float)$value / $elapsedHours, 2);
+        $rate = round((float)$value / $elapsedHours, 2);
+        return is_finite($rate) ? $rate : null;
     }
 
     /** @param array<string, mixed> $capture */
@@ -888,11 +889,15 @@ final class PmsFactReconciliationService
         if ($value === null || $value === '' || is_bool($value) || !is_numeric($value)) {
             return null;
         }
+        if (is_int($value)) {
+            return $value;
+        }
         $number = (float)$value;
         if (!is_finite($number)) {
             return null;
         }
-        return floor($number) === $number ? (int)$number : round($number, 2);
+        return floor($number) === $number && $number >= PHP_INT_MIN && $number < PHP_INT_MAX
+            ? (int)$number : round($number, 2);
     }
 
     private function timestamp(mixed $value): ?int

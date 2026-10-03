@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "original_file": "docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl",
+  "original_bytes": 11292402,
+  "original_sha256": "7cb222de74472f4f9cc18a88d935690376bc56bcc8d2fad4b8c124c95c95d3b3",
+  "archive_file": "docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl.gz",
+  "archive_bytes": 371396,
+  "archive_sha256": "f955303bea1c7cffec64a021c768f4cdbaedb79590a57731e67a0c0260b06eed",
+  "rows": 4000,
+  "lossless_readback": true,
+  "evidence_status": "historical_case_definitions_not_current_acceptance"
+}

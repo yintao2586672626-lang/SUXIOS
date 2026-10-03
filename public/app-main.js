@@ -128,8 +128,6 @@
     const menuItemDefinitions = requireAppSystemStatic('menuItemDefinitions');
     const filterVisibleMenuItemsForUser = requireAppSystemStatic('filterVisibleMenuItems');
     const riskBadgeClass = requireAppSystemStatic('riskBadgeClass');
-    const transferRiskTextClass = requireAppSystemStatic('transferRiskTextClass');
-    const transferDecisionClass = requireAppSystemStatic('transferDecisionClass');
     const pricingReadinessBadgeClass = requireAppSystemStatic('pricingReadinessBadgeClass');
     const priceSuggestionReviewReadinessClass = requireAppSystemStatic('priceSuggestionReviewReadinessClass');
     const agentClosureReadinessBadgeClass = requireAppSystemStatic('agentClosureReadinessBadgeClass');
@@ -211,7 +209,6 @@
     const calculateHhi = requireAppSystemStatic('calculateHhi');
     const revenueConcentration = requireAppSystemStatic('revenueConcentration');
     const visitConcentration = requireAppSystemStatic('visitConcentration');
-    const isExpansionStaticPage = requireAppSystemStatic('isExpansionStaticPage');
     const isSimulationStaticPage = requireAppSystemStatic('isSimulationStaticPage');
     const deferUiTask = requireAppSystemStatic('deferUiTask');
     const baseScheduleDelayedPageTask = requireAppSystemStatic('scheduleDelayedPageTask');
@@ -663,10 +660,12 @@
                 }
             };
             const formOperationSupportScript = 'form-operation-support.js';
-            const formOperationSupportScriptVersion = '20260715-h1f4b1c962f';
+            const formOperationSupportScriptVersion = '20261002-h93d03e46fe';
             let formOperationSupportLoadPromise = null;
             let formOperationSupportLoadTimer = null;
             const loadFormOperationSupport = () => {
+                // Teleported business dialogs are mounted under body, outside #app.
+                document.body?.setAttribute?.('data-form-draft', 'off');
                 if (window.SuxiFormOperationSupport?.init) {
                     window.SuxiFormOperationSupport.init(window);
                     return Promise.resolve(window.SuxiFormOperationSupport);
@@ -794,7 +793,6 @@
                 usersLoading.value = false;
                 usersLoadError.value = '';
                 usersSnapshotReady.value = false;
-                invalidateStrategyPageRequests();
                 filterReportHotel.value = '';
                 onlineDataHotelList.value = [];
                 platformDataSources.value = [];
@@ -1094,9 +1092,16 @@
                 postFetchRefreshTimers.set(timerKey, timer);
                 return Promise.resolve();
             };
-            const normalizeCanonicalPage = (page) => String(page || '').trim() === 'ai-workbench'
-                ? 'compass'
-                : String(page || '').trim();
+            const normalizeCanonicalPage = (page) => {
+                const requestedPage = String(page || '').trim();
+                return [
+                    'ai-workbench', 'ai-strategy', 'ai-feasibility',
+                    'market-evaluation', 'market-eval', 'benchmark-model',
+                    'collaboration-efficiency', 'sync-efficiency',
+                    'asset-pricing', 'timing-strategy', 'decision-board',
+                    'investment-decision', 'lifecycle', 'lifecycle-auxiliary',
+                ].includes(requestedPage) ? 'compass' : requestedPage;
+            };
             const ACTIVE_DISCOVERABLE_PAGE_PATHS = new Set([
                 'compass',
                 'online-data',
@@ -1223,10 +1228,6 @@
                 return false;
             };
             const isCompassDataPage = (page = currentPage.value) => normalizeCanonicalPage(page) === 'compass';
-            const lifecycleLoading = ref(false);
-            const lifecycleOverview = ref(null);
-            const investmentDecisionLoading = ref(false);
-            const investmentDecisionOverview = ref(null);
             const showPassword = ref(false);
             const passwordCapsLockOn = ref(false);
             const persistSidebarCollapsedPreference = () => {
@@ -16950,9 +16951,6 @@
                     }
                 }
                 pageRequestGeneration += 1;
-                if (previousPage === 'ai-strategy' && newPage !== 'ai-strategy') {
-                    invalidateStrategyPageRequests();
-                }
                 clearPageLifecycleTimers();
                 clearPostFetchRefreshTimers();
                 cancelPageLoadRequests(previousPage);
@@ -17160,35 +17158,11 @@
                         hotels.value.length ? Promise.resolve(hotels.value) : loadHotels({ cacheMs: 30000 })
                     ));
                 }
-                if (isExpansionStaticPage(newPage)) {
-                    runPageLoadOnce(newPage, 'expansion-static-options', () => ensureExpansionStaticReady());
-                }
-                if (['market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency'].includes(newPage)) {
-                    runPageLoadOnce(newPage, 'expansion-records', () => loadExpansionRecords());
-                }
-                if (['asset-pricing', 'timing-strategy', 'decision-board'].includes(newPage)) {
-                    runPageLoadOnce(newPage, 'transfer-records', () => loadTransferRecords());
-                }
                 if (isSimulationStaticPage(newPage)) {
                     runPageLoadOnce(newPage, 'simulation-static', () => ensureSimulationStaticReady());
                 }
                 if (newPage === 'ops-analysis' || newPage === 'ops-plan') {
                     runPageLoadOnce(newPage, 'operation-static', () => ensureOperationStaticReady());
-                }
-                if (newPage === 'lifecycle') {
-                    runPageLoadOnce(newPage, 'main', async () => {
-                        await ensureOperationStaticReady();
-                        return loadLifecycleOverview();
-                    });
-                }
-                if (newPage === 'investment-decision') {
-                    runPageLoadOnce(newPage, 'main', () => loadInvestmentDecisionOverview());
-                }
-                if (newPage === 'ai-strategy') {
-                    runPageLoadOnce(newPage, 'main', () => Promise.allSettled([
-                        ensureExpansionStaticReady(),
-                        loadStrategyRecords(),
-                    ]));
                 }
                 if (newPage === 'ai-simulation') {
                     runPageLoadOnce(newPage, 'main', async () => Promise.allSettled([
@@ -17198,9 +17172,6 @@
                         }),
                         loadSimulationRecords(),
                     ]));
-                }
-                if (newPage === 'ai-feasibility') {
-                    runPageLoadOnce(newPage, 'main', () => loadFeasibilityRecords());
                 }
                 if (newPage === 'opening-overview' || newPage === 'opening-checklist') {
                     localStorage.setItem('openingCurrentPage', newPage);
@@ -17876,12 +17847,6 @@
                             onlineDataTab.value = 'meituan-ranking';
                             scheduleMeituanRankingSummaryRefresh();
                         });
-                    }
-                    if (['market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency'].includes(item.path)) {
-                        loadExpansionRecords();
-                    }
-                    if (['asset-pricing', 'timing-strategy', 'decision-board'].includes(item.path)) {
-                        loadTransferRecords();
                     }
                 }
                 if (item.tab) {
@@ -24538,7 +24503,7 @@
             const platformSyncActionText = (message) => autoFetchStatic.value?.platformSyncActionText?.(message) || '';
 
             const operationStaticScript = 'operation-static.js';
-            const operationStaticScriptVersion = '20260901-task-bluebook-v1-h0547ee9c0c';
+            const operationStaticScriptVersion = '20260901-task-bluebook-v1-ha3aacee0b7';
             const operationStaticIntegrityKeys = [
                 'saveOperatingTargetRecord',
                 'readOperatingTargetSnapshots',
@@ -24632,215 +24597,6 @@
             const shanghaiBusinessYesterday = shanghaiBusinessDate(-1);
             const aiDailyReportYesterday = shanghaiBusinessYesterday;
             const operatingLoopYesterday = shanghaiBusinessYesterday;
-            const lifecycleMetricLabels = ref({});
-            const lifecycleStageTitles = ref({});
-            const lifecycleMetricLabel = (label) => lifecycleMetricLabels.value[label] || label;
-            const lifecycleStageTitle = (stage) => lifecycleStageTitles.value[stage?.key] || stage?.title || '-';
-            const lifecycleStageStatusText = (status) => ({
-                active: '有可读记录',
-                empty: '暂无记录',
-                pending: '暂无记录',
-                partial: '部分来源异常',
-                unavailable: '来源不可用',
-            }[String(status || '')] || '状态未核验');
-            const lifecycleStageStatusClass = (status) => ({
-                active: 'bg-emerald-50 border-emerald-200',
-                empty: 'bg-slate-50 border-slate-200',
-                pending: 'bg-slate-50 border-slate-200',
-                partial: 'bg-amber-50 border-amber-200',
-                unavailable: 'bg-red-50 border-red-200',
-            }[String(status || '')] || 'bg-gray-50 border-gray-200');
-            const lifecycleStageBadgeClass = (status) => ({
-                active: 'bg-emerald-100 text-emerald-700',
-                empty: 'bg-slate-100 text-slate-600',
-                pending: 'bg-slate-100 text-slate-600',
-                partial: 'bg-amber-100 text-amber-700',
-                unavailable: 'bg-red-100 text-red-700',
-            }[String(status || '')] || 'bg-gray-100 text-gray-600');
-            const lifecycleOverviewDerivedStatus = (overview) => {
-                const explicit = String(overview?.status || '').trim();
-                if (explicit) return explicit;
-                const statuses = (Array.isArray(overview?.stages) ? overview.stages : []).map(stage => String(stage?.status || ''));
-                if (statuses.includes('unavailable')) return statuses.some(status => ['active', 'empty', 'pending', 'partial'].includes(status)) ? 'partial' : 'unavailable';
-                if (statuses.includes('partial')) return 'partial';
-                return statuses.length ? 'ready' : 'not_loaded';
-            };
-            const lifecycleOverviewStatusText = (overview) => ({
-                ready: '接口已返回',
-                partial: '部分来源异常',
-                unavailable: '来源不可用',
-                not_loaded: '尚未加载',
-            }[lifecycleOverviewDerivedStatus(overview)] || '状态未核验');
-            const lifecycleOverviewStatusClass = (overview) => ({
-                ready: 'bg-emerald-50 text-emerald-700 border-emerald-100',
-                partial: 'bg-amber-50 text-amber-700 border-amber-100',
-                unavailable: 'bg-red-50 text-red-700 border-red-100',
-                not_loaded: 'bg-slate-50 text-slate-600 border-slate-200',
-            }[lifecycleOverviewDerivedStatus(overview)] || 'bg-gray-50 text-gray-600 border-gray-200');
-            const loadLifecycleOverview = async () => {
-                await ensureOperationStaticReady();
-                lifecycleLoading.value = true;
-                try {
-                    const res = await request('/lifecycle/overview');
-                    if (res.code === 200) {
-                        lifecycleOverview.value = res.data || { stages: [] };
-                    } else {
-                        showToast(res.message || '生命周期数据加载失败', 'error');
-                    }
-                } catch (e) {
-                    showToast('生命周期数据加载失败: ' + e.message, 'error');
-                } finally {
-                    lifecycleLoading.value = false;
-                }
-            };
-            const investmentDecisionSections = computed(() => investmentDecisionOverview.value?.sections || {});
-            const investmentDecisionStatusText = (status) => {
-                const labels = {
-                    decision_ready: '可复核',
-                    not_ready: '未准入',
-                    usable: '可读取',
-                    blocked: '未准入',
-                    blocked_by_p0_ota_gate: 'P0未就绪',
-                    blocked_by_operating_closure: '经营未闭合',
-                    blocked_by_operation_closure: '经营未闭合',
-                    closed_operating_data_ready: '经营已闭合',
-                    process_closed_missing_roi: '缺ROI',
-                    calculation_ready: '测算可复核',
-                    readiness_gap: '测算缺口',
-                    supporting_only: '仅作辅助',
-                    data_gap: '证据缺口',
-                    evidence_available: '有证据',
-                    process_closed: '过程闭环',
-                    record_only: '仅有记录',
-                    records_visible: '记录可见',
-                    not_started: '暂无记录',
-                    not_closed: '未闭合',
-                    clear: '无阻断',
-                    has_risk: '有风险',
-                    has_action: '待处理',
-                    roi_ready: 'ROI已闭合',
-                    reviewed_no_roi: '缺ROI证据',
-                    closed: '已闭环',
-                    active: '已联动',
-                    not_loaded: '未读取',
-                };
-                return labels[status] || status || '-';
-            };
-            const investmentDecisionStatusClass = (status) => {
-                if (['decision_ready', 'usable', 'calculation_ready', 'clear', 'closed_operating_data_ready', 'records_visible', 'roi_ready', 'closed', 'active'].includes(status)) {
-                    return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-                }
-                if (['blocked', 'blocked_by_p0_ota_gate', 'blocked_by_operating_closure', 'blocked_by_operation_closure', 'not_ready'].includes(status)) {
-                    return 'bg-red-50 text-red-700 border-red-100';
-                }
-                if (['supporting_only', 'records_visible'].includes(status)) {
-                    return 'bg-blue-50 text-blue-700 border-blue-100';
-                }
-                if (['readiness_gap', 'data_gap', 'has_risk', 'process_closed_missing_roi', 'reviewed_no_roi'].includes(status)) {
-                    return 'bg-amber-50 text-amber-700 border-amber-100';
-                }
-                if (['evidence_available', 'process_closed', 'record_only', 'not_closed'].includes(status)) {
-                    return 'bg-slate-50 text-slate-600 border-slate-200';
-                }
-                return 'bg-gray-50 text-gray-600 border-gray-200';
-            };
-            const investmentDecisionSeverityText = (severity) => {
-                const labels = { high: '高', medium: '中', low: '低' };
-                return labels[severity] || severity || '-';
-            };
-            const investmentDecisionSeverityClass = (severity) => {
-                if (severity === 'high') return 'bg-red-50 text-red-700 border-red-100';
-                if (severity === 'medium') return 'bg-amber-50 text-amber-700 border-amber-100';
-                return 'bg-blue-50 text-blue-700 border-blue-100';
-            };
-            const investmentDecisionSourceLabel = (source) => {
-                const labels = {
-                    expansion: '扩张',
-                    transfer: '转让',
-                    feasibility_report: '可行性',
-                };
-                return labels[source] || source || '-';
-            };
-            const investmentDecisionSummaryCards = computed(() => {
-                const summary = investmentDecisionOverview.value?.summary || {};
-                const sections = investmentDecisionSections.value;
-                const gate = investmentDecisionOverview.value?.operating_data_gate || {};
-                return [
-                    {
-                        key: 'closed_operating_data',
-                        label: '经营数据准入',
-                        value: summary.closed_operating_data_ready ? '已闭合' : '未准入',
-                        status: gate.status || 'not_ready',
-                        note: gate.required_gate || 'operation_execution.roi_ready',
-                    },
-                    {
-                        key: 'decision_records',
-                        label: '决策记录',
-                        value: `${summary.eligible_decision_record_count || 0}/${summary.decision_record_count || 0}`,
-                        status: sections.decision_records?.status || 'not_started',
-                        note: '可复核 / 全部记录',
-                    },
-                    {
-                        key: 'investment_calculation',
-                        label: '投资测算',
-                        value: sections.investment_calculation?.ready_record_count || 0,
-                        status: summary.investment_calculation_status || sections.investment_calculation?.status || 'readiness_gap',
-                        note: `总记录 ${sections.investment_calculation?.record_count || 0}`,
-                    },
-                    {
-                        key: 'risk_alerts',
-                        label: '风险提示',
-                        value: summary.risk_blocking_count || 0,
-                        status: sections.risk_alerts?.status || 'clear',
-                        note: '阻断风险数',
-                    },
-                    {
-                        key: 'action_queue',
-                        label: '待处理动作',
-                        value: summary.action_queue_count || 0,
-                        status: investmentDecisionOverview.value?.action_queue?.status || 'clear',
-                        note: `阻断 ${summary.action_queue_blocking_count || 0}`,
-                    },
-                ];
-            });
-            const investmentDecisionSectionRows = computed(() => appSystemStatic.buildInvestmentDecisionSectionRows({
-                investmentDecisionSections,
-            }));
-            const investmentDecisionRiskRows = computed(() => investmentDecisionSections.value.risk_alerts?.items || []);
-            const investmentDecisionRecordRows = computed(() => investmentDecisionSections.value.decision_records?.records || []);
-            const investmentDecisionFormulaRows = computed(() => investmentDecisionSections.value.investment_calculation?.formula_inventory || []);
-            const investmentDecisionBusinessChainRows = computed(() => investmentDecisionOverview.value?.business_closure_chain?.stages || []);
-            const investmentDecisionGapTitle = (gap) => String(gap?.label || gap?.title || gap?.code || gap?.message || '证据缺口');
-            const investmentDecisionGapAction = (gap) => String(gap?.next_action || gap?.message || '');
-            const investmentDecisionActionQueueRows = computed(() => appSystemStatic.buildInvestmentDecisionActionQueueRows({
-                investmentDecisionOverview, investmentDecisionBusinessChainRows, investmentDecisionGapTitle, investmentDecisionGapAction, investmentDecisionRiskRows,
-            }));
-            const investmentDecisionPriorityClass = (priority) => {
-                const value = String(priority || '').toLowerCase();
-                if (value === '1' || value === 'high') return 'bg-red-50 text-red-700 border-red-100';
-                if (value === '2' || value === 'medium') return 'bg-amber-50 text-amber-700 border-amber-100';
-                if (value === '3') return 'bg-blue-50 text-blue-700 border-blue-100';
-                return 'bg-gray-50 text-gray-600 border-gray-200';
-            };
-            const loadInvestmentDecisionOverview = async () => {
-                investmentDecisionLoading.value = true;
-                try {
-                    const investmentParams = new URLSearchParams();
-                    investmentParams.set('business_date', shanghaiBusinessYesterday);
-                    const selectedHotelId = String(filterReportHotel.value || '').trim();
-                    if (selectedHotelId) investmentParams.set('hotel_id', selectedHotelId);
-                    const res = await request(`/investment-decision/overview?${investmentParams.toString()}`);
-                    if (res.code === 200) {
-                        investmentDecisionOverview.value = res.data || null;
-                    } else {
-                        showToast(res.message || 'P4投决辅助数据加载失败', 'error');
-                    }
-                } catch (e) {
-                    showToast('P4投决辅助数据加载失败: ' + e.message, 'error');
-                } finally {
-                    investmentDecisionLoading.value = false;
-                }
-            };
 
             const operationFullData = ref(null);
             const operationRootCause = ref(null);
@@ -25402,8 +25158,6 @@
                     const staticConfig = await loadOperationStatic();
                     operationAlertFilters.value = requireOperationStatic(staticConfig, 'operationAlertFilters');
                     operationStrategyTypes.value = requireOperationStatic(staticConfig, 'operationStrategyTypes');
-                    lifecycleMetricLabels.value = requireOperationStatic(staticConfig, 'lifecycleMetricLabels');
-                    lifecycleStageTitles.value = requireOperationStatic(staticConfig, 'lifecycleStageTitles');
                     operationAlertFilters.value = requireOperationStatic(staticConfig, 'operationAlertFilters');
                     operationStrategyTypes.value = requireOperationStatic(staticConfig, 'operationStrategyTypes');
                     openingCategories.value = requireOperationStatic(staticConfig, 'openingCategories');
@@ -26269,7 +26023,7 @@
             const operationClosureSummaryBadge = computed(() => buildOperationClosureSummaryBadge(operationClosureOverview.value?.summary || {}));
             const operationClosureSummaryCards = computed(() => buildOperationClosureSummaryCards(operationClosureOverview.value?.summary || {}));
             const openOperationClosureModule = (module) => {
-                const targetPage = String(module?.entry_page || '').trim();
+                const targetPage = normalizeCanonicalPage(module?.entry_page);
                 if (!targetPage) {
                     showToast('该板块暂未配置入口', 'warning');
                     return;
@@ -26281,12 +26035,6 @@
                 if (targetPage === 'ops-insight') nextTick(() => loadOperationAlerts());
                 if (targetPage === 'ops-track') nextTick(() => loadOperationActions());
                 if (targetPage === 'ai-daily-report') nextTick(() => loadAiDailyReport());
-                if (['market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency'].includes(targetPage)) {
-                    nextTick(() => loadExpansionRecords());
-                }
-                if (['asset-pricing', 'timing-strategy', 'decision-board'].includes(targetPage)) {
-                    nextTick(() => loadTransferRecords());
-                }
                 if (['opening-overview', 'opening-checklist'].includes(targetPage)) {
                     nextTick(() => loadOpeningProjects());
                 }
@@ -52507,16 +52255,8 @@
                 competitor_count: '',
                 target_grade: ''
             });
-            const aiStrategyParams = aiProject;
-            const aiStrategyResult = ref(null);
-            const aiStrategyRecords = ref([]);
-            const aiStrategyRecordId = ref(null);
-            const aiStrategyLoading = ref(false);
-            const aiStrategyRecordsLoading = ref(false);
-            const strategyCurrentReadiness = computed(() => aiStrategyResult.value?.execution_readiness || null);
-
             const simulationStaticScript = 'simulation-static.js';
-            const simulationStaticScriptVersion = '20260830-hotspot-extraction-heae5ad306d';
+            const simulationStaticScriptVersion = '20260830-hotspot-extraction-hbf98488380';
             const simulationStatic = ref(window.SUXI_SIMULATION_STATIC && typeof window.SUXI_SIMULATION_STATIC === 'object' ? window.SUXI_SIMULATION_STATIC : null);
             const simulationStaticLoadError = ref('');
             let simulationStaticLoadPromise = null;
@@ -52596,345 +52336,12 @@
             const simulationExecutionLoadingId = ref(0);
             const simulationCurrentReadiness = computed(() => aiSimulationResult.value?.execution_readiness || null);
             let suppressSimulationAutoRefresh = false;
-                const aiFeasibilityResult = ref(null);
-                const aiFeasibilityRecords = ref([]);
-                 const aiFeasibilityReadiness = ref(null);
-                 const aiFeasibilityRecordId = ref(null);
-                 const aiFeasibilityHotelId = ref('');
-                 const aiFeasibilityHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
-                 const aiFeasibilityExecutionHotelId = ref('');
-                const aiFeasibilityExecutionLoading = ref(false);
-                const aiFeasibilityLoading = ref(false);
-                const aiFeasibilityRecordsLoading = ref(false);
-                 const aiFeasibilityError = ref('');
-                 watch(aiFeasibilityHotelOptions, (options) => {
-                     const normalized = Array.isArray(options) ? options : [];
-                     if (aiFeasibilityHotelId.value && !normalized.some((hotel) => String(hotel?.id || '') === String(aiFeasibilityHotelId.value))) {
-                         aiFeasibilityHotelId.value = '';
-                     }
-                     if (!aiFeasibilityHotelId.value && normalized.length > 0) {
-                         const systemHotelId = String(filterReportHotel.value || '').trim();
-                         const preferred = normalized.find(hotel => String(hotel?.id || '') === systemHotelId);
-                         aiFeasibilityHotelId.value = String(preferred?.id || '');
-                     }
-                 }, { immediate: true });
-                 watch(aiFeasibilityHotelId, (hotelId) => {
-                     if (hotelId && !aiFeasibilityExecutionHotelId.value) {
-                         aiFeasibilityExecutionHotelId.value = String(hotelId);
-                     }
-                 });
 
-            const expansionDefaultOnlineDate = formatDate(new Date(Date.now() + 45 * 24 * 60 * 60 * 1000));
-            const expansionStaticOptionsScript = 'expansion-static-options.js';
-            const expansionStaticOptionsScriptVersion = '20260715-h666310c962';
-            const expansionStaticOptions = ref(window.SUXI_EXPANSION_STATIC && typeof window.SUXI_EXPANSION_STATIC === 'object' ? window.SUXI_EXPANSION_STATIC : null);
-            const expansionStaticLoadError = ref('');
-            let expansionStaticOptionsLoadPromise = null;
-            const setExpansionStaticOptions = (staticOptions) => {
-                if (!staticOptions || typeof staticOptions !== 'object') {
-                    throw new Error('Missing expansion static options: expansion-static-options.js not loaded.');
-                }
-                expansionStaticOptions.value = staticOptions;
-                expansionStaticLoadError.value = '';
-                return staticOptions;
-            };
-            const loadExpansionStaticOptions = () => {
-                if (window.SUXI_EXPANSION_STATIC && typeof window.SUXI_EXPANSION_STATIC === 'object') {
-                    return Promise.resolve(setExpansionStaticOptions(window.SUXI_EXPANSION_STATIC));
-                }
-                if (!expansionStaticOptionsLoadPromise) {
-                    expansionStaticOptionsLoadPromise = new Promise((resolve, reject) => {
-                        const script = document.createElement('script');
-                        script.src = expansionStaticOptionsScript + '?v=' + expansionStaticOptionsScriptVersion;
-                        script.async = true;
-                        script.onload = () => {
-                            if (window.SUXI_EXPANSION_STATIC && typeof window.SUXI_EXPANSION_STATIC === 'object') {
-                                resolve(setExpansionStaticOptions(window.SUXI_EXPANSION_STATIC));
-                                return;
-                            }
-                            reject(new Error('Missing expansion static options: expansion-static-options.js not loaded.'));
-                        };
-                        script.onerror = () => reject(new Error('Missing expansion static options: expansion-static-options.js not loaded.'));
-                        document.head.appendChild(script);
-                    });
-                }
-                return expansionStaticOptionsLoadPromise;
-            };
-            const ensureExpansionStaticReady = async () => {
-                try {
-                    const staticOptions = await loadExpansionStaticOptions();
-                    hydrateExpansionStaticDefaults();
-                    return staticOptions;
-                } catch (error) {
-                    expansionStaticLoadError.value = error.message || 'Expansion static options failed to load.';
-                    console.error('[expansion-static-options] load failed:', error);
-                    showToast(expansionStaticLoadError.value, 'error');
-                    throw error;
-                }
-            };
-            const hasExpansionStaticOptions = computed(() => !!expansionStaticOptions.value);
-            const expansionStaticOption = (key, defaultValue) => {
-                const value = expansionStaticOptions.value?.[key];
-                return value === undefined || value === null ? defaultValue : value;
-            };
-            const requireExpansionStaticFunction = (key) => {
-                const fn = requireExpansionStaticOption(key);
-                if (typeof fn !== 'function') {
-                    throw new Error(`Missing expansion static function: ${key}`);
-                }
-                return fn;
-            };
-            const requireExpansionStaticOption = (key) => {
-                const value = expansionStaticOption(key, null);
-                if (value === undefined || value === null) {
-                    throw new Error(`扩张静态选项缺失：${key}`);
-                }
-                return value;
-            };
-            const marketEvaluationCityTierOptions = computed(() => expansionStaticOption('marketEvaluationCityTierOptions', []));
-            const marketEvaluationCityOptions = computed(() => expansionStaticOption('marketEvaluationCityOptions', []));
-            const marketEvaluationDecorationOptions = computed(() => expansionStaticOption('marketEvaluationDecorationOptions', []));
-            const marketEvaluationCustomerOptions = computed(() => expansionStaticOption('marketEvaluationCustomerOptions', []));
-            const marketEvaluationConditionFields = computed(() => expansionStaticOption('marketEvaluationConditionFields', []));
-            const marketEvaluationDefaults = computed(() => expansionStaticOption('marketEvaluationDefaults', {}));
-            const marketEvaluationTierOfCity = (...args) => requireExpansionStaticFunction('marketEvaluationTierOfCity')(...args);
-            const marketEvaluationCityOptionsForTier = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('marketEvaluationCityOptionsForTier')(...args) : [];
-            const secondaryMarketEvaluationCustomerOptionsForPrimary = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('secondaryMarketEvaluationCustomerOptions')(...args) : [];
-            const strategyCityOptionsForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyCityOptionsForProject')(project) : [];
-            const strategyDistrictOptionsForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyDistrictOptionsForProject')(project) : [];
-            const strategyAddressKeywordOptionsForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyAddressKeywordOptionsForProject')(project) : [];
-            const strategyNextDistrictForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyNextDistrictForProject')(project) : project?.district || '';
-            const strategyNextAddressForProject = (project) => hasExpansionStaticOptions.value ? requireExpansionStaticFunction('strategyNextAddressForProject')(project) : project?.address || '';
-            const estimateStrategyCompetitorCountForProject = (project) => {
-                const value = project?.competitor_count;
-                return value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
-                    ? null
-                    : Math.max(0, Number(value));
-            };
-            const normalizeMarketEvaluationForm = (input) => requireExpansionStaticFunction('normalizeMarketEvaluationForm')(input);
-            const buildFeasibilityInputCards = (payload) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildFeasibilityInputCards')(payload) : [];
-            const buildFeasibilityReportCards = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildFeasibilityReportCards')(result) : [];
-            const buildFeasibilityAiEmpowerment = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildFeasibilityAiEmpowerment')(result) : { headline: '', conclusion: '', sourceLabel: '', isFallback: false, cards: [], nextAction: '', evidenceText: '' };
-            const feasibilityDecisionClassForGrade = (grade) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('feasibilityDecisionClassForGrade')(grade) : '';
-            const stringifyFeasibilityReportText = (result, projectName) => requireExpansionStaticOption('stringifyFeasibilityReport')(result, projectName);
-            const buildMarketEvaluationAiRiskSuggestions = (payload) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiRiskSuggestions')(payload) : [];
-            const marketEvaluationRiskSeverityClass = (severity) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('marketEvaluationRiskSeverityClass')(severity) : 'bg-gray-50 text-gray-600 border-gray-100';
-            const formatMarketEvaluationScoreChange = (value) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('formatMarketEvaluationScoreChange')(value) : '—';
-            const marketEvaluationScoreChangeClass = (value) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('marketEvaluationScoreChangeClass')(value) : 'bg-gray-50 text-gray-600 border-gray-100';
-            const buildMarketEvaluationAiJudgementRows = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiJudgementRows')(result) : [];
-            const buildMarketEvaluationAiRecommendations = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiRecommendations')(result) : [];
-            const buildMarketEvaluationAiAssumptions = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiAssumptions')(result) : [];
-            const buildMarketEvaluationScoreFormula = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationScoreFormula')(result) : { base_score: null, raw_score: null, final_score: null, cap_rule: '评分模块未加载' };
-            const buildMarketEvaluationScoreBreakdown = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationScoreBreakdown')(result) : [];
-            const buildMarketEvaluationScorePercent = (formula) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationScorePercent')(formula) : null;
-            const buildMarketEvaluationAiRiskNote = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildMarketEvaluationAiRiskNote')(result) : '';
-            const benchmarkModelAiSourceLabelForResult = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('benchmarkModelAiSourceLabelForResult')(result) : '来源未核验';
-            const buildBenchmarkModelAiRecommendations = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildBenchmarkModelAiRecommendations')(result) : [];
-            const buildBenchmarkModelAiWatchPoints = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildBenchmarkModelAiWatchPoints')(result) : [];
-            const buildBenchmarkModelAiAssumptionNote = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildBenchmarkModelAiAssumptionNote')(result) : '';
-            const benchmarkModelDataNoticeForResult = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('benchmarkModelDataNoticeForResult')(result) : '';
-            const buildBenchmarkModelAiOutcomeCards = (payload) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildBenchmarkModelAiOutcomeCards')(payload) : [];
-            const normalizeStrategyAiEvaluation = (raw) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('normalizeStrategyAiEvaluation')(raw) : null;
-            const normalizeStrategyResult = (data) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('normalizeStrategyResult')(data) : data;
-            const buildStrategyScoreCards = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildStrategyScoreCards')(result) : [];
-            const strategyFreshnessLabelForSnapshot = (snapshot) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyFreshnessLabelForSnapshot')(snapshot) : '--';
-            const strategyAiSourceLabelForResult = (result) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyAiSourceLabelForResult')(result) : '来源未核验';
-            const strategyAiModelDisplayLabelForSnapshot = (snapshot) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyAiModelDisplayLabelForSnapshot')(snapshot) : '--';
-            const strategyPoiDataSourceLabelForSnapshot = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyPoiDataSourceLabelForSnapshot')(...args) : '--';
-            const strategyDataNoticeForSnapshot = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('strategyDataNoticeForSnapshot')(...args) : '';
-            const buildStrategyDataSourceRows = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildStrategyDataSourceRows')(...args) : [];
-            const buildStrategyAiEmpowermentCards = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('buildStrategyAiEmpowermentCards')(...args) : [];
-            const marketEvaluationForm = ref({});
-            const marketEvaluationResult = ref(null);
-            const marketEvaluationLoading = ref(false);
-            const hydrateExpansionStaticDefaults = () => {
-                if (!hasExpansionStaticOptions.value) return;
-                const defaults = marketEvaluationDefaults.value || {};
-                if (Object.keys(defaults).length) {
-                    marketEvaluationForm.value = { ...defaults, ...(marketEvaluationForm.value || {}) };
-                }
-                syncStrategyCompetitorCount();
-                syncStrategyAddressForLocation();
-            };
-            const marketEvaluationAiJudgementRows = computed(() => buildMarketEvaluationAiJudgementRows(marketEvaluationResult.value || {}));
-            const marketEvaluationAiRecommendations = computed(() => buildMarketEvaluationAiRecommendations(marketEvaluationResult.value || {}));
-            const marketEvaluationAiRiskSuggestions = computed(() => {
-                return buildMarketEvaluationAiRiskSuggestions({
-                    result: marketEvaluationResult.value || {},
-                    form: marketEvaluationForm.value || {},
-                });
-            });
-            const marketEvaluationAiAssumptions = computed(() => buildMarketEvaluationAiAssumptions(marketEvaluationResult.value || {}).slice(0, 3));
-            const marketEvaluationScoreFormula = computed(() => buildMarketEvaluationScoreFormula(marketEvaluationResult.value || {}));
-            const marketEvaluationScoreBreakdown = computed(() => buildMarketEvaluationScoreBreakdown(marketEvaluationResult.value || {}));
-            const marketEvaluationScorePercent = computed(() => buildMarketEvaluationScorePercent(marketEvaluationScoreFormula.value));
-            const marketEvaluationAiRiskNote = computed(() => buildMarketEvaluationAiRiskNote(marketEvaluationResult.value || {}));
-            const estimateStrategyCompetitorCount = () => {
-                return estimateStrategyCompetitorCountForProject(aiProject.value);
-            };
-            const syncStrategyCompetitorCount = () => {
-                // Competitor counts are evidence-bearing inputs. Never replace a
-                // missing value with a city/tier rule estimate.
-            };
-            const filteredMarketEvaluationCityOptions = computed(() => marketEvaluationCityOptionsForTier(
-                marketEvaluationCityOptions.value,
-                marketEvaluationForm.value.city_tier || marketEvaluationDefaults.value.city_tier
-            ));
-            const filteredStrategyCityOptions = computed(() => {
-                return strategyCityOptionsForProject(aiProject.value);
-            });
-            const filteredStrategyDistrictOptions = computed(() => {
-                return strategyDistrictOptionsForProject(aiProject.value);
-            });
-            const filteredStrategyAddressKeywordOptions = computed(() => {
-                return strategyAddressKeywordOptionsForProject(aiProject.value);
-            });
-            const syncStrategyAddressForLocation = () => {
-                if (!hasExpansionStaticOptions.value) return;
-                const nextAddress = strategyNextAddressForProject(aiProject.value);
-                if (nextAddress !== aiProject.value.address) {
-                    aiProject.value.address = nextAddress;
-                }
-            };
-            const secondaryMarketEvaluationCustomerOptions = computed(() => secondaryMarketEvaluationCustomerOptionsForPrimary(
-                marketEvaluationCustomerOptions.value,
-                marketEvaluationForm.value.primary_customer
-            ));
-            watch(() => marketEvaluationForm.value.city_tier, () => {
-                if (!hasExpansionStaticOptions.value) return;
-                const options = filteredMarketEvaluationCityOptions.value;
-                if (options.length > 0 && !options.some(item => item.name === marketEvaluationForm.value.city)) {
-                    marketEvaluationForm.value.city = options[0].name;
-                }
-            });
-            watch(() => aiProject.value.city_tier, () => {
-                if (!hasExpansionStaticOptions.value) return;
-                const options = filteredStrategyCityOptions.value;
-                if (options.length > 0 && !options.some(item => item.name === aiProject.value.city)) {
-                    aiProject.value.city = options[0].name;
-                }
-                syncStrategyAddressForLocation();
-            });
-            watch(() => aiProject.value.city, () => {
-                if (!hasExpansionStaticOptions.value) return;
-                const nextDistrict = strategyNextDistrictForProject(aiProject.value);
-                if (nextDistrict !== aiProject.value.district) {
-                    aiProject.value.district = nextDistrict;
-                }
-                syncStrategyAddressForLocation();
-            });
-            watch(() => aiProject.value.district, () => {
-                if (!hasExpansionStaticOptions.value) return;
-                syncStrategyAddressForLocation();
-            });
-            watch(() => [aiProject.value.city_tier, aiProject.value.city, aiProject.value.target_grade], syncStrategyCompetitorCount, { immediate: true });
-            watch(() => [marketEvaluationForm.value.primary_customer, marketEvaluationForm.value.secondary_customer], ([primary, secondary]) => {
-                if (!hasExpansionStaticOptions.value) return;
-                if (primary && primary === secondary) {
-                    marketEvaluationForm.value.secondary_customer = secondaryMarketEvaluationCustomerOptions.value[0] || marketEvaluationDefaults.value.secondary_customer;
-                    return;
-                }
-                marketEvaluationForm.value.target_customer = [primary, secondary].filter(Boolean).join('+');
-            });
 
-            const createBenchmarkModelForm = () => requireSimulationStatic('createBenchmarkModelForm')();
-            const createCollaborationProject = (...args) => requireSimulationStatic('createCollaborationProject')(...args);
-            const createTransferPricingForm = () => requireSimulationStatic('createTransferPricingForm')();
-            const createTransferTimingForm = () => requireSimulationStatic('createTransferTimingForm')();
-            const benchmarkModelForm = ref({});
-            const benchmarkModelResult = ref(null);
-            const benchmarkModelLoading = ref(false);
-            const benchmarkModelDetailFields = computed(() => simulationStaticOption('benchmarkModelDetailFields', []));
 
-            const collaborationProject = ref({});
-            const collaborationStatusOptions = computed(() => simulationStaticOption('collaborationStatusOptions', []));
-            const buildCollaborationTasks = (...args) => requireSimulationStatic('buildCollaborationTasks')(...args);
-            const collaborationTasks = ref([]);
-            const collaborationEfficiencyResult = ref(null);
-            const collaborationEfficiencyLoading = ref(false);
-            const expansionRecords = ref([]);
-            const expansionRecordsLoading = ref(false);
-            const expansionExecutionHotelId = ref('');
-            const expansionExecutionLoadingId = ref(null);
-            const expansionHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
-            const expansionRecordPageTypes = computed(() => simulationStaticOption('expansionRecordPageTypes', {}));
-            const expansionRecordTypeForPage = (page, pageTypes) => hasSimulationStatic.value ? requireSimulationStatic('expansionRecordTypeForPage')(page, pageTypes) : '';
-            const filterExpansionRecords = (records, recordType) => hasSimulationStatic.value ? requireSimulationStatic('filterExpansionRecords')(records, recordType) : [];
-            const hasExpansionRecordType = (records, recordType) => hasSimulationStatic.value ? requireSimulationStatic('hasExpansionRecordType')(records, recordType) : false;
-            const hasAnyExpansionRecord = (records) => hasSimulationStatic.value ? requireSimulationStatic('hasAnyExpansionRecord')(records) : false;
-            const currentExpansionRecordType = computed(() => expansionRecordTypeForPage(currentPage.value, expansionRecordPageTypes.value));
-            const visibleExpansionRecords = computed(() => filterExpansionRecords(expansionRecords.value, currentExpansionRecordType.value));
-            const hasMarketEvaluationHistory = computed(() => hasExpansionRecordType(expansionRecords.value, 'market'));
-            const hasExpansionHistory = computed(() => hasAnyExpansionRecord(expansionRecords.value));
-            const resolveExpansionCurrentReadiness = (payload) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('resolveExpansionCurrentReadiness')(payload) : null;
-            const expansionCurrentReadiness = computed(() => resolveExpansionCurrentReadiness({
-                page: currentPage.value,
-                marketEvaluationResult: marketEvaluationResult.value,
-                benchmarkModelResult: benchmarkModelResult.value,
-                collaborationEfficiencyResult: collaborationEfficiencyResult.value,
-            }));
 
-            const transferPricingForm = ref({});
-            const transferPricingResult = ref(null);
-            const transferPricingLoading = ref(false);
 
-            const transferTimingForm = ref({});
-            const transferTimingResult = ref(null);
-            const transferTimingLoading = ref(false);
-            const transferDashboardResult = ref(null);
-            const transferDashboardLoading = ref(false);
-            const transferSelectedHotelId = ref('');
-            const transferSourceDate = ref(formatDate(new Date()));
-            const transferSourceSnapshot = ref(null);
-            const transferSourceLoading = ref(false);
-            const transferRecords = ref([]);
-            const transferRecordsLoading = ref(false);
-            const transferExecutionLoadingId = ref(null);
-            const transferHotelOptions = computed(() => permittedHotels.value.length ? permittedHotels.value : hotels.value);
-            const transferAiModelOptions = availableAiModelOptions;
-            const buildTransferSourceMetricRows = (payload) => hasSimulationStatic.value ? requireSimulationStatic('buildTransferSourceMetricRows')(payload) : [];
-            const transferSourceMetricRows = computed(() => buildTransferSourceMetricRows({
-                snapshot: transferSourceSnapshot.value,
-                formatWan,
-                aiRound,
-            }));
-            const buildTransferDecisionLayerRows = (...args) => hasSimulationStatic.value ? requireSimulationStatic('buildTransferDecisionLayerRows')(...args) : [];
-            const resolveTransferCurrentReadiness = (payload) => hasSimulationStatic.value ? requireSimulationStatic('resolveTransferCurrentReadiness')(payload) : null;
-            const transferDecisionLayerRows = computed(() => buildTransferDecisionLayerRows({
-                snapshot: transferSourceSnapshot.value,
-                sourceDate: transferSourceDate.value,
-                pricingResult: transferPricingResult.value,
-                timingResult: transferTimingResult.value,
-                dashboardResult: transferDashboardResult.value,
-                pricingForm: transferPricingForm.value,
-                timingForm: transferTimingForm.value,
-            }));
-            const transferCurrentReadiness = computed(() => resolveTransferCurrentReadiness({
-                dashboardResult: transferDashboardResult.value,
-                pricingResult: transferPricingResult.value,
-                timingResult: transferTimingResult.value,
-            }));
 
-            const transferPricingFields = computed(() => simulationStaticOption('transferPricingFields', []));
-            const transferTimingCompareFields = computed(() => simulationStaticOption('transferTimingCompareFields', []));
-            const transferTimingNumberFields = computed(() => simulationStaticOption('transferTimingNumberFields', []));
-            const transferTimingDataFields = computed(() => simulationStaticOption('transferTimingDataFields', []));
-            const buildTransferTimingDataCheck = (form) => {
-                if (hasSimulationStatic.value) return requireSimulationStatic('buildTransferTimingDataCheck')(form);
-                return {
-                    status: '配置加载中',
-                    message: '模拟测算静态配置尚未加载，暂不判定转让时机数据口径。',
-                    suggestion: '进入转让时机页面后将自动加载配置；加载失败会显示明确错误。',
-                    panelClass: 'bg-slate-50 border-slate-200',
-                    badgeClass: 'bg-slate-100 text-slate-600 border-slate-200',
-                    iconClass: 'fas fa-circle-notch fa-spin text-slate-400',
-                    suggestionClass: 'text-slate-500',
-                    derivedConversionLabel: '--',
-                    roomNightPerOrderLabel: '--',
-                    hasDataAnomaly: false,
-                    hasDataGap: true,
-                };
-            };
             const simulationCostFields = computed(() => simulationStaticOption('simulationCostFields', []));
             const simulationOtherIncomeFields = computed(() => simulationStaticOption('simulationOtherIncomeFields', []));
             const simulationRevenueSummaryFromInput = (...args) => hasSimulationStatic.value ? requireSimulationStatic('simulationRevenueSummaryFromInput')(...args) : { monthlyRevenue: 0, adr: 0, occupancyRate: 0, otherIncome: 0 };
@@ -52958,779 +52365,54 @@
                 if (Object.keys(defaults).length) {
                     aiSimulationParams.value = { ...defaults, ...(aiSimulationParams.value || {}) };
                 }
-                if (!Object.keys(benchmarkModelForm.value || {}).length) {
-                    benchmarkModelForm.value = createBenchmarkModelForm();
-                }
-                if (!Object.keys(collaborationProject.value || {}).length) {
-                    collaborationProject.value = createCollaborationProject(expansionDefaultOnlineDate);
-                }
-                if (!Array.isArray(collaborationTasks.value) || collaborationTasks.value.length === 0) {
-                    collaborationTasks.value = buildCollaborationTasks(expansionDefaultOnlineDate);
-                }
-                if (!Object.keys(transferPricingForm.value || {}).length) {
-                    transferPricingForm.value = createTransferPricingForm();
-                }
-                if (!Object.keys(transferTimingForm.value || {}).length) {
-                    transferTimingForm.value = createTransferTimingForm();
-                }
             };
 
-            const feasibilityInputCards = computed(() => {
-                const cards = buildFeasibilityInputCards({
-                    project: aiProject.value,
-                    simulationParams: {
-                        adr: aiProject.value.adr,
-                        occupancyRate: aiProject.value.occ,
-                    },
-                });
-                return cards.map((card, index) => index === 3 ? {
-                    ...card,
-                    label: '预期经营',
-                    meta: '本页显式输入 ADR / OCC',
-                } : card);
-            });
 
-            const feasibilityReportCards = computed(() => {
-                const report = aiFeasibilityResult.value;
-                const cards = buildFeasibilityReportCards(report);
-                if (!report || report.decision_ready === true) return cards;
-                return cards.map(card => card.label === '回本周期'
-                    ? { ...card, value: '待评估', meta: '核心输入未齐，不计算回本期' }
-                    : card);
-            });
 
-            const feasibilityAiEmpowerment = computed(() => {
-                const report = aiFeasibilityResult.value;
-                const result = buildFeasibilityAiEmpowerment(report);
-                if (!report || report.decision_ready === true) return result;
-                const firstAction = Array.isArray(report.action_plan) ? (report.action_plan[0] || {}) : {};
-                return {
-                    ...result,
-                    isFallback: false,
-                    sourceLabel: '输入待补充（未形成投决结论）',
-                    headline: '待评估 · 核心输入未齐全',
-                    conclusion: report.core_reason || '补齐核心输入后才能生成可用回本期和结论等级。',
-                    nextAction: firstAction.title ? `${firstAction.title}：${firstAction.detail || '-'}` : '补齐核心投资输入',
-                    evidenceText: '当前仅保存用户已填写内容与规则情景假设',
-                };
-            });
 
-            const feasibilityDecisionClass = computed(() => feasibilityDecisionClassForGrade(aiFeasibilityResult.value?.conclusion_grade));
-            const feasibilityExecutionIntentId = computed(() => expansionExecutionIntentId({ result: aiFeasibilityResult.value || {} }));
-            const feasibilityExecutionLinked = computed(() => feasibilityExecutionIntentId.value > 0);
 
-            const expansionReadinessBadgeClass = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('expansionReadinessBadgeClass')(...args) : 'bg-gray-50 text-gray-600 border-gray-200';
-            const expansionReadinessMissingText = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('expansionReadinessMissingText')(...args) : '';
-            const expansionExecutionIntentId = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('executionIntentIdFromRecord')(...args) : 0;
             const simulationReadinessBadgeClass = (...args) => hasSimulationStatic.value ? requireSimulationStatic('simulationReadinessBadgeClass')(...args) : 'bg-gray-50 text-gray-600 border-gray-200';
             const simulationReadinessMissingText = (...args) => hasSimulationStatic.value ? requireSimulationStatic('simulationReadinessMissingText')(...args) : '';
             const simulationExecutionIntentId = (...args) => hasSimulationStatic.value ? requireSimulationStatic('executionIntentIdFromRecord')(...args) : 0;
-            const feasibilityReadinessBadgeClass = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('feasibilityReadinessBadgeClass')(...args) : 'bg-gray-50 text-gray-600 border-gray-200';
-            const feasibilityReadinessMissingText = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('feasibilityReadinessMissingText')(...args) : '';
-            const transferReadinessBadgeClass = (...args) => hasSimulationStatic.value ? requireSimulationStatic('transferReadinessBadgeClass')(...args) : 'bg-gray-50 text-gray-600 border-gray-200';
-            const transferReadinessMissingText = (...args) => hasSimulationStatic.value ? requireSimulationStatic('transferReadinessMissingText')(...args) : '';
-            const transferRecordTypeLabel = (...args) => hasSimulationStatic.value ? requireSimulationStatic('transferRecordTypeLabel')(...args) : '--';
-            const transferExecutionIntentId = (...args) => hasSimulationStatic.value ? requireSimulationStatic('executionIntentIdFromRecord')(...args) : 0;
-            const buildTransferPricingCards = (payload) => hasSimulationStatic.value ? requireSimulationStatic('buildTransferPricingCards')(payload) : [];
-            const buildTransferPricingValuationRows = (payload) => hasSimulationStatic.value ? requireSimulationStatic('buildTransferPricingValuationRows')(payload) : [];
-            const transferPricingAiEvaluationSourceLabelText = (analysis) => hasSimulationStatic.value ? requireSimulationStatic('transferPricingAiEvaluationSourceLabel')(analysis) : '未生成';
 
-            const transferTimingDataCheck = computed(() => buildTransferTimingDataCheck(transferTimingForm.value || {}));
 
-            const benchmarkStrategyLabel = (...args) => hasSimulationStatic.value ? requireSimulationStatic('benchmarkStrategyLabel')(...args) : '--';
-            const benchmarkMetricValue = (...args) => hasSimulationStatic.value ? requireSimulationStatic('benchmarkMetricValue')(...args) : '--';
-            const benchmarkSignedValue = (...args) => hasSimulationStatic.value ? requireSimulationStatic('benchmarkSignedValue')(...args) : '--';
-            const buildBenchmarkModelDetailCards = (metrics) => hasSimulationStatic.value ? requireSimulationStatic('buildBenchmarkModelDetailCards')(metrics) : [];
-            const benchmarkModelDetailCompletenessText = (metrics) => hasSimulationStatic.value ? requireSimulationStatic('benchmarkModelDetailCompletenessText')(metrics) : '录入完整度 --';
-            const benchmarkModelEstimatedFieldsFromMetrics = (metrics) => hasSimulationStatic.value ? requireSimulationStatic('benchmarkModelEstimatedFields')(metrics) : [];
-            const benchmarkModelDetailMetrics = computed(() => benchmarkModelResult.value?.position?.detail_metrics || {});
-            const benchmarkModelDetailCards = computed(() => buildBenchmarkModelDetailCards(benchmarkModelDetailMetrics.value));
-            const benchmarkModelDetailCompleteness = computed(() => benchmarkModelDetailCompletenessText(benchmarkModelDetailMetrics.value));
-            const benchmarkModelEstimatedFields = computed(() => benchmarkModelEstimatedFieldsFromMetrics(benchmarkModelDetailMetrics.value));
-            const benchmarkModelAiSourceLabel = computed(() => benchmarkModelAiSourceLabelForResult(benchmarkModelResult.value || {}));
-            const benchmarkModelAiRecommendations = computed(() => buildBenchmarkModelAiRecommendations(benchmarkModelResult.value || {}));
-            const benchmarkModelAiWatchPoints = computed(() => buildBenchmarkModelAiWatchPoints(benchmarkModelResult.value || {}));
-            const benchmarkModelAiAssumptionNote = computed(() => buildBenchmarkModelAiAssumptionNote(benchmarkModelResult.value || {}));
-            const benchmarkModelDataNotice = computed(() => benchmarkModelDataNoticeForResult(benchmarkModelResult.value || {}));
-            const benchmarkModelAiOutcomeCards = computed(() => buildBenchmarkModelAiOutcomeCards({
-                result: benchmarkModelResult.value || {},
-                recommendations: benchmarkModelAiRecommendations.value,
-                watchPoints: benchmarkModelAiWatchPoints.value,
-                assumptionNote: benchmarkModelAiAssumptionNote.value,
-                dataNotice: benchmarkModelDataNotice.value,
-                detailCompleteness: benchmarkModelDetailCompleteness.value,
-            }));
 
-            const expansionRecordTypeLabel = (...args) => hasExpansionStaticOptions.value ? requireExpansionStaticOption('expansionRecordTypeLabel')(...args) : '--';
 
-            const loadExpansionRecords = async () => {
-                if (expansionRecordsLoading.value) return;
-                expansionRecordsLoading.value = true;
-                try {
-                    const res = await request('/expansion/records');
-                    if (res.code !== 200) throw new Error(res.message || '获取扩张记录失败');
-                    expansionRecords.value = Array.isArray(res.data?.list) ? res.data.list : [];
-                } catch (error) {
-                    showToast(error.message || '获取扩张记录失败', 'error');
-                } finally {
-                    expansionRecordsLoading.value = false;
-                }
-            };
 
-            const applyExpansionRecord = (record, reuseInput = false) => {
-                const input = record?.input || {};
-                const result = record?.result || {};
-                if (record?.record_type === 'market') {
-                    currentPage.value = 'market-evaluation';
-                    marketEvaluationResult.value = result;
-                    if (reuseInput) {
-                        marketEvaluationForm.value = normalizeMarketEvaluationForm(input);
-                    }
-                    return;
-                }
-                if (record?.record_type === 'benchmark') {
-                    currentPage.value = 'benchmark-model';
-                    benchmarkModelResult.value = result;
-                    if (reuseInput) {
-                        benchmarkModelForm.value = { ...benchmarkModelForm.value, ...input };
-                    }
-                    return;
-                }
-                if (record?.record_type === 'collaboration') {
-                    currentPage.value = 'collaboration-efficiency';
-                    collaborationEfficiencyResult.value = result;
-                    if (Array.isArray(result.task_board)) {
-                        collaborationTasks.value = result.task_board;
-                    }
-                    if (reuseInput) {
-                        collaborationProject.value = {
-                            ...collaborationProject.value,
-                            project_name: input.project_name ?? collaborationProject.value.project_name,
-                            city_area: input.city_area ?? collaborationProject.value.city_area,
-                            current_stage: input.current_stage ?? collaborationProject.value.current_stage,
-                            owner: input.owner ?? collaborationProject.value.owner,
-                            expected_online_date: input.expected_online_date ?? collaborationProject.value.expected_online_date,
-                            source_evidence: input.source_evidence ?? collaborationProject.value.source_evidence,
-                            review_status: input.review_status ?? collaborationProject.value.review_status
-                        };
-                        if (Array.isArray(input.tasks)) {
-                            collaborationTasks.value = input.tasks;
-                        }
-                    }
-                }
-            };
 
-            const isExpansionRecordVisibleOnPage = (record, page = currentPage.value) => {
-                const recordType = expansionRecordPageTypes.value[page] || '';
-                return !recordType || record?.record_type === recordType;
-            };
 
-            const loadExpansionDetail = async (id, reuseInput = false) => {
-                if (!id) return;
-                const requestPage = currentPage.value;
-                try {
-                    await ensureExpansionStaticReady();
-                    if (isSimulationStaticPage(requestPage)) {
-                        await ensureSimulationStaticReady();
-                    }
-                    const res = await request(`/expansion/records/${id}`);
-                    if (res.code !== 200) throw new Error(res.message || '获取扩张记录详情失败');
-                    if (!isStillOnRequestPage(requestPage)) return;
-                    if (!isExpansionRecordVisibleOnPage(res.data, requestPage)) return;
-                    applyExpansionRecord(res.data, reuseInput);
-                    showToast(reuseInput ? '历史输入已复用' : '历史记录已载入');
-                } catch (error) {
-                    showToast(error.message || '获取扩张记录详情失败', 'error');
-                }
-            };
 
-            const reuseExpansionRecord = async (record) => {
-                await loadExpansionDetail(record?.id, true);
-            };
 
-            const createExpansionExecutionIntent = async (record) => {
-                if (!record?.id) return;
-                if (expansionExecutionIntentId(record)) {
-                    showToast('该拓展记录已关联执行意图');
-                    return;
-                }
 
-                const hotelId = Number(expansionExecutionHotelId.value || 0);
-                if (!hotelId) {
-                    showToast('请选择执行跟踪酒店', 'error');
-                    return;
-                }
 
-                expansionExecutionLoadingId.value = record.id;
-                try {
-                    const res = await request(`/expansion/records/${record.id}/execution-intent`, {
-                        method: 'POST',
-                        body: JSON.stringify({ hotel_id: hotelId })
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '拓展转跟踪失败');
-                    if (res.data?.record && isExpansionRecordVisibleOnPage(res.data.record)) {
-                        applyExpansionRecord(res.data.record);
-                    }
-                    await loadExpansionRecords();
-                    showToast('拓展投后跟踪执行意图已创建');
-                } catch (error) {
-                    showToast(error.message || '拓展转跟踪失败', 'error');
-                } finally {
-                    expansionExecutionLoadingId.value = null;
-                }
-            };
 
-            const archiveExpansionRecord = async (record) => {
-                if (!record?.id) return;
-                if (!confirm('确认归档该扩张记录？归档后将从历史列表隐藏。')) return;
-                try {
-                    const res = await request(`/expansion/records/${record.id}`, { method: 'DELETE' });
-                    if (res.code !== 200) throw new Error(res.message || '扩张记录归档失败');
-                    showToast('扩张记录已归档');
-                    await loadExpansionRecords();
-                } catch (error) {
-                    showToast(error.message || '扩张记录归档失败', 'error');
-                }
-            };
 
-            const clearMarketEvaluationHistory = async () => {
-                if (!hasMarketEvaluationHistory.value || expansionRecordsLoading.value) return;
-                if (!confirm('确认清空市场评估历史？清空后将从扩张历史记录中隐藏。')) return;
-                let shouldReload = false;
-                expansionRecordsLoading.value = true;
-                try {
-                    const res = await request('/expansion/records/market-evaluation', { method: 'DELETE' });
-                    if (res.code !== 200) throw new Error(res.message || '市场评估历史清空失败');
-                    showToast('市场评估历史已清空');
-                    shouldReload = true;
-                } catch (error) {
-                    showToast(error.message || '市场评估历史清空失败', 'error');
-                } finally {
-                    expansionRecordsLoading.value = false;
-                }
-                if (shouldReload) {
-                    await loadExpansionRecords();
-                }
-            };
 
-            const clearExpansionHistory = async () => {
-                if (!hasExpansionHistory.value || expansionRecordsLoading.value) return;
-                if (!confirm('确认清空扩张历史数据？清空后将从扩张历史记录中隐藏。')) return;
-                let shouldReload = false;
-                expansionRecordsLoading.value = true;
-                try {
-                    const res = await request('/expansion/records', { method: 'DELETE' });
-                    if (res.code !== 200) throw new Error(res.message || '扩张历史数据清空失败');
-                    showToast('扩张历史数据已清空');
-                    shouldReload = true;
-                } catch (error) {
-                    showToast(error.message || '扩张历史数据清空失败', 'error');
-                } finally {
-                    expansionRecordsLoading.value = false;
-                }
-                if (shouldReload) {
-                    await loadExpansionRecords();
-                }
-            };
 
-            const handleMarketEvaluation = async () => {
-                marketEvaluationLoading.value = true;
-                try {
-                    await ensureExpansionStaticReady();
-                    const payload = normalizeMarketEvaluationForm(marketEvaluationForm.value);
-                    marketEvaluationForm.value = payload;
-                    const res = await request('/expansion/market-evaluation', {
-                        method: 'POST',
-                        body: JSON.stringify(payload)
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '市场评估失败');
-                    marketEvaluationResult.value = res.data || null;
-                    await loadExpansionRecords();
-                    showToast('市场评估已生成');
-                } catch (error) {
-                    showToast(error.message || '市场评估失败', 'error');
-                } finally {
-                    marketEvaluationLoading.value = false;
-                }
-            };
 
-            const handleBenchmarkModel = async () => {
-                benchmarkModelLoading.value = true;
-                try {
-                    await ensureExpansionStaticReady();
-                    await ensureSimulationStaticReady();
-                    const res = await request('/expansion/benchmark-model', {
-                        method: 'POST',
-                        body: JSON.stringify(benchmarkModelForm.value)
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '标杆选模失败');
-                    benchmarkModelResult.value = res.data || null;
-                    await loadExpansionRecords();
-                    showToast('标杆选模已生成');
-                } catch (error) {
-                    showToast(error.message || '标杆选模失败', 'error');
-                } finally {
-                    benchmarkModelLoading.value = false;
-                }
-            };
 
-            const handleCollaborationEfficiency = async () => {
-                collaborationEfficiencyLoading.value = true;
-                try {
-                    await ensureExpansionStaticReady();
-                    await ensureSimulationStaticReady();
-                    const res = await request('/expansion/collaboration-efficiency', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            ...collaborationProject.value,
-                            tasks: collaborationTasks.value,
-                            market_input: normalizeMarketEvaluationForm(marketEvaluationForm.value || {}),
-                            market_result: marketEvaluationResult.value || {},
-                            benchmark_input: { ...(benchmarkModelForm.value || {}) },
-                            benchmark_result: benchmarkModelResult.value || {}
-                        })
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '协同提效看板生成失败');
-                    collaborationEfficiencyResult.value = res.data || null;
-                    if (Array.isArray(res.data?.task_board)) {
-                        collaborationTasks.value = res.data.task_board;
-                    }
-                    await loadExpansionRecords();
-                    showToast('协同提效看板已生成');
-                } catch (error) {
-                    showToast(error.message || '协同提效看板生成失败', 'error');
-                } finally {
-                    collaborationEfficiencyLoading.value = false;
-                }
-            };
 
-            const transferPricingAdvice = computed(() => transferPricingResult.value?.suggestion || '--');
-            const transferPricingCards = computed(() => buildTransferPricingCards({
-                result: transferPricingResult.value,
-                suggestion: transferPricingAdvice.value,
-                formatWan,
-                formatPaybackMonth,
-                transferRiskTextClass,
-                toNumber,
-            }));
-            const transferPricingValuationRows = computed(() => buildTransferPricingValuationRows({
-                valuation: transferPricingResult.value?.valuation,
-                formatWan,
-                aiRound,
-            }));
-            const transferPricingAiEvaluation = computed(() => normalizeSimulationModelAnalysis(transferPricingResult.value?.ai_evaluation));
-            const transferPricingAiEvaluationVisible = computed(() => isSimulationModelAnalysisVisible(transferPricingAiEvaluation.value));
-            const transferPricingAiEvaluationSourceLabel = computed(() => transferPricingAiEvaluationSourceLabelText(transferPricingAiEvaluation.value));
 
-            const applyDefinedFields = (target, source) => requireSimulationStatic('applyDefinedFields')(target, source);
-            const applyTransferSourceFields = (target, source) => requireSimulationStatic('applyTransferSourceFields')(target, source);
 
-            const defaultTransferHotelId = () => {
-                const systemHotelId = String(filterReportHotel.value || '').trim();
-                return (transferHotelOptions.value || []).some(
-                    hotel => String(hotel?.id || '').trim() === systemHotelId
-                ) ? systemHotelId : '';
-            };
 
-            const resolveTransferHotelId = (...candidates) => {
-                const options = [
-                    transferSelectedHotelId.value,
-                    ...candidates,
-                    transferSourceSnapshot.value?.hotel_id,
-                    defaultTransferHotelId()
-                ];
-                const hotelId = options.find(value => value !== null && value !== undefined && value !== '');
-                return hotelId ? String(hotelId) : '';
-            };
 
-            const ensureTransferHotelSelected = (...candidates) => {
-                const hotelId = resolveTransferHotelId(...candidates);
-                if (!hotelId) {
-                    showToast('请先选择酒店', 'warning');
-                    return '';
-                }
-                transferSelectedHotelId.value = hotelId;
-                return hotelId;
-            };
 
-            const loadTransferSource = async () => {
-                const hotelId = ensureTransferHotelSelected();
-                if (!hotelId) {
-                    return;
-                }
 
-                const sourceDate = String(transferSourceDate.value || formatDate(new Date()));
-                const pageKey = String(currentPage.value || '');
-                const pageGeneration = pageRequestGeneration;
-                const requestSession = captureAuthSession();
-                const pricingDraft = JSON.stringify(transferPricingForm.value);
-                const timingDraft = JSON.stringify(transferTimingForm.value);
-                const isCurrentScope = () => isAuthSessionCurrent(requestSession)
-                    && pageGeneration === pageRequestGeneration
-                    && pageKey === String(currentPage.value || '')
-                    && hotelId === String(transferSelectedHotelId.value || '')
-                    && sourceDate === String(transferSourceDate.value || formatDate(new Date()));
-                const isCurrentDraft = () => pricingDraft === JSON.stringify(transferPricingForm.value)
-                    && timingDraft === JSON.stringify(transferTimingForm.value);
-                const preserveEditedDraft = () => showToast('读取期间输入已修改，已保留当前草稿；本次来源未带入，请重新读取。', 'warning');
-                transferSourceLoading.value = true;
-                try {
-                    await ensureSimulationStaticReady();
-                    if (!isCurrentScope()) return;
-                    if (!isCurrentDraft()) { preserveEditedDraft(); return; }
-                    const query = `?hotel_id=${encodeURIComponent(hotelId)}&date=${encodeURIComponent(sourceDate)}`;
-                    const res = await request('/transfer/source' + query);
-                    if (!isCurrentScope()) return;
-                    if (!isCurrentDraft()) { preserveEditedDraft(); return; }
-                    if (res.code !== 200) throw new Error(res.message || '获取转让测算来源数据失败');
-                    transferSelectedHotelId.value = res.data?.hotel_id || hotelId;
-                    transferSourceSnapshot.value = res.data?.snapshot || null;
-                    applyTransferSourceFields(transferPricingForm.value, res.data?.pricing_input || {});
-                    applyTransferSourceFields(transferTimingForm.value, res.data?.timing_input || {});
-                    showToast(res.data?.data_notice || '来源数据读取完成；请核对来源范围与缺失项', res.data?.snapshot?.source_verified === true ? 'success' : 'warning');
-                } catch (error) {
-                    if (!isCurrentScope()) return;
-                    const message = error.message || '获取转让测算来源数据失败';
-                    showToast(isCurrentDraft() ? message : `来源读取失败，已保留当前输入：${message}`, 'error');
-                } finally {
-                    transferSourceLoading.value = false;
-                }
-            };
 
-            const loadTransferRecords = async () => {
-                if (transferRecordsLoading.value) return;
-                transferRecordsLoading.value = true;
-                try {
-                    const hotelId = transferSelectedHotelId.value ? `?hotel_id=${encodeURIComponent(transferSelectedHotelId.value)}` : '';
-                    const res = await request('/transfer/records' + hotelId);
-                    if (res.code !== 200) throw new Error(res.message || '获取转让记录失败');
-                    transferRecords.value = Array.isArray(res.data?.list) ? res.data.list : [];
-                } catch (error) {
-                    showToast(error.message || '获取转让记录失败', 'error');
-                } finally {
-                    transferRecordsLoading.value = false;
-                }
-            };
 
-            const applyTransferRecord = (record, reuseInput = false) => {
-                if (!record) return;
-                transferSelectedHotelId.value = record.hotel_id || transferSelectedHotelId.value;
-                transferSourceSnapshot.value = record.snapshot || transferSourceSnapshot.value;
-                if (record.record_type === 'pricing') {
-                    currentPage.value = 'asset-pricing';
-                    transferPricingResult.value = record.result || null;
-                    if (reuseInput) applyDefinedFields(transferPricingForm.value, record.input || {});
-                    return;
-                }
-                if (record.record_type === 'timing') {
-                    currentPage.value = 'timing-strategy';
-                    transferTimingResult.value = record.result || null;
-                    if (reuseInput) applyDefinedFields(transferTimingForm.value, record.input || {});
-                    return;
-                }
-                if (record.record_type === 'dashboard') {
-                    currentPage.value = 'decision-board';
-                    transferDashboardResult.value = record.result || null;
-                    if (reuseInput) {
-                        if (record.input?.pricing) transferPricingResult.value = record.input.pricing;
-                        if (record.input?.timing) transferTimingResult.value = record.input.timing;
-                        if (record.input?.pricing_input) applyDefinedFields(transferPricingForm.value, record.input.pricing_input);
-                        if (record.input?.timing_input) applyDefinedFields(transferTimingForm.value, record.input.timing_input);
-                    }
-                }
-            };
 
-            let transferDetailRequestSeq = 0;
-            const loadTransferDetail = async (id, reuseInput = false) => {
-                if (!id) return;
-                const requestSeq = ++transferDetailRequestSeq;
-                const requestPolicy = currentPageReadPolicy();
-                const isCurrent = () => requestSeq === transferDetailRequestSeq && isPageLoadPolicyCurrent(requestPolicy);
-                try {
-                    await ensureSimulationStaticReady();
-                    if (!isCurrent()) return;
-                    const res = await request(`/transfer/records/${id}`);
-                    if (!isCurrent()) return;
-                    if (res.code !== 200) throw new Error(res.message || '获取转让记录详情失败');
-                    applyTransferRecord(res.data, reuseInput);
-                    showToast(reuseInput ? '转让历史输入已复用' : '转让历史记录已载入');
-                } catch (error) {
-                    if (!isCurrent()) return;
-                    showToast(error.message || '获取转让记录详情失败', 'error');
-                }
-            };
 
-            const reuseTransferRecord = async (record) => {
-                await loadTransferDetail(record?.id, true);
-            };
 
-            const createTransferExecutionIntent = async (record) => {
-                if (!record?.id) return;
-                if (transferExecutionIntentId(record)) {
-                    showToast('该转让记录已关联执行意图');
-                    return;
-                }
 
-                transferExecutionLoadingId.value = record.id;
-                try {
-                    const res = await request(`/transfer/records/${record.id}/execution-intent`, { method: 'POST' });
-                    if (res.code !== 200) throw new Error(res.message || '转跟踪失败');
-                    await loadTransferRecords();
-                    showToast('转让投后跟踪执行意图已创建');
-                } catch (error) {
-                    showToast(error.message || '转跟踪失败', 'error');
-                } finally {
-                    transferExecutionLoadingId.value = null;
-                }
-            };
 
-            const archiveTransferRecord = async (record) => {
-                if (!record?.id) return;
-                if (!confirm('确认归档该转让记录？归档后将从历史列表隐藏。')) return;
-                try {
-                    const res = await request(`/transfer/records/${record.id}`, { method: 'DELETE' });
-                    if (res.code !== 200) throw new Error(res.message || '转让记录归档失败');
-                    showToast('转让记录已归档');
-                    await loadTransferRecords();
-                } catch (error) {
-                    showToast(error.message || '转让记录归档失败', 'error');
-                }
-            };
 
-            const buildTransferPricingPayload = (hotelId) => requireSimulationStatic('buildTransferPricingPayload')({
-                form: transferPricingForm.value,
-                hotelId,
-                selectedHotelId: transferSelectedHotelId.value,
-                snapshot: transferSourceSnapshot.value,
-            });
-            const buildTransferTimingPayload = (hotelId) => requireSimulationStatic('buildTransferTimingPayload')({
-                form: transferTimingForm.value,
-                dataCheck: transferTimingDataCheck.value || {},
-                hotelId,
-                selectedHotelId: transferSelectedHotelId.value,
-                snapshot: transferSourceSnapshot.value,
-            });
 
-            const handleTransferPricing = async () => {
-                const hotelId = ensureTransferHotelSelected(transferPricingForm.value.hotel_id);
-                if (!hotelId) return;
-                transferPricingLoading.value = true;
-                try {
-                    await ensureSimulationStaticReady();
-                    const res = await request('/transfer/pricing', {
-                        method: 'POST',
-                        body: JSON.stringify(buildTransferPricingPayload(hotelId))
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '资产定价计算失败');
-                    transferPricingResult.value = res.data || null;
-                    transferDashboardResult.value = null;
-                    if (Number(res.data?.record_id || 0) > 0) await loadTransferRecords();
-                    showToast(res.message || (res.data?.status === 'insufficient_data' ? '关键字段缺失，未生成估值' : '情景估值已生成'), res.data?.status === 'insufficient_data' ? 'warning' : 'success');
-                } catch (error) {
-                    showToast(error.message || '资产定价计算失败', 'error');
-                } finally {
-                    transferPricingLoading.value = false;
-                }
-            };
 
-            const handleTransferTiming = async () => {
-                const hotelId = ensureTransferHotelSelected(transferTimingForm.value.hotel_id);
-                if (!hotelId) return;
-                transferTimingLoading.value = true;
-                try {
-                    await ensureSimulationStaticReady();
-                    const res = await request('/transfer/timing', {
-                        method: 'POST',
-                        body: JSON.stringify(buildTransferTimingPayload(hotelId))
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '时机推演失败');
-                    transferTimingResult.value = res.data || null;
-                    transferDashboardResult.value = null;
-                    if (Number(res.data?.record_id || 0) > 0) await loadTransferRecords();
-                    showToast(res.message || (res.data?.status === 'insufficient_data' ? '关键趋势缺失，未生成时机评分' : '规则时机情景已生成'), res.data?.status === 'insufficient_data' ? 'warning' : 'success');
-                } catch (error) {
-                    showToast(error.message || '时机推演失败', 'error');
-                } finally {
-                    transferTimingLoading.value = false;
-                }
-            };
 
-            const handleTransferDashboard = async () => {
-                if (!transferPricingResult.value || !transferTimingResult.value) {
-                    showToast('请先完成资产定价和时机推演', 'warning');
-                    return;
-                }
-                const hotelId = ensureTransferHotelSelected(transferPricingForm.value.hotel_id, transferTimingForm.value.hotel_id);
-                if (!hotelId) return;
-                transferDashboardLoading.value = true;
-                try {
-                    await ensureSimulationStaticReady();
-                    const res = await request('/transfer/dashboard', {
-                        method: 'POST',
-                        body: JSON.stringify(requireSimulationStatic('buildTransferDashboardPayload')({
-                            pricing: transferPricingResult.value,
-                            timing: transferTimingResult.value,
-                            pricingInput: transferPricingForm.value || {},
-                            timingInput: transferTimingForm.value || {},
-                            hotelId,
-                            snapshot: transferSourceSnapshot.value,
-                        }))
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '数据看板生成失败');
-                    transferDashboardResult.value = res.data || null;
-                    await loadTransferRecords();
-                    showToast('数据看板已生成');
-                } catch (error) {
-                    showToast(error.message || '数据看板生成失败', 'error');
-                } finally {
-                    transferDashboardLoading.value = false;
-                }
-            };
 
-            const buildStrategyPayload = () => requireExpansionStaticOption('buildStrategyPayload')(aiProject.value);
 
-            let aiStrategyActionSeq = 0;
-            let aiStrategyRecordsRequestSeq = 0;
-            const captureStrategyPageContext = () => ({
-                authSession: captureAuthSession(),
-                page: String(currentPage.value || ''),
-                pageGeneration: pageRequestGeneration,
-            });
-            const isStrategyPageContextCurrent = (context = {}) => (
-                context.page === 'ai-strategy'
-                && String(currentPage.value || '') === context.page
-                && Number(context.pageGeneration) === pageRequestGeneration
-                && isAuthSessionCurrent(context.authSession)
-            );
-            const invalidateStrategyPageRequests = () => {
-                aiStrategyActionSeq += 1;
-                aiStrategyRecordsRequestSeq += 1;
-                aiStrategyLoading.value = false;
-                aiStrategyRecordsLoading.value = false;
-            };
 
-            const handleStrategy = async () => {
-                if (aiStrategyLoading.value) return false;
-                const actionSeq = ++aiStrategyActionSeq;
-                const actionContext = captureStrategyPageContext();
-                const isCurrentAction = () => (
-                    actionSeq === aiStrategyActionSeq
-                    && isStrategyPageContextCurrent(actionContext)
-                );
-                if (!isCurrentAction()) return false;
-                aiStrategyLoading.value = true;
-                try {
-                    await ensureExpansionStaticReady();
-                    if (!isCurrentAction()) return false;
-                    const res = await request('/strategy/simulate', {
-                        method: 'POST',
-                        body: JSON.stringify(buildStrategyPayload())
-                    });
-                    if (!isCurrentAction()) return false;
-                    if (res.code !== 200) {
-                        throw new Error(res.message || '战略推演失败');
-                    }
-                    aiStrategyRecordId.value = res.data?.record_id || res.data?.id || null;
-                    aiStrategyResult.value = normalizeStrategyResult(res.data);
-                    await loadStrategyRecords({ pageContext: actionContext, force: true });
-                    if (!isCurrentAction()) return false;
-                    showToast('战略推演已生成');
-                    return true;
-                } catch (error) {
-                    if (!isCurrentAction()) return false;
-                    showToast(error.message || '战略推演失败', 'error');
-                    return false;
-                } finally {
-                    if (isCurrentAction()) aiStrategyLoading.value = false;
-                }
-            };
 
-            const applyStrategyRecord = (record, reuseInput = false) => {
-                if (!record) return;
-                const input = record.input || {};
-                if (reuseInput) {
-                    aiProject.value = {
-                        ...aiProject.value,
-                        project_name: input.project_name ?? record.project_name ?? aiProject.value.project_name,
-                        city_tier: input.city_tier || marketEvaluationTierOfCity(input.city ?? record.city ?? aiProject.value.city) || aiProject.value.city_tier,
-                        city: input.city ?? record.city ?? aiProject.value.city,
-                        district: input.district ?? record.district ?? aiProject.value.district,
-                        address: input.address ?? aiProject.value.address,
-                        property_area: input.property_area ?? aiProject.value.property_area,
-                        room_count: input.room_count ?? aiProject.value.room_count,
-                        monthly_rent: input.monthly_rent ?? aiProject.value.monthly_rent,
-                        decoration_budget: input.decoration_budget ?? aiProject.value.decoration_budget,
-                        lease_years: input.lease_years ?? aiProject.value.lease_years,
-                        rent_free_months: input.rent_free_months ?? aiProject.value.rent_free_months,
-                        business_type: input.business_type ?? aiProject.value.business_type,
-                        primary_customer: input.primary_customer ?? input.target_customer ?? aiProject.value.primary_customer,
-                        competitor_count: input.competitor_count ?? aiProject.value.competitor_count,
-                        target_grade: input.target_grade ?? input.target_hotel_level ?? aiProject.value.target_grade
-                    };
-                }
-                aiStrategyRecordId.value = record.record_id || record.id || null;
-                aiStrategyResult.value = normalizeStrategyResult(record);
-            };
-
-            const loadStrategyRecords = async (options = {}) => {
-                if (!token.value || (aiStrategyRecordsLoading.value && options.force !== true)) return;
-                const pageContext = options.pageContext || captureStrategyPageContext();
-                if (!isStrategyPageContextCurrent(pageContext)) return;
-                const requestSeq = ++aiStrategyRecordsRequestSeq;
-                const isCurrentRequest = () => (
-                    requestSeq === aiStrategyRecordsRequestSeq
-                    && isStrategyPageContextCurrent(pageContext)
-                );
-                aiStrategyRecordsLoading.value = true;
-                try {
-                    const res = await request('/strategy/records');
-                    if (!isCurrentRequest()) return aiStrategyRecords.value;
-                    if (res.code !== 200) throw new Error(res.message || '战略推演历史加载失败');
-                    aiStrategyRecords.value = Array.isArray(res.data?.list) ? res.data.list : [];
-                    return aiStrategyRecords.value;
-                } catch (error) {
-                    if (!isCurrentRequest()) return aiStrategyRecords.value;
-                    showToast(error.message || '战略推演历史加载失败', 'error');
-                    return null;
-                } finally {
-                    if (isCurrentRequest()) aiStrategyRecordsLoading.value = false;
-                }
-            };
-
-            const loadStrategyDetail = async (id, reuseInput = false) => {
-                if (!id) return;
-                const requestPage = currentPage.value;
-                try {
-                    await ensureExpansionStaticReady();
-                    const res = await request(`/strategy/records/${id}`);
-                    if (res.code !== 200) throw new Error(res.message || '战略推演详情加载失败');
-                    if (!isStillOnRequestPage(requestPage)) return;
-                    applyStrategyRecord(res.data, reuseInput);
-                    showToast(reuseInput ? '战略推演输入已复用' : '战略推演详情已加载');
-                } catch (error) {
-                    showToast(error.message || '战略推演详情加载失败', 'error');
-                }
-            };
-
-            const reuseStrategyRecord = async (record) => {
-                await loadStrategyDetail(record?.id, true);
-            };
-
-            const archiveStrategyRecord = async (record) => {
-                if (!record?.id) return;
-                if (!confirm('确认删除该战略推演记录？删除后将从历史列表隐藏。')) return;
-                try {
-                    const res = await request(`/strategy/records/${record.id}`, { method: 'DELETE' });
-                    if (res.code !== 200) throw new Error(res.message || '战略推演记录删除失败');
-                    showToast('战略推演记录已删除');
-                    if (String(aiStrategyRecordId.value || '') === String(record.id)) {
-                        aiStrategyRecordId.value = null;
-                    }
-                    await loadStrategyRecords();
-                } catch (error) {
-                    showToast(error.message || '战略推演记录删除失败', 'error');
-                }
-            };
 
             function saveSimulationState(input, result, scenarios, modelAnalysis = simulationModelAnalysis.value) {
                 requireSimulationStatic('simulationStateStorage').save(input, result, scenarios, modelAnalysis);
@@ -53965,227 +52647,19 @@
             const simulationOtaCommissionChannels = computed(() => buildSimulationOtaCommissionChannels(aiSimulationParams.value));
             const simulationModelAnalysisVisible = computed(() => isSimulationModelAnalysisVisible(simulationModelAnalysis.value));
             const simulationModelSourceLabel = computed(() => simulationModelSourceLabelForAnalysis(simulationModelAnalysis.value));
-            const strategyScoreCards = computed(() => buildStrategyScoreCards(aiStrategyResult.value));
-            const strategyFreshnessLabel = computed(() => strategyFreshnessLabelForSnapshot(aiStrategyResult.value?.data_snapshot));
-            const strategyAiSourceLabel = computed(() => strategyAiSourceLabelForResult(aiStrategyResult.value));
-            const strategyAiModelDisplayLabel = computed(() => strategyAiModelDisplayLabelForSnapshot(aiStrategyResult.value?.data_snapshot || {}));
-            const strategyPoiDataSourceLabel = computed(() => strategyPoiDataSourceLabelForSnapshot(
-                aiStrategyResult.value?.data_snapshot || {},
-                strategyAiModelDisplayLabel.value
-            ));
-            const strategyDataNotice = computed(() => strategyDataNoticeForSnapshot(
-                aiStrategyResult.value?.data_snapshot,
-                strategyAiModelDisplayLabel.value
-            ));
-            const strategyDataSourceRows = computed(() => buildStrategyDataSourceRows(aiStrategyResult.value?.data_snapshot || {}, {
-                modelLabel: strategyAiModelDisplayLabel.value,
-                poiDataSourceLabel: strategyPoiDataSourceLabel.value,
-            }));
-            const strategyAiEmpowermentCards = computed(() => buildStrategyAiEmpowermentCards(aiStrategyResult.value, {
-                dataSourceRows: strategyDataSourceRows.value,
-                freshnessLabel: strategyFreshnessLabel.value,
-                poiDataSourceLabel: strategyPoiDataSourceLabel.value,
-                dataNotice: strategyDataNotice.value,
-            }));
             const simulationMetricCards = computed(() => buildSimulationMetricCards(baseSimulation.value, formatCurrency));
 
-            const feasibilityFormValue = value => value === '' || value === null || value === undefined ? null : value;
-            const feasibilityOccForForm = value => {
-                const number = Number(value);
-                return Number.isFinite(number) && number > 0 && number <= 1 ? number * 100 : value;
-            };
-            const buildFeasibilityPayload = () => ({
-                hotel_id: Number(aiFeasibilityHotelId.value || 0) || null,
-                project_name: aiProject.value.project_name,
-                city: aiProject.value.city,
-                district: aiProject.value.district,
-                address: aiProject.value.address,
-                property_area: feasibilityFormValue(aiProject.value.property_area),
-                room_count: feasibilityFormValue(aiProject.value.room_count),
-                monthly_rent: feasibilityFormValue(aiProject.value.monthly_rent),
-                lease_years: feasibilityFormValue(aiProject.value.lease_years),
-                decoration_budget: feasibilityFormValue(aiProject.value.decoration_budget),
-                transfer_fee: feasibilityFormValue(aiProject.value.transfer_fee),
-                opening_cost: feasibilityFormValue(aiProject.value.opening_cost),
-                adr: feasibilityFormValue(aiProject.value.adr),
-                occ: feasibilityFormValue(aiProject.value.occ),
-                target_brand_level: aiProject.value.target_brand_level,
-                target_customer: aiProject.value.target_customer,
-                notes: aiProject.value.notes || '',
-            });
 
-            const normalizeFeasibilityResponse = (data) => {
-                aiFeasibilityRecordId.value = data?.id || null;
-                aiFeasibilityResult.value = data?.report || null;
-                aiFeasibilityReadiness.value = data?.feasibility_readiness || data?.report?.feasibility_readiness || null;
-            };
 
-            const applyFeasibilityRecord = (record, reuseInput = false) => {
-                if (!record) return;
-                if (reuseInput && record.input) {
-                    aiFeasibilityHotelId.value = String(record.input.hotel_id || record.input.system_hotel_id || '');
-                    aiProject.value = {
-                        ...aiProject.value,
-                        project_name: record.input.project_name ?? aiProject.value.project_name,
-                        city: record.input.city ?? aiProject.value.city,
-                        district: record.input.district ?? aiProject.value.district,
-                        address: record.input.address ?? aiProject.value.address,
-                        property_area: record.input.property_area ?? aiProject.value.property_area,
-                        room_count: record.input.room_count ?? aiProject.value.room_count,
-                        monthly_rent: record.input.monthly_rent ?? aiProject.value.monthly_rent,
-                        lease_years: record.input.lease_years ?? aiProject.value.lease_years,
-                        decoration_budget: record.input.decoration_budget ?? aiProject.value.decoration_budget,
-                        transfer_fee: record.input.transfer_fee ?? aiProject.value.transfer_fee,
-                        opening_cost: record.input.opening_cost ?? '',
-                        adr: record.input.adr ?? '',
-                        occ: feasibilityOccForForm(record.input.occ ?? ''),
-                        target_brand_level: record.input.target_brand_level ?? aiProject.value.target_brand_level,
-                        target_customer: record.input.target_customer ?? aiProject.value.target_customer,
-                        notes: record.input.notes ?? aiProject.value.notes
-                    };
-                }
-                normalizeFeasibilityResponse(record);
-            };
 
-            const loadFeasibilityRecords = async () => {
-                if (!token.value || aiFeasibilityRecordsLoading.value) return;
-                aiFeasibilityRecordsLoading.value = true;
-                try {
-                    const res = await request('/agent/feasibility-report/list?page=1&page_size=20');
-                    if (res.code !== 200) throw new Error(res.message || '可行性报告历史加载失败');
-                    aiFeasibilityRecords.value = Array.isArray(res.data?.list) ? res.data.list : [];
-                } catch (error) {
-                    showToast(error.message || '可行性报告历史加载失败', 'error');
-                } finally {
-                    aiFeasibilityRecordsLoading.value = false;
-                }
-            };
 
-            const loadFeasibilityDetail = async (id, reuseInput = false) => {
-                if (!id) return;
-                const requestPage = currentPage.value;
-                try {
-                    const res = await request(`/agent/feasibility-report/detail/${id}`);
-                    if (res.code !== 200) throw new Error(res.message || '可行性报告详情加载失败');
-                    if (!isStillOnRequestPage(requestPage)) return;
-                    applyFeasibilityRecord(res.data, reuseInput);
-                    showToast(reuseInput ? '可行性报告输入已复用' : '可行性报告已加载');
-                } catch (error) {
-                    showToast(error.message || '可行性报告详情加载失败', 'error');
-                }
-            };
 
-            const reuseFeasibilityRecord = async (record) => {
-                await loadFeasibilityDetail(record?.id, true);
-            };
 
-            const archiveFeasibilityRecord = async (record) => {
-                if (!record?.id) return;
-                if (!confirm('确认归档该可行性报告？归档后将从历史列表隐藏。')) return;
-                try {
-                    const res = await request(`/agent/feasibility-report/${record.id}`, { method: 'DELETE' });
-                    if (res.code !== 200) throw new Error(res.message || '可行性报告归档失败');
-                    showToast('可行性报告已归档');
-                    if (String(aiFeasibilityRecordId.value || '') === String(record.id)) {
-                        aiFeasibilityRecordId.value = null;
-                    }
-                    await loadFeasibilityRecords();
-                } catch (error) {
-                    showToast(error.message || '可行性报告归档失败', 'error');
-                }
-            };
 
-            const handleFeasibility = async () => {
-                aiFeasibilityLoading.value = true;
-                aiFeasibilityError.value = '';
-                try {
-                    await ensureExpansionStaticReady();
-                    const url = aiFeasibilityRecordId.value
-                        ? `/agent/feasibility-report/regenerate/${aiFeasibilityRecordId.value}`
-                        : '/agent/feasibility-report/generate';
-                    const res = await request(url, {
-                        method: 'POST',
-                        body: JSON.stringify(buildFeasibilityPayload())
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '评估保存失败');
-                    normalizeFeasibilityResponse(res.data);
-                    showToast(res.data?.decision_ready === true ? '可行性测算已生成' : '输入已保存，当前待评估');
-                } catch (err) {
-                    aiFeasibilityError.value = err.message || '评估保存失败';
-                    showToast(aiFeasibilityError.value, 'error');
-                } finally {
-                    aiFeasibilityLoading.value = false;
-                }
-            };
 
-            const createFeasibilityExecutionIntent = async () => {
-                const reportId = Number(aiFeasibilityRecordId.value || 0);
-                const hotelId = Number(aiFeasibilityExecutionHotelId.value || 0);
-                if (!reportId) {
-                    showToast('请先生成或加载可行性报告', 'error');
-                    return;
-                }
-                if (aiFeasibilityReadiness.value?.decision_ready !== true) {
-                    showToast('核心输入未齐，待评估报告不能转投后跟踪', 'error');
-                    return;
-                }
-                if (!hotelId) {
-                    showToast('请选择跟踪酒店', 'error');
-                    return;
-                }
-                if (feasibilityExecutionLinked.value) {
-                    showToast('该可行性报告已关联执行意图');
-                    return;
-                }
 
-                aiFeasibilityExecutionLoading.value = true;
-                try {
-                    const res = await request(`/agent/feasibility-report/${reportId}/execution-intent`, {
-                        method: 'POST',
-                        body: JSON.stringify({ hotel_id: hotelId })
-                    });
-                    if (res.code !== 200) throw new Error(res.message || '转投后跟踪失败');
-                    if (res.data?.report) {
-                        applyFeasibilityRecord(res.data.report);
-                    }
-                    await loadFeasibilityRecords();
-                    showToast('投后跟踪执行意图已创建');
-                } catch (error) {
-                    showToast(error.message || '转投后跟踪失败', 'error');
-                } finally {
-                    aiFeasibilityExecutionLoading.value = false;
-                }
-            };
 
-            const stringifyFeasibilityReport = () => {
-                if (aiFeasibilityResult.value?.decision_ready !== true) {
-                    const report = aiFeasibilityResult.value || {};
-                    return [
-                        `${report.summary?.project_name || aiProject.value?.project_name || '项目'}待评估记录`,
-                        '状态：核心投资输入未齐，未生成回本期或结论等级。',
-                        `原因：${report.core_reason || '请补齐预期 ADR、预期 OCC、开办费及其他核心投资输入。'}`,
-                        `数据缺口：${Array.isArray(report.data_gaps) && report.data_gaps.length ? report.data_gaps.join('、') : '核心投资输入待补充'}`,
-                        `规则情景假设：${Array.isArray(report.assumptions) ? report.assumptions.join('；') : '无'}`,
-                    ].join('\n\n');
-                }
-                return stringifyFeasibilityReportText(aiFeasibilityResult.value, aiProject.value?.project_name || '');
-            };
 
-            const copyFeasibilityReport = async () => {
-                if (!aiFeasibilityResult.value) return;
-                try {
-                    await ensureExpansionStaticReady();
-                    await navigator.clipboard.writeText(stringifyFeasibilityReport());
-                    showToast('报告内容已复制');
-                } catch (err) {
-                    copyToClipboard(stringifyFeasibilityReport());
-                }
-            };
-
-            const printFeasibilityReport = () => {
-                if (!aiFeasibilityResult.value) return;
-                window.print();
-            };
 
             const homeClosedLoopStages = computed(() => {
                 const executionSummary = operationExecutionFlow.value?.summary || {};
@@ -54270,18 +52744,6 @@
                     pages: ['revenue-research-center'],
                     read: () => revenueResearchHotelId.value,
                     write: hotelId => { revenueResearchHotelId.value = hotelId; },
-                },
-                {
-                    key: 'ai-feasibility',
-                    pages: ['ai-feasibility'],
-                    read: () => aiFeasibilityHotelId.value,
-                    write: hotelId => { aiFeasibilityHotelId.value = hotelId; },
-                },
-                {
-                    key: 'transfer-analysis',
-                    pages: ['asset-pricing', 'timing-strategy', 'decision-board'],
-                    read: () => transferSelectedHotelId.value,
-                    write: hotelId => { transferSelectedHotelId.value = hotelId; },
                 },
                 {
                     key: 'ota-diagnosis',
@@ -54390,16 +52852,7 @@
                 otaDiagnosisResult.value = null;
                 otaDiagnosisError.value = '';
                 otaDiagnosisEmpty.value = false;
-                aiFeasibilityResult.value = null;
-                aiFeasibilityReadiness.value = null;
-                aiFeasibilityRecordId.value = null;
-                aiFeasibilityError.value = '';
 
-                transferSourceSnapshot.value = null;
-                transferRecords.value = [];
-                transferPricingResult.value = null;
-                transferTimingResult.value = null;
-                transferDashboardResult.value = null;
             };
             const syncUnifiedHotelContexts = (hotelId, previousHotelId = '') => {
                 const normalizedHotelId = String(hotelId || '').trim();
@@ -54456,21 +52909,11 @@
                 hotelAutomationLifecycleSummary,
                 hotelBusinessProfileEditor,
                 ctripScenarioHotelsList,
-                aiProject, aiStrategyParams, aiStrategyResult, aiStrategyRecords, aiStrategyRecordId, aiStrategyLoading, aiStrategyRecordsLoading, strategyCurrentReadiness, strategyScoreCards, strategyFreshnessLabel, strategyAiSourceLabel, strategyDataNotice, strategyDataSourceRows, strategyAiEmpowermentCards, handleStrategy, loadStrategyRecords, loadStrategyDetail, reuseStrategyRecord, archiveStrategyRecord,
+                aiProject,
                 aiSimulationParams, aiSimulationResult, aiSimulationScenarios, aiSimulationRecords, simulationHistoryState, aiSimulationRecordId, simulationDraft, aiSimulationLoading, simulationExecutionLoadingId, simulationCurrentReadiness, simulationHotelSelectionValid, simulationReadinessBadgeClass, simulationReadinessMissingText, simulationExecutionIntentId, simulationRecordSummary, simulationTaskDisabled, simulationTaskLabel, canArchiveSim, archiveSim, simulationArchivePending,
                 operatingScenarioFields, operatingPaybackText, enableOperatingScenario, syncSimulationCalendar, loadOperatingExample, simulationComparisonRecords, simulationComparisonRows, simulationComparisonError, simulationComparisonLoading, toggleSimulationComparison, clearSimulationComparison,
                 simulationInvestmentGroups, simulationInvestmentTotal, simulationInvestmentPerRoom, simulationRevenueSummary, simulationRoomRevenueSegments, simulationOtherIncomeFields, simulationCostFields, simulationCostSummary, simulationCostGroups, simulationOtaCommissionChannels, simulationMetricCards, simulationRiskHints, simulationModelAnalysis, simulationModelAnalysisVisible, simulationModelSourceLabel, baseSimulation, handleSimulation, loadSimulationRecords, loadSimulationDetail, downloadSimulationRecord, simulationExportLoadingId, reuseSimulationRecord, archiveSimulationRecord, createSimulationExecutionIntent,
-                aiFeasibilityResult, aiFeasibilityRecords, aiFeasibilityReadiness, aiFeasibilityRecordId, aiFeasibilityHotelId, aiFeasibilityHotelOptions, aiFeasibilityExecutionHotelId, aiFeasibilityExecutionLoading, aiFeasibilityLoading, aiFeasibilityRecordsLoading, aiFeasibilityError, feasibilityInputCards, feasibilityReportCards, feasibilityAiEmpowerment, feasibilityDecisionClass, feasibilityExecutionIntentId, feasibilityExecutionLinked, feasibilityReadinessBadgeClass, feasibilityReadinessMissingText, handleFeasibility, createFeasibilityExecutionIntent, loadFeasibilityRecords, loadFeasibilityDetail, reuseFeasibilityRecord, archiveFeasibilityRecord, copyFeasibilityReport, printFeasibilityReport, formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
-                marketEvaluationForm, marketEvaluationCityOptions, marketEvaluationCityTierOptions, filteredMarketEvaluationCityOptions, filteredStrategyCityOptions, filteredStrategyDistrictOptions, filteredStrategyAddressKeywordOptions, marketEvaluationConditionFields, marketEvaluationCustomerOptions, secondaryMarketEvaluationCustomerOptions, marketEvaluationDecorationOptions, marketEvaluationResult, marketEvaluationAiJudgementRows, marketEvaluationAiRecommendations, marketEvaluationAiRiskSuggestions, marketEvaluationRiskSeverityClass, marketEvaluationAiAssumptions, marketEvaluationScoreFormula, marketEvaluationScoreBreakdown, marketEvaluationScorePercent, formatMarketEvaluationScoreChange, marketEvaluationScoreChangeClass, marketEvaluationAiRiskNote, marketEvaluationLoading, handleMarketEvaluation,
-                benchmarkModelForm, benchmarkModelResult, benchmarkModelLoading, benchmarkModelDetailFields, benchmarkModelDetailCards, benchmarkModelDetailCompleteness, benchmarkModelEstimatedFields, benchmarkModelAiSourceLabel, benchmarkModelAiRecommendations, benchmarkModelAiWatchPoints, benchmarkModelAiAssumptionNote, benchmarkModelDataNotice, benchmarkModelAiOutcomeCards, benchmarkMetricValue, benchmarkSignedValue, benchmarkStrategyLabel, handleBenchmarkModel,
-                collaborationProject, collaborationTasks, collaborationStatusOptions, collaborationEfficiencyResult, collaborationEfficiencyLoading, handleCollaborationEfficiency,
-                expansionRecords, visibleExpansionRecords, expansionRecordsLoading, expansionExecutionHotelId, expansionExecutionLoadingId, expansionHotelOptions, hasMarketEvaluationHistory, hasExpansionHistory, expansionCurrentReadiness,
-                expansionRecordTypeLabel, expansionReadinessBadgeClass, expansionReadinessMissingText, expansionExecutionIntentId, loadExpansionRecords, loadExpansionDetail, reuseExpansionRecord, createExpansionExecutionIntent, archiveExpansionRecord, clearMarketEvaluationHistory, clearExpansionHistory,
-                transferPricingForm, transferPricingFields, transferAiModelOptions, transferPricingResult, transferPricingLoading, transferPricingCards, transferPricingValuationRows, transferPricingAdvice, transferPricingAiEvaluation, transferPricingAiEvaluationVisible, transferPricingAiEvaluationSourceLabel, handleTransferPricing,
-                transferTimingForm, transferTimingCompareFields, transferTimingNumberFields, transferTimingDataFields, transferTimingDataCheck, transferTimingResult, transferTimingLoading, handleTransferTiming, transferDecisionClass,
-                transferDashboardResult, transferDashboardLoading, handleTransferDashboard,
-                transferSelectedHotelId, transferSourceDate, transferSourceSnapshot, transferSourceMetricRows, transferSourceLoading, transferRecords, transferRecordsLoading, transferExecutionLoadingId, transferHotelOptions, transferDecisionLayerRows, transferCurrentReadiness,
-                transferRecordTypeLabel, transferReadinessBadgeClass, transferReadinessMissingText, transferExecutionIntentId, loadTransferSource, loadTransferRecords, loadTransferDetail, reuseTransferRecord, createTransferExecutionIntent, archiveTransferRecord,
+                formatCurrency, formatMoney, formatPercent, formatWan, aiRound, riskBadgeClass,
                 operationFullData, operationRootCause, operationAlerts, operationStrategyResult, operationActions, operationActionTrackingRead, operationActionReadNotice, operationExecutionFlow, operationExecutionViewMode, operationClosureOverview, operatingMemories, operatingMemoryLoading, operatingMemoryError, operatingMemorySavingTaskId, operationEffectValidation,
                 operatingGrowthArchiveBody, operatingGrowthArchiveBindings, operatingGrowthArchiveListeners,
                 loadOperatingGrowthArchive, changeOperatingGrowthHotel, changeOperatingGrowthDateRange, changeOperatingGrowthFilter, openOperatingGrowthEventForm, closeOperatingGrowthEventForm, updateOperatingGrowthEventDraft, submitOperatingGrowthEvent, openOperatingGrowthSource, addOperatingGrowthAnnotation, setOperatingGrowthMilestone,
@@ -54559,8 +53002,6 @@
                 weatherDemandHint, weatherDecisionTags, weatherDecisionInsights, weatherLocationName, selectedWeatherCity, weatherCityPickerOpen, weatherCityChoices, selectWeatherCity, defaultWeatherCity, weatherSelectableCities, displayWeather, weatherToday, weatherForecastDays, weatherImpactTone, weatherLoading, weatherError, weatherDataSourceLabel,
                 homeQuickEntries, hiddenHomeQuickEntries, homeQuickLayoutEditing, homeQuickLayoutSaving, homeQuickLayoutSaveHint, homeQuickDragKey, homeQuickDragOverKey, startHomeQuickDrag, enterHomeQuickDrag, dropHomeQuickDrag, endHomeQuickDrag, toggleHomeQuickEntry, resetHomeQuickLayout, saveHomeQuickLayout, openHomeQuickEntry,
                 homeCompetitorReadiness, homeCompetitorPlatformTagText, homeCompetitorPlatformTagClass, competitorSummaryReadinessClass,
-                lifecycleLoading, lifecycleOverview, lifecycleMetricLabel, lifecycleStageTitle, lifecycleStageStatusText, lifecycleStageStatusClass, lifecycleStageBadgeClass, lifecycleOverviewStatusText, lifecycleOverviewStatusClass, loadLifecycleOverview,
-                investmentDecisionLoading, investmentDecisionOverview, investmentDecisionSummaryCards, investmentDecisionBusinessChainRows, investmentDecisionActionQueueRows, investmentDecisionSectionRows, investmentDecisionRiskRows, investmentDecisionRecordRows, investmentDecisionFormulaRows, investmentDecisionStatusText, investmentDecisionStatusClass, investmentDecisionSeverityText, investmentDecisionSeverityClass, investmentDecisionPriorityClass, investmentDecisionSourceLabel, loadInvestmentDecisionOverview,
                 isLoggedIn, loading, loginError, user, token, userHasPermission, canManageOwnHotels, canMaintainOtaConfig, canDeleteOtaConfig, canCollectCompetitorObservations, currentLocale, languageOptions, switchLocale, currentTime, currentDateText, currentClockText, currentTimeZoneLabel, currentPage, showPassword, passwordCapsLockOn,
                 loginForm, rememberPassword, loginSupportOpen, loginSupportLoading, loginSupportError, loginSupportContact, menuItems, visibleMenuItems, pageTitle, toast, handleMenuClick, handleNestedMenuClick, isSidebarMenuItemActive,
                 platformHotelContext, platformHotelSearchKeyword, platformHotelPickerOpen, platformHotelOptions, platformHotelOptionsFor,

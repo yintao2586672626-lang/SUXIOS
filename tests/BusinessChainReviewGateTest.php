@@ -50,7 +50,7 @@ final class BusinessChainReviewGateTest extends TestCase
     public function testP0BlockerReachesManualReviewEvenWithCompleteScopedEvidence(): void
     {
         $handoff = \business_chain_revenue_to_ai_handoff($this->scope(), $this->diagnosis(), $this->draft(), false);
-        $this->assertBlocked($handoff['manual_review_packet']);
+        $this->assertBlocked($handoff['manual_review_packet'], 'blocked_ready_for_manual_review');
         self::assertContains('all_required_p0_platforms_ready', $handoff['required_before_execution']);
     }
 
@@ -59,7 +59,7 @@ final class BusinessChainReviewGateTest extends TestCase
         $draft = $this->draft();
         $draft['actions'][0]['reason'] = 'available_room_nights_missing';
         $handoff = \business_chain_revenue_to_ai_handoff($this->scope(), $this->diagnosis(), $draft, true);
-        $this->assertBlocked($handoff['manual_review_packet']);
+        $this->assertBlocked($handoff['manual_review_packet'], 'blocked_ready_for_manual_review');
     }
 
     public function testCompleteScopedEvidenceMayBeReviewedButNeverAutoExecutes(): void
@@ -97,7 +97,7 @@ final class BusinessChainReviewGateTest extends TestCase
         $draft['actions'][0]['blocking_reasons'] = ['floor_price_missing'];
         $this->assertBlocked(\business_chain_revenue_to_ai_handoff(
             $this->scope(), $this->diagnosis(), $draft, true
-        )['manual_review_packet']);
+        )['manual_review_packet'], 'blocked_ready_for_manual_review');
     }
 
     public function testUnknownActionReasonStillBlocksApproval(): void
@@ -105,7 +105,7 @@ final class BusinessChainReviewGateTest extends TestCase
         $draft = $this->draft();
         $draft['actions'][0]['reason'] = 'synthetic_unresolved_prerequisite';
         $packet = \business_chain_revenue_to_ai_handoff($this->scope(), $this->diagnosis(), $draft, true)['manual_review_packet'];
-        $this->assertBlocked($packet);
+        $this->assertBlocked($packet, 'blocked_ready_for_manual_review');
     }
 
     #[DataProvider('unusableFocusedDiagnosisStatuses')]
@@ -134,7 +134,8 @@ final class BusinessChainReviewGateTest extends TestCase
             if ($case === 'missing_action') $draft['actions'] = [];
             else $draft['actions'][0]['blocking_reasons'] = [$case];
             $handoff = \business_chain_revenue_to_ai_handoff($this->scope(), $this->diagnosis(), $draft, true);
-            $this->assertBlocked($handoff['manual_review_packet']);
+            $this->assertBlocked($handoff['manual_review_packet'], $case === 'missing_action'
+                ? 'blocked_by_diagnosis_scope' : 'blocked_ready_for_manual_review');
             $focused = \business_chain_focused_ota_revenue_ai_chain(['status' => 'ready'], [
                 'revenue_diagnosis' => $this->diagnosis(), 'revenue_to_ai_handoff' => $handoff,
             ], ['ctrip']);
@@ -159,9 +160,12 @@ final class BusinessChainReviewGateTest extends TestCase
         self::assertFalse($handoff['can_create_operation_execution']);
     }
 
-    private function assertBlocked(array $packet): void
+    private function assertBlocked(array $packet, string $expectedStatus = 'blocked_by_diagnosis_scope'): void
     {
-        self::assertSame('blocked_ready_for_manual_review', $packet['status']);
+        self::assertSame($expectedStatus, $packet['status']);
+        if ($expectedStatus === 'blocked_by_diagnosis_scope') {
+            self::assertContains('diagnosis_scope', array_column($packet['blockers'], 'key'));
+        }
         $contract = $packet['ai_decision_review_contract'];
         self::assertFalse($contract['approval_allowed']);
         self::assertFalse($contract['operation_intake_allowed']);

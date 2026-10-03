@@ -9,6 +9,10 @@ $ErrorActionPreference = "Stop"
 
 $workspace = (Resolve-Path ".").Path
 
+if ($IncludeSensitiveBackups) {
+  throw "Financial and database recovery backups require a separate, reviewed retention operation."
+}
+
 function Resolve-InWorkspace {
   param([Parameter(Mandatory = $true)][string]$Path)
 
@@ -17,10 +21,11 @@ function Resolve-InWorkspace {
   }
 
   $resolved = (Resolve-Path -LiteralPath $Path).Path
-  if (!($resolved -eq $workspace -or $resolved.StartsWith($workspace + [IO.Path]::DirectorySeparatorChar))) {
+  if ($resolved -eq $workspace -or !$resolved.StartsWith($workspace + [IO.Path]::DirectorySeparatorChar)) {
     throw "Refusing path outside workspace: $resolved"
   }
 
+  Assert-NoReparsePoints -Path $resolved
   return $resolved
 }
 
@@ -104,48 +109,33 @@ function Remove-TargetBestEffort {
   return $failures
 }
 
-function Get-ProfileCacheTargets {
-  param([Parameter(Mandatory = $true)][string]$StoragePath)
-
-  $targets = @()
-  if (!(Test-Path -LiteralPath $StoragePath -PathType Container)) {
-    return $targets
-  }
-
-  $cacheRelativePaths = @(
-    "Default\Cache",
-    "Default\Code Cache",
-    "Default\Service Worker\CacheStorage",
-    "Default\Service Worker\ScriptCache",
-    "Default\GPUCache",
-    "Default\DawnGraphiteCache",
-    "Default\DawnWebGPUCache",
-    "GrShaderCache",
-    "ShaderCache",
-    "GraphiteDawnCache"
-  )
-
-  foreach ($profile in Get-ChildItem -LiteralPath $StoragePath -Force -Directory -ErrorAction SilentlyContinue) {
-    if (!($profile.Name -like "ctrip_profile_*" -or $profile.Name -like "meituan_profile_*")) {
-      continue
+function Assert-NoReparsePoints {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  $cursor = Get-Item -LiteralPath $Path -Force
+  while ($true) {
+    if (($cursor.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Refusing linked cleanup path: $($cursor.FullName)"
     }
-
-    foreach ($relativePath in $cacheRelativePaths) {
-      $candidate = Join-Path $profile.FullName $relativePath
-      if (Test-Path -LiteralPath $candidate) {
-        $targets += $candidate
+    $parentPath = [IO.Path]::GetDirectoryName($cursor.FullName)
+    if ([string]::IsNullOrEmpty($parentPath)) { break }
+    $cursor = Get-Item -LiteralPath $parentPath -Force
+  }
+  $pending = New-Object 'System.Collections.Generic.Stack[string]'
+  $pending.Push($Path)
+  while ($pending.Count -gt 0) {
+    $current = Get-Item -LiteralPath $pending.Pop() -Force
+    if (($current.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+      throw "Refusing linked cleanup entry: $($current.FullName)"
+    }
+    if ($current.PSIsContainer) {
+      foreach ($child in Get-ChildItem -LiteralPath $current.FullName -Force) {
+        $pending.Push($child.FullName)
       }
     }
-
-    $targets += Get-ChildItem -LiteralPath $profile.FullName -Force -Recurse -File -Filter "BrowserMetrics*" -ErrorAction SilentlyContinue |
-      ForEach-Object { $_.FullName }
   }
-
-  return $targets
 }
 
 $candidatePaths = @(
-  "output",
   "test-results",
   ".pytest_cache",
   ".gstack"
@@ -168,15 +158,7 @@ foreach ($runtimeName in $runtimeCleanupNames) {
   }
 }
 
-if (Test-Path -LiteralPath "storage") {
-  $candidatePaths += Get-ChildItem -LiteralPath "storage" -Force -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like "ctrip_profile_phpunit*" -or $_.Name -like "meituan_profile_phpunit*" } |
-    ForEach-Object { $_.FullName }
-  $candidatePaths += Get-ProfileCacheTargets -StoragePath "storage"
-  $candidatePaths += Get-ChildItem -LiteralPath "storage" -Force -File -Filter "*.log" -ErrorAction SilentlyContinue |
-    ForEach-Object { $_.FullName }
-}
-
+# Browser profiles, capture evidence, output recovery packs and handoffs are durable.
 if (Test-Path -LiteralPath "reports") {
   # Screenshot assets may still be referenced by retained evidence JSON. Keep
   # them by default and require an explicit opt-in for irreversible removal.
@@ -186,23 +168,12 @@ if (Test-Path -LiteralPath "reports") {
     }
   }
 
-  foreach ($pattern in @(
-    "ctrip_browser_capture_*.json",
-    "meituan_browser_capture_*.json",
-    "ctrip_capture_target_*.json"
-  )) {
-    $candidatePaths += Get-ChildItem -LiteralPath "reports" -Force -File -Filter $pattern -ErrorAction SilentlyContinue |
-      ForEach-Object { $_.FullName }
-  }
 }
 
 if ($IncludeDependencies) {
   $candidatePaths += @("node_modules", "vendor")
 }
 
-if ($IncludeSensitiveBackups) {
-  $candidatePaths += @("database/backups")
-}
 
 $targets = @()
 foreach ($candidate in $candidatePaths) {

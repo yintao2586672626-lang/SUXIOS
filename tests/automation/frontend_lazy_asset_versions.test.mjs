@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { syncOperationStaticVersion, syncRevenueStaticVersions, syncOperatingIntelligenceVersion, syncStartupLazyComponentVersions, syncStartupLazyHtmlVersions, STARTUP_LAZY_COMPONENTS, ACTION_LAZY_HELPERS, syncActionLazyHelperVersions } from '../../scripts/lib/frontend_lazy_asset_versions.mjs';
+import { syncOperationStaticVersion, syncSimulationStaticVersion, syncRevenueStaticVersions, syncOperatingIntelligenceVersion, syncStartupLazyComponentVersions, syncStartupLazyHtmlVersions, STARTUP_LAZY_COMPONENTS, ACTION_LAZY_HELPERS, syncActionLazyHelperVersions } from '../../scripts/lib/frontend_lazy_asset_versions.mjs';
 
 const source = "const unrelated = 'keep';\nconst operationStaticScriptVersion = 'release-v1-h0123456789';\n";
 test('changing lazy helper bytes updates its content hash without changing unrelated entry code', () => {
@@ -80,4 +80,43 @@ test('action helpers retain release prefixes while their changed bytes invalidat
   assert.equal(syncActionLazyHelperVersions(first.source, bytes).source, first.source);
   assert.notEqual(syncActionLazyHelperVersions(first.source, name => Buffer.concat([bytes(name),Buffer.from('changed')])).source, first.source);
   assert.throws(() => syncActionLazyHelperVersions('', bytes), /exactly one/);
+});
+
+test('retired expansion is absent from action dependencies while every active declaration remains mandatory and unique', () => {
+  assert.equal(Object.hasOwn(ACTION_LAZY_HELPERS, 'expansionStaticOptionsScriptVersion'), false);
+  assert.equal(Object.values(ACTION_LAZY_HELPERS).includes('expansion-static-options.js'), false);
+  const declarations = Object.keys(ACTION_LAZY_HELPERS).map(name => `const ${name} = 'active-release';`);
+  const source = declarations.join('\n');
+  const requestedAssets = [];
+  const result = syncActionLazyHelperVersions(source, name => {
+    requestedAssets.push(name);
+    return Buffer.from(`synthetic ${name}`);
+  });
+  assert.deepEqual(requestedAssets, Object.values(ACTION_LAZY_HELPERS));
+  assert.deepEqual([...result.dependencies.keys()], Object.values(ACTION_LAZY_HELPERS));
+  for (const [index, variable] of Object.keys(ACTION_LAZY_HELPERS).entries()) {
+    for (const input of [
+      declarations.filter((_, candidate) => candidate !== index).join('\n'),
+      `${source}\n${declarations[index]}`,
+    ]) {
+      assert.throws(() => syncActionLazyHelperVersions(input, () => Buffer.from('synthetic')), new RegExp(`exactly one ${variable} declaration`));
+    }
+  }
+});
+
+test('active operation and simulation loaders both reject missing, duplicate or unversioned declarations', () => {
+  for (const [variable, sync] of [
+    ['operationStaticScriptVersion', syncOperationStaticVersion],
+    ['simulationStaticScriptVersion', syncSimulationStaticVersion],
+  ]) {
+    const source = `const ${variable} = 'active-release-h0123456789';`;
+    const bytes = Buffer.from(`synthetic ${variable}`);
+    const updated = sync(source, bytes);
+    const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 10);
+    assert.equal(updated.source, source.replace('0123456789', hash));
+    assert.equal(sync(updated.source, bytes).source, updated.source);
+    for (const invalid of ['', `${source}\n${source}`, source.replace('-h0123456789', '')]) {
+      assert.throws(() => sync(invalid, bytes), /exactly one/);
+    }
+  }
 });

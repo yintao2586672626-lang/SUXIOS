@@ -68,12 +68,41 @@ test('authoritative operating loop reads and reconciles Shanghai yesterday', () 
   }
 });
 
-test('related closure and investment summaries query the same Shanghai business day', () => {
+test('active closure summary queries Shanghai yesterday and preserves the selected hotel', () => {
   const source = fs.readFileSync('public/app-main.js', 'utf8');
-  assert.ok(/investmentParams\.set\('business_date', shanghaiBusinessYesterday\)/.test(source),
-    'investment summary must query Shanghai yesterday');
   assert.ok(/closureParams\.set\('business_date', shanghaiBusinessYesterday\)/.test(source),
     'closure summary must query Shanghai yesterday');
+  assert.match(source, /apiRequest\(`\/operation\/closure-overview\$\{closureQuery\}`, readOptions\)/);
+
+  const dateStart = source.indexOf('function shanghaiBusinessDate(');
+  const dateEnd = source.indexOf('const aiDailyReportYesterday =', dateStart);
+  const actionStart = source.indexOf('const loadOperationActions =');
+  const queryStart = source.indexOf('const closureParams = new URLSearchParams(params);', actionStart);
+  const queryEnd = source.indexOf('const flowParams = new URLSearchParams(params);', queryStart);
+  assert.ok(dateStart >= 0 && dateEnd > dateStart, 'live Shanghai date helper must exist');
+  assert.ok(actionStart >= 0 && queryStart > actionStart && queryEnd > queryStart,
+    'live operation action loader must construct the closure query');
+
+  for (const timestamp of ['2026-07-12T16:30:00Z', '2026-07-13T00:30:00Z']) {
+    class FixedDate extends Date {
+      static now() { return Date.parse(timestamp); }
+    }
+    const params = new URLSearchParams({ hotel_id: '80', system_hotel_id: '80', business_date: '1999-01-01' });
+    const closureQuery = vm.runInNewContext(
+      `${source.slice(dateStart, dateEnd)}\n${source.slice(queryStart, queryEnd)}\nclosureQuery`,
+      { Date: FixedDate, Intl, Object, URLSearchParams, params },
+    );
+    const actual = new URLSearchParams(closureQuery);
+    assert.equal(actual.get('business_date'), '2026-07-12', timestamp);
+    assert.equal(actual.get('hotel_id'), '80');
+    assert.equal(actual.get('system_hotel_id'), '80');
+    assert.equal(params.get('business_date'), '1999-01-01', 'closure date must stay scoped to its own query');
+  }
+});
+
+test('retired investment-decision summary does not reenter the live business-date path', () => {
+  const source = fs.readFileSync('public/app-main.js', 'utf8');
+  assert.doesNotMatch(source, /investmentParams\.set\(|loadInvestmentDecision|investmentDecisionResult/);
 });
 
 test('manual notification preview and schedule form default to Shanghai dates', () => {

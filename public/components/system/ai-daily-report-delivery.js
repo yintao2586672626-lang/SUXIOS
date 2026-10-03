@@ -1159,6 +1159,27 @@
         const buildSharePackage = (audience) => {
             const ctx = context();
             const currentReport = report();
+            if (audience === 'training') {
+                const buildAnonymousPackage = window.SUXI_AI_DAILY_REPORT_STATIC?.buildSharePackage;
+                if (typeof buildAnonymousPackage !== 'function') {
+                    notify('匿名训练包组件未就绪，已阻断导出；请刷新后重试', 'error');
+                    return null;
+                }
+                return buildAnonymousPackage({
+                    audience,
+                    report: currentReport,
+                    contract: ctx.aiDailyReportResultContract || {},
+                    resultReadiness: ctx.aiDailyReportResultReadiness || {},
+                    aiInterpretation: ctx.aiDailyReportAiInterpretation || {},
+                    resultLayers: ctx.aiDailyReportResultLayers || {},
+                    competitorChanges: ctx.aiDailyReportCompetitorChanges || [],
+                    dataGaps: ctx.aiDailyReportDataGaps || [],
+                    workflowReadiness: ctx.aiDailyReportWorkflowReadiness || {},
+                    humanJudgments: ctx.aiDailyReportHumanJudgments || [],
+                    metricCards: ctx.aiDailyReportMetricCards || [],
+                    abnormalMetrics: ctx.aiDailyReportAbnormalMetrics || [],
+                });
+            }
             const contract = ctx.aiDailyReportResultContract || {};
             const aiInterpretation = ctx.aiDailyReportAiInterpretation || {};
             const dataGaps = objectList(ctx.aiDailyReportDataGaps);
@@ -1189,44 +1210,6 @@
                     workflow_gaps: objectList(currentReport.workflow_gaps),
                     workflow_status: ctx.aiDailyReportWorkflowReadiness || {},
                     human_judgments: humanJudgments,
-                };
-            }
-            if (audience === 'training') {
-                const sanitizeMetric = (item = {}) => ({
-                    key: item.key || '',
-                    label: item.label || '',
-                    value: item.value ?? null,
-                    unit: item.unit || '',
-                    data_status: item.data_status || '',
-                    result_layer: item.result_layer || '',
-                });
-                const layers = ctx.aiDailyReportResultLayers || {};
-                return {
-                    ...common,
-                    report_date: '',
-                    case_id: String(contract.result_version || 'unversioned').slice(0, 12),
-                    anonymization: '已移除酒店ID、来源行标识、精确日期、操作者和人工判断记录。',
-                    result_contract: {
-                        contract_version: contract.contract_version || '',
-                        metric_version: contract.metric_version || '',
-                        reference_version: contract.reference_version || '',
-                        boundary: contract.boundary || '',
-                    },
-                    source_facts: objectList(layers.source_facts).map(sanitizeMetric),
-                    derived_metrics: objectList(layers.derived_metrics).map(sanitizeMetric),
-                    anomaly_signals: abnormalMetrics.map(item => ({
-                        type: item.type || '',
-                        label: item.label || '',
-                        level: item.level || '',
-                        evidence: item.evidence || '',
-                        signal_status: item.signal_status || '',
-                        reference_status: item.reference_basis?.status || 'missing',
-                    })),
-                    ai_assistance: aiInterpretation,
-                    data_gaps: dataGaps.map(gap => ({
-                        code: gap.code || '',
-                        message: gap.message || '',
-                    })),
                 };
             }
             return {
@@ -1278,6 +1261,7 @@
                 && Boolean(context().aiDailyReportCompetitionReportDocument?.schema_version);
             if (includeCompetition && !downloadAiDailyCompetitionReportHtml()) return;
             const payload = buildSharePackage(audience);
+            if (!payload) return;
             const deliveryKey = audience === 'training'
                 ? `case-${payload.case_id || 'unversioned'}`
                 : (currentReport.report_date || 'result');
