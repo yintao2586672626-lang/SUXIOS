@@ -875,7 +875,7 @@
     const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-hf7b3852f42';
     // SUXI_HOTEL_LEARNING_BEGIN
     const HotelLearningWorkbench = Vue.defineAsyncComponent({
-        loader: () => loadOnlineDataComponentScript('components/system/hotel-learning-workbench.min.js?v=hotel-learning-h254727d5a3')
+        loader: () => loadOnlineDataComponentScript('components/system/hotel-learning-workbench.min.js?v=hotel-learning-h7acbb52ee7')
             .then(() => requireSystemComponent('HotelLearningWorkbench')),
         loadingComponent: { render: () => h('p', { role: 'status', class: 'p-4 text-sm' }, '正在加载业务工具…') },
         delay: 150,

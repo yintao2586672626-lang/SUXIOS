@@ -19,6 +19,9 @@
     ];
     const kinds = { profile: 'jhira_profile', consumables_reconciliation: 'consumables_actual', investment_target: 'jhira_target', contract_review: 'jhira_contract', ota_scene: 'jhira_ota_scene', market_sample: 'jhira_market', operating_review: 'jhira_review', geo_observation: 'jhira_geo' };
     const reviewMetrics = [['available_room_nights', '可售间夜（间夜）'], ['sold_room_nights', '已售间夜（间夜）'], ['revenue', '收入（元）'], ['operating_cost', '经营成本（元）'], ['debt_service', '偿债本息（元）'], ['project_net_cash', '项目净现金（元）'], ['investor_received_cash', '投资人实收（元）']];
+    const profileFieldLabels = { room_count: '房间数量' };
+    const marketScoreMetrics = { traffic: '流量', conversion: '转化率', revenue: '营收', sample: '样本' };
+    const marketScoreReasons = { incomplete_metric_coverage: '样本该指标资料不完整', no_metric_variation: '样本该指标全部相同', insufficient_sample_size: '不足两家酒店' };
     function get(object, path) { return path.split('.').reduce((value, key) => value == null ? undefined : value[key], object); }
     function set(object, path, value) { const keys = path.split('.'); let current = object; keys.slice(0, -1).forEach(key => { if (!current[key] || typeof current[key] !== 'object') current[key] = {}; current = current[key]; }); current[keys.at(-1)] = value; }
     function schema(mode, form = {}) {
@@ -42,11 +45,11 @@
             f('rank_min', '排名区间下界（名）', 'number'), f('rank_max', '排名区间上界（名）', 'number'), f('observed_through_rank', '已观察至排名（名）', 'number'), f('conversion_rate', '转化率（依下方单位填写）', 'number'), f('rate_unit', '转化率单位', 'select', rateUnits), f('price', '本次资格可成交价（元）', 'number'),
             ...[['room_type', '可比房型'], ['cancellation', '取消规则'], ['breakfast', '早餐权益'], ['guest_count', '入住人数'], ['membership', '会员资格'], ['tax_basis', '含税口径'], ['payment', '付款条件']].map(([key, label]) => f('price_terms.' + key, label))];
         if (mode === 'market_sample') return [f('sample_ref', '样本来源'), f('model_version', '评分算法版本'), f('comparison_key', '同口径搜索/价格引用键'), f('rate_unit', '样本转化率单位', 'select', rateUnits), ...[['traffic', '流量权重（%）'], ['conversion', '转化权重（%）'], ['revenue', '营收权重（%）']].map(([key, label]) => f('weights.' + key, label, 'number', null, true)), f('comparison_attested', '我已人工核对每家样本使用同一搜索及价格口径引用键', 'checkbox')];
-        if (mode === 'operating_review') return [f('period_start', '复盘起日', 'date'), f('period_end', '复盘止日', 'date'), ...['plan', 'actual'].flatMap(side => [f(side + '.source_ref', (side === 'plan' ? '计划' : '实际') + '来源'), f(side + '.basis', (side === 'plan' ? '计划' : '实际') + '口径（两侧须一致）'), ...reviewMetrics.map(([key, label]) => f(side + '.' + key, (side === 'plan' ? '计划 · ' : '实际 · ') + label, 'number'))])];
+        if (mode === 'operating_review') return [f('period_start', '复盘起日', 'date'), f('period_end', '复盘止日', 'date'), ...['plan', 'actual'].flatMap(side => [f(side + '.period_start', (side === 'plan' ? '计划' : '实际') + '来源期间起日', 'date'), f(side + '.period_end', (side === 'plan' ? '计划' : '实际') + '来源期间止日', 'date'), f(side + '.source_ref', (side === 'plan' ? '计划' : '实际') + '来源'), f(side + '.basis', (side === 'plan' ? '计划' : '实际') + '口径（两侧须一致）'), ...reviewMetrics.map(([key, label]) => f(side + '.' + key, (side === 'plan' ? '计划 · ' : '实际 · ') + label, 'number'))])];
         return [f('question', '固定观测问题'), f('model', '模型名称'), f('model_version', '模型版本'), f('region', '地区'), f('network', '网络环境'), f('observed_at', '观测时间（北京时间）', 'datetime-local'), f('source_ref', '回答截图或保存来源'), f('response_summary', '回答摘要', 'textarea')];
     }
     function repeaters(mode) {
-        if (mode === 'profile') return [{ path: 'fields', label: '基础资料字段', fields: [f('key', '字段标识（如room_count）'), f('value', '字段值'), f('unit', '单位'), f('source_ref', '来源'), f('as_of', '资料日期', 'date'), f('quality', '核对状态', 'select', quality, false, 'unverified')] }];
+        if (mode === 'profile') return [{ path: 'fields', label: '基础资料字段', fields: [f('key', '资料名称或既有标识（如房间数量）'), f('value', '字段值'), f('unit', '单位'), f('source_ref', '来源'), f('as_of', '资料日期', 'date'), f('quality', '核对状态', 'select', quality, false, 'unverified')] }];
         if (mode === 'consumables_reconciliation') return [{ path: 'items', label: '耗材计量项', fields: [f('enabled', '纳入本期核算', 'checkbox', null, false, true), f('name', '耗材名称'), f('unit', '基础单位', 'select', units, false, 'piece'), f('source_ref', '库存/计价资料来源'), f('source_date', '资料日期', 'date'),
             ...[['opening_quantity', '期初数量'], ['purchased_quantity', '采购入库数量'], ['transfer_in_quantity', '调入数量'], ['closing_quantity', '实盘期末数量'], ['transfer_out_quantity', '调出数量'], ['returned_quantity', '退货数量'], ['written_off_quantity', '单列报损数量'], ['issued_quantity', '领用数量'], ['book_closing_quantity', '账面期末数量']].map(([key, label]) => f(key, label + '（基础单位）', 'number')),
             f('issued_quantity_source_ref', '领用单来源'), f('book_closing_quantity_source_ref', '账面期末来源'), f('unit_price', '已确认基础单位成本（元/单位）', 'number'), f('budget_unit_price', '预算基础单位成本（元/单位，可选）', 'number'), f('budget_usage_per_room_night', '预算每已售间夜用量（单位/间夜，可选）', 'number')] }];
@@ -59,7 +62,7 @@
         const out = {}; schema(mode).forEach(field => set(out, field.path, field.type === 'checkbox' ? false : field.initial)); repeaters(mode).forEach(group => set(out, group.path, []));
         if (mode === 'consumables_reconciliation') out.denominator_scope = 'whole_hotel';
         if (mode === 'investment_target') { out.scenario.currency = 'CNY'; out.scenario.reference_example = false; }
-        if (mode === 'operating_review' && /^\d{4}-\d{2}$/.test(month)) { out.period_start = month + '-01'; const [year, m] = month.split('-').map(Number); out.period_end = month + '-' + new Date(year, m, 0).getDate(); }
+        if (mode === 'operating_review' && /^\d{4}-\d{2}$/.test(month)) { out.period_start = month + '-01'; const [year, m] = month.split('-').map(Number); out.period_end = month + '-' + new Date(year, m, 0).getDate(); ['plan', 'actual'].forEach(side => { out[side].period_start = out.period_start; out[side].period_end = out.period_end; }); }
         return out;
     }
     const resultLabels = { status: '计算状态', source_quality: '来源质量', solved_value: '达到目标所需值', target_reached: '目标是否达成', reason: '判断原因', minimum_liquidity: '最低现金（元）', funding_gap: '资金缺口（元）', actual_consumed_cost: '库存平衡消耗成本（元）', known_consumed_cost: '已知消耗成本（元）', actual_consumables_cost_per_room_night: '全酒店每已售间夜成本（元）', issued_cost: '领用成本（元）', known_issued_cost: '已知领用成本（元）', inventory_balance_minus_issued_cost: '库存消耗与领用成本差异（元）', counted_minus_book_closing_cost: '盘点与账面成本差异（元）', inventory_balance_cost_per_cleaning: '库存消耗成本/有来源清洁次数（元/次）', issued_cost_per_room_night: '领用成本/全酒店已售间夜（元）', missing_items: '缺项', missing_fields: '缺失字段', forecast_payback_on: '预测回本日', target_payback_on: '目标回本日', forecast_payback_months: '预测回本月数', target_payback_months: '目标回本月数', contract_safety_days: '合同安全垫（天）', target_safety_days: '目标安全垫（天）', contract_remaining_days: '合同剩余天数', contract_payback_status: '合同内回本判断', contract_status: '合同状态', target_status: '目标判断', total_years: '含营建回本年数', operating_years: '运营回本年数', actual_cost_ratio: '实际经营成本/收入（比例）', reference_score: '样本参考评分', comparison_ready: '是否具备可比条件', comparison_key: '同口径引用键', scene_fingerprint: '本次观测摘要', sample_fingerprint: '本次样本摘要', experiment_key: '固定问题环境摘要', conversion_percentage_point: '转化率（%）', visibility: '观察可见状态', rank_min: '排名下界', rank_max: '排名上界', price: '可成交价（元）', difference: '实际减计划', actual: '实际', plan: '计划', value: '字段值', key: '字段标识', source_ref: '来源', as_of: '资料日期', name: '名称', platform_store_id: '平台酒店ID', basis_note: '口径说明', basis: '计算口径', contract_remaining_months: '自然月剩余期限（仅展示）', decision_safe: '是否可直接用于决策', external_write_authorized: '是否允许外部操作', actual_cash_written: '是否写入实际台账' };
@@ -89,14 +92,14 @@
             resultRows() {
                 if (!this.resultCurrent) return [];
                 const result = this.record.result || {}; const rows = [];
-                const add = (path, label = this.label(path)) => rows.push([label, get(result, path)]);
-                const gaps = (items, label = '待补或待核对资料') => { if (Array.isArray(items) && items.length) rows.push([label, items.map(item => this.gapLabel(item)).join('；')]); };
+                const add = (path, label = this.label(path)) => { const value = get(result, path); const key = path.split('.').at(-1); rows.push([label, ['status', 'source_quality', 'reason', 'visibility', 'contract_status', 'contract_payback_status', 'target_status'].includes(key) ? this.displayStatus(value) : value]); };
+                const gaps = (items, label = '待补或待核对资料') => { if (Array.isArray(items) && items.length) { const visible = this.mode === 'operating_review' ? items.filter(item => !reviewMetrics.some(([key]) => item === key && items.some(gap => gap === 'plan.' + key || gap === 'actual.' + key))) : items; rows.push([label, visible.map(item => this.gapLabel(item)).join('；')]); } };
                 if (this.mode === 'profile') {
                     add('field_count');
-                    (result.fields || []).forEach((row, i) => { rows.push([row.key || ('第' + (i + 1) + '项资料'), this.display(row.value) + (row.unit ? ' ' + row.unit : '')]); rows.push(['来源与核对 · ' + (row.key || i + 1), [row.source_ref, row.as_of, row.status].map(this.display).join(' · ')]); });
+                    (result.fields || []).forEach((row, i) => { const name = this.profileLabel(row.key) || ('第' + (i + 1) + '项资料'); rows.push([name, this.display(row.value) + (row.unit ? ' ' + row.unit : '')]); rows.push(['来源与核对 · ' + name, [this.display(row.source_ref), this.display(row.as_of), this.displayStatus(row.status)].join(' · ')]); });
                 } else if (this.mode === 'consumables_reconciliation') {
                     ['actual_consumed_cost', 'known_consumed_cost', 'actual_consumables_cost_per_room_night', 'reconciliation.status', 'reconciliation.issued_cost', 'reconciliation.inventory_balance_minus_issued_cost', 'reconciliation.counted_minus_book_closing_cost', 'reconciliation.inventory_balance_cost_per_cleaning', 'reconciliation.issued_cost_per_room_night'].forEach(path => add(path, path === 'reconciliation.status' ? '领用与盘点核对状态' : this.label(path)));
-                    (result.items || []).forEach((row, i) => { rows.push([row.name || ('耗材' + (i + 1)), '库存消耗 ' + this.display(row.consumed_quantity) + '；领用 ' + this.display(row.issued_quantity) + '；盘点减账面 ' + this.display(row.counted_minus_book_closing_quantity) + '（' + ({ piece: '件', ml: '毫升', g: '克' }[row.unit] || this.display(row.unit)) + '）']); });
+                    (result.items || []).forEach((row, i) => { const status = row.enabled === false ? 'excluded' : row.status; rows.push([row.name || ('耗材' + (i + 1)), (status ? this.displayStatus(status) + '；' : '') + '库存消耗 ' + this.display(row.consumed_quantity) + '；领用 ' + this.display(row.issued_quantity) + '；盘点减账面 ' + this.display(row.counted_minus_book_closing_quantity) + '（' + (units.find(item => item.value === row.unit)?.label || this.display(row.unit)) + '）']); });
                     gaps(result.reconciliation?.missing_items, '领用与盘点待补资料');
                 } else if (this.mode === 'investment_target') {
                     const occupancy = (result.request?.solve_for || this.record.inputs?.request?.solve_for) === 'occupancy';
@@ -111,14 +114,17 @@
                     rows.push(['本次价格资格', Object.entries(result.price_terms || {}).map(([key, value]) => this.label('price_terms.' + key) + '：' + this.display(value)).join('；') || null]);
                 } else if (this.mode === 'market_sample') {
                     rows.push(['样本来源', this.record.inputs?.sample_ref]); rows.push(['评分算法版本', result.model_version || this.record.inputs?.model_version]);
-                    (result.items || []).forEach((row, i) => { rows.push([(row.name || ('酒店' + (i + 1))) + ' · 平台酒店 ' + row.platform_store_id, '参考评分 ' + this.display(row.reference_score) + '；流量 ' + this.display(row.traffic) + ' 次；转化率 ' + this.display(row.conversion) + '%；营收 ' + this.display(row.revenue) + ' 元']); });
+                    (result.items || []).forEach((row, i) => { const conversion = this.display(row.conversion) + (row.conversion == null || row.conversion === '' ? '' : '%'); rows.push([(row.name || ('酒店' + (i + 1))) + ' · 平台酒店 ' + row.platform_store_id, '参考评分 ' + this.display(row.reference_score) + '；流量 ' + this.display(row.traffic) + ' 次；转化率 ' + conversion + '；营收 ' + this.display(row.revenue) + ' 元']); });
+                    const limitations = Object.entries(result.score_unavailable_reasons || {}).map(([metric, reason]) => Object.prototype.hasOwnProperty.call(marketScoreMetrics, metric) && Object.prototype.hasOwnProperty.call(marketScoreReasons, reason) ? marketScoreMetrics[metric] + '：' + marketScoreReasons[reason] : '未解释参考信息');
+                    if (limitations.length) rows.push(['评分基准限制', limitations.join('；')]);
                 } else if (this.mode === 'operating_review') {
                     ['period_start', 'period_end', 'scope_aligned'].forEach(path => add(path));
+                    if (Object.prototype.hasOwnProperty.call(result, 'comparison_ready')) add('comparison_ready');
                     (result.rows || []).forEach(row => rows.push([reviewMetrics.find(([key]) => key === row.metric)?.[1] || row.metric, '计划 ' + this.display(row.plan) + '；实际 ' + this.display(row.actual) + '；实际减计划 ' + this.display(row.difference)]));
                     rows.push(['实际经营成本占收入（%）', result.actual_cost_ratio == null ? null : this.display(result.actual_cost_ratio * 100) + '%']);
                 } else if (this.mode === 'geo_observation') {
                     ['question', 'model', 'model_version', 'region', 'network', 'observed_at', 'source_ref', 'response_summary'].forEach(key => add('record.' + key));
-                    (result.record?.citations || []).forEach((row, i) => rows.push(['引用 ' + (i + 1), this.display(row.url) + ' · ' + this.display(row.fact_consistency)]));
+                    (result.record?.citations || []).forEach((row, i) => rows.push(['引用 ' + (i + 1), this.display(row.url) + ' · ' + this.displayStatus(row.fact_consistency)]));
                 }
                 gaps(result.missing_items); gaps(result.missing_fields);
                 return rows;
@@ -133,30 +139,53 @@
         methods: {
             value(path) { return get(this.form, path) ?? ''; },
             rows(path) { return get(this.form, path) || []; },
-            label(path) { const key = path.split('.').at(-1); const field = [...this.fields, ...this.groups.flatMap(group => group.fields)].find(item => item.path === path || item.path.split('.').at(-1) === key); const numbered = path.match(/\.(\d+)\./); return (numbered ? '第' + (Number(numbered[1]) + 1) + '项 · ' : '') + (resultLabels[key] || field?.label || key); },
-            gapLabel(value) { const path = String(value); const parts = path.split(':'); const item = this.record?.result?.items?.find(row => row.id === parts[0]); if (item) return (item.name || '耗材') + ' · ' + this.label(parts.slice(1).join(':')); const year = path.match(/(?:^|\.)cash_adjustments\.(\d+)\.(.+)$/); if (year) return '第' + year[1] + '运营年 · ' + this.label(year[2]); const side = path.startsWith('actual.') ? '实际 · ' : path.startsWith('plan.') ? '计划 · ' : ''; return side + this.label(path); },
-            display(value) { if (value === null || value === undefined || value === '') return '未取得'; if (typeof value === 'boolean') return value ? '是' : '否'; if (typeof value === 'number') return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 6 }); return states[value] || String(value); },
+            profileLabel(key) { return Object.prototype.hasOwnProperty.call(profileFieldLabels, key) ? profileFieldLabels[key] : key; },
+            label(path) { const key = path.split('.').at(-1); const field = [...this.fields, ...this.groups.flatMap(group => group.fields)].find(item => item.path === path || item.path.split('.').at(-1) === key); const numbered = path.match(/\.(\d+)\./); return (numbered ? '第' + (Number(numbered[1]) + 1) + '项 · ' : '') + (Object.prototype.hasOwnProperty.call(resultLabels, key) ? resultLabels[key] : field?.label || key); },
+            gapLabel(value) {
+                const path = String(value);
+                if (this.mode === 'profile') return this.profileLabel(path);
+                if (this.mode === 'market_sample') { const split = path.lastIndexOf('.'); const id = path.slice(0, split); const metric = path.slice(split + 1); const hotel = [...(this.record?.result?.items || []), ...(this.record?.inputs?.hotels || [])].find(row => String(row.platform_store_id) === id); if (hotel && ['traffic', 'conversion', 'revenue'].includes(metric)) return (hotel.name || '酒店样本') + ' · 平台酒店 ' + id + ' · ' + this.label(metric); }
+                const parts = path.split(':'); const item = this.record?.result?.items?.find(row => row.id === parts[0]); if (item) return (item.name || '耗材') + ' · ' + this.label(parts.slice(1).join(':'));
+                const year = path.match(/(?:^|\.)cash_adjustments\.(\d+)\.(.+)$/); if (year) return '第' + year[1] + '运营年 · ' + this.label(year[2]);
+                const side = path.startsWith('actual.') ? '实际 · ' : path.startsWith('plan.') ? '计划 · ' : '';
+                const metric = this.mode === 'operating_review' && reviewMetrics.find(([key]) => key === path.replace(/^(?:actual|plan)\./, '')); return side + (metric ? metric[1] : this.label(path));
+            },
+            display(value) { if (value === null || value === undefined || value === '') return '未取得'; if (typeof value === 'boolean') return value ? '是' : '否'; if (typeof value === 'number') { if (value === 0) return '0'; const formatted = value.toLocaleString('zh-CN', { maximumFractionDigits: 6 }); return Number(formatted.replaceAll(',', '')) === 0 ? String(value) : formatted; } return String(value); },
+            displayStatus(value) { return typeof value === 'string' && Object.prototype.hasOwnProperty.call(states, value) ? states[value] : this.display(value); },
             fieldValue(field) { return this.value(field.path); },
-            setField(field, value) { set(this.form, field.path, value); this.edit(); },
-            edit() { this.seq++; this.busy = false; this.saved = null; this.saveKey = null; this.dirty = true; this.notice = ''; this.error = ''; },
+            setField(field, value) { set(this.form, field.path, value); this.edit(field.path); },
+            setRowField(row, field, value) { set(row, field.path, value); this.edit(); },
+            edit(fieldPath = null) {
+                if (this.mode === 'market_sample' && fieldPath !== 'comparison_attested') this.form.comparison_attested = false;
+                if (this.mode === 'consumables_reconciliation' && fieldPath !== 'operator_attested') this.form.operator_attested = false;
+                if (this.mode === 'contract_review' && ['constraints.contract_start_on', 'constraints.contract_end_on', 'constraints.contract_source'].includes(fieldPath)) this.form.constraints.contract_confirmed = false;
+                this.seq++; this.busy = false; this.saved = null; this.saveKey = null; this.dirty = true; this.notice = ''; this.error = '';
+            },
             resetScope() { this.seq++; this.busy = false; this.record = null; this.saved = null; this.overview = null; this.restoreRequested = null; this.saveKey = null; this.dirty = false; this.error = ''; this.notice = ''; this.form = initial(this.mode, this.periodMonth); this.load(); },
             addRow(group) { const row = {}; group.fields.forEach(field => set(row, field.path, field.type === 'checkbox' ? field.initial === true : field.initial)); if (this.mode === 'consumables_reconciliation') { row.id = crypto.randomUUID(); row.valuation_method = 'confirmed_unit_cost'; } this.rows(group.path).push(row); this.edit(); },
             removeRow(group, index) { this.rows(group.path).splice(index, 1); this.edit(); },
-            number(value, field) { if (value === '' || value === null || value === undefined) return null; const number = Number(value); if (!Number.isFinite(number)) throw new Error(field.label + '需填写有效数字'); return field.percent ? number / 100 : number; },
+            number(value, field) {
+                const raw = typeof value === 'string' ? value.trim() : value;
+                if (raw === '' || raw === null || raw === undefined) return null;
+                const number = Number(raw); const underflow = number === 0 && typeof raw === 'string' && /[1-9]/.test(raw.split(/[eE]/)[0]);
+                const converted = field.percent ? number / 100 : number;
+                if (!Number.isFinite(number) || underflow || (number !== 0 && converted === 0)) throw new Error(field.label + '数值不可计算，请填写有效数字');
+                return converted;
+            },
             inputs() {
                 const out = {}; const assign = (target, raw, field) => set(target, field.path, field.type === 'number' ? this.number(get(raw, field.path), field) : field.type === 'checkbox' ? get(raw, field.path) === true : get(raw, field.path) ?? '');
                 this.fields.forEach(field => assign(out, this.form, field));
                 this.groups.forEach(group => set(out, group.path, this.rows(group.path).map(raw => { const row = {}; group.fields.forEach(field => assign(row, raw, field)); if (this.mode === 'consumables_reconciliation') { row.id = raw.id || crypto.randomUUID(); row.valuation_method = 'confirmed_unit_cost'; } if (this.mode === 'market_sample') { row.comparison_key = out.comparison_key; row.rate_unit = out.rate_unit; } return row; })));
                 if (this.mode === 'consumables_reconciliation') out.denominator_scope = 'whole_hotel';
-                if (this.mode === 'investment_target') { out.scenario.currency = 'CNY'; out.scenario.reference_example = false; out.scenario.decision_constraints = { target_payback_months: out.request.target_payback_months }; }
+                if (this.mode === 'investment_target') { out.scenario = { ...clone(this.form.scenario || {}), ...out.scenario }; out.scenario.currency = this.form.scenario.currency || 'CNY'; out.scenario.reference_example = this.form.scenario.reference_example === true; out.scenario.decision_constraints = { ...clone(this.form.scenario.decision_constraints || {}), target_payback_months: out.request.target_payback_months }; }
                 if (this.mode === 'market_sample' && out.comparison_attested !== true) throw new Error('请核对各酒店使用同口径引用键，并勾选人工核对确认');
-                if (this.mode === 'operating_review') ['plan', 'actual'].forEach(side => { out[side].period_start = out.period_start; out[side].period_end = out.period_end; });
                 return out;
             },
             hydrate(inputs) {
                 let value = clone(inputs || {});
-                if (this.mode === 'market_sample') { value.rate_unit = value.rate_unit || value.hotels?.[0]?.rate_unit || ''; value.comparison_attested = !!value.comparison_key && (value.hotels || []).length > 0 && value.hotels.every(row => row.comparison_key === value.comparison_key); }
+                if (this.mode === 'market_sample') { value.rate_unit = value.rate_unit || value.hotels?.[0]?.rate_unit || ''; value.comparison_attested = value.comparison_attested === true && !!value.comparison_key && (value.hotels || []).length > 0 && value.hotels.every(row => row.comparison_key === value.comparison_key); }
                 const form = Object.assign(initial(this.mode, this.periodMonth), value);
+                if (this.mode === 'operating_review') { ['period_start', 'period_end'].forEach(key => { form[key] = value[key] ?? ''; ['plan', 'actual'].forEach(side => set(form, side + '.' + key, get(value, side + '.' + key) ?? '')); }); }
                 schema(this.mode, form).forEach(field => { const raw = get(form, field.path); if (field.percent && raw !== null && raw !== undefined && raw !== '') set(form, field.path, Number(raw) * 100); if (field.type === 'datetime-local' && typeof raw === 'string') set(form, field.path, raw.replace(' ', 'T').replace(/\+08:00$/, '')); });
                 repeaters(this.mode).forEach(group => { if (!Array.isArray(get(form, group.path))) set(form, group.path, []); get(form, group.path).forEach(row => group.fields.forEach(field => { const raw = get(row, field.path); if (field.percent && raw !== null && raw !== undefined && raw !== '') set(row, field.path, Number(raw) * 100); })); });
                 this.form = form;
@@ -206,12 +235,12 @@
                     <div v-for="group in groups" :key="group.path"><h4>{{ group.label }}</h4><fieldset v-for="(row,index) in rows(group.path)" :key="row.id || index" class="hl-row"><legend>第 {{ index+1 }} 项</legend><div class="hl-grid"><label v-for="field in group.fields" :key="field.path" class="hl-field" :class="{'hl-check':field.type==='checkbox'}">
                         <input v-if="field.type==='checkbox'" v-model="row[field.path]" type="checkbox" @change="edit"><span>{{ field.label }}</span>
                         <select v-if="field.type==='select'" v-model="row[field.path]" @change="edit"><option value="">请选择</option><option v-for="choice in field.options" :key="choice.value" :value="choice.value">{{ choice.label }}</option></select>
-                        <input v-else-if="field.type!=='checkbox'" v-model="row[field.path]" :type="field.type" :step="field.type==='number'?'any':undefined" @input="edit">
+                        <input v-else-if="field.type!=='checkbox'" :value="row[field.path] ?? ''" :type="field.type" :step="field.type==='number'?'any':undefined" @input="setRowField(row,field,$event.target.value)">
                     </label></div><button type="button" @click="removeRow(group,index)">移除第 {{ index+1 }} 项</button></fieldset><button type="button" @click="addRow(group)">添加{{ group.label.split('（')[0] }}</button></div></fieldset>
                     <div class="hl-actions"><button type="submit" :disabled="busy || !effectiveCanExecute || !scopeReady">预览计算</button><button type="button" class="hl-primary" :disabled="busy || !effectiveCanExecute || !scopeReady" @click="calculate(true)">保存新版本并核对</button><button type="button" :disabled="busy || !scopeReady" @click="load">重读版本列表</button><button type="button" :disabled="!resultCurrent" @click="exportCsv">导出当前结果CSV</button></div>
                 </form>
                 <p v-if="dirty && record" class="hl-muted">输入已编辑，上一结果与保存标记已失效，请重新预览或保存。</p>
-                <div v-if="resultCurrent" class="hl-result" data-testid="hotel-learning-result"><h4>{{ saved ? ('已核对版本 #' + saved.snapshot_id) : '未保存预览' }} · {{ display(record.result.status) }}</h4><p class="hl-muted">来源状态：{{ display(record.source_quality || record.result.source_quality) }}；保存保留本次填写与计算结果，人工记录仍需按来源核对。</p><dl class="hl-results"><template v-for="(entry,index) in resultRows" :key="index"><dt>{{ entry[0] }}</dt><dd>{{ display(entry[1]) }}</dd></template></dl></div>
+                <div v-if="resultCurrent" class="hl-result" data-testid="hotel-learning-result"><h4>{{ saved ? ('已核对版本 #' + saved.snapshot_id) : '未保存预览' }} · {{ displayStatus(record.result.status) }}</h4><p class="hl-muted">来源状态：{{ displayStatus(record.source_quality || record.result.source_quality) }}；保存保留本次填写与计算结果，人工记录仍需按来源核对。</p><dl class="hl-results"><template v-for="(entry,index) in resultRows" :key="index"><dt>{{ entry[0] }}</dt><dd>{{ display(entry[1]) }}</dd></template></dl></div>
                 <div class="hl-row"><h4>最近30个同范围版本</h4><p v-if="!overview" class="hl-muted">尚未取得版本列表；失败时请重读。</p><p v-else-if="!history.length" class="hl-muted">当前酒店、账期、平台与业务模式尚无已保存版本。</p><div class="hl-history"><button v-for="item in history" :key="item.snapshot_id || item.id" type="button" :disabled="busy" @click="restore(item.snapshot_id || item.id)">版本 #{{ item.snapshot_id || item.id }} · {{ item.created_at || item.saved_at || '时间未取得' }}</button></div></div>
             </section>
         `,

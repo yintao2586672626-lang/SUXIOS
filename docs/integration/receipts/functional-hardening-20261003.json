@@ -2,7 +2,7 @@
   "contract": "suxios.functional_hardening.v1",
   "date": "2026-10-03",
   "baseline": "b4116a62480342ad26e97dc16f51e374b16e458a",
-  "prepared_against_head": "d7d0370a70f776028727339192f530167820f3e7",
+  "prepared_against_head": "8ff70d7bedab3fa42d4b9afbcdac032a1950fe92",
   "pull_request": 58,
   "scope": "31工作区、客诉/活动、OTA收益/预订、投资/耗材/报告审核及直接生成入口",
   "findings": [
@@ -103,11 +103,23 @@
       "change": "回读重验决定、缺口/事实、备注、必审项和状态，正式导出绑定当前版本",
       "status": "fixed_and_combined_verified",
       "evidence": "current combined PHP/Node tests and production DOM acceptance; see additional committed source report"
+    },
+    {
+      "id": "latest_main_learning",
+      "problem": "同期主线耗材精度与学习不可变版本需要融合；新增学习日期入口NUL可500",
+      "change": "保留精确库存/金额、严格实际引用一致性、学习完整旧版本行为和当前酒店；学习日期解析前格式校验，投资/profile NUL均422且零新增记录",
+      "status": "fixed_and_combined_verified"
+    },
+    {
+      "id": "dependency_security",
+      "problem": "新公布braces深嵌套模式DoS经PurgeCSS链造成4high与CI失败",
+      "change": "使用经原构建API与当前产物验证的稳定PurgeCSS7.0.2移除受影响链；audit0，保留审计门与原预算",
+      "status": "fixed_and_combined_verified"
     }
   ],
   "verification": {
     "php": {
-      "files": 30,
+      "files": 37,
       "file_list": [
         "tests/BookingMonitoringServiceTest.php",
         "tests/BookingDemandPlanningServiceTest.php",
@@ -138,15 +150,22 @@
         "tests/AiDailyReportPresentationReviewRoutingTest.php",
         "tests/AiDailyReportPresentationSpecServiceTest.php",
         "tests/AiDailyReportPresentationRendererServiceTest.php",
-        "tests/AiDailyReportPresentationCorrectionTest.php"
+        "tests/AiDailyReportPresentationCorrectionTest.php",
+        "tests/ActualConsumablesScenarioReferencePrecisionTest.php",
+        "tests/ConsumablesActualCostPrecisionTest.php",
+        "tests/ConsumablesCostCalculatorPrecisionTest.php",
+        "tests/HotelLearningControllerTest.php",
+        "tests/HotelLearningMechanismServiceTest.php",
+        "tests/HotelLearningOtherControllerTest.php",
+        "tests/HotelLearningOtherMechanismsTest.php"
       ],
-      "tests": 427,
-      "assertions": 3180,
+      "tests": 630,
+      "assertions": 4121,
       "passed": true,
       "log": "output/deep-hardening-20261003/combined-php.log"
     },
     "node": {
-      "files": 16,
+      "files": 20,
       "file_list": [
         "tests/automation/investment_payback_workbench.test.mjs",
         "tests/automation/investment_payback_import.test.mjs",
@@ -163,9 +182,13 @@
         "tests/automation/investment_operating_bridge_browser.test.mjs",
         "tests/automation/operating_component_asset_build.test.mjs",
         "tests/automation/startup_lazy_component_versions.test.mjs",
-        "tests/automation/runtime_asset_identity.test.mjs"
+        "tests/automation/runtime_asset_identity.test.mjs",
+        "tests/hotel-learning-workbench.test.cjs",
+        "tests/hotel-learning-other-workbench.test.cjs",
+        "tests/automation/frontend_tailwind_build.test.mjs",
+        "tests/automation/frontend_authenticated_style_build.test.mjs"
       ],
-      "tests": 234,
+      "tests": 334,
       "passed": true,
       "skipped": 0,
       "log": "output/deep-hardening-20261003/combined-node.log"
@@ -191,6 +214,21 @@
       "external_write_count": 0,
       "deployment": false,
       "final_ci_pending": true
+    },
+    "dependency_security": {
+      "passed": true,
+      "vulnerabilities": {
+        "info": 0,
+        "low": 0,
+        "moderate": 0,
+        "high": 0,
+        "critical": 0,
+        "total": 0
+      },
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "purgecss_version": "7.0.2",
+      "log": "output/deep-hardening-20261003/npm-final-audit.json",
+      "strategy": "remove vulnerable braces/micromatch/fast-glob chain with compatible stable PurgeCSS release; no audit bypass"
     }
   },
   "source_files": [
@@ -199,12 +237,16 @@
       "sha256": "aa6870506ba6ae3c02e5001fce6754832fb63eada029aacd4242fc6cebcb7dbc"
     },
     {
+      "path": "app/controller/HotelLearning.php",
+      "sha256": "bce9b9dba566794d764f72743e1ab7875c24f70ebd4c5ff08567e3d7c0a79a56"
+    },
+    {
       "path": "app/controller/OperatingFinance.php",
       "sha256": "4ddead91e6c4d052206f6005a9065ec1a9ee594a9c14295ac3a1830b9bbe1300"
     },
     {
       "path": "app/service/ActualConsumablesScenarioReferenceService.php",
-      "sha256": "ace60a06545f5c87ba9ba96099c26ddb78ddd46a24aa5ea906daff390201cbfe"
+      "sha256": "94a34cfa7e494fac77eb025309ae3450cd104151372d81dbde21d9daef2bc0e0"
     },
     {
       "path": "app/service/AiDailyReportPresentationReviewService.php",
@@ -224,7 +266,19 @@
     },
     {
       "path": "app/service/ConsumablesActualCostService.php",
-      "sha256": "9d5fa91b5b3f0717dec40e0aa91ce57b81a03a9c827d0bd5f544e654840100d0"
+      "sha256": "6686236cfb430767464e2db16d4164e14ce7e76018b1101bf700eb447d707e52"
+    },
+    {
+      "path": "app/service/ConsumablesCostCalculator.php",
+      "sha256": "194c542ca502eb931dbc28754d8a34a05756b4f33e7b6eb2bbd18178bcea7de5"
+    },
+    {
+      "path": "app/service/ConsumablesOperationalReconciliationService.php",
+      "sha256": "3a3811658f312ed5f568326f9dcc4ac0b57784a0e5ddab92525338016ddf83c4"
+    },
+    {
+      "path": "app/service/HotelLearningMechanismService.php",
+      "sha256": "b179aed23b5301ad16ce67bae49db4eede53fcd804fb73a9d63d6ac94c0c59bc"
     },
     {
       "path": "app/service/InvestmentOperatingBridgeService.php",
@@ -243,20 +297,36 @@
       "sha256": "3f9522e8a352438999c100dc1a1450f66e617f061bb156210e7d308e4c5633f4"
     },
     {
+      "path": "package-lock.json",
+      "sha256": "39389f24a19d2270dd1ce71fd9a82e9663d8f2e867e0f2627a9735f36c417455"
+    },
+    {
+      "path": "package.json",
+      "sha256": "34feaa9259f918edfc3861af48d35a1e6452e9e66373a049368773ee68733508"
+    },
+    {
+      "path": "public/app-main.js",
+      "sha256": "125231fbda4aab6ecd72394f1355082f2dfea669cf632841a9803f6f73346254"
+    },
+    {
+      "path": "public/app-main.min.js",
+      "sha256": "d0ad8f23a95795af2af061abf59e77244d3cb7d9481cc66bbc20c8eb162a2c7c"
+    },
+    {
       "path": "public/app-render.min.js",
       "sha256": "2ca28cb64046bdc9e0d24fb9aa7836712788718fedf053598dcaa544d1ada4a1"
     },
     {
       "path": "public/app-startup-helpers.min.js",
-      "sha256": "f0c4ba05eaf40196c81b44ab3a8fc8e94fb99de993e08c0479b922b2d719154b"
+      "sha256": "f0de4522dbe82ba524444d04c9bb3bbe40ff9d21d727a29b84e27029f8c86deb"
     },
     {
       "path": "public/components/system/app-main-components-loader.js",
-      "sha256": "ed05e4f120016e51e169771e46473b4d39bc88dd27a034cb6cffda58ad668be6"
+      "sha256": "fb914d42731a08d188ebabc2b95fffedf900c0655b5d46a16086d3ab266c83e2"
     },
     {
       "path": "public/components/system/app-main-components.js",
-      "sha256": "ac24a418e1493a2db59bcc7eec2cda72a74984f34e96b6bf40e5a0e33133c9e2"
+      "sha256": "72af1b570dcac7061d41dd7062acef0add3f3dd113019c4e448ff368cfb1bb77"
     },
     {
       "path": "public/components/system/booking-monitoring-panel.js",
@@ -273,6 +343,14 @@
     {
       "path": "public/components/system/guest-operations-panel.js",
       "sha256": "1c5ef74ad597603b637a381900d342bbb4d31ba322d0996929fc4edfabf8add3"
+    },
+    {
+      "path": "public/components/system/hotel-learning-workbench.js",
+      "sha256": "ffc8fcea33c935530fd9d9da43bdaf02eaba6265fc2cbf6cb582556ac525e2e4"
+    },
+    {
+      "path": "public/components/system/hotel-learning-workbench.min.js",
+      "sha256": "7acbb52ee775ec3a9747c76f0d8c1b0cc96d938f00ed45d06ba1b3a238b1171b"
     },
     {
       "path": "public/components/system/investment-operating-bridge-panel.js",
@@ -292,7 +370,7 @@
     },
     {
       "path": "public/index.html",
-      "sha256": "48b362b229de658e0db47837b71fb8120df7bfb64ccb3ba486b7990c92a319ac"
+      "sha256": "977fab6578fd42a945259f415f32a984fc5fbe5c0a4b93709637f7927669a743"
     },
     {
       "path": "resources/frontend/app-template.html",
@@ -305,6 +383,10 @@
     {
       "path": "resources/frontend/templates/manifest.json",
       "sha256": "d3ea3284a35ca24bd2e9a242a859b93d993b0492fca01bc428300ffb056529b7"
+    },
+    {
+      "path": "tests/ActualConsumablesScenarioReferencePrecisionTest.php",
+      "sha256": "5bcde1005d668532bc48d62dfa5784492e72a81847723292f41bab7d2cdb40d6"
     },
     {
       "path": "tests/ActualConsumablesScenarioReferenceTest.php",
@@ -323,6 +405,34 @@
       "sha256": "168ce7fe44b16bbe08501afec52d62921726623e6974b71841e0953d3f002994"
     },
     {
+      "path": "tests/ConsumablesActualCostPrecisionTest.php",
+      "sha256": "51337703d832c414cb7b43dad69b45c3ac758aea3186e527e3c9b3daad7cb464"
+    },
+    {
+      "path": "tests/ConsumablesCostCalculatorPrecisionTest.php",
+      "sha256": "35cd385fb0d284254f95bc632ee2a8a754dbc6d99d1ac657872eb12119a42f5d"
+    },
+    {
+      "path": "tests/ConsumablesOperationalReconciliationServiceTest.php",
+      "sha256": "f1d5a6843f819053de910806f89d3ddf433492230c0a0030833ff1d68e3b167d"
+    },
+    {
+      "path": "tests/HotelLearningControllerTest.php",
+      "sha256": "cd56dd1327ed8116ec97bff1e443764db4af1bf65d97a3b57ca6d665d9e2a39a"
+    },
+    {
+      "path": "tests/HotelLearningMechanismServiceTest.php",
+      "sha256": "ba3ae808f713db4d42eac2d97828d18f5e18920f2af8f40825dd04448429f0e4"
+    },
+    {
+      "path": "tests/HotelLearningOtherControllerTest.php",
+      "sha256": "4548ef82c002e0ed00a9cd1f2755b0edb0f2039ce2c95c02f494d9b6f32f646d"
+    },
+    {
+      "path": "tests/HotelLearningOtherMechanismsTest.php",
+      "sha256": "e37e77e11a8de89a29281419c31d428204334dfb0a6b6002a2b7f82240df4552"
+    },
+    {
       "path": "tests/InvestmentOperatingBridgeLedgerTest.php",
       "sha256": "0e9e95ff7af165c6810d10d4959790e50bef245a2849f14a78845230ce0e3d69"
     },
@@ -333,6 +443,10 @@
     {
       "path": "tests/InvestmentScenarioNumericalBoundaryTest.php",
       "sha256": "a89736bd0fbfd4f32db2ecbb9201f2869293677fe1b605a7ccaa6cc50169f868"
+    },
+    {
+      "path": "tests/InvestmentScenarioPersistenceTest.php",
+      "sha256": "29eb85c203133a94f85e529167131f086ea755b213bb045d636252e5cdd37727"
     },
     {
       "path": "tests/OperatingEconomicsHardeningTest.php",
@@ -377,6 +491,14 @@
     {
       "path": "tests/automation/operating_economics_workbench.test.mjs",
       "sha256": "38a6f9708f018e0d0b8d519be46092aae0fdc0d24d0406bab3e38beadd9ce4c2"
+    },
+    {
+      "path": "tests/hotel-learning-other-workbench.test.cjs",
+      "sha256": "690dfac2dd9cf24dbac95f5d6de454566d9b39381a304660b746de620c331cf8"
+    },
+    {
+      "path": "tests/hotel-learning-workbench.test.cjs",
+      "sha256": "90d2e34f6c4e055e608b61a21906364534fee11396f850a759657890a0fcbabe"
     }
   ],
   "boundaries": {
@@ -575,5 +697,288 @@
     "baseline": "b4116a62480342ad26e97dc16f51e374b16e458a",
     "report": "docs/qa/five-function-hardening-20261003.md",
     "integration": "semantic three-way merge; final generated assets rebuilt; shared paths verified together"
+  },
+  "previous_combined_checkpoint": {
+    "head": "8ff70d7bedab3fa42d4b9afbcdac032a1950fe92",
+    "verification": {
+      "php": {
+        "files": 30,
+        "file_list": [
+          "tests/BookingMonitoringServiceTest.php",
+          "tests/BookingDemandPlanningServiceTest.php",
+          "tests/BookingDemandEventAsOfTest.php",
+          "tests/OtaRevenueAggregateOverflowTest.php",
+          "tests/InvestmentOperatingBridgeServiceTest.php",
+          "tests/InvestmentOperatingBridgeLedgerTest.php",
+          "tests/InvestmentOperatingBridgeControllerTest.php",
+          "tests/ActualConsumablesScenarioReferenceTest.php",
+          "tests/ConsumablesCostCalculatorTest.php",
+          "tests/ConsumablesProcurementReferenceServiceTest.php",
+          "tests/ConsumablesOperationalReconciliationServiceTest.php",
+          "tests/InvestmentScenarioPersistenceTest.php",
+          "tests/InvestmentScenarioCalculatorTest.php",
+          "tests/OperatingEvidenceChainTest.php",
+          "tests/BusinessWorkspaceServiceTest.php",
+          "tests/GuestOperationsServiceTest.php",
+          "tests/CampaignOperationsServiceTest.php",
+          "tests/BookingMonitoringRoutingTest.php",
+          "tests/OperatingEconomicsHardeningTest.php",
+          "tests/OperatingEvidenceRoutingTest.php",
+          "tests/InvestmentScenarioNumericalBoundaryTest.php",
+          "tests/InvestmentScenarioCashPlannerTest.php",
+          "tests/InvestmentScenarioPortfolioTest.php",
+          "tests/InvestmentScenarioRoutingTest.php",
+          "tests/InvestmentScenarioTargetSolverTest.php",
+          "tests/AiDailyReportPresentationReviewServiceTest.php",
+          "tests/AiDailyReportPresentationReviewRoutingTest.php",
+          "tests/AiDailyReportPresentationSpecServiceTest.php",
+          "tests/AiDailyReportPresentationRendererServiceTest.php",
+          "tests/AiDailyReportPresentationCorrectionTest.php"
+        ],
+        "tests": 427,
+        "assertions": 3180,
+        "passed": true,
+        "log": "output/deep-hardening-20261003/combined-php.log"
+      },
+      "node": {
+        "files": 16,
+        "file_list": [
+          "tests/automation/investment_payback_workbench.test.mjs",
+          "tests/automation/investment_payback_import.test.mjs",
+          "tests/automation/investment_scenario_workbench.test.mjs",
+          "tests/automation/investment_operating_bridge_panel.test.mjs",
+          "tests/automation/ai_daily_report_presentation_review_ui.test.mjs",
+          "tests/automation/operating_economics_workbench.test.mjs",
+          "tests/automation/business_feature_workspace_async_state.test.mjs",
+          "tests/automation/campaign_operations_browser.test.mjs",
+          "tests/automation/business_feature_workspace_browser.test.mjs",
+          "tests/automation/guest_operations_panel.test.mjs",
+          "tests/automation/booking_monitoring_panel.test.mjs",
+          "tests/automation/booking_monitoring_async_browser.test.mjs",
+          "tests/automation/investment_operating_bridge_browser.test.mjs",
+          "tests/automation/operating_component_asset_build.test.mjs",
+          "tests/automation/startup_lazy_component_versions.test.mjs",
+          "tests/automation/runtime_asset_identity.test.mjs"
+        ],
+        "tests": 234,
+        "passed": true,
+        "skipped": 0,
+        "log": "output/deep-hardening-20261003/combined-node.log"
+      },
+      "browser": {
+        "tests": 1,
+        "dom_scenarios": 14,
+        "passed": true,
+        "skipped": 0,
+        "log": "output/deep-hardening-20261003/combined-browser.log",
+        "evidence": "output/qa/five-hardening-20261003/evidence.json"
+      },
+      "public_entry": {
+        "startup_gzip_bytes": 619532,
+        "target": 620000,
+        "passed": true,
+        "log": "output/deep-hardening-20261003/combined-public-entry.log"
+      },
+      "boundaries": {
+        "synthetic_database": true,
+        "synthetic_ui": true,
+        "real_account_acceptance": false,
+        "external_write_count": 0,
+        "deployment": false,
+        "final_ci_pending": true
+      }
+    },
+    "source_files": [
+      {
+        "path": "app/controller/BookingMonitoring.php",
+        "sha256": "aa6870506ba6ae3c02e5001fce6754832fb63eada029aacd4242fc6cebcb7dbc"
+      },
+      {
+        "path": "app/controller/OperatingFinance.php",
+        "sha256": "4ddead91e6c4d052206f6005a9065ec1a9ee594a9c14295ac3a1830b9bbe1300"
+      },
+      {
+        "path": "app/service/ActualConsumablesScenarioReferenceService.php",
+        "sha256": "ace60a06545f5c87ba9ba96099c26ddb78ddd46a24aa5ea906daff390201cbfe"
+      },
+      {
+        "path": "app/service/AiDailyReportPresentationReviewService.php",
+        "sha256": "91ddf359b8e264fcba1dfde7eaac0a9e624de1caa264ff2e8aea562c18f92f51"
+      },
+      {
+        "path": "app/service/BookingMonitoringService.php",
+        "sha256": "fea4f9696b44e1d61e2f6e8edec0936c12b420bbc7da0dd03f2a8e7e02850774"
+      },
+      {
+        "path": "app/service/CampaignOperationsService.php",
+        "sha256": "6127754ac1941ab86edb65c664e5f9662450c98662b1ee53361c0580f78ef5b4"
+      },
+      {
+        "path": "app/service/ChannelEconomicsService.php",
+        "sha256": "441940aa8b9d1d0b84b50eeaf56b439268c626b1ad9dd7ee3eb1b837175808e6"
+      },
+      {
+        "path": "app/service/ConsumablesActualCostService.php",
+        "sha256": "9d5fa91b5b3f0717dec40e0aa91ce57b81a03a9c827d0bd5f544e654840100d0"
+      },
+      {
+        "path": "app/service/InvestmentOperatingBridgeService.php",
+        "sha256": "5c123f878efdcb72d89d46ef619c36b19bf1e89d2fcea5e53d376fd7b291dcc6"
+      },
+      {
+        "path": "app/service/InvestmentScenarioCalculator.php",
+        "sha256": "abbe6999452a9079abb15a5583d363adb7a6fd8e1b21e3b4fae3cad3eab2da12"
+      },
+      {
+        "path": "app/service/InvestmentScenarioCashPlanner.php",
+        "sha256": "d8891ca50923c0e12d5772cfefa81805c02a3726ce8864c9cc13dfa138d3952a"
+      },
+      {
+        "path": "app/service/OperatingEvidenceSnapshotStore.php",
+        "sha256": "3f9522e8a352438999c100dc1a1450f66e617f061bb156210e7d308e4c5633f4"
+      },
+      {
+        "path": "public/app-render.min.js",
+        "sha256": "2ca28cb64046bdc9e0d24fb9aa7836712788718fedf053598dcaa544d1ada4a1"
+      },
+      {
+        "path": "public/app-startup-helpers.min.js",
+        "sha256": "f0c4ba05eaf40196c81b44ab3a8fc8e94fb99de993e08c0479b922b2d719154b"
+      },
+      {
+        "path": "public/components/system/app-main-components-loader.js",
+        "sha256": "ed05e4f120016e51e169771e46473b4d39bc88dd27a034cb6cffda58ad668be6"
+      },
+      {
+        "path": "public/components/system/app-main-components.js",
+        "sha256": "ac24a418e1493a2db59bcc7eec2cda72a74984f34e96b6bf40e5a0e33133c9e2"
+      },
+      {
+        "path": "public/components/system/booking-monitoring-panel.js",
+        "sha256": "63a380bb7c6e24e75cd6b8a6f7fea7c6485aac232e043f5b5fa8a3c5963c37b7"
+      },
+      {
+        "path": "public/components/system/business-feature-workspace.js",
+        "sha256": "fc55bb0639228b009ab14d0d452c99c3da833ddec5e822bb1f2b853e51aa1908"
+      },
+      {
+        "path": "public/components/system/campaign-operations-panel.js",
+        "sha256": "99f57f71ec3e16651cbb1cfc9b09129a4ed77cb1681b44b75baeff44b226bda4"
+      },
+      {
+        "path": "public/components/system/guest-operations-panel.js",
+        "sha256": "1c5ef74ad597603b637a381900d342bbb4d31ba322d0996929fc4edfabf8add3"
+      },
+      {
+        "path": "public/components/system/investment-operating-bridge-panel.js",
+        "sha256": "83ab872c78bb8848a909ce15baefe74e6cee97e809c94ea6482683f8a7ce7018"
+      },
+      {
+        "path": "public/components/system/operating-economics-workbench.js",
+        "sha256": "29e7f115963f5ed298d1adda83a1f4b9d5650000a4b1c09daedf74d4dc6a973b"
+      },
+      {
+        "path": "public/components/system/operating-economics-workbench.min.js",
+        "sha256": "9f3cdd4dd58e6fce41d7c5357d007dcf62a98a3472cf1f8882aabf6635990dbe"
+      },
+      {
+        "path": "public/components/system/operating-finance-control-center.min.js",
+        "sha256": "f7b3852f428c1974d829be470c0c81e36f27b7ef279780d2453ead44c2a9d255"
+      },
+      {
+        "path": "public/index.html",
+        "sha256": "48b362b229de658e0db47837b71fb8120df7bfb64ccb3ba486b7990c92a319ac"
+      },
+      {
+        "path": "resources/frontend/app-template.html",
+        "sha256": "8c7d716c8e29ef14a6d51873db9d26d8b6569a0ccf856ee588bbc267d193a327"
+      },
+      {
+        "path": "resources/frontend/templates/fragments/19c-page-operating-finance.html",
+        "sha256": "2812b18a5e1b1937ec1c3aa9f7a8e1cc267885be796c07ca716bcbc8458b4d44"
+      },
+      {
+        "path": "resources/frontend/templates/manifest.json",
+        "sha256": "d3ea3284a35ca24bd2e9a242a859b93d993b0492fca01bc428300ffb056529b7"
+      },
+      {
+        "path": "tests/ActualConsumablesScenarioReferenceTest.php",
+        "sha256": "55e036e74a250c758fa5881576f4b8e8dcfdd3982cd9f52976b80a019bce4f33"
+      },
+      {
+        "path": "tests/AiDailyReportPresentationReviewServiceTest.php",
+        "sha256": "d3f4fa063bc2aa47ef7514b25e95ef9a7c5a2c820b69a39d16e5b3325fc375bc"
+      },
+      {
+        "path": "tests/BookingMonitoringServiceTest.php",
+        "sha256": "1960e91d8c186a6042a95b17233c3d9a886c556098ee9db467d3f3f8381fc803"
+      },
+      {
+        "path": "tests/CampaignOperationsServiceTest.php",
+        "sha256": "168ce7fe44b16bbe08501afec52d62921726623e6974b71841e0953d3f002994"
+      },
+      {
+        "path": "tests/InvestmentOperatingBridgeLedgerTest.php",
+        "sha256": "0e9e95ff7af165c6810d10d4959790e50bef245a2849f14a78845230ce0e3d69"
+      },
+      {
+        "path": "tests/InvestmentOperatingBridgeServiceTest.php",
+        "sha256": "3cd6406ca9a53c93149d0aa2b9f3e74e83c2ea97768da9f66ff253cf2d73ad99"
+      },
+      {
+        "path": "tests/InvestmentScenarioNumericalBoundaryTest.php",
+        "sha256": "a89736bd0fbfd4f32db2ecbb9201f2869293677fe1b605a7ccaa6cc50169f868"
+      },
+      {
+        "path": "tests/OperatingEconomicsHardeningTest.php",
+        "sha256": "894e1b2b6335d3a44be6ae3f686d86a80b8abfd0d2aaf5294f370ff1d4600d39"
+      },
+      {
+        "path": "tests/OperatingEvidenceChainTest.php",
+        "sha256": "0a2cb9bc3bdae1854e36097bfed508332ff904120bc80b8d6b0e8bb25a1dbaeb"
+      },
+      {
+        "path": "tests/OperatingEvidenceRoutingTest.php",
+        "sha256": "8710563675d9cd048f285c9c13818d813361b75aed673863174d92f440e64cfd"
+      },
+      {
+        "path": "tests/automation/booking_monitoring_async_browser.test.mjs",
+        "sha256": "fc3224c15fab84c5808eac8b7ea25b679815417045130e88cb9de2aa30b9bc52"
+      },
+      {
+        "path": "tests/automation/booking_monitoring_panel.test.mjs",
+        "sha256": "2f4541834561974d5009586b26b8277661c80984475e0c4e6c5151a52b8c4a0f"
+      },
+      {
+        "path": "tests/automation/business_feature_workspace_async_state.test.mjs",
+        "sha256": "514a97e91779eec245b24d511c2381570d6a4eede26efd9d6227a566364e3f98"
+      },
+      {
+        "path": "tests/automation/campaign_operations_browser.test.mjs",
+        "sha256": "7fedc9cf0ea7d1e27aa6f933f44e0c38d6b0016d149c08b5f112ed1bcd4a8461"
+      },
+      {
+        "path": "tests/automation/five_hardening_browser.mjs",
+        "sha256": "b6ea208087b1fbaac624000adac203155a5cf35b60b2bcc1cf57181e9acf816c"
+      },
+      {
+        "path": "tests/automation/guest_operations_panel.test.mjs",
+        "sha256": "e9eb1bdba46f7ef4324ec1217d7bb102de1764951d0b0e423919e356efc12012"
+      },
+      {
+        "path": "tests/automation/investment_operating_bridge_panel.test.mjs",
+        "sha256": "d804122802e63294b0084a170d9cdc13a6b0b9e9a8a6b232521a0f897d36925a"
+      },
+      {
+        "path": "tests/automation/operating_economics_workbench.test.mjs",
+        "sha256": "38a6f9708f018e0d0b8d519be46092aae0fdc0d24d0406bab3e38beadd9ce4c2"
+      }
+    ]
+  },
+  "latest_main_intake": {
+    "head": "5821434c4839c9b9fd70bd0106ad176ba37d4b21",
+    "previous_main": "d3e53e176d86d74f7868297125772116f666b3e4",
+    "pull_request": 59,
+    "merge": "preserve precision and immutable learning changes plus root future/date/readback protections; keep existing deferred learning registration"
   }
 }

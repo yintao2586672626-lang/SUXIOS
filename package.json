@@ -269,7 +269,7 @@
     "@vue/compiler-dom": "3.5.32",
     "acorn": "8.17.0",
     "postcss": "8.5.26",
-    "purgecss": "8.0.0",
+    "purgecss": "7.0.2",
     "terser": "5.49.0",
     "vue": "3.5.32"
   },

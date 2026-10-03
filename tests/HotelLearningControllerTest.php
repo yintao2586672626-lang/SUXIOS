@@ -17,6 +17,219 @@ final class HotelLearningControllerTest extends TestCase
     private function request(string $mode): array { return HotelLearningSyntheticEnvironment::scope($mode)+['inputs'=>HotelLearningSyntheticEnvironment::inputs($mode),'idempotency_key'=>'synthetic-'.bin2hex(random_bytes(8))]; }
     private function call(string $action,array $payload,int $id=0,bool $authenticated=true):array { return HotelLearningSyntheticEnvironment::dispatch($action,$payload,$id,$authenticated); }
 
+    public static function malformedNestedInputs(): array
+    {
+        return [
+            'profile list' => ['profile', ['fields'], 'invalid-list'],
+            'profile row' => ['profile', ['fields'], ['invalid-row']],
+            'profile date' => ['profile', ['fields', 0, 'as_of'], ['invalid-date']],
+            'stock list' => ['consumables_reconciliation', ['items'], 'invalid-list'],
+            'stock row' => ['consumables_reconciliation', ['items'], ['invalid-row']],
+            'stock date' => ['consumables_reconciliation', ['items', 0, 'source_date'], ['invalid-date']],
+            'OTA time' => ['ota_scene', ['scene', 'observed_at'], ['invalid-time']],
+            'OTA rate unit' => ['ota_scene', ['rate_unit'], ['invalid-unit']],
+            'OTA sale terms' => ['ota_scene', ['price_terms'], 'invalid-object'],
+            'sample rate unit' => ['market_sample', ['hotels', 0, 'rate_unit'], ['invalid-unit']],
+            'actual review object' => ['operating_review', ['actual'], 'invalid-object'],
+            'plan review object' => ['operating_review', ['plan'], 'invalid-object'],
+            'contract object' => ['contract_review', ['constraints'], 'invalid-object'],
+            'investment date' => ['investment_target', ['scenario', 'as_of'], ['invalid-date']],
+            'investment NUL date' => ['investment_target', ['scenario', 'as_of'], "2026-10-\0" . '3'],
+            'profile NUL date' => ['profile', ['fields', 0, 'as_of'], "2026-10-\0" . '3'],
+            'target request object' => ['investment_target', ['request'], 'invalid-object'],
+        ];
+    }
+
+    #[DataProvider('malformedNestedInputs')]
+    public function testMalformedNestedInputsReturn422WithoutWriting(string $mode, array $path, mixed $value): void
+    {
+        $payload = $this->request($mode);
+        $target =& $payload['inputs'];
+        foreach ($path as $key) $target =& $target[$key];
+        $target = $value;
+        unset($target);
+        $before = Db::name('hotel_operating_evidence_snapshots')->count();
+        foreach (['preview', 'save'] as $action) {
+            $reply = $this->call($action, $payload);
+            self::assertSame(422, $reply['http_status']);
+            self::assertSame(422, $reply['body']['code']);
+        }
+        self::assertSame($before, Db::name('hotel_operating_evidence_snapshots')->count());
+    }
+
+    public static function invalidSaveKeys(): array { return [[['unexpected']], [true], [12345678]]; }
+
+    #[DataProvider('invalidSaveKeys')]
+    public function testSaveKeyMustBeTextWithoutWriting(mixed $value): void
+    {
+        $payload = $this->request('profile');
+        $payload['idempotency_key'] = $value;
+        $before = Db::name('hotel_operating_evidence_snapshots')->count();
+        self::assertSame(422, $this->call('save', $payload)['http_status']);
+        self::assertSame($before, Db::name('hotel_operating_evidence_snapshots')->count());
+    }
+
+    public static function underflowingInputNumbers(): array
+    {
+        return [
+            ['ota_scene', ['conversion_rate']], ['ota_scene', ['price']],
+            ['market_sample', ['hotels', 0, 'traffic']],
+            ['market_sample', ['hotels', 0, 'conversion']],
+            ['operating_review', ['actual', 'revenue']],
+            ['operating_review', ['plan', 'sold_room_nights']],
+            ['contract_review', ['payback_months']],
+        ];
+    }
+
+    #[DataProvider('underflowingInputNumbers')]
+    public function testNonzeroNumericTextMustNotBecomeActualZero(string $mode, array $path): void
+    {
+        $payload = $this->request($mode);
+        $target =& $payload['inputs'];
+        foreach ($path as $key) $target =& $target[$key];
+        $target = '1e-999';
+        unset($target);
+        $before = Db::name('hotel_operating_evidence_snapshots')->count();
+        foreach (['preview', 'save'] as $action) self::assertSame(422, $this->call($action, $payload)['http_status']);
+        self::assertSame($before, Db::name('hotel_operating_evidence_snapshots')->count());
+    }
+
+    public function testMalformedInputCanBeCorrectedAndSavedWithSameRequestKey(): void
+    {
+        $payload = $this->request('profile');
+        $payload['inputs']['fields'][0]['as_of'] = ['invalid-date'];
+        $before = Db::name('hotel_operating_evidence_snapshots')->count();
+        self::assertSame(422, $this->call('save', $payload)['http_status']);
+        self::assertSame($before, Db::name('hotel_operating_evidence_snapshots')->count());
+        $payload['inputs']['fields'][0]['as_of'] = '2026-10-02';
+        $saved = $this->call('save', $payload);
+        self::assertSame(200, $saved['http_status']);
+        $read = $this->call('read', $payload, $saved['body']['data']['snapshot_id'])['body']['data'];
+        self::assertSame('2026-10-02', $read['inputs']['fields'][0]['as_of']);
+        self::assertTrue($read['readback_verified']);
+        self::assertSame($saved['body']['data']['content_digest'], $read['content_digest']);
+    }
+
+    public function testScientificTextZeroRemainsRealZero(): void
+    {
+        $payload = $this->request('ota_scene');
+        $payload['inputs']['conversion_rate'] = '0e-999';
+        $payload['inputs']['price'] = '-0.000e-999';
+        $saved = $this->call('save', $payload);
+        self::assertSame(200, $saved['http_status']);
+        $read = $this->call('read', $payload, $saved['body']['data']['snapshot_id'])['body']['data'];
+        self::assertEquals(0, $read['inputs']['conversion_rate']);
+        self::assertEquals(0, $read['inputs']['price']);
+        self::assertTrue($read['result']['comparison_ready']);
+        self::assertTrue($read['readback_verified']);
+    }
+
+    public static function invalidReviewCounting(): array
+    {
+        return [['actual', 'sold_room_nights'], ['actual', 'available_room_nights'], ['plan', 'sold_room_nights'], ['plan', 'available_room_nights']];
+    }
+
+    #[DataProvider('invalidReviewCounting')]
+    public function testFractionalReviewCountsReturn422WithoutWriting(string $side, string $field): void
+    {
+        $payload = $this->request('operating_review');
+        $payload['inputs'][$side][$field] = 0.5;
+        if ($field === 'available_room_nights') $payload['inputs'][$side]['sold_room_nights'] = 0;
+        $before = Db::name('hotel_operating_evidence_snapshots')->count();
+        foreach (['preview', 'save'] as $action) self::assertSame(422, $this->call($action, $payload)['http_status']);
+        self::assertSame($before, Db::name('hotel_operating_evidence_snapshots')->count());
+    }
+
+    public function testOverflowingReviewRatioIsAnInputErrorWithoutWriting(): void
+    {
+        $payload = $this->request('operating_review');
+        $payload['inputs']['actual']['revenue'] = 1e-320;
+        $before = Db::name('hotel_operating_evidence_snapshots')->count();
+        foreach (['preview', 'save'] as $action) self::assertSame(422, $this->call($action, $payload)['http_status']);
+        self::assertSame($before, Db::name('hotel_operating_evidence_snapshots')->count());
+    }
+
+    public function testMarketHumanConfirmationSurvivesExactSavedReadback(): void
+    {
+        $payload = $this->request('market_sample');
+        $payload['inputs']['comparison_attested'] = true;
+        $saved = $this->call('save', $payload);
+        self::assertSame(200, $saved['http_status']);
+        $read = $this->call('read', $payload, $saved['body']['data']['snapshot_id']);
+        self::assertTrue($read['body']['data']['inputs']['comparison_attested']);
+        self::assertSame($saved['body']['data']['content_digest'], $read['body']['data']['content_digest']);
+    }
+
+    public static function malformedScopeFields(): array { return [['mode'], ['period_month'], ['platform']]; }
+
+    #[DataProvider('malformedScopeFields')]
+    public function testMalformedScopeIsAnInputErrorWithoutWriting(string $field): void
+    {
+        $payload = $this->request('profile');
+        $payload[$field] = ['unexpected'];
+        $before = Db::name('hotel_operating_evidence_snapshots')->count();
+        foreach (['overview', 'preview', 'save', 'read'] as $action) self::assertSame(422, $this->call($action, $payload, 1)['http_status']);
+        self::assertSame($before, Db::name('hotel_operating_evidence_snapshots')->count());
+    }
+
+    public function testMarketConfirmationCannotBeGuessedFromText(): void
+    {
+        $payload = $this->request('market_sample');
+        $payload['inputs']['comparison_attested'] = 'false';
+        $before = Db::name('hotel_operating_evidence_snapshots')->count();
+        self::assertSame(422, $this->call('save', $payload)['http_status']);
+        self::assertSame($before, Db::name('hotel_operating_evidence_snapshots')->count());
+    }
+
+    public function testZeroReviewRevenuePreservesUnknownRatioAndActualZero(): void
+    {
+        $payload = $this->request('operating_review');
+        $payload['inputs']['actual']['revenue'] = 0;
+        $payload['inputs']['actual']['sold_room_nights'] = 0;
+        $saved = $this->call('save', $payload);
+        self::assertSame(200, $saved['http_status']);
+        $read = $this->call('read', $payload, $saved['body']['data']['snapshot_id'])['body']['data'];
+        self::assertSame(0, $read['inputs']['actual']['revenue']);
+        self::assertNull($read['result']['actual_cost_ratio']);
+        self::assertTrue($read['readback_verified']);
+    }
+
+    public function testSubmicroConsumptionSurvivesPreviewSaveAndExactReadback(): void
+    {
+        $payload = $this->request('consumables_reconciliation');
+        $payload['inputs']['items'][0] = array_replace($payload['inputs']['items'][0], [
+            'opening_quantity'=>0,'purchased_quantity'=>1e-7,'transfer_in_quantity'=>0,'closing_quantity'=>0,
+            'transfer_out_quantity'=>0,'returned_quantity'=>0,'written_off_quantity'=>0,'unit_price'=>1e12,
+            'issued_quantity'=>1e-7,'book_closing_quantity'=>0,
+        ]);
+        $preview = $this->call('preview', $payload);
+        self::assertSame(200, $preview['http_status']);
+        self::assertEquals(100000, $preview['body']['data']['result']['actual_consumed_cost']);
+        $saved = $this->call('save', $payload);
+        self::assertSame(200, $saved['http_status']);
+        $read = $this->call('read', $payload, $saved['body']['data']['snapshot_id'])['body']['data'];
+        self::assertSame(1e-7, $read['inputs']['items'][0]['purchased_quantity']);
+        self::assertSame(1e-7, $read['result']['items'][0]['consumed_quantity']);
+        self::assertEquals(100000, $read['result']['actual_consumed_cost']);
+        self::assertSame($saved['body']['data']['content_digest'], $read['content_digest']);
+        self::assertTrue($read['readback_verified']);
+    }
+
+    public function testUnpricedStockKeepsKnownQuantityAndUnknownCostAfterReadback(): void
+    {
+        $payload = $this->request('consumables_reconciliation');
+        $payload['inputs']['items'][0]['unit_price'] = null;
+        $saved = $this->call('save', $payload);
+        self::assertSame(200, $saved['http_status']);
+        $read = $this->call('read', $payload, $saved['body']['data']['snapshot_id'])['body']['data'];
+        self::assertSame('partial', $read['status']);
+        self::assertEquals(100, $read['result']['items'][0]['consumed_quantity']);
+        self::assertNull($read['result']['items'][0]['consumed_cost']);
+        self::assertNull($read['result']['actual_consumed_cost']);
+        self::assertNull($read['result']['known_consumed_cost']);
+        self::assertTrue($read['readback_verified']);
+    }
+
     #[DataProvider('modes')]
     public function testEachModePreviewsSavesAndReadsExactVersion(string $mode): void {
         $payload=$this->request($mode);$preview=$this->call('preview',$payload);self::assertSame(200,$preview['http_status'],json_encode($preview));self::assertFalse($preview['body']['data']['readback_verified']);
