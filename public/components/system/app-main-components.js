@@ -872,7 +872,7 @@
             });
         },
     };
-    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-hc04fb82c01';
+    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h418c853722';
     // SUXI_HOTEL_LEARNING_BEGIN
     const HotelLearningWorkbench = Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript('components/system/hotel-learning-workbench.min.js?v=hotel-learning-h7acbb52ee7')
@@ -882,8 +882,8 @@
     });
     // SUXI_HOTEL_LEARNING_END
     const OperatingFinanceControlCenterAsync = systemComponents.OperatingFinanceControlCenterBody || Vue.defineAsyncComponent({
-        loader: () => loadOnlineDataComponentScript('components/system/operating-economics-workbench.min.js?v=economics-h9f3cdd4dd5')
-            .then(() => loadOnlineDataComponentScript('components/system/booking-monitoring-panel.js?v=booking-h63a380bb7c'))
+        loader: () => loadOnlineDataComponentScript('components/system/operating-economics-workbench.min.js?v=economics-h12db89f965')
+            .then(() => loadOnlineDataComponentScript('components/system/booking-monitoring-panel.js?v=booking-h80f9b3aa1e'))
             .then(() => loadOnlineDataComponentScript(operatingFinanceControlCenterScript))
             .then(() => requireSystemComponent('OperatingFinanceControlCenterBody')),
         delay: 0,

@@ -2,17 +2,174 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
+import * as Vue from 'vue';
+import { compile } from '@vue/compiler-dom';
+import { renderToString } from '@vue/server-renderer';
 const source = readFileSync(new URL('../../public/components/system/operating-economics-workbench.js', import.meta.url), 'utf8');
-function component(request = async () => ({ code:200,data:{} }), code = source) {
+const scopedReceipt = () => ({scope:{tenant_id:7,hotel_id:80,period_month:'2026-10',platform:'ctrip',kind:'channel_economics'},snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'unverified',inputs:{source_refs:[],net_revenue:0},result:{net_revenue:0}});
+function component(request = async () => ({ code:200,data:{} }), code = source, browser = {}) {
     const window = { confirm:()=>true, dispatchEvent:event=>window.event=event };
     class ShanghaiClock extends Date { constructor(...args) { super(...(args.length ? args : ['2026-10-02T16:30:00Z'])); } }
-    new Function('window','crypto','CustomEvent','Vue','Blob','URL','document','setTimeout','Date',code)(window,{randomUUID},class { constructor(type,opts){this.type=type;this.detail=opts.detail;} },new Proxy({}, {get:()=>()=>({})}),class {constructor(parts){window.exported=JSON.parse(parts.join(''));}}, {createObjectURL:()=> 'synthetic-blob',revokeObjectURL:()=>{}}, {createElement:()=>({click(){}})},()=>{},ShanghaiClock);
+    new Function('window','crypto','CustomEvent','Vue','document','URL','setTimeout','Date',code)(window,{randomUUID},class { constructor(type,opts){this.type=type;this.detail=opts.detail;} },new Proxy({}, {get:()=>()=>({})}),browser.document,browser.URL || globalThis.URL,browser.setTimeout || globalThis.setTimeout,ShanghaiClock);
     const definition = window.SUXI_SYSTEM_COMPONENTS.OperatingEconomicsWorkbench;
     const ctx = {...definition.data(),hotelId:80,periodMonth:'2026-10',platform:'ctrip',canExecute:true,request};
     for(const [key,fn] of Object.entries(definition.methods))ctx[key]=fn.bind(ctx);
     for(const [key,fn] of Object.entries(definition.computed))Object.defineProperty(ctx,key,{get:()=>fn.call(ctx)});
     return {ctx,window,definition};
 }
+
+function exportComponent(request) {
+    const blobs=[];const downloads=[];const revoked=[];
+    const browser={document:{createElement(){return {click(){downloads.push({href:this.href,name:this.download});}};}},
+        URL:{createObjectURL(blob){blobs.push(blob);return 'test-only:operating-export';},revokeObjectURL(url){revoked.push(url);}},
+        setTimeout(callback){callback();}};
+    return {...component(request,source,browser),blobs,downloads,revoked};
+}
+
+const scopedOverview = path => ({code:200,data:{scope:Object.fromEntries(new URLSearchParams(path.split('?')[1])),history:[]}});
+async function changeScope(ctx, definition, change) {
+    const previous = {...ctx.scope}; Object.assign(ctx, change);
+    definition.watch.scope.handler.call(ctx, {...ctx.scope}, previous);
+    await new Promise(setImmediate);
+}
+
+test('switching calculation tabs retains each draft and its unsaved restore confirmation',async()=>{
+    const calls=[]; const {ctx,definition}=component(async path=>{calls.push(path); return scopedOverview(path);});
+    ctx.channel.net_revenue='1234'; ctx.channel.source_refs='TEST-ONLY-channel'; ctx.edit();
+    await changeScope(ctx,definition,{kind:'consumables_actual'});
+    ctx.actual.occupied_room_nights='100'; ctx.actual.occupied_room_nights_source_ref='TEST-ONLY-PMS'; ctx.edit();
+    await changeScope(ctx,definition,{kind:'channel_economics'});
+    assert.equal(ctx.channel.net_revenue,'1234'); assert.equal(ctx.channel.source_refs,'TEST-ONLY-channel');
+    assert.equal(ctx.actual.occupied_room_nights,'100'); assert.equal(ctx.dirty,true);
+    const before=calls.length; await ctx.restore(9);
+    assert.equal(ctx.restoreRequested,9); assert.equal(calls.length,before,'pending confirmation must not discard the retained draft');
+    await changeScope(ctx,definition,{kind:'consumables_actual'});
+    assert.equal(ctx.actual.occupied_room_nights_source_ref,'TEST-ONLY-PMS'); assert.equal(ctx.dirty,true);
+    assert.equal(ctx.saved,null); assert.equal(ctx.result,null);
+});
+
+for (const change of [{hotelId:81},{periodMonth:'2026-11'}]) test('actual hotel or month change clears both retained drafts '+Object.keys(change)[0],async()=>{
+    const {ctx,definition}=component(async path=>scopedOverview(path));
+    ctx.channel.net_revenue='1234'; ctx.actual.occupied_room_nights='100'; ctx.edit();
+    await changeScope(ctx,definition,change);
+    assert.equal(ctx.channel.net_revenue,''); assert.equal(ctx.actual.occupied_room_nights,'');
+    assert.equal(ctx.dirty,false); assert.equal(ctx.saved,null); assert.equal(ctx.result,null);
+});
+
+test('a source change while the actual-cost tab is open cannot relabel the retained channel draft',async()=>{
+    const {ctx,definition}=component(async path=>scopedOverview(path));
+    ctx.channel.net_revenue='1234'; ctx.edit();
+    await changeScope(ctx,definition,{kind:'consumables_actual'});
+    ctx.actual.occupied_room_nights='100'; ctx.edit(); ctx.platform='meituan';
+    await changeScope(ctx,definition,{kind:'channel_economics'});
+    assert.equal(ctx.channel.net_revenue,''); assert.equal(ctx.actual.occupied_room_nights,'100');
+    assert.equal(ctx.scope.platform,'meituan'); assert.equal(ctx.dirty,false);
+    await changeScope(ctx,definition,{kind:'consumables_actual'});
+    assert.equal(ctx.actual.occupied_room_nights,'100'); assert.equal(ctx.dirty,true);
+});
+
+test('tiny nonzero inventory quantities are displayed distinctly from a confirmed zero',()=>{
+    const {ctx}=component();
+    assert.equal(ctx.amount(0.0000004),'0.0000004'); assert.equal(ctx.amount(-0.0000004),'-0.0000004');
+    assert.equal(ctx.amount(0),'0'); assert.equal(ctx.amount(null),'未取得');
+    assert.equal(ctx.amount(0.004),'0.004'); assert.equal(ctx.amount(1000),'1,000');
+    assert.notEqual(ctx.amount(1e-20),'0');
+});
+
+test('actual-cost results distinguish known partial totals and show quantity units and excluded rows',async()=>{
+    for (const [known,total] of [[null,null],[0,0],[200,null]]) {
+        const {ctx,definition}=component(); ctx.kind='consumables_actual';
+        ctx.result={status:total===null?'partial':'calculated',source_quality:'operator_attested',known_consumed_cost:known,
+            actual_consumed_cost:total,separate_loss_cost:null,actual_consumables_cost_per_room_night:null,
+            items:[{id:'TEST-ONLY-small',name:'TEST-ONLY用量',enabled:true,unit:'ml',consumed_quantity:0.0000004,consumed_cost:0.4},
+                {id:'TEST-ONLY-excluded',name:'TEST-ONLY停用行',enabled:false,unit:'piece',consumed_quantity:1,consumed_cost:99}]};
+        const render=new Function('Vue',compile(definition.template,{mode:'function'}).code)(Vue);
+        const html=await renderToString(Vue.createSSRApp({render(){return render(ctx,[]);}}));
+        assert.ok(html.includes(`已知耗用 ${known===null?'未取得':known} 元`));
+        assert.ok(html.includes(`经营耗用 ${total===null?'未取得':total} 元`));
+        assert.match(html,/用量 0\.0000004 毫升/); assert.match(html,/未纳入本期/);
+        assert.equal(ctx.canAdopt,false,'a partial or unsaved displayed subtotal cannot become an investment reference');
+    }
+});
+
+for (const changed of [{snapshot_id:10},{content_digest:'b'.repeat(64)},{inputs:{source_refs:[],net_revenue:999}},{result:{net_revenue:999}},{readback_verified:false},{scope:{hotel_id:81}},{scope:{...scopedReceipt().scope,tenant_id:8}},{source_quality:'operator_attested'}]) {
+    test('save independently rereads its exact version and rejects changed '+Object.keys(changed)[0],async()=>{
+        const calls=[];const {ctx}=component(async path=>{calls.push(path);return {code:200,data:path.includes('/snapshots/9?')?{...scopedReceipt(),...changed}:scopedReceipt()};});
+        await ctx.calculate(true);
+        assert.equal(ctx.saved,null);assert.equal(ctx.result,null);assert.equal(ctx.canAdopt,false);
+        assert.ok(calls.some(path=>path.includes('/snapshots/9?')),'must independently GET the acknowledged snapshot');assert.ok(ctx.error);
+    });
+}
+
+test('save adopts independently reread result only after exact identity and content match',async()=>{
+    const calls=[];const {ctx}=component(async path=>{calls.push(path);return {code:200,data:path.includes('/overview?')?{scope:scopedReceipt().scope,history:[]}:scopedReceipt()};});
+    await ctx.calculate(true);assert.equal(ctx.saved.snapshot_id,9);assert.equal(ctx.result.net_revenue,0);assert.equal(ctx.error,'');
+    assert.match(calls[1],/\/snapshots\/9\?/);assert.match(ctx.notice,/精确回读/);
+});
+
+test('new snapshot request digest must match independent GET while legacy missing digests remain compatible',async()=>{
+    for(const match of [true,false]) {
+        const receipt={...scopedReceipt(),request_digest:'c'.repeat(64)};
+        const {ctx}=component(async path=>({code:200,data:path.includes('/overview?')?{scope:receipt.scope,history:[]}
+            :path.includes('/snapshots/9?')?{...receipt,request_digest:match?receipt.request_digest:'d'.repeat(64)}:receipt}));
+        await ctx.calculate(true);
+        assert.equal(ctx.writeReceipt.status,match?'verified':'readback_failed');
+        if(match)assert.equal(ctx.saved.request_digest,receipt.request_digest);
+        else {assert.equal(ctx.saved,null);assert.equal(ctx.result,null);assert.match(ctx.error,/回读内容不一致/);}
+    }
+    const {ctx}=component(async path=>({code:200,data:path.includes('/overview?')?{scope:scopedReceipt().scope,history:[]}:scopedReceipt()}));
+    await ctx.calculate(true);assert.equal(ctx.writeReceipt.status,'verified');assert.equal(ctx.saved.request_digest,undefined);
+});
+
+for (const save of [false,true]) test('server normalized input replaces stale draft after '+(save?'verified save':'preview'),async()=>{
+    const receipt=scopedReceipt();receipt.inputs={...receipt.inputs,net_revenue:9999,refund_amount:null,evidence_refs_by_metric:{net_revenue:['TEST-ONLY-settlement']}};receipt.result={net_revenue:9999};
+    const {ctx}=component(async path=>({code:200,data:path.includes('/overview?')?{scope:receipt.scope,history:[]}:receipt}));
+    ctx.channel.net_revenue='1000';ctx.channel.refund_amount='50';await ctx.calculate(save);
+    assert.equal(ctx.channel.net_revenue,9999);assert.equal(ctx.channel.refund_amount,null);assert.equal(ctx.result.net_revenue,9999);
+    assert.deepEqual(ctx.input.evidence_refs_by_metric.net_revenue,['TEST-ONLY-settlement']);assert.equal(ctx.dirty,false);
+});
+
+test('failed fresh preview removes a prior successful result and adoption receipt',async()=>{
+    const {ctx}=component(async()=>{throw new Error('TEST-ONLY-source-unavailable');});ctx.kind='consumables_actual';ctx.saved={readback_verified:true,source_quality:'operator_attested'};ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'TEST-ONLY'},actual_consumables_cost_per_room_night:2};
+    await ctx.calculate(false);assert.equal(ctx.result,null);assert.equal(ctx.saved,null);assert.equal(ctx.resultCurrent,null);assert.equal(ctx.canAdopt,false);assert.equal(ctx.dirty,true);
+});
+
+for(const quality of ['operator_attested','unverified']) test('exported '+quality+' preview retains its current result quality and remains unsaved',async()=>{
+    const receipt=scopedReceipt();receipt.result={source_quality:quality,net_revenue:1000,evidence_chain:{independently_verified:false}};
+    const {ctx,blobs,downloads,revoked}=exportComponent(async()=>({code:200,data:{scope:receipt.scope,inputs:receipt.inputs,result:receipt.result}}));
+    await ctx.calculate(false);assert.equal(ctx.saved,null);ctx.exportSnapshot();
+    assert.equal(blobs.length,1);assert.equal(downloads.length,1);assert.deepEqual(revoked,['test-only:operating-export']);
+    const exported=JSON.parse(await blobs[0].text());
+    assert.equal(exported.source_quality,quality);assert.equal(exported.source_quality,exported.result.source_quality);
+    assert.equal(exported.snapshot_id,null);assert.equal(exported.snapshot_status,'preview');assert.equal(exported.readback_verified,false);
+    assert.equal(exported.result.evidence_chain.independently_verified,false);assert.deepEqual(exported.scope,{...ctx.scope});
+});
+
+test('exported saved version keeps its exact snapshot identity and current result quality',async()=>{
+    const receipt=scopedReceipt();receipt.source_quality='operator_attested';receipt.result={source_quality:'operator_attested',net_revenue:1000,evidence_chain:{independently_verified:false}};
+    const {ctx,blobs}=exportComponent(async path=>({code:200,data:path.includes('/overview?')?{scope:receipt.scope,history:[]}:receipt}));
+    await ctx.calculate(true);ctx.exportSnapshot();const exported=JSON.parse(await blobs[0].text());
+    assert.equal(exported.snapshot_id,9);assert.equal(exported.snapshot_status,'saved');assert.equal(exported.readback_verified,true);
+    assert.equal(exported.source_quality,'operator_attested');assert.deepEqual(exported.result,receipt.result);
+    assert.equal(exported.result.evidence_chain.independently_verified,false);
+});
+
+test('no-result and edited result states do not produce any export',()=>{
+    const {ctx,blobs,downloads}=exportComponent();ctx.exportSnapshot();
+    assert.equal(blobs.length,0);assert.equal(downloads.length,0);
+    ctx.result={source_quality:'operator_attested',net_revenue:1000};ctx.edit();ctx.exportSnapshot();
+    assert.equal(blobs.length,0);assert.equal(downloads.length,0);
+});
+
+test('metric references survive input serialization and old snapshots have no invented provenance',async()=>{
+    const {ctx}=component(async()=>({code:200,data:{scope:{hotel_id:80,period_month:'2026-10',platform:'ctrip',kind:'channel_economics'},snapshot_id:9,readback_verified:true,inputs:{source_refs:['legacy-general-ref'],costs:[]},result:{status:'calculated'}}}));
+    ctx.setMetricSource('refund_amount',' synthetic-refund\nsynthetic-second');
+    assert.deepEqual(ctx.input.evidence_refs_by_metric.refund_amount,['synthetic-refund','synthetic-second']);
+    await ctx.restore(9,true);
+    assert.deepEqual(ctx.input.evidence_refs_by_metric.refund_amount,[]);
+    assert.equal(ctx.metricSource('refund_amount'),'');
+    assert.match(ctx.evidenceText({metric:'refund_amount',status:'source_missing'}),/退款：来源缺失/);
+});
 test('unverified or draft actual cost cannot be adopted; verified zero can',()=>{
     const {ctx}=component();ctx.kind='consumables_actual';ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:0,items:[{enabled:true,source_date:'2026-10-03'}]};
     ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'unverified'};assert.equal(ctx.canAdopt,false);
@@ -23,28 +180,120 @@ test('adoption retains same-hotel snapshot reference for next page',()=>{
     ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};ctx.adopt();
     assert.equal(window.SUXI_PENDING_ACTUAL_CONSUMABLES_REFERENCE.hotel_id,80);assert.equal(window.event.detail.snapshot_id,9);
 });
-
-test('cross-month enabled source cannot be adopted; disabled legacy rows stay compatible',()=>{
-    const {ctx,window}=component();ctx.kind='consumables_actual';
-    ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:0,
-        items:[{enabled:true,source_date:'2026-09-20'}]};
-    ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};
-    assert.equal(ctx.canAdopt,false);ctx.adopt();assert.equal(window.event,undefined);
-    ctx.result.items=[{enabled:true,source_date:'2026-10-03'},{enabled:false,source_date:'2026-09-20'}];
-    assert.equal(ctx.canAdopt,true);ctx.adopt();assert.equal(window.event.detail.as_of,'2026-10-03');
-});
 test('editing invalidates in-flight preview without clearing dirty input',async()=>{
     let resolve;const {ctx}=component(()=>new Promise(r=>resolve=r));const pending=ctx.calculate(false);ctx.edit();resolve({code:200,data:{result:{net_revenue:999}}});await pending;
     assert.equal(ctx.result,null);assert.equal(ctx.dirty,true);assert.equal(ctx.busy,false);
+});
+
+test('editing during save keeps the independent write pending and exact receipt without replacing the new draft',async()=>{
+    let resolvePost;const calls=[];const {ctx}=component(async(path,options)=>{
+        calls.push({path,options});
+        if(options?.method==='POST')return new Promise(resolve=>resolvePost=resolve);
+        return path.includes('/overview?')?scopedOverview(path):{code:200,data:scopedReceipt()};
+    });
+    ctx.channel.net_revenue='1000';const pending=ctx.calculate(true);
+    ctx.channel.net_revenue='2000';ctx.edit();
+    assert.equal(ctx.writePending,true);await ctx.calculate(true);
+    assert.equal(calls.filter(call=>call.options?.method==='POST').length,1,'editing cannot unlock a second save');
+    resolvePost({code:200,data:scopedReceipt()});await pending;
+    assert.ok(calls.some(call=>call.path.includes('/snapshots/9?')));
+    assert.equal(ctx.writePending,false);assert.equal(ctx.writeReceipt.status,'verified');
+    assert.equal(ctx.writeReceipt.snapshot.snapshot_id,9);assert.equal(ctx.writeReceipt.scope.hotel_id,80);
+    assert.equal(ctx.channel.net_revenue,'2000');assert.equal(ctx.dirty,true);assert.equal(ctx.saved,null);assert.equal(ctx.result,null);
+    assert.match(ctx.notice,/草稿已保留/);
+});
+
+test('scope changes before POST returns retain the old save receipt and reread its original scope only',async()=>{
+    let resolvePost;const calls=[];const {ctx,definition}=component(async(path,options)=>{
+        calls.push({path,options});if(options?.method==='POST')return new Promise(resolve=>resolvePost=resolve);
+        return path.includes('/overview?')?scopedOverview(path):{code:200,data:scopedReceipt()};
+    });
+    const pending=ctx.calculate(true);await changeScope(ctx,definition,{hotelId:81,platform:'meituan',periodMonth:'2026-11'});
+    ctx.channel.net_revenue='new-hotel-draft';ctx.edit();await ctx.calculate(true);
+    assert.equal(calls.filter(call=>call.options?.method==='POST').length,1);
+    resolvePost({code:200,data:scopedReceipt()});await pending;
+    const exact=calls.find(call=>call.path.includes('/snapshots/9?'));
+    const query=new URLSearchParams(exact.path.split('?')[1]);
+    assert.equal(query.get('hotel_id'),'80');assert.equal(query.get('platform'),'ctrip');assert.equal(query.get('period_month'),'2026-10');
+    assert.equal(ctx.writeReceipt.status,'verified');assert.equal(ctx.writeReceipt.scope.hotel_id,80);
+    assert.equal(ctx.channel.net_revenue,'new-hotel-draft');assert.equal(ctx.dirty,true);assert.equal(ctx.saved,null);assert.equal(ctx.result,null);
+    assert.equal(ctx.overview.scope.hotel_id,'81');
+});
+
+test('a failed exact GET retains the saved receipt and retries GET while preserving an edited draft',async()=>{
+    let posts=0;let reads=0;const {ctx}=component(async(path,options)=>{
+        if(options?.method==='POST'){posts++;return {code:200,data:scopedReceipt()};}
+        if(path.includes('/snapshots/9?')&&++reads===1)throw new TypeError('Failed to fetch');
+        return path.includes('/overview?')?scopedOverview(path):{code:200,data:scopedReceipt()};
+    });
+    ctx.channel.net_revenue='1000';await ctx.calculate(true);
+    assert.equal(ctx.writeReceipt.status,'readback_failed');assert.equal(ctx.writeReceipt.snapshot.snapshot_id,9);
+    ctx.channel.net_revenue='2000';ctx.edit();await ctx.calculate(true);assert.equal(posts,1);
+    await ctx.retryWrite();
+    assert.equal(posts,1);assert.equal(reads,2);assert.equal(ctx.writeReceipt.status,'verified');
+    assert.equal(ctx.channel.net_revenue,'2000');assert.equal(ctx.dirty,true);assert.equal(ctx.saved,null);
+});
+
+test('an uncertain POST retry reuses the same idempotency key and original inputs after editing',async()=>{
+    const bodies=[];const {ctx}=component(async(path,options)=>{
+        if(options?.method==='POST'){bodies.push(JSON.parse(options.body));if(bodies.length===1)throw new TypeError('Failed to fetch');return {code:200,data:scopedReceipt()};}
+        return path.includes('/overview?')?scopedOverview(path):{code:200,data:scopedReceipt()};
+    });
+    ctx.channel.net_revenue='1000';await ctx.calculate(true);assert.equal(ctx.writeReceipt.status,'unconfirmed');
+    ctx.channel.net_revenue='2000';ctx.edit();await ctx.calculate(true);assert.equal(bodies.length,1);
+    await ctx.retryWrite();assert.equal(bodies.length,2);
+    assert.equal(bodies[0].idempotency_key,bodies[1].idempotency_key);assert.deepEqual(bodies[0].inputs,bodies[1].inputs);
+    assert.equal(ctx.writeReceipt.status,'verified');assert.equal(ctx.channel.net_revenue,'2000');assert.equal(ctx.dirty,true);
+});
+
+test('an idempotency conflict remains unconfirmed while an explicit validation rejection releases a fresh save',async()=>{
+    for(const code of [409,422]) {
+        const bodies=[];const {ctx}=component(async(path,options)=>{
+            if(options?.method==='POST'){bodies.push(JSON.parse(options.body));if(bodies.length===1)return {code,message:'TEST-ONLY rejection'};return {code:200,data:scopedReceipt()};}
+            return path.includes('/overview?')?scopedOverview(path):{code:200,data:scopedReceipt()};
+        });
+        ctx.channel.net_revenue='1000';await ctx.calculate(true);ctx.channel.net_revenue='2000';ctx.edit();
+        if(code===409){assert.equal(ctx.writeReceipt.status,'unconfirmed');await ctx.calculate(true);assert.equal(bodies.length,1);await ctx.retryWrite();assert.equal(bodies[0].idempotency_key,bodies[1].idempotency_key);}
+        else {assert.equal(ctx.writeReceipt.status,'rejected');assert.equal(ctx.writeAttempt,null);await ctx.calculate(true);assert.notEqual(bodies[0].idempotency_key,bodies[1].idempotency_key);assert.equal(bodies[1].inputs.net_revenue,'2000');}
+        assert.equal(ctx.writeReceipt.status,'verified');
+    }
+});
+
+test('editing during exact GET keeps the pending write and visible receipt while refusing another POST',async()=>{
+    let resolveRead;let posts=0;const {ctx}=component(async(path,options)=>{
+        if(options?.method==='POST'){posts++;return {code:200,data:scopedReceipt()};}
+        if(path.includes('/snapshots/9?'))return new Promise(resolve=>resolveRead=resolve);
+        return scopedOverview(path);
+    });
+    const pending=ctx.calculate(true);while(!resolveRead)await Promise.resolve();
+    assert.equal(ctx.writeReceipt.status,'reading');assert.equal(ctx.writeReceipt.snapshot.snapshot_id,9);
+    ctx.channel.net_revenue='edited-during-read';ctx.edit();await ctx.calculate(true);await ctx.restore(7,true);
+    assert.equal(posts,1);assert.equal(ctx.writePending,true);
+    resolveRead({code:200,data:scopedReceipt()});await pending;
+    assert.equal(ctx.writeReceipt.status,'verified');assert.equal(ctx.channel.net_revenue,'edited-during-read');assert.equal(ctx.saved,null);assert.equal(ctx.dirty,true);
+});
+
+for(const platform of ['dingdandao_pms','manual_all_channels']) test('unsupported channel '+platform+' has an explicit disabled state while whole-hotel consumables still load',async()=>{
+    const calls=[];const {ctx,definition}=component(async(path,options)=>{
+        calls.push({path,options});return options?.method==='POST'?{code:200,data:{scope:{...ctx.scope},inputs:{...ctx.input},result:{status:'partial'}}}:scopedOverview(path);
+    });
+    ctx.platform=platform;await ctx.load();await ctx.calculate(false);await ctx.calculate(true);await ctx.restore(9,true);
+    assert.equal(calls.length,0);assert.equal(ctx.channelSupported,false);assert.equal(ctx.calculationSupported,false);assert.match(ctx.channelUnavailableMessage,/携程.*美团/);
+    const render=new Function('Vue',compile(definition.template,{mode:'function'}).code)(Vue);
+    const html=await renderToString(Vue.createSSRApp({render(){return render(ctx,[]);}}));
+    assert.match(html,/channel-economics-unavailable/);assert.doesNotMatch(html,/channel-metric-source-inputs/);
+    await changeScope(ctx,definition,{kind:'consumables_actual'});assert.equal(ctx.calculationSupported,true);
+    assert.equal(new URLSearchParams(calls[0].path.split('?')[1]).get('platform'),'whole_hotel');
+    await ctx.calculate(false);assert.equal(ctx.error,'');assert.equal(ctx.result.status,'partial');
+    assert.equal(JSON.parse(calls.at(-1).options.body).platform,'whole_hotel');
 });
 test('same-version save must have exact scoped readback',async()=>{
     const {ctx}=component(async()=>({code:200,data:{readback_verified:true,scope:{hotel_id:81},result:{}}}));await ctx.calculate(true);
     assert.match(ctx.error,/范围不一致/);assert.equal(ctx.saved,null);
 });
-test('stale history refresh cannot cross a changed hotel',async()=>{
-    let resolve;let calls=0;const receipt={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,scope:{tenant_id:10,hotel_id:80,period_month:'2026-10',platform:'ctrip',kind:'channel_economics'},inputs:{source_refs:[]},result:{}};
-    const {ctx}=component(async()=>++calls<=2?{code:200,data:receipt}:new Promise(r=>resolve=r));
-    const pending=ctx.calculate(true);while(calls<3)await Promise.resolve();ctx.seq++;ctx.overview=null;resolve({code:200,data:{hotel_id:80}});await pending;assert.equal(ctx.overview,null);
+test('delayed exact save readback cannot cross a changed hotel',async()=>{
+    let resolve;let calls=0;const {ctx}=component(async()=>++calls===1?{code:200,data:scopedReceipt()}:new Promise(r=>resolve=r));
+    const pending=ctx.calculate(true);while(calls<2)await Promise.resolve();ctx.seq++;ctx.overview=null;resolve({code:200,data:{hotel_id:80}});await pending;assert.equal(ctx.overview,null);
 });
 test('view-only caller cannot invoke save',async()=>{
     let calls=0;const {ctx}=component(async()=>{calls++;return {code:200,data:{}};});ctx.canExecute=false;await ctx.calculate(true);assert.equal(calls,0);
@@ -95,45 +344,71 @@ test('unknown marketing day coverage is distinct from verified complete zero gap
     ctx.overview.sources.marketing={complete:false,missing_days:['2026-10-01']};assert.match(ctx.marketingCoverageMessage,/尚不完整.*缺 1 天/);
 });
 
-for (const save of [false, true]) {
-    test(`a failed ${save ? 'save' : 'preview'} invalidates the previous result and saved adoption receipt`,async()=>{
-        const {ctx}=component(async()=>{throw new Error('合成计算失败');});
-        ctx.kind='consumables_actual';ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};
-        ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-room-ledger'},actual_consumables_cost_per_room_night:2};
-        await ctx.calculate(save);
-        assert.equal(ctx.result,null);assert.equal(ctx.saved,null);assert.equal(ctx.canAdopt,false);assert.equal(ctx.resultCurrent,null);
-        assert.match(ctx.error,/合成计算失败/);
-    });
-}
+test('failed historical restore invalidates the previous result and adoption receipt while retaining editable inputs',async()=>{
+    for (const failure of ['network', 'identity']) {
+        const {ctx}=component(async()=>{
+            if(failure==='network')throw new Error('TEST-ONLY historical read unavailable');
+            return {code:200,data:{...scopedReceipt(),snapshot_id:8}};
+        });
+        ctx.kind='consumables_actual';ctx.actual.occupied_room_nights='77';
+        ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};
+        ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'TEST-ONLY PMS'},actual_consumables_cost_per_room_night:2,items:[{enabled:true,source_date:'2026-10-03'}]};
+        assert.equal(ctx.canAdopt,true);
+        await ctx.restore(10,true);
+        assert.equal(ctx.result,null,failure);assert.equal(ctx.saved,null,failure);
+        assert.ok(!ctx.resultCurrent,failure);assert.equal(ctx.canAdopt,false,failure);
+        assert.equal(ctx.actual.occupied_room_nights,'77',failure);assert.equal(ctx.dirty,true,failure);
+        assert.ok(ctx.error,failure);assert.equal(ctx.notice,'',failure);
+    }
+});
 
-test('a failed history restore invalidates the earlier adopted result instead of leaving it current',async()=>{
-    const {ctx}=component(async()=>{throw new Error('合成回读失败');});ctx.kind='consumables_actual';
+test('view-only restored direct costs render every editable control disabled',async()=>{
+    const {ctx,definition}=component();ctx.canExecute=false;
+    ctx.applyInputs({source_refs:['TEST-ONLY saved source'],costs:[{label:'TEST-ONLY direct cost',amount:1,source_ref:'TEST-ONLY cost source',included_in_net_revenue:false}]});
+    const render=new Function('Vue',compile(definition.template,{mode:'function'}).code)(Vue);
+    const html=await renderToString(Vue.createSSRApp({render(){return render(ctx,[]);}}));
+    const inputs=[...html.matchAll(/<input\b[^>]*>/g)].map(match=>match[0]);
+    for(const placeholder of ['直接成本名称','金额（元）','成本来源']) {
+        const input=inputs.find(tag=>tag.includes(`placeholder="${placeholder}"`));
+        assert.ok(input,placeholder);assert.match(input,/\bdisabled(?:\s|>|=)/,placeholder);
+    }
+    assert.ok(inputs.filter(tag=>tag.includes('type="checkbox"')).every(tag=>/\bdisabled(?:\s|>|=)/.test(tag)), 'all displayed cost and scope checkboxes are disabled');
+    assert.equal(ctx.channel.costs[0].cost_type,'direct','legacy rows retain an explicit ordinary-cost classification');
+    assert.match(html,/<select[^>]*disabled[^>]*aria-label="成本类型"/);
+});
+
+test('historical restore explains standard network failures in Chinese and preserves server business errors',async()=>{
+    for(const message of ['Failed to fetch','NetworkError when attempting to fetch resource.','Load failed']) {
+        const {ctx}=component(async()=>{throw new TypeError(message);});
+        ctx.saved={snapshot_id:9,readback_verified:true};ctx.result={net_revenue:10};
+        await ctx.restore(10,true);
+        assert.equal(ctx.error,'版本读取失败，请检查连接后重试。',message);
+        assert.equal(ctx.saved,null,message);assert.equal(ctx.result,null,message);assert.ok(!ctx.resultCurrent,message);
+    }
+    for(const message of ['当前租户不能访问该酒店的经营证据','Failed to fetch']) {
+        const {ctx}=component(async()=>({code:403,message}));await ctx.restore(10,true);
+        assert.equal(ctx.error,message,'server messages must retain their original business meaning');
+    }
+});
+
+test('cross-month enabled source cannot be adopted; disabled legacy rows stay compatible',()=>{
+    const {ctx,window}=component();ctx.kind='consumables_actual';
+    ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:0,
+        items:[{enabled:true,source_date:'2026-09-20'}]};
     ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};
-    ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-room-ledger'},actual_consumables_cost_per_room_night:2};
-    await ctx.restore(10);assert.equal(ctx.result,null);assert.equal(ctx.saved,null);assert.equal(ctx.canAdopt,false);assert.match(ctx.error,/合成回读失败/);
+    assert.equal(ctx.canAdopt,false);ctx.adopt();assert.equal(window.event,undefined);
+    ctx.result.items=[{enabled:true,source_date:'2026-10-03'},{enabled:false,source_date:'2026-09-20'}];
+    assert.equal(ctx.canAdopt,true);ctx.adopt();assert.equal(window.event.detail.as_of,'2026-10-03');
 });
 
 test('an incomplete save receipt cannot make the current actual cost adoptable',()=>{
     const {ctx}=component();ctx.kind='consumables_actual';
-    ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-room-ledger'},actual_consumables_cost_per_room_night:0};
+    ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-room-ledger'},actual_consumables_cost_per_room_night:0,items:[{enabled:true,source_date:'2026-10-03'}]};
     for(const receipt of [{readback_verified:true,source_quality:'operator_attested'},
         {snapshot_id:9,readback_verified:true,source_quality:'operator_attested'},
         {snapshot_id:9,content_digest:'invalid',readback_verified:true,source_quality:'operator_attested'}]){
         ctx.saved=receipt;assert.equal(ctx.canAdopt,false);
     }
-});
-
-test('a delayed old save cannot replace the result after a newer failed preview',async()=>{
-    let resolve;let calls=0;const {ctx}=component(async()=>++calls===1?new Promise(r=>resolve=r):Promise.reject(new Error('合成新请求失败')));
-    const first=ctx.calculate(true);await ctx.calculate(false);
-    resolve({code:200,data:{scope:{hotel_id:80,period_month:'2026-10',platform:'ctrip',kind:'channel_economics'},readback_verified:true,result:{net_revenue:999}}});
-    await first;assert.equal(ctx.result,null);assert.equal(ctx.saved,null);assert.match(ctx.error,/合成新请求失败/);assert.equal(ctx.busy,false);
-});
-
-test('export preserves the displayed source quality of an unsaved preview',()=>{
-    const {ctx,window}=component();ctx.result={status:'calculated',source_quality:'operator_attested',net_revenue:0};
-    ctx.exportSnapshot();assert.equal(window.exported.source_quality,'operator_attested');assert.equal(window.exported.snapshot_id,null);
-    assert.deepEqual(window.exported.result,ctx.result);assert.deepEqual(window.exported.scope,ctx.scope);
 });
 
 function savedActual(ctx, overrides = {}) {
@@ -149,103 +424,6 @@ function actualDraft(ctx) {
         items:[{enabled:true,source_date:'2026-10-03',source_ref:'synthetic inventory',unit_price:'0'}]};
 }
 
-test('a lost save response retries unchanged input with the same key and one stored version',async()=>{
-    const records=new Map(), keys=[], reads=[];let loseResponse=true;
-    const {ctx}=component(async(path,options)=>{
-        if(options?.method==='POST') {
-            const body=JSON.parse(options.body);keys.push(body.idempotency_key);
-            if(!records.has(body.idempotency_key))records.set(body.idempotency_key,savedActual(ctx));
-            if(loseResponse){loseResponse=false;throw new Error('synthetic save response lost after persistence');}
-            return {code:200,data:records.get(body.idempotency_key)};
-        }
-        if(path.includes('/snapshots/')){reads.push(path);return {code:200,data:[...records.values()][0]};}
-        return {code:200,data:{scope:{tenant_id:10,...ctx.scope},history:[]}};
-    });actualDraft(ctx);const draft=structuredClone(ctx.actual);
-    await ctx.calculate(true);assert.equal(ctx.saved,null);assert.deepEqual(ctx.actual,draft);assert.equal(ctx.busy,false);
-    await ctx.calculate(true);
-    assert.equal(keys.length,2);assert.equal(keys[0],keys[1]);assert.equal(records.size,1);
-    assert.equal(reads.length,1);assert.match(reads[0],/snapshots\/9\?/);assert.equal(ctx.saved.snapshot_id,9);assert.equal(ctx.canAdopt,true);
-});
-
-test('independent save GET failure retains input and retry reuses the saved key before allowing adoption',async()=>{
-    const keys=[], routes=[];let failRead=true, receipt;
-    const {ctx,window}=component(async(path,options)=>{
-        routes.push(path);
-        if(options?.method==='POST'){keys.push(JSON.parse(options.body).idempotency_key);receipt ||= savedActual(ctx);return {code:200,data:receipt};}
-        if(path.includes('/snapshots/'))return failRead?{code:503,message:'synthetic independent read failed'}:{code:200,data:receipt};
-        return {code:200,data:{scope:{tenant_id:10,...ctx.scope},history:[]}};
-    });actualDraft(ctx);const draft=structuredClone(ctx.actual);
-    await ctx.calculate(true);assert.equal(ctx.saved,null);assert.equal(ctx.result,null);assert.deepEqual(ctx.actual,draft);assert.equal(ctx.busy,false);
-    assert.match(ctx.error,/独立.*回读.*当前输入保留/);ctx.adopt();assert.equal(window.event,undefined);
-    failRead=false;await ctx.calculate(true);assert.equal(keys[0],keys[1]);assert.equal(ctx.saved.snapshot_id,9);assert.equal(ctx.error,'');
-    assert.equal(routes.filter(path=>path.includes('/snapshots/')).length,2);assert.equal(ctx.canAdopt,true);ctx.adopt();assert.equal(window.event.detail.snapshot_id,9);
-});
-
-for(const [name,change] of Object.entries({
-    'snapshot id':receipt=>{receipt.snapshot_id=10;}, 'content digest':receipt=>{receipt.content_digest='b'.repeat(64);},
-    'tenant':receipt=>{receipt.scope.tenant_id=11;}, 'hotel':receipt=>{receipt.scope.hotel_id=81;},
-    'month':receipt=>{receipt.scope.period_month='2026-09';}, 'readback flag':receipt=>{receipt.readback_verified=false;},
-    'result content':receipt=>{receipt.result.actual_consumables_cost_per_room_night=999;},
-    'input content':receipt=>{receipt.inputs.occupied_room_nights='999';}
-})) {
-    test(`independent GET rejects changed ${name} and keeps the draft unadopted`,async()=>{
-        let receipt;const {ctx,window}=component(async(path,options)=>{
-            if(options?.method==='POST'){receipt=savedActual(ctx);return {code:200,data:receipt};}
-            const wrong=structuredClone(receipt);change(wrong);return {code:200,data:wrong};
-        });actualDraft(ctx);const draft=structuredClone(ctx.actual);await ctx.calculate(true);
-        assert.equal(ctx.saved,null);assert.equal(ctx.result,null);assert.deepEqual(ctx.actual,draft);assert.ok(ctx.error);ctx.adopt();assert.equal(window.event,undefined);
-    });
-}
-
-test('save waits for independent GET before publishing the result or adoption receipt',async()=>{
-    let release,receipt;const {ctx}=component(async(path,options)=>{
-        if(options?.method==='POST'){receipt=savedActual(ctx);return {code:200,data:receipt};}
-        if(path.includes('/snapshots/'))return new Promise(resolve=>{release=()=>resolve({code:200,data:receipt});});
-        return {code:200,data:{scope:{tenant_id:10,...ctx.scope},history:[]}};
-    });actualDraft(ctx);const pending=ctx.calculate(true);for(let turn=0;turn<10&&!release;turn++)await Promise.resolve();
-    assert.equal(typeof release,'function');assert.equal(ctx.saved,null);assert.equal(ctx.result,null);assert.equal(ctx.canAdopt,false);
-    release();await pending;assert.equal(ctx.saved.snapshot_id,9);assert.equal(ctx.canAdopt,true);
-});
-
-for(const [name,overrides] of [['missing id',{snapshot_id:undefined}],['fractional id',{snapshot_id:9.5}],['invalid digest',{content_digest:'invalid'}]]) {
-    test(`an acknowledged save with ${name} stays unusable and does not issue an unbound GET`,async()=>{
-        let gets=0;const {ctx}=component(async(path,options)=>{
-            if(options?.method==='POST')return {code:200,data:savedActual(ctx,overrides)};
-            gets++;throw new Error('unexpected GET');
-        });actualDraft(ctx);const draft=structuredClone(ctx.actual);await ctx.calculate(true);
-        assert.equal(gets,0);assert.equal(ctx.saved,null);assert.equal(ctx.result,null);assert.deepEqual(ctx.actual,draft);assert.match(ctx.error,/回读凭据不完整/);
-    });
-}
-
-test('save identity changes for changed input or scope and remains stable for the unchanged draft',async()=>{
-    const keys=[];const {ctx,definition}=component(async(path,options)=>{
-        if(options?.method==='POST'){keys.push(JSON.parse(options.body).idempotency_key);return {code:200,data:savedActual(ctx)};}
-        return {code:503,message:'synthetic save remains incomplete until independent readback succeeds'};
-    });actualDraft(ctx);await ctx.calculate(true);await ctx.calculate(true);assert.equal(keys[0],keys[1]);
-    ctx.actual.occupied_room_nights='101';await ctx.calculate(true);assert.notEqual(keys[1],keys[2]);
-    ctx.actual.occupied_room_nights='102';ctx.edit();await ctx.calculate(true);assert.notEqual(keys[2],keys[3]);
-    const previous={...ctx.scope};ctx.hotelId=81;definition.watch.scope.handler.call(ctx,ctx.scope,previous);actualDraft(ctx);await ctx.calculate(true);assert.notEqual(keys[3],keys[4]);
-});
-
-for (const refreshFails of [false,true]) {
-    test(`completed saves create distinct explicit new versions even when overview refresh fails=${refreshFails}`,async()=>{
-        const records=new Map(),keys=[];let lastReceipt;
-        const {ctx}=component(async(path,options)=>{
-            if(options?.method==='POST') {
-                const key=JSON.parse(options.body).idempotency_key;keys.push(key);
-                if(!records.has(key))records.set(key,savedActual(ctx,{snapshot_id:101+records.size}));
-                lastReceipt=records.get(key);return {code:200,data:lastReceipt};
-            }
-            if(path.includes('/snapshots/'))return {code:200,data:structuredClone(lastReceipt)};
-            if(refreshFails)throw new Error('synthetic overview refresh failed after verified save');
-            return {code:200,data:{scope:{tenant_id:10,...ctx.scope},history:[]}};
-        });actualDraft(ctx);const draft=structuredClone(ctx.actual);
-        await ctx.calculate(true);assert.equal(ctx.saved.snapshot_id,101);assert.equal(ctx.canAdopt,true);
-        await ctx.calculate(true);assert.notEqual(keys[0],keys[1]);assert.equal(records.size,2);
-        assert.equal(ctx.saved.snapshot_id,102);assert.equal(ctx.canAdopt,true);assert.deepEqual(ctx.actual,draft);
-        if(refreshFails)assert.match(ctx.error,/overview refresh failed/);
-    });
-}
 
 for(const [name,date,month] of [['future date','2026-10-04','2026-10'],['future month','2026-11-01','2026-11']]) {
     test(`same-month saved actual from a ${name} cannot dispatch an adoption reference`,()=>{

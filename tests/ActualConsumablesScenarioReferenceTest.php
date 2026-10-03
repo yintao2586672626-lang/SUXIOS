@@ -20,14 +20,6 @@ final class ActualConsumablesScenarioReferenceTest extends TestCase
 {
     private string $path;
 
-    public function testComposedScenarioReportsBothInstalledReferenceCapabilities(): void
-    {
-        $id = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
-        self::assertSame(['procurement_reference' => true, 'actual_consumables_reference' => true],
-            Fixture::scenarios()->detail($id)['capabilities']);
-        self::assertSame(0, Db::name('investment_payback_entries')->count());
-    }
-
     protected function setUp(): void
     {
         $this->path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'investment-scenario-test-' . bin2hex(random_bytes(6)) . '.sqlite';
@@ -117,6 +109,28 @@ final class ActualConsumablesScenarioReferenceTest extends TestCase
         self::assertSame($summaryBefore, $ledger->detail($id)['summary']);
     }
 
+    public function testLegacyFutureEvidenceCannotBeAdoptedIntoAnInvestmentScenario(): void
+    {
+        $projectId = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
+        $today = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $futureMonth = $today->modify('first day of next month')->format('Y-m');
+        $base = (new ConsumablesActualCostService())->calculate($this->actualInput());
+        foreach (['period','item_date'] as $variant) {
+            $result = $base;
+            if ($variant === 'item_date') {
+                $result['items'][0]['source_date'] = $today->modify('+1 day')->format('Y-m-d');
+                $result['inputs']['items'][0]['source_date'] = $result['items'][0]['source_date'];
+            }
+            $store = new OperatingEvidenceSnapshotStore();
+            $scope = $store->scope(10,[80],80,$variant === 'period' ? $futureMonth : $today->format('Y-m'),'whole_hotel','consumables_actual');
+            $snapshot = $store->save($scope,['inputs'=>$result['inputs'],'result'=>$result,'source_quality'=>'operator_attested'],'synthetic-legacy-future-'.$variant,7);
+            $before = Db::name('investment_payback_events')->count();
+            try { Fixture::scenarios()->preview($projectId,['scenario'=>$this->scenario($snapshot)]); self::fail('Future actual evidence must not be adopted'); }
+            catch (RuntimeException $error) { self::assertSame(409,$error->getCode()); self::assertStringContainsString('未来',$error->getMessage()); }
+            self::assertSame($before,Db::name('investment_payback_events')->count());
+        }
+    }
+
     public static function invalidReferences(): array
     {
         return ['cross hotel' => ['hotel', 404], 'cross tenant' => ['tenant', 404], 'wrong digest' => ['digest', 409],
@@ -179,6 +193,122 @@ final class ActualConsumablesScenarioReferenceTest extends TestCase
         self::assertSame(0, Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
     }
 
+    public function testSmallConsumptionPersistsReadsBackAndIsAdoptedAtItsActualCost(): void
+    {
+        $row = array_replace($this->actualInput()['items'][0], ['opening_quantity' => 1e12,
+            'closing_quantity' => 1e12, 'purchased_quantity' => 0.00001, 'written_off_quantity' => 0,
+            'unit_price' => 1e6]);
+        $snapshot = $this->evidence(['items' => [$row]]);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10, [80], 80, '2026-09', 'whole_hotel', 'consumables_actual');
+        $read = $store->read($scope, $snapshot['snapshot_id']);
+        self::assertTrue($read['readback_verified']);
+        self::assertSame($snapshot['result'], $read['result']);
+        self::assertSame($snapshot['content_digest'], $read['content_digest']);
+        self::assertSame(0.00001, $read['result']['items'][0]['consumed_quantity']);
+        self::assertSame(10.0, (float)$read['result']['actual_consumed_cost']);
+        self::assertSame(0.1, $read['result']['actual_consumables_cost_per_room_night']);
+        $id = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
+        $service = Fixture::scenarios();
+        $saved = $service->save($id, ['expected_version' => 1, 'scenario' => $this->scenario($snapshot)]);
+        $scenario = $service->detail($id);
+        self::assertSame('exact', $scenario['readback']);
+        self::assertSame($saved['input'], $scenario['input']);
+        self::assertSame($saved['result'], $scenario['result']);
+        self::assertSame(0.1, $scenario['input']['consumables_cost']['items'][0]['package_price']);
+        self::assertEqualsWithDelta(0.1, $scenario['result']['effective_operating_cost_per_night'], 1e-12);
+        self::assertSame(0, Db::name('investment_payback_entries')->count());
+    }
+
+    public function testSubPrecisionPositiveConsumptionPersistsReadsBackAndIsAdoptedAtItsActualCost(): void
+    {
+        $row = array_replace($this->actualInput()['items'][0], ['opening_quantity' => 1e12,
+            'closing_quantity' => 1e12, 'purchased_quantity' => '0.0000004', 'written_off_quantity' => 0,
+            'unit_price' => '1000000']);
+        $snapshot = $this->evidence(['items' => [$row]]);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10, [80], 80, '2026-09', 'whole_hotel', 'consumables_actual');
+        $read = $store->read($scope, $snapshot['snapshot_id']);
+        self::assertTrue($read['readback_verified']);
+        self::assertSame($scope, $read['scope']);
+        self::assertSame($snapshot['result'], $read['result']);
+        self::assertSame($snapshot['content_digest'], $read['content_digest']);
+        self::assertSame(0.0000004, $read['result']['items'][0]['consumed_quantity']);
+        self::assertSame(0.4, $read['result']['actual_consumed_cost']);
+        self::assertSame(0.004, $read['result']['actual_consumables_cost_per_room_night']);
+        $id = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
+        $service = Fixture::scenarios(); $input = $this->scenario($snapshot);
+        $preview = $service->preview($id, ['scenario' => $input]);
+        self::assertSame(0.004, $preview['input']['consumables_cost']['items'][0]['package_price']);
+        self::assertEqualsWithDelta(0.004, $preview['result']['effective_operating_cost_per_night'], 1e-12);
+        $saved = $service->save($id, ['expected_version' => 1, 'scenario' => $input]);
+        $scenario = $service->detail($id);
+        self::assertSame('exact', $scenario['readback']);
+        self::assertSame($saved['input'], $scenario['input']);
+        self::assertSame($saved['result'], $scenario['result']);
+        self::assertSame($snapshot['snapshot_id'], $scenario['input']['cost_evidence_snapshot_id']);
+        self::assertSame($snapshot['content_digest'], $scenario['input']['cost_evidence_digest']);
+        self::assertTrue($scenario['input']['cost_evidence_confirmed']);
+        self::assertSame(0.004, $scenario['input']['consumables_cost']['items'][0]['package_price']);
+        self::assertEqualsWithDelta(0.004, $scenario['result']['effective_operating_cost_per_night'], 1e-12);
+        self::assertSame(0, Db::name('investment_payback_entries')->count());
+    }
+
+    public function testMissingKnownCostPersistsAsPartialAndCannotBecomeScenarioReference(): void
+    {
+        $row = array_replace($this->actualInput()['items'][0], ['closing_quantity' => '']);
+        $snapshot = $this->evidence(['items' => [$row]]);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10, [80], 80, '2026-09', 'whole_hotel', 'consumables_actual');
+        $read = $store->read($scope, $snapshot['snapshot_id']);
+        self::assertTrue($read['readback_verified']);
+        self::assertSame($scope, $read['scope']);
+        self::assertSame($snapshot['result'], $read['result']);
+        self::assertSame($snapshot['content_digest'], $read['content_digest']);
+        self::assertSame('partial', $read['result']['status']);
+        self::assertNull($read['result']['known_consumed_cost']);
+        self::assertNull($read['result']['actual_consumed_cost']);
+        self::assertNull($read['result']['actual_consumables_cost_per_room_night']);
+        $id = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
+        $eventsBefore = Db::name('investment_payback_events')->count();
+        $service = Fixture::scenarios(); $input = $this->scenario($snapshot);
+        foreach ([fn() => $service->preview($id, ['scenario' => $input]),
+            fn() => $service->save($id, ['expected_version' => 1, 'scenario' => $input])] as $action) {
+            try { $action(); self::fail('Missing inventory cannot be adopted as zero cost'); }
+            catch (RuntimeException $error) { self::assertSame(409, $error->getCode()); }
+        }
+        self::assertNull($service->detail($id)['result']);
+        self::assertSame(0, Db::name('investment_payback_entries')->count());
+        self::assertSame($eventsBefore, Db::name('investment_payback_events')->count());
+    }
+
+    public function testTinyNegativeBalancePersistsAsPartialAndCannotBecomeScenarioReference(): void
+    {
+        $row = array_replace($this->actualInput()['items'][0], ['opening_quantity' => 0,
+            'purchased_quantity' => 0, 'closing_quantity' => 0.0000001, 'written_off_quantity' => 0]);
+        $snapshot = $this->evidence(['items' => [$row]]);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10, [80], 80, '2026-09', 'whole_hotel', 'consumables_actual');
+        $read = $store->read($scope, $snapshot['snapshot_id']);
+        self::assertTrue($read['readback_verified']);
+        self::assertSame('partial', $read['result']['status']);
+        self::assertNull($read['result']['items'][0]['consumed_quantity']);
+        self::assertNull($read['result']['actual_consumed_cost']);
+        self::assertContains('towel:inventory_balance_negative', $read['result']['missing_items']);
+        $id = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
+        $eventsBefore = Db::name('investment_payback_events')->count();
+        $service = Fixture::scenarios();
+        $input = $this->scenario($snapshot);
+        foreach ([fn() => $service->preview($id, ['scenario' => $input]),
+            fn() => $service->save($id, ['expected_version' => 1, 'scenario' => $input])] as $action) {
+            try { $action(); self::fail('A negative inventory balance cannot be adopted as zero cost'); }
+            catch (RuntimeException $error) { self::assertSame(409, $error->getCode()); }
+        }
+        self::assertNull($service->detail($id)['result']);
+        self::assertSame(0, Db::name('investment_payback_entries')->count());
+        self::assertSame($eventsBefore, Db::name('investment_payback_events')->count());
+    }
+
     public function testSourceDatesOverrideClientAndCreatedAtButDoNotAlterTheEvidenceSnapshot(): void
     {
         $snapshot = $this->evidence();
@@ -191,6 +321,14 @@ final class ActualConsumablesScenarioReferenceTest extends TestCase
         self::assertNotSame('2099-01-01', $saved['input']['consumables_cost']['items'][0]['as_of']);
         self::assertSame($original, Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id', $snapshot['snapshot_id'])->find());
         self::assertSame($saved['input'], Fixture::scenarios()->detail($id)['input']);
+    }
+
+    public function testComposedScenarioReportsBothInstalledReferenceCapabilities(): void
+    {
+        $id = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
+        self::assertSame(['procurement_reference' => true, 'actual_consumables_reference' => true],
+            Fixture::scenarios()->detail($id)['capabilities']);
+        self::assertSame(0, Db::name('investment_payback_entries')->count());
     }
 
     public function testShanghaiTodayEvidenceSavesAdoptsAndReadsBackWhileExcludedFutureRowsStayExcluded(): void

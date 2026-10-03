@@ -88,6 +88,49 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertNotContains('on_books_snapshot_time_not_increasing', $result['data_gaps']);
     }
 
+    public function testFourDecimalPickupDifferencesKeepPositiveNegativeAndActualZero(): void
+    {
+        foreach ([[1.0, 1.0001, 0.0, 0.0001, 0.0001], [1.0001, 1.0, 0.0001, -0.0001, 0.0], [1.0, 1.0, 0.0, 0.0, 0.0]] as [$before, $after, $cancel, $delta, $gross]) {
+            $result = $this->service()->summarizeSnapshots(7, 80, 'ctrip', '2026-09-10', [
+                $this->snapshot(1, '2026-08-30 08:00:00.000000', $before, $before, 0, 10),
+                $this->snapshot(2, '2026-08-30 10:00:00.000000', $after, $after, $cancel, 10),
+            ]);
+            self::assertSame('ready', $result['status']);
+            self::assertSame($delta, $result['net_pickup_room_nights']);
+            self::assertSame($delta, $result['room_revenue_delta']);
+            self::assertSame($gross, $result['gross_pickup_room_nights']);
+        }
+    }
+
+    public function testGrossBookingCounterResetRequiresRebaselineBeforeAnyPickup(): void
+    {
+        $result = $this->service()->summarizeSnapshots(7, 80, 'ctrip', '2026-09-10', [
+            $this->snapshot(1, '2026-08-30 08:00:00.000000', 8, 800, 1, 10),
+            $this->snapshot(2, '2026-08-30 10:00:00.000000', 9, 900, 2, 9),
+        ]);
+        self::assertSame('rebaseline_required', $result['status']);
+        self::assertNull($result['net_pickup_room_nights']);
+        self::assertNull($result['gross_pickup_room_nights']);
+        self::assertNull($result['room_revenue_delta']);
+        self::assertNull($result['cancellation_rate_percent']);
+        self::assertContains('gross_booking_counter_reset_or_mismatch', $result['data_gaps']);
+    }
+
+    public function testUnknownGrossCounterIsNotZeroOrAnInventedReset(): void
+    {
+        foreach ([[null, 9], [10, null], [null, null], [0, 0]] as [$beforeGross, $afterGross]) {
+            $result = $this->service()->summarizeSnapshots(7, 80, 'ctrip', '2026-09-10', [
+                $this->snapshot(1, '2026-08-30 08:00:00.000000', 0, 0, 0, $beforeGross),
+                $this->snapshot(2, '2026-08-30 10:00:00.000000', 0, 0, 0, $afterGross),
+            ]);
+            self::assertSame('ready', $result['status']);
+            self::assertSame(0.0, $result['net_pickup_room_nights']);
+            self::assertSame(0.0, $result['gross_pickup_room_nights']);
+            self::assertSame($afterGross === null ? null : (float)$afterGross, $result['current_gross_booking_room_nights']);
+            self::assertNotContains('gross_booking_counter_reset_or_mismatch', $result['data_gaps']);
+        }
+    }
+
     public function testMissingOrResetCancellationCounterNeverBecomesZeroGrossPickup(): void
     {
         $service = new BookingDemandPlanningService();
@@ -236,6 +279,128 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertSame(1, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
     }
 
+    public function testLegacySnapshotWriterRejectsExcessPrecisionWithoutRoundingAnyMetric(): void
+    {
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-overprecision-' . $field), [$field => 0.00001]);
+            try {
+                $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+                self::fail('a positive fifth decimal cannot become a zero legacy fact');
+            } catch (InvalidArgumentException $error) {
+                self::assertSame($field . '_precision_invalid', $error->getMessage());
+            }
+        }
+        self::assertSame(0, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+    }
+
+    public function testSnapshotMetricsAtCompatibleMaximumSaveAndReadBackExactly(): void
+    {
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            foreach ([9999999999.9999, '9999999999.9999'] as $index => $value) {
+                $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-at-limit-' . $field . '-' . $index), [$field => $value]);
+                $saved = $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+                self::assertSame(9999999999.9999, $saved[$field]);
+                self::assertSame($saved, $this->service()->readSnapshot(7, 80, $saved['id']) + ['idempotent' => false]);
+            }
+        }
+    }
+
+    public function testSignedZeroCanonicalizesAllSnapshotMetricsBeforeSaveAndReadback(): void
+    {
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            foreach ([-0.0, '-0.0000'] as $index => $value) {
+                $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-signed-zero-' . $field . '-' . $index), [$field => $value]);
+                $saved = $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+                self::assertSame('0.0', json_encode($saved[$field], JSON_PRESERVE_ZERO_FRACTION));
+                self::assertSame($saved, $this->service()->readSnapshot(7, 80, $saved['id']) + ['idempotent' => false]);
+                self::assertSame($saved['id'], $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11)['id']);
+            }
+        }
+    }
+
+    public function testSnapshotMetricsOverCompatibleMaximumAreRejectedBeforePersistence(): void
+    {
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            foreach ([1e10, '10000000000', 1e14, '99999999999999.9999'] as $index => $value) {
+                $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-over-limit-' . $field . '-' . $index), [$field => $value]);
+                try {
+                    $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+                    self::fail('out-of-range ' . $field . ' must not reach storage');
+                } catch (InvalidArgumentException $error) {
+                    self::assertSame($field . '_out_of_range', $error->getMessage());
+                }
+                self::assertSame(0, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+            }
+        }
+    }
+
+    public function testLegacyHighRevenueRemainsReadableWithoutRelaxingNewWriteLimits(): void
+    {
+        $service = $this->service();
+        foreach (['10000000000.00', '1000000000000.25', '90000000000000.25'] as $index => $legacyRevenue) {
+            $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-legacy-high-' . $index), [
+                'stay_date' => '2026-08-31', 'captured_at' => '2026-08-30 10:0' . $index . ':00',
+            ]);
+            $content = $service->validatedSnapshotContent(7, [80], 80, $input);
+            $content['on_books_room_revenue'] = (float)$legacyRevenue;
+            $digestContent = $content;
+            unset($digestContent['hotel_id']);
+            ksort($digestContent);
+            $digest = hash('sha256', json_encode($digestContent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR));
+            $storedContent = array_replace($content, ['on_books_room_revenue' => $legacyRevenue]);
+            $storedRow = $storedContent + [
+                'content_digest' => $digest, 'idempotency_key' => 'TEST-ONLY-stored-legacy-high-' . $index,
+                'created_by' => 11, 'created_at' => '2026-08-30 10:0' . $index . ':00',
+            ];
+            // Seed a legacy decimal as a bound string, bypassing the present
+            // writer's float conversion whose conservative cap is under test.
+            $pdo = Db::connect()->getPdo();
+            $statement = $pdo->prepare('INSERT INTO ' . BookingDemandPlanningService::SNAPSHOT_TABLE . ' (' . implode(',', array_keys($storedRow)) . ') VALUES (' . implode(',', array_fill(0, count($storedRow), '?')) . ')');
+            $statement->execute(array_values($storedRow));
+            $id = (int)$pdo->lastInsertId();
+            self::assertSame((float)$legacyRevenue, (float)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->where('id', $id)->value('on_books_room_revenue'));
+            $read = $service->readSnapshot(7, 80, $id);
+            self::assertSame((float)$legacyRevenue, $read['on_books_room_revenue']);
+            self::assertSame($digest, $read['content_digest']);
+            self::assertSame($read, $service->validatedSnapshotReadback(Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->where('id', $id)->find()));
+            self::assertSame((float)$legacyRevenue, $service->bookingOverview(7, [80], 80, 'ctrip', '2026-08-31')['current_on_books_room_revenue']);
+            self::assertSame((float)$legacyRevenue, $service->demandPlan(7, [80], 80, 'ctrip', '2026-08-30')['windows'][0]['on_books_room_revenue_total']);
+            try {
+                $service->saveOnBooksSnapshot(7, [80], 80, array_replace($input, ['on_books_room_revenue' => $legacyRevenue]), 11);
+                self::fail('reading a legacy amount must not authorize a new high-value write');
+            } catch (InvalidArgumentException $error) {
+                self::assertSame('on_books_room_revenue_out_of_range', $error->getMessage());
+            }
+            self::assertSame($index + 1, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+            self::assertSame($digest, Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->where('id', $id)->value('content_digest'));
+        }
+        $stored = Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->where('id', $id)->find();
+        $stored['on_books_room_revenue'] = 10000000000.0;
+        try {
+            $service->validatedSnapshotReadback($stored);
+            self::fail('legacy readback must still verify the immutable digest');
+        } catch (RuntimeException $error) {
+            self::assertSame('on_books_snapshot_content_digest_mismatch', $error->getMessage());
+        }
+    }
+
+    public function testBatchHotelIdentityRejectsCoercibleNonIntegerValues(): void
+    {
+        foreach ([true, false, 80.0, [], null, '80.0', '8e1'] as $invalidId) {
+            try {
+                $this->service()->validatedSnapshotBatchContent(7, [80], [['hotel_id' => $invalidId] + $this->concurrentSnapshotInput('TEST-ONLY-batch-identity')]);
+                self::fail('batch scope identity must be an integer or integer-form string');
+            } catch (InvalidArgumentException $error) {
+                self::assertSame('hotel_scope_required', $error->getMessage());
+            }
+        }
+        foreach ([80, '80'] as $validId) {
+            $normalized = $this->service()->validatedSnapshotBatchContent(7, [80], [['hotel_id' => $validId] + $this->concurrentSnapshotInput('TEST-ONLY-batch-identity')]);
+            self::assertSame(80, $normalized[0]['hotel_id']);
+        }
+        self::assertSame(0, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+    }
+
     public function testSnapshotDeadlockRetriesTheWholeTransactionWithinTheBoundedBudget(): void
     {
         $attempts = 0;
@@ -308,6 +473,27 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertSame(0, $plan['external_write_count']);
         self::assertNotContains(14, $plan['requested_horizons']);
         self::assertNotContains(30, $plan['requested_horizons']);
+    }
+
+    public function testDemandPlanWindowsPreserveFourDecimalTotalsAndPickup(): void
+    {
+        $service = $this->service();
+        for ($offset = 1; $offset <= 7; $offset++) {
+            $stayDate = (new DateTimeImmutable('2026-08-30'))->modify('+' . $offset . ' days')->format('Y-m-d');
+            $this->savePlanSnapshot($service, $stayDate, '08:00:00', 1, 1);
+            $this->savePlanSnapshot($service, $stayDate, '10:00:00', 1.0001, 1.0001);
+        }
+        $plan = $service->demandPlan(7, [80], 80, 'ctrip', '2026-08-30');
+        foreach ($plan['windows'] as $index => $window) {
+            $total = [1.0001, 3.0003, 7.0007][$index];
+            $pickup = [0.0001, 0.0003, 0.0007][$index];
+            self::assertSame($total, $window['on_books_room_nights_total']);
+            self::assertSame($total, $window['observed_on_books_room_nights']);
+            self::assertSame($total, $window['on_books_room_revenue_total']);
+            self::assertSame($total, $window['observed_on_books_room_revenue']);
+            self::assertSame($pickup, $window['net_pickup_room_nights_total']);
+            self::assertSame($pickup, $window['observed_net_pickup_room_nights']);
+        }
     }
 
     public function testDemandPlanKeepsIncompleteThreeAndSevenDayTotalsNull(): void

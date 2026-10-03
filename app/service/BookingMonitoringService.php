@@ -15,6 +15,7 @@ final class BookingMonitoringService
     public const TABLE = 'hotel_room_type_on_books_snapshots';
     public const CONTRACT = 'booking_fixed_baseline_monitor.v1';
     public const SNAPSHOT_CONTRACT = 'room_type_on_books_snapshot.v1';
+    private const MAX_CELLS = 1000;
     private const CONTENT_FIELDS = [
         'contract_version', 'tenant_id', 'hotel_id', 'source_hotel_id', 'platform', 'fact_scope',
         'stay_date', 'captured_at', 'source_method', 'source_ref_hash', 'on_books_room_nights',
@@ -24,10 +25,10 @@ final class BookingMonitoringService
     private $clock;
     private BookingDemandPlanningService $planning;
 
-    public function __construct(?callable $clock = null)
+    public function __construct(?callable $clock = null, ?callable $transactionRunner = null)
     {
         $this->clock = $clock ?? static fn(): DateTimeImmutable => new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
-        $this->planning = new BookingDemandPlanningService($this->clock);
+        $this->planning = new BookingDemandPlanningService($this->clock, $transactionRunner);
     }
 
     /** User submissions remain manual/unverified; confirmation is never platform source verification. */
@@ -36,30 +37,33 @@ final class BookingMonitoringService
         if ($tenantId <= 0) throw new InvalidArgumentException('booking_monitor_tenant_required');
         if ($actorId <= 0) throw new InvalidArgumentException('booking_monitor_actor_required');
         if ($rows === [] || count($rows) > 200) throw new InvalidArgumentException('booking_monitor_import_requires_1_to_200_rows');
-        $prepared = [];
-        $keys = [];
+        $normalizedRows = [];
         foreach ($rows as $row) {
             if (!is_array($row)) throw new InvalidArgumentException('booking_monitor_row_invalid');
-            $hotelId = $this->roomId($row['hotel_id'] ?? 0);
-            $row['source_method'] = 'manual_file_import';
+            $row['hotel_id'] = $this->roomId($row['hotel_id'] ?? 0);
+            $row['source_method'] = ($row['source_method'] ?? '') === 'manual_entry' ? 'manual_entry' : 'manual_file_import';
             $row['quality_status'] = filter_var($row['operator_attested'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 'manual_confirmed' : 'unverified';
-            $content = $this->planning->validatedSnapshotContent($tenantId, $permittedHotelIds, $hotelId, $row);
-            foreach (['on_books_room_nights' => 1e10, 'on_books_room_revenue' => 1e14,
-                'cumulative_cancel_room_nights' => 1e10, 'gross_booking_room_nights' => 1e10] as $field => $limit) {
-                if ($content[$field] !== null && (!is_finite($content[$field]) || $content[$field] >= $limit)) {
-                    throw new InvalidArgumentException($field . '_invalid');
-                }
-            }
+            $normalizedRows[] = $row;
+        }
+        $contents = $this->planning->validatedSnapshotBatchContent($tenantId, $permittedHotelIds, $normalizedRows);
+        $prepared = [];
+        $keys = [];
+        $rooms = [];
+        $superseded = [];
+        foreach ($normalizedRows as $index => $row) {
+            $hotelId = $row['hotel_id'];
+            $content = $contents[$index];
             $roomId = $this->roomId($row['room_type_id'] ?? 0);
-            $roomName = '酒店汇总';
-            if ($roomId > 0) {
-                $room = Db::name('room_types')->where('hotel_id', $hotelId)->where('id', $roomId)->field('id,name')->find();
-                if (!$room) throw new RuntimeException('booking_monitor_room_type_outside_hotel', 403);
-                $roomName = (string)$room['name'];
-            }
             $supersedes = $this->roomId($row['supersedes_snapshot_id'] ?? 0);
+            $old = null;
             if ($supersedes > 0) {
-                $old = $this->readSnapshot($tenantId, $permittedHotelIds, $hotelId, $supersedes);
+                // The batch already authorized this hotel; cache only the digest-verified immutable original.
+                if (!isset($superseded[$hotelId][$supersedes])) {
+                    $stored = Db::name(self::TABLE)->where('tenant_id', $tenantId)->where('hotel_id', $hotelId)->where('id', $supersedes)->find();
+                    if (!$stored) throw new RuntimeException('booking_monitor_snapshot_not_found', 404);
+                    $superseded[$hotelId][$supersedes] = $this->hydrate($stored);
+                }
+                $old = $superseded[$hotelId][$supersedes];
                 foreach (['platform', 'stay_date', 'captured_at', 'fact_scope'] as $field) {
                     if ($old[$field] !== $content[$field]) throw new InvalidArgumentException('booking_monitor_correction_scope_mismatch');
                 }
@@ -67,28 +71,41 @@ final class BookingMonitoringService
             }
             $content['contract_version'] = self::SNAPSHOT_CONTRACT;
             $content['room_type_id'] = $roomId;
-            $content['room_type_name'] = $roomName;
             $content['supersedes_snapshot_id'] = $supersedes > 0 ? $supersedes : null;
-            $digest = $this->digest($content);
             $key = trim((string)($row['idempotency_key'] ?? ''));
+            if ($key !== '' && !preg_match('/^[A-Za-z0-9_-]{8,100}$/D', $key)) throw new InvalidArgumentException('booking_monitor_idempotency_key_invalid');
+            // An original receipt keeps its saved room name even after catalogue edits.
+            // Scope authorization and all submitted facts were validated above.
+            $replay = $this->findSubmittedReplay($content, $key);
+            $roomName = $replay['room_type_name'] ?? '酒店汇总';
+            if ($replay === null && $roomId > 0) {
+                if ($old !== null) $roomName = $old['room_type_name'];
+                else {
+                    if (!array_key_exists($roomId, $rooms[$hotelId] ?? [])) {
+                        $rooms[$hotelId][$roomId] = Db::name('room_types')->where('hotel_id', $hotelId)->where('id', $roomId)->where('is_enabled', 1)->field('id,name')->find();
+                    }
+                    $room = $rooms[$hotelId][$roomId];
+                    if (!$room) throw new RuntimeException('booking_monitor_room_type_outside_hotel', 403);
+                    $roomName = (string)$room['name'];
+                }
+            }
+            $content['room_type_name'] = $roomName;
+            $digest = $this->digest($content);
             if ($key === '') $key = $digest;
-            if (!preg_match('/^[A-Za-z0-9_-]{8,100}$/D', $key)) throw new InvalidArgumentException('booking_monitor_idempotency_key_invalid');
             $key = hash('sha256', $key);
             $scopeKey = $hotelId . '|' . $key;
             if (isset($keys[$scopeKey])) throw new InvalidArgumentException('booking_monitor_import_duplicate_key');
             $keys[$scopeKey] = true;
             $prepared[] = ['content' => $content, 'content_digest' => $digest, 'idempotency_key' => $key];
         }
-        $saved = Db::transaction(function () use ($prepared, $actorId): array {
+        $transaction = function () use ($prepared, $actorId): array {
             $saved = [];
             foreach ($prepared as $item) {
                 $content = $item['content'];
                 $existing = Db::name(self::TABLE)->where('tenant_id', $content['tenant_id'])->where('hotel_id', $content['hotel_id'])
                     ->where('idempotency_key', $item['idempotency_key'])->lock(true)->find();
                 if ($existing) {
-                    $receipt = $this->hydrate($existing);
-                    if (!hash_equals($receipt['content_digest'], $item['content_digest'])) throw new RuntimeException('booking_monitor_idempotency_conflict', 409);
-                    $saved[] = $receipt + ['idempotent' => true];
+                    $saved[] = $this->verifiedReplay($existing, $item['content_digest']);
                     continue;
                 }
                 $id = (int)Db::name(self::TABLE)->insertGetId($content + [
@@ -102,7 +119,9 @@ final class BookingMonitoringService
                 $saved[] = $receipt + ['idempotent' => false];
             }
             return $saved;
-        });
+        };
+        $saved = $this->planning->runIdempotentWrite($transaction,
+            fn(): ?array => $this->findBatchReplay($prepared), static fn(array $receipts): array => $receipts);
         return ['contract_version' => self::CONTRACT, 'tenant_id' => $tenantId, 'save_status' => 'saved_readback_verified',
             'readback_verified' => true, 'row_count' => count($saved), 'snapshots' => $saved, 'external_write_count' => 0];
     }
@@ -123,17 +142,23 @@ final class BookingMonitoringService
         $date = $this->date((string)($input['business_date'] ?? $this->now()->format('Y-m-d')));
         $fixedTime = trim((string)($input['fixed_time'] ?? '09:00'));
         if (!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/D', $fixedTime)) throw new InvalidArgumentException('booking_monitor_fixed_time_invalid');
-        $horizon = filter_var($input['horizon_days'] ?? 7, FILTER_VALIDATE_INT);
+        $horizonInput = $input['horizon_days'] ?? 7;
+        if (!is_int($horizonInput) && !is_string($horizonInput)) throw new InvalidArgumentException('booking_monitor_horizon_invalid');
+        $horizon = filter_var($horizonInput, FILTER_VALIDATE_INT);
         if ($horizon === false || $horizon < 1 || $horizon > 30) throw new InvalidArgumentException('booking_monitor_horizon_invalid');
         $anchor = new DateTimeImmutable($date . ' ' . $fixedTime . ':00', new DateTimeZone('Asia/Shanghai'));
         if ($date > $this->now()->format('Y-m-d')) throw new InvalidArgumentException('booking_monitor_business_date_future');
         $start = $anchor->modify('+1 day')->format('Y-m-d');
         $end = $anchor->modify('+' . $horizon . ' days')->format('Y-m-d');
         $historyStart = $anchor->modify('-27 days')->format('Y-m-d');
-        $roomTypes = Db::name('room_types')->whereIn('hotel_id', array_keys($hotels))->field('id,hotel_id,name')->order('id', 'asc')->select()->toArray();
+        $maxDimensions = intdiv(self::MAX_CELLS, $horizon);
+        // Include one overflow sentinel, without materializing an unbounded catalogue.
+        $roomTypes = Db::name('room_types')->whereIn('hotel_id', array_keys($hotels))->where('is_enabled', 1)->field('id,hotel_id,name')
+            ->order('id', 'asc')->limit($maxDimensions - count($hotels) + 1)->select()->toArray();
         $dimensions = [];
         foreach ($hotels as $hotelId => $hotel) $dimensions[$hotelId] = [0 => '酒店汇总（不拆分旧数据）'];
         foreach ($roomTypes as $room) $dimensions[(int)$room['hotel_id']][(int)$room['id']] = (string)$room['name'];
+        $this->assertCellLimit($dimensions, $horizon);
         $rows = Db::name(self::TABLE)->where('tenant_id', $tenantId)->whereIn('hotel_id', array_keys($hotels))->where('platform', $platform)
             ->whereBetween('stay_date', [$historyStart, $end])->where('captured_at', '<=', $this->now()->format('Y-m-d H:i:s.u'))
             ->order('captured_at', 'asc')->order('id', 'asc')->limit(10001)->select()->toArray();
@@ -157,6 +182,8 @@ final class BookingMonitoringService
             $dimensions[$hotelId][$roomId] ??= $item['room_type_name'] . '（历史房型）';
             $groups[$hotelId . '|' . $roomId . '|' . $item['stay_date']][] = $item;
         }
+        // Disabled/deleted room types represented by immutable history consume the same budget.
+        $this->assertCellLimit($dimensions, $horizon);
         $cells = [];
         foreach ($hotels as $hotelId => $hotel) {
             foreach ($dimensions[$hotelId] as $roomId => $roomName) {
@@ -181,21 +208,45 @@ final class BookingMonitoringService
                     $count = count($values);
                     $median = $count < 2 ? null : ($count % 2 ? $values[intdiv($count, 2)] : ($values[$count / 2 - 1] + $values[$count / 2]) / 2);
                     $currentRooms = $cell['current']['status'] === 'ready' ? $cell['current']['on_books_room_nights'] : null;
+                    $requirements = [];
+                    foreach (['current' => $cell['current'], 'baseline' => $cell['baseline']] as $role => $slot) {
+                        $requirements[] = ['role' => $role, 'stay_date' => $stayDate, 'target_time' => $slot['target_time'],
+                            'status' => $slot['status'], 'evidence_ref' => $slot['evidence_ref']];
+                    }
+                    foreach ($history as $index => $item) {
+                        $requirements[] = ['role' => 'history_week_' . ($index + 1), 'stay_date' => $item['stay_date'],
+                            'target_time' => $item['slot']['target_time'], 'status' => $item['comparable'] ? 'ready'
+                                : ($item['slot']['status'] === 'ready' ? $item['scope_status'] : $item['slot']['status']),
+                            'evidence_ref' => $item['slot']['evidence_ref']];
+                    }
                     unset($cell['current']['_row'], $cell['baseline']['_row']);
                     $cells[] = $cell + ['hotel_id' => $hotelId, 'hotel_name' => (string)$hotel['name'], 'room_type_id' => $roomId,
                         'room_type_name' => $roomName, 'stay_date' => $stayDate, 'lead_time_days' => $lead,
                         'history' => $history, 'history_coverage' => $count, 'history_status' => $count === 4 ? 'ready' : ($count > 0 ? 'partial' : 'missing'),
                         'same_lead_time_median_room_nights' => $median,
-                        'delta_vs_same_lead_time_median' => $median !== null && $currentRooms !== null ? round($currentRooms - $median, 2) : null];
+                        'delta_vs_same_lead_time_median' => $median !== null && $currentRooms !== null ? round($currentRooms - $median, 4) : null,
+                        'baseline_readiness' => ['status' => $cell['status'] === 'ready' && $count === 4 ? 'ready' : 'incomplete',
+                            'requirements' => $requirements,
+                            'gaps' => array_values(array_filter($requirements, static fn(array $item): bool => $item['status'] !== 'ready'))]];
                 }
             }
         }
         $readyCount = count(array_filter($cells, static fn(array $cell): bool => $cell['status'] === 'ready'));
-        return ['contract_version' => self::CONTRACT, 'tenant_id' => $tenantId, 'hotel_ids' => array_keys($hotels), 'platform' => $platform,
+        $completeBaselineCount = count(array_filter($cells, static fn(array $cell): bool => $cell['baseline_readiness']['status'] === 'ready'));
+        $selectableHotels = Db::name('hotels')->where('tenant_id', $tenantId)->whereIn('id', array_map('intval', $permittedHotelIds))
+            ->field('id,tenant_id,name')->order('id', 'asc')->select()->toArray();
+        foreach ($selectableHotels as &$hotel) {
+            $hotel['id'] = (int)$hotel['id'];
+            $hotel['tenant_id'] = (int)$hotel['tenant_id'];
+        }
+        unset($hotel);
+        return ['contract_version' => self::CONTRACT, 'tenant_id' => $tenantId, 'hotel_ids' => array_keys($hotels), 'selectable_hotels' => $selectableHotels, 'platform' => $platform,
             'business_date' => $date, 'fixed_time' => $fixedTime, 'timezone' => 'Asia/Shanghai', 'horizon_days' => $horizon,
             'observation_time' => $anchor->format('Y-m-d H:i:s'), 'baseline_time' => $anchor->modify('-1 day')->format('Y-m-d H:i:s'),
             'status' => $readyCount === count($cells) ? 'ready' : ($readyCount > 0 ? 'partial' : 'blocked'),
             'cells' => $cells, 'room_types' => $roomTypes, 'ready_cell_count' => $readyCount, 'cell_count' => count($cells),
+            'baseline_readiness' => ['status' => $completeBaselineCount === count($cells) ? 'ready' : 'incomplete',
+                'complete_cell_count' => $completeBaselineCount, 'cell_count' => count($cells), 'required_history_weeks' => 4],
             'meta' => ['schema_version' => self::CONTRACT, 'tenant_id' => $tenantId, 'hotel_ids' => array_keys($hotels), 'platform' => $platform,
                 'business_date' => $date, 'source_method' => 'saved_snapshot_readback', 'collected_at' => $this->now()->format(DATE_ATOM)],
             'boundaries' => ['whole_hotel_demand_claimed' => false, 'automatic_pricing' => false, 'automatic_inventory_write' => false, 'external_write_count' => 0]];
@@ -239,7 +290,7 @@ final class BookingMonitoringService
         $base = ['status' => 'missing', 'target_time' => $target->format('Y-m-d H:i:s'), 'captured_at' => null,
             'evidence_ref' => null, 'quality_status' => null, 'source_method' => null, 'fact_scope' => null,
             'on_books_room_nights' => null, 'on_books_room_revenue' => null, 'lag_minutes' => null, '_row' => null];
-        if ($target > $this->now()) return $base;
+        if ($target > $this->now()) return array_replace($base, ['status' => 'not_due']);
         usort($rows, static fn(array $a, array $b): int => [($a['captured_at'] ?? ''), ($a['_priority'] ?? 0), ($a['id'] ?? 0)] <=> [($b['captured_at'] ?? ''), ($b['_priority'] ?? 0), ($b['id'] ?? 0)]);
         $before = null;
         $after = null;
@@ -247,7 +298,7 @@ final class BookingMonitoringService
             $time = new DateTimeImmutable((string)$row['captured_at'], new DateTimeZone('Asia/Shanghai'));
             if ($time > $this->now()) continue;
             if ($time <= $target) $before = $row;
-            elseif ($after === null) $after = $row;
+            elseif ($after === null || $row['captured_at'] === $after['captured_at']) $after = $row;
         }
         if ($before !== null && substr((string)$before['captured_at'], 0, 10) !== $target->format('Y-m-d')
             && $after !== null && substr((string)$after['captured_at'], 0, 10) === $target->format('Y-m-d')) $before = null;
@@ -265,6 +316,13 @@ final class BookingMonitoringService
             'on_books_room_revenue' => $row['on_books_room_revenue'], 'lag_minutes' => round($seconds / 60, 4), '_row' => $row];
     }
 
+    private function assertCellLimit(array $dimensions, int $horizon): void
+    {
+        if (array_sum(array_map('count', $dimensions)) * $horizon > self::MAX_CELLS) {
+            throw new RuntimeException('booking_monitor_cell_limit_narrow_scope', 422);
+        }
+    }
+
     private function authorizedHotels(int $tenantId, array $permitted, array $ids): array
     {
         if ($tenantId <= 0 || $ids === [] || count($ids) > 20) throw new InvalidArgumentException('booking_monitor_requires_1_to_20_same_tenant_hotels');
@@ -276,6 +334,60 @@ final class BookingMonitoringService
         foreach ($rows as $row) $result[(int)$row['id']] = $row;
         ksort($result);
         return $result;
+    }
+
+    /** Match immutable submitted facts before consulting the mutable room catalogue. */
+    private function findSubmittedReplay(array $submitted, string $rawKey): ?array
+    {
+        $query = Db::name(self::TABLE)->where('tenant_id', $submitted['tenant_id'])->where('hotel_id', $submitted['hotel_id']);
+        if ($rawKey !== '') {
+            $row = $query->where('idempotency_key', hash('sha256', $rawKey))->find();
+            if (!$row) return null;
+            $receipt = $this->hydrate($row);
+            foreach ($submitted as $field => $value) {
+                if ($receipt[$field] !== $value) throw new RuntimeException('booking_monitor_idempotency_conflict', 409);
+            }
+            return $receipt;
+        }
+        // The existing scope index narrows this to one hotel/platform/room/stay/capture;
+        // every submitted source, metric and quality field further limits candidates.
+        foreach ($submitted as $field => $value) {
+            if ($value === null) $query->whereNull($field);
+            else $query->where($field, $value);
+        }
+        foreach ($query->order('id', 'asc')->cursor() as $row) {
+            // Preserve the original auto-key algorithm, including the saved room name.
+            // Identical facts saved with an explicit key are separate submissions.
+            if (!hash_equals(hash('sha256', (string)$row['content_digest']), (string)$row['idempotency_key'])) continue;
+            $receipt = $this->hydrate($row);
+            foreach ($submitted as $field => $value) {
+                if ($receipt[$field] !== $value) throw new RuntimeException('booking_monitor_idempotency_conflict', 409);
+            }
+            return $receipt;
+        }
+        return null;
+    }
+
+    /** Recover only a complete digest-verified batch; a partial winner requires retrying the atomic batch. */
+    private function findBatchReplay(array $prepared): ?array
+    {
+        $receipts = [];
+        $complete = true;
+        foreach ($prepared as $item) {
+            $content = $item['content'];
+            $existing = Db::name(self::TABLE)->where('tenant_id', $content['tenant_id'])->where('hotel_id', $content['hotel_id'])
+                ->where('idempotency_key', $item['idempotency_key'])->find();
+            if (!$existing) { $complete = false; continue; }
+            $receipts[] = $this->verifiedReplay($existing, $item['content_digest']);
+        }
+        return $complete ? $receipts : null;
+    }
+
+    private function verifiedReplay(array $row, string $contentDigest): array
+    {
+        $receipt = $this->hydrate($row);
+        if (!hash_equals($receipt['content_digest'], $contentDigest)) throw new RuntimeException('booking_monitor_idempotency_conflict', 409);
+        return $receipt + ['idempotent' => true];
     }
 
     private function hydrate(array $row): array
@@ -300,6 +412,7 @@ final class BookingMonitoringService
 
     private function roomId(mixed $value): int
     {
+        if (!is_int($value) && !is_string($value)) throw new InvalidArgumentException('booking_monitor_room_type_id_invalid');
         $id = filter_var($value, FILTER_VALIDATE_INT);
         if ($id === false || $id < 0) throw new InvalidArgumentException('booking_monitor_room_type_id_invalid');
         return $id;

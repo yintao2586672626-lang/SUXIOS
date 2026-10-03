@@ -358,13 +358,13 @@
     },
     {
       "id": "operating-finance-control",
-      "product_chain_stage": "净收入、异常恢复与月度经营财务",
+      "product_chain_stage": "净收入、渠道贡献、实际耗材、固定时点预订与月度经营财务",
       "availability": "active",
       "enforcement": "strict",
       "fragment_ids": ["page-operating-finance"],
       "inherited_fragment_ids": [],
       "inheritance_reason": "无继承片段。",
-      "scope_dimensions": ["tenant", "hotel", "business_date", "period_month", "stay_date", "platform", "fact_scope", "source", "fact_status", "currency", "tax_basis", "metric_definition_version"],
+      "scope_dimensions": ["tenant", "hotel", "business_date", "period_month", "stay_date", "captured_at", "room_type", "platform", "fact_scope", "source", "fact_status", "currency", "tax_basis", "metric_definition_version"],
       "state_requirements": ["loading", "ready", "available", "empty", "partial", "missing", "unverified", "operator_attested", "not_applicable", "blocked", "error"],
       "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "zero_external_write", "failure_visibility", "focused_regression"],
       "source_checks": [
@@ -374,17 +374,33 @@
         },
         {
           "path": "public/components/system/operating-finance-control-center.js",
-          "includes": ["operating_finance_control_center.v1", "settlements/import", "on-books-snapshots", "demand-events", "monthly-finance", "external_write_count"]
+          "includes": ["operating_finance_control_center.v1", "settlements/import", "on-books-snapshots", "demand-events", "monthly-finance", "external_write_count", "<operating-economics-workbench", "<booking-monitoring-panel"]
+        },
+        {
+          "path": "public/components/system/operating-economics-workbench.js",
+          "includes": ["channel_economics", "consumables_actual", "readback_verified", "assertSavedSnapshot", "source_quality", "occupied_room_nights_source_ref"]
+        },
+        {
+          "path": "public/components/system/booking-monitoring-panel.js",
+          "includes": ["captured_at", "on_books_room_nights", "readback_verified", "source_ref", "quality_status", "external_write_count"]
         }
       ],
       "regression_checks": [
         {
           "path": "tests/automation/operating_finance_control_center.test.mjs",
           "includes": ["net revenue never becomes whole-hotel GOP", "one selected recovery blocker", "WeCom receipt stays sender-reported only", "same-scope portfolio ranking"]
+        },
+        {
+          "path": "tests/automation/operating_economics_workbench.test.mjs",
+          "includes": ["each draft", "independently reread result", "same-version save", "verified zero can", "same-hotel snapshot reference"]
+        },
+        {
+          "path": "tests/automation/booking_monitoring_panel.test.mjs",
+          "includes": ["true zero", "missing baseline", "other-scope imports", "exact receipt", "GET-only recovery"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",
-      "evidence_limit": "代码级结算、恢复、在手预订、需求参考、企微员工自报、月度财务和多店同口径合同；不证明真实账单导入、员工映射、生产部署、自动审批或外部写入。"
+      "evidence_limit": "代码级结算、渠道贡献、实际耗材、固定时点房型预订与更正、保存和精确回读、需求参考、企微员工自报、月度财务和多店同口径合同；页面合成验收不证明真实账单或OTA采集、人工来源独立核验、员工映射、生产部署、自动审批或外部写入。"
     },
     {
       "id": "revenue-analysis",

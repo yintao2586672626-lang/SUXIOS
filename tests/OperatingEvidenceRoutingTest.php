@@ -255,38 +255,221 @@ final class OperatingEvidenceRoutingTest extends TestCase
         self::assertSame($before, $this->storedRows());
     }
 
-    public function testMalformedConsumablesCollectionsRejectAsInputErrorsWithoutSaving(): void
+    public static function malformedHotelIdentities(): array
+    {
+        $cases = [];
+        foreach (self::evidenceRoutes() as $route => [, , $action, $arguments]) {
+            foreach (['fractional' => 80.9, 'suffix' => '80wrong', 'boolean' => true, 'array' => [80]] as $label => $hotelId) {
+                $cases[$route . ' ' . $label] = [$action, $arguments, $hotelId];
+            }
+        }
+        return $cases;
+    }
+
+    #[DataProvider('malformedHotelIdentities')]
+    public function testMalformedHotelIdentityIsRejectedWithoutCoercion(string $action, array $arguments, mixed $hotelId): void
     {
         $this->database();
         $before = $this->storedRows();
-        foreach (['not-an-array', [['enabled' => true, 'source_date' => ['2026-09-20']]]] as $items) {
-            $request = $this->input(); $request['inputs']['items'] = $items;
-            $response = $this->call('saveEvidence', $request, $this->user());
+        $response = $this->call($action, $this->input(['hotel_id' => $hotelId]), $this->user(), $arguments);
+        self::assertSame(422, $response->getCode(), $response->getContent());
+        self::assertNull($response->getData()['data']);
+        self::assertSame($before, $this->storedRows());
+    }
+
+    public function testIntegerQueryHotelIdentityStillSavesAndReadsBackExactly(): void
+    {
+        $this->database();
+        $input = $this->input(['hotel_id' => '80']);
+        $saved = $this->call('saveEvidence', $input, $this->user());
+        self::assertSame(200, $saved->getCode(), $saved->getContent());
+        $snapshot = $saved->getData()['data'];
+        self::assertSame(80, $snapshot['scope']['hotel_id']);
+        $read = $this->call('readEvidence', $input, $this->user(), ['id' => $snapshot['snapshot_id']]);
+        self::assertSame(200, $read->getCode());
+        self::assertSame($snapshot['content_digest'], $read->getData()['data']['content_digest']);
+    }
+
+    public function testMalformedIdentityDoesNotBypassLogin(): void
+    {
+        $response = $this->call('saveEvidence', $this->input(['hotel_id' => '80wrong']), null);
+        self::assertSame(401, $response->getCode());
+        self::assertNull($response->getData()['data']);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('hundredItemTextCases')]
+    public function testAcceptedHundredItemPreviewSavesAndReadsExactly(string $character, bool $partial): void
+    {
+        $this->database();
+        $request = $this->input();
+        $base = $request['inputs']['items'][0];
+        $request['inputs']['items'] = [];
+        for ($i = 0; $i < 100; ++$i) {
+            $item = array_replace($base, ['id'=>str_repeat($character, 97).sprintf('%03d', $i),
+                'name'=>str_repeat($character, 160), 'source_ref'=>str_repeat($character, 500)]);
+            if ($partial) foreach (['opening_quantity','purchased_quantity','transfer_in_quantity','closing_quantity','transfer_out_quantity','returned_quantity','written_off_quantity','unit_price'] as $key) $item[$key] = null;
+            $request['inputs']['items'][] = $item;
+        }
+        $preview = $this->call('previewEvidence', $request, $this->user());
+        self::assertSame(200, $preview->getCode(), $preview->getContent());
+        $saved = $this->call('saveEvidence', $request, $this->user());
+        self::assertSame(200, $saved->getCode(), $saved->getContent());
+        $data = $saved->getData()['data'];
+        $read = $this->call('readEvidence', $request, $this->user(), ['id'=>$data['snapshot_id']]);
+        self::assertSame(200, $read->getCode(), $read->getContent());
+        self::assertEquals($preview->getData()['data']['result'], $read->getData()['data']['result']);
+        self::assertSame($data, $read->getData()['data'] + ['idempotent'=>false]);
+        self::assertCount(100, $data['inputs']['items']);
+        $json = (string)Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$data['snapshot_id'])->value('payload_json');
+        self::assertSame(100, substr_count($json, '"name":'));
+        self::assertLessThan(1000000, strlen($json));
+        self::assertSame(hash('sha256',$json), $data['content_digest']);
+        $retry = $this->call('saveEvidence', $request, $this->user())->getData()['data'];
+        self::assertSame($data['snapshot_id'], $retry['snapshot_id']);
+        self::assertTrue($retry['idempotent']);
+        self::assertSame(1, Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
+    public static function hundredItemTextCases(): array
+    {
+        return ['ascii complete'=>['A',false], 'unicode complete'=>['🧴',false], 'unicode missing quantities'=>['🧴',true]];
+    }
+
+    public function testReplayReturnsTheOriginalVersionAfterSourceFactsChangeAndRejectsChangedInputs(): void
+    {
+        $this->database();
+        $request = $this->input(['kind'=>'channel_economics','platform'=>'ctrip','inputs'=>[
+            'net_revenue'=>1000,'advertising_spend'=>100,'attributed_order_amount'=>400,'effective_order_amount'=>1200,'refund_amount'=>50,
+            'attribution_basis'=>'synthetic-same-window','advertising_included_in_net_revenue'=>false,'advertising_in_direct_costs'=>false,
+            'cost_coverage_complete'=>true,'operator_attested'=>true,'source_refs'=>['synthetic-ledger'],'costs'=>[],
+        ]]);
+        $sources = ['settlement'=>['readback_verified'=>true,'projection_status'=>'latest_attempt','latest_attempt'=>['batch_status'=>'validated'],
+            'source'=>['source_quality_status'=>'operator_attested'],'basis_ledger'=>['components'=>['net_revenue'=>['value'=>900]]]]];
+        $result = (new \app\service\ChannelEconomicsService())->calculate($request['inputs'],$sources);
+        self::assertSame(900.0,$result['net_revenue']);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10,[80],80,'2026-09','ctrip','channel_economics');
+        $original = $store->save($scope,['inputs'=>$result['inputs'],'result'=>$result,'status'=>$result['status'],'source_quality'=>$result['source_quality']],$request['idempotency_key'],7,$request['inputs']);
+        // The current source tables do not contain that captured settlement. Recalculating would use the manual 1000 instead.
+        $response = $this->call('saveEvidence',$request,$this->user());
+        self::assertSame(200,$response->getCode(),$response->getContent());
+        self::assertSame($original['snapshot_id'],$response->getData()['data']['snapshot_id']);
+        self::assertSame($original['content_digest'],$response->getData()['data']['content_digest']);
+        self::assertSame(900,$response->getData()['data']['result']['net_revenue']);
+        self::assertTrue($response->getData()['data']['idempotent']);
+        self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+        $request['inputs']['net_revenue'] = 1001;
+        $changed = $this->call('saveEvidence',$request,$this->user());
+        self::assertSame(409,$changed->getCode());
+        self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('legacyStorageFormats')]
+    public function testLegacyVersionWithoutRequestDigestRetainsItsOriginalReplayContract(bool $uncompacted): void
+    {
+        $this->database();
+        $request = $this->input();
+        $result = (new \app\service\ConsumablesActualCostService())->calculate($request['inputs']);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10,[80],80,'2026-09','whole_hotel','consumables_actual');
+        $payload = ['inputs'=>$result['inputs'],'result'=>$result,'status'=>$result['status'],'source_quality'=>$result['source_quality']];
+        $original = $store->save($scope,$payload,$request['idempotency_key'],7);
+        if ($uncompacted) {
+            $json = json_encode(['contract_version'=>'operating_evidence.v1','scope'=>$scope] + $payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
+            Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$original['snapshot_id'])->update(['payload_json'=>$json,'content_digest'=>hash('sha256',$json)]);
+            $original = $store->read($scope,$original['snapshot_id']);
+        }
+        $expected = $original;
+        $expected['idempotent'] = true;
+        self::assertSame($expected,$store->replayRequest($scope,$request['idempotency_key'],$request['inputs']));
+        $legacyReplay = $store->save($scope,$payload,$request['idempotency_key'],7);
+        self::assertSame($original['snapshot_id'],$legacyReplay['snapshot_id']);
+        self::assertSame($original['content_digest'],$legacyReplay['content_digest']);
+        self::assertTrue($legacyReplay['idempotent']);
+        $controllerReplay = $this->call('saveEvidence',$request,$this->user());
+        self::assertSame(200,$controllerReplay->getCode(),$controllerReplay->getContent());
+        self::assertSame($original['content_digest'],$controllerReplay->getData()['data']['content_digest']);
+        self::assertTrue($controllerReplay->getData()['data']['idempotent']);
+        self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
+    public static function legacyStorageFormats(): array { return ['original full format'=>[true],'compact format without request digest'=>[false]]; }
+
+    public function testControllerReplaysLegacyChannelVersionBeforeNewEvidenceFieldsAreCalculated(): void
+    {
+        $this->database();
+        $request = $this->input(['kind'=>'channel_economics','platform'=>'ctrip','inputs'=>[
+            'net_revenue'=>1000,'advertising_spend'=>100,'attributed_order_amount'=>400,'effective_order_amount'=>1200,'refund_amount'=>50,
+            'attribution_basis'=>'synthetic-legacy-same-window','advertising_included_in_net_revenue'=>false,'advertising_in_direct_costs'=>false,
+            'cost_coverage_complete'=>true,'operator_attested'=>true,'source_refs'=>['synthetic-legacy-ledger'],'costs'=>[],
+        ]]);
+        $result = (new \app\service\ChannelEconomicsService())->calculate($request['inputs']);
+        unset($result['evidence_chain'],$result['evidence_refs_by_metric'],$result['source_receipts'],$result['inputs']['evidence_refs_by_metric']);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10,[80],80,'2026-09','ctrip','channel_economics');
+        $original = $store->save($scope,['inputs'=>$result['inputs'],'result'=>$result,'status'=>$result['status'],'source_quality'=>$result['source_quality']],$request['idempotency_key'],7);
+        $originalJson = Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$original['snapshot_id'])->value('payload_json');
+        $response = $this->call('saveEvidence',$request,$this->user());
+        self::assertSame(200,$response->getCode(),$response->getContent());
+        $expected = $original;
+        $expected['idempotent'] = true;
+        self::assertSame($expected,$response->getData()['data']);
+        self::assertArrayNotHasKey('evidence_chain',$response->getData()['data']['result']);
+        self::assertSame($originalJson,Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$original['snapshot_id'])->value('payload_json'));
+        $request['inputs']['net_revenue'] = 1001;
+        self::assertSame(409,$this->call('saveEvidence',$request,$this->user())->getCode());
+        self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
+
+    public function testFutureActualAccountingMonthAndInventoryDateCannotPreviewOrSave(): void
+    {
+        $this->database();
+        $today = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $futureMonth = $today->modify('first day of next month')->format('Y-m');
+        $futurePeriod = $this->input(['period_month'=>$futureMonth]);
+        $futurePeriod['inputs']['items'][0]['source_date'] = $futureMonth.'-01';
+        $futureDate = $this->input(['period_month'=>$today->format('Y-m')]);
+        $futureDate['inputs']['items'][0]['source_date'] = $today->modify('+1 day')->format('Y-m-d');
+        $before = $this->storedRows();
+        foreach ([$futurePeriod, $futureDate] as $input) foreach (['previewEvidence','saveEvidence'] as $action) {
+            $response = $this->call($action, $input, $this->user());
             self::assertSame(422, $response->getCode(), $response->getContent());
+            self::assertNull($response->getData()['data']);
             self::assertSame($before, $this->storedRows());
         }
     }
 
-    public function testFractionalHotelIdentityCannotReadOrWriteAnotherHotelEvidence(): void
+    public function testFutureChannelActualsCannotPreviewSaveOrReplayAnOldVersion(): void
     {
         $this->database();
-        $before = $this->storedRows();
-        foreach (['80.5', 80.5] as $hotelId) {
-            foreach (['evidenceOverview', 'previewEvidence', 'saveEvidence'] as $action) {
-                $response = $this->call($action, $this->input(['hotel_id' => $hotelId]), $this->user());
-                self::assertSame(422, $response->getCode(), $response->getContent());
+        $today = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $inputs = ['net_revenue'=>1000, 'advertising_spend'=>100, 'attributed_order_amount'=>400,
+            'effective_order_amount'=>1200, 'refund_amount'=>50, 'attribution_basis'=>'synthetic-same-window',
+            'advertising_included_in_net_revenue'=>false, 'advertising_in_direct_costs'=>false,
+            'cost_coverage_complete'=>true, 'operator_attested'=>true, 'source_refs'=>['synthetic-monthly-ledger'],
+            'costs'=>[['label'=>'合成履约成本', 'amount'=>200, 'source_ref'=>'synthetic-cost', 'included_in_net_revenue'=>false]]];
+        foreach (['ctrip','meituan'] as $platform) {
+            $input = $this->input(['kind'=>'channel_economics', 'platform'=>$platform, 'inputs'=>$inputs,
+                'period_month'=>$today->format('Y-m'), 'idempotency_key'=>'synthetic-future-'.$platform]);
+            foreach (['previewEvidence','saveEvidence'] as $action) {
+                $allowed = $this->call($action, $input, $this->user());
+                self::assertSame(200, $allowed->getCode(), $allowed->getContent());
+            }
+            $input['period_month'] = $today->modify('first day of next month')->format('Y-m');
+            $store = new OperatingEvidenceSnapshotStore();
+            $scope = $store->scope(10,[80],80,$input['period_month'],$platform,'channel_economics');
+            // An old future-dated record remains readable, but cannot bypass the actual-period write guard.
+            $old = $store->save($scope,['inputs'=>$inputs,'result'=>['status'=>'calculated']],$input['idempotency_key'],7,$inputs);
+            $before = $this->storedRows();
+            foreach (['previewEvidence','saveEvidence'] as $action) {
+                $blocked = $this->call($action, $input, $this->user());
+                self::assertSame(422, $blocked->getCode(), $blocked->getContent());
+                self::assertStringContainsString('渠道', $blocked->getData()['message']);
+                self::assertNull($blocked->getData()['data']);
                 self::assertSame($before, $this->storedRows());
             }
+            $read = $this->call('readEvidence',$input,$this->user(),['id'=>$old['snapshot_id']]);
+            self::assertSame(200,$read->getCode(),$read->getContent());
+            self::assertSame($old['content_digest'],$read->getData()['data']['content_digest']);
         }
-    }
-
-    public function testMalformedAccountingMonthIsRejectedWithoutServerFailure(): void
-    {
-        $this->database();
-        $before = $this->storedRows();
-        $response = $this->call('saveEvidence', $this->input(['period_month' => '2026-' . chr(0) . '9']), $this->user());
-        self::assertSame(422, $response->getCode(), $response->getContent());
-        self::assertSame($before, $this->storedRows());
     }
 
     private function database(): void
@@ -367,5 +550,39 @@ final class OperatingEvidenceRoutingTest extends TestCase
     private function middlewares(Rule $rule): array
     {
         return array_map(static fn($middleware) => is_array($middleware) ? $middleware[0] : $middleware, $rule->getOption('middleware', []));
+    }
+
+    public function testMalformedConsumablesCollectionsRejectAsInputErrorsWithoutSaving(): void
+    {
+        $this->database();
+        $before = $this->storedRows();
+        foreach (['not-an-array', [['enabled' => true, 'source_date' => ['2026-09-20']]]] as $items) {
+            $request = $this->input(); $request['inputs']['items'] = $items;
+            $response = $this->call('saveEvidence', $request, $this->user());
+            self::assertSame(422, $response->getCode(), $response->getContent());
+            self::assertSame($before, $this->storedRows());
+        }
+    }
+
+    public function testFractionalHotelIdentityCannotReadOrWriteAnotherHotelEvidence(): void
+    {
+        $this->database();
+        $before = $this->storedRows();
+        foreach (['80.5', 80.5] as $hotelId) {
+            foreach (['evidenceOverview', 'previewEvidence', 'saveEvidence'] as $action) {
+                $response = $this->call($action, $this->input(['hotel_id' => $hotelId]), $this->user());
+                self::assertSame(422, $response->getCode(), $response->getContent());
+                self::assertSame($before, $this->storedRows());
+            }
+        }
+    }
+
+    public function testMalformedAccountingMonthIsRejectedWithoutServerFailure(): void
+    {
+        $this->database();
+        $before = $this->storedRows();
+        $response = $this->call('saveEvidence', $this->input(['period_month' => '2026-' . chr(0) . '9']), $this->user());
+        self::assertSame(422, $response->getCode(), $response->getContent());
+        self::assertSame($before, $this->storedRows());
     }
 }
