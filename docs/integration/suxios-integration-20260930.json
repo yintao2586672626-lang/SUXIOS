@@ -2043,12 +2043,12 @@
     "external_material": "reference_only_with_publication_limits",
     "raw_material_and_runtime": "retained_locally_excluded_from_commit",
     "changed_file_accounting": {
-      "base_to_candidate_git_paths": 1075,
-      "hashed_payload_files": 1074,
+      "base_to_candidate_git_paths": 1076,
+      "hashed_payload_files": 1075,
       "manifest_path": "docs/integration/suxios-integration-20260930.json",
       "manifest_included_in_git_paths": true,
       "manifest_excluded_from_payload_hashes": true,
-      "reconciliation": "1075 = 1074 payloads + 1 self-excluded manifest",
+      "reconciliation": "1076 = 1075 payloads + 1 self-excluded manifest",
       "coverage": "all original mappings retained; every current base-to-HEAD/owned dirty payload reconciled; exact committed coverage verified after commit"
     }
   },
@@ -2802,12 +2802,16 @@
     {
       "path": "app/service/InvestmentPaybackService.php",
       "state": "added",
-      "bytes": 46982,
-      "sha256": "d0fd6b426e5089771913fdaf2091fe5b600cbe9c899d816751365f98f8554883",
+      "bytes": 49688,
+      "sha256": "c5165aa26656a1253d12ef03cb73623192c129b0de869017e90d96f8a95a6613",
       "previous_payloads": [
         {
           "sha256": "674511541270beb2be7bcf7c84f667804a7d5c27153374e0de2997b8ca544f04",
           "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        },
+        {
+          "sha256": "d0fd6b426e5089771913fdaf2091fe5b600cbe9c899d816751365f98f8554883",
+          "prepared_before_head": "fedab934e1ead1e356eaaaf1e067056cc9b2a4f1"
         }
       ]
     },
@@ -3574,8 +3578,8 @@
     {
       "path": "docs/integration/functional-hardening-20261003.md",
       "state": "added",
-      "bytes": 12701,
-      "sha256": "f5b63a210daf2188f5b23b4b4cddaa9742ca323c95e7b3f286f988773e410f69",
+      "bytes": 13886,
+      "sha256": "6e83372fff635019d2c25aa9ea0d6d0108cae5014f783f605439b792a051f2ce",
       "previous_payloads": [
         {
           "sha256": "92d950a66aa6c9e9bc82a91b7e35814e681e4e9dccee985b71459261eff9df62",
@@ -3588,6 +3592,10 @@
         {
           "sha256": "d8ad8a76ccf082850ad57c3d8f65e90ce31db8c40e5b47c6df9167e934f33b00",
           "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        },
+        {
+          "sha256": "f5b63a210daf2188f5b23b4b4cddaa9742ca323c95e7b3f286f988773e410f69",
+          "prepared_before_head": "fedab934e1ead1e356eaaaf1e067056cc9b2a4f1"
         }
       ]
     },
@@ -3766,8 +3774,8 @@
     {
       "path": "docs/integration/receipts/functional-hardening-20261003.json",
       "state": "added",
-      "bytes": 63702,
-      "sha256": "5d7e5e37f151acf43d68c5b30714844f6073c9f1c7e6a408946fbd5cbb4f49ba",
+      "bytes": 84727,
+      "sha256": "32ba24f389e57e46da380a9e9edd647612c43bf77968576209cc829ff4a50192",
       "previous_payloads": [
         {
           "sha256": "12fe4468f3a40f68ec14749ba70841d8940bfedd8144ef81bb19f3cc3cd6c308",
@@ -3780,6 +3788,10 @@
         {
           "sha256": "e3361459eade3947060a73f002109b9fd457fde26c5ffb17493c613fbdf9bf44",
           "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        },
+        {
+          "sha256": "5d7e5e37f151acf43d68c5b30714844f6073c9f1c7e6a408946fbd5cbb4f49ba",
+          "prepared_before_head": "fedab934e1ead1e356eaaaf1e067056cc9b2a4f1"
         }
       ]
     },
@@ -4479,7 +4491,7 @@
       "state": "modified",
       "path": "public/components/system/business-closure-loader.js",
       "bytes": 4206,
-      "sha256": "65a7dc3b4e518c1f92cc53e20c3607bb651439967752503ec00dd86629b67d0f",
+      "sha256": "3394b74414b3c688584fadb27461aaba453f97a705b9e87a4fc216c04334d6ab",
       "previous_payloads": [
         {
           "sha256": "a6ae1827456452284ace325cd6168e444e726b8b02e3c1aa8ce3e74e4a611a42",
@@ -4488,6 +4500,10 @@
         {
           "sha256": "9f29f62722e23f3d395592b1234a6c284c08856dc0e92aec944bdad0f1a47698",
           "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        },
+        {
+          "sha256": "65a7dc3b4e518c1f92cc53e20c3607bb651439967752503ec00dd86629b67d0f",
+          "prepared_before_head": "fedab934e1ead1e356eaaaf1e067056cc9b2a4f1"
         }
       ]
     },
@@ -4596,12 +4612,16 @@
     {
       "path": "public/components/system/investment-payback-import.js",
       "state": "added",
-      "bytes": 50217,
-      "sha256": "b91369b1442ee7333a89ffa20d4625180a23e017e7c13804266a9113fdcc677a",
+      "bytes": 51129,
+      "sha256": "5e2abd6fbf3ce07214f5f849e2b19e0add7ea3040d874085cf4718e4e6bcf61f",
       "previous_payloads": [
         {
           "sha256": "3ba72b80e8a81297527672f8a34ad694704ee1de7ec2d58edffd3bb1da150a93",
           "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        },
+        {
+          "sha256": "b91369b1442ee7333a89ffa20d4625180a23e017e7c13804266a9113fdcc677a",
+          "prepared_before_head": "fedab934e1ead1e356eaaaf1e067056cc9b2a4f1"
         }
       ]
     },
@@ -4620,12 +4640,16 @@
     {
       "path": "public/components/system/investment-payback.min.js",
       "state": "added",
-      "bytes": 127335,
-      "sha256": "b76f42ea8f180de438ebe6a445555bb77587237b8cbfa38b54166ef97fd783cb",
+      "bytes": 127907,
+      "sha256": "872cd807627715638c16b9c35c173377180d2b18fa7b7bc50440fa6dbfc16e7c",
       "previous_payloads": [
         {
           "sha256": "08207c0f84749fd88716e10ceff60dac6e9b7efd08452d6ce602860abfbf38cb",
           "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        },
+        {
+          "sha256": "b76f42ea8f180de438ebe6a445555bb77587237b8cbfa38b54166ef97fd783cb",
+          "prepared_before_head": "fedab934e1ead1e356eaaaf1e067056cc9b2a4f1"
         }
       ]
     },
@@ -4768,7 +4792,7 @@
     {
       "path": "public/index.html",
       "bytes": 8588,
-      "sha256": "6b23a09cb6391741543fba2bdfd28244b292e5450892d31d8e6cfa995ca0c5ef",
+      "sha256": "1dd11ee9c2ce8092362031132e5f67f9850c7e130ab85951dad622a52e2436cd",
       "state": "modified",
       "previous_payloads": [
         {
@@ -4802,6 +4826,10 @@
         {
           "sha256": "977fab6578fd42a945259f415f32a984fc5fbe5c0a4b93709637f7927669a743",
           "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        },
+        {
+          "sha256": "6b23a09cb6391741543fba2bdfd28244b292e5450892d31d8e6cfa995ca0c5ef",
+          "prepared_before_head": "fedab934e1ead1e356eaaaf1e067056cc9b2a4f1"
         }
       ]
     },
@@ -6642,14 +6670,24 @@
       ]
     },
     {
+      "path": "tests/automation/investment_payback_import_browser.mjs",
+      "state": "added",
+      "bytes": 7103,
+      "sha256": "550ec624f31d128df6637820f80669d10dcadefd8757501336d77bf5d34ad492"
+    },
+    {
       "path": "tests/automation/investment_payback_import.test.mjs",
       "state": "added",
-      "bytes": 40947,
-      "sha256": "e0abd3845f5b415fa66869b485a1d392b528a8697bbe999d0c02828b0b715f58",
+      "bytes": 46358,
+      "sha256": "04e0a3a310aad873c8792eef9e4570c614e212ae2b4f0150613e00555afc2a16",
       "previous_payloads": [
         {
           "sha256": "4386d4e6b0857b3e4f3f21319d8650d92b519e9f16b0baf74bee358c3aa73767",
           "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        },
+        {
+          "sha256": "e0abd3845f5b415fa66869b485a1d392b528a8697bbe999d0c02828b0b715f58",
+          "prepared_before_head": "fedab934e1ead1e356eaaaf1e067056cc9b2a4f1"
         }
       ]
     },
@@ -8700,12 +8738,16 @@
     {
       "path": "tests/InvestmentPaybackPersistenceTest.php",
       "state": "added",
-      "bytes": 79213,
-      "sha256": "ba9d592d195cf70f4ce33ff7b555ea0ed89937592e28c1fe8ede1bd10ea431d3",
+      "bytes": 87443,
+      "sha256": "0bb250e282097882ace20de6bfef6068b28617142fa547376012a5b1cad2bf8f",
       "previous_payloads": [
         {
           "sha256": "ed8c6d865bbd0a4152007a458ed58a4e956878e8f258e9a09ff63a9e1e3f45bd",
           "prepared_before_head": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+        },
+        {
+          "sha256": "ba9d592d195cf70f4ce33ff7b555ea0ed89937592e28c1fe8ede1bd10ea431d3",
+          "prepared_before_head": "fedab934e1ead1e356eaaaf1e067056cc9b2a4f1"
         }
       ]
     },
@@ -9624,6 +9666,7 @@
     "latest_main": "d5bc8f6d2362d8ebbae3b9213b1c57d15475b238",
     "previous_combined_checkpoint": "8ff70d7bedab3fa42d4b9afbcdac032a1950fe92",
     "dependency_audit": "0 vulnerabilities; PurgeCSS7.0.2",
-    "previous_main_dependency_checkpoint": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573"
+    "previous_main_dependency_checkpoint": "ffdc7f7f8b587e1cdfeba1e91d1fb69bc5280573",
+    "final_save_closure_checkpoint": "fedab934e1ead1e356eaaaf1e067056cc9b2a4f1"
   }
 }

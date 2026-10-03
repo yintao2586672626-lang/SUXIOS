@@ -38,10 +38,93 @@ const make = (request = async () => ({ code: 200, data: {} }), props = {}, scrip
     return { state, helpers: sandbox.window.SUXI_PAYBACK_IMPORT, events, unmount: () => unmount() };
 };
 const provenance = { file_name: '合成验收.csv', sha256: 'a'.repeat(64), source_method: 'spreadsheet', sheets: [] };
+const importReceipt = (payload, overrides = {}) => ({
+    imported_count: payload.rows.length, mode: payload.mode,
+    project_ids: payload.mode === 'entries' ? [payload.project_id] : payload.rows.map((_, index) => 91 + index),
+    entry_ids: payload.mode === 'entries' ? payload.rows.map((_, index) => 72 + index) : [],
+    source_file_name: payload.source_file_name, source_sha256: payload.source_sha256, source_method: payload.source_method,
+    replayed: false, ...overrides,
+});
+const readyImport = async (state, mode = 'entries') => {
+    state.preview.value = provenance;
+    state.staged.value = mode === 'entries'
+        ? [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '0.00', note: '人工核对零到账' }, { selected: true, row_number: 3, date: '2026-09-30', precision: 'day', kind: 'recovery', amount: '10.01', note: '人工修订' }, { selected: false, row_number: 4, date: '', precision: 'day', kind: '', amount: '', note: '保留排除行' }]
+        : [{ selected: true, row_number: 2, project_name: '合成项目甲', investor_name: '测试主体', opening_invested: '100.00', opening_recovered: '0.00', opening_as_of: '2026-09-29' }, { selected: true, row_number: 3, project_name: '合成项目乙', investor_name: '测试主体', opening_invested: '200.00', opening_recovered: '10.01', opening_as_of: '2026-09-30' }, { selected: false, row_number: 4, project_name: '', investor_name: '', opening_invested: '', opening_recovered: '', opening_as_of: '' }];
+    await state.checkRows(); state.reviewed.value = true;
+    assert.equal(state.canConfirm.value, true);
+};
+
+for (const [label, mode, overrides] of [
+    ['wrong mode', 'entries', { mode: 'projects' }],
+    ['wrong source file', 'entries', { source_file_name: '其他来源.csv' }],
+    ['wrong source digest', 'entries', { source_sha256: 'c'.repeat(64) }],
+    ['wrong source method', 'entries', { source_method: 'image_ocr' }],
+    ['missing source digest', 'entries', { source_sha256: undefined }],
+    ['different project', 'entries', { project_ids: [999] }],
+    ['additional project', 'entries', { project_ids: [81, 82] }],
+    ['missing project ids', 'entries', { project_ids: undefined }],
+    ['string project id', 'entries', { project_ids: ['81'] }],
+    ['missing entry ids', 'entries', { entry_ids: undefined }],
+    ['wrong entry count', 'entries', { entry_ids: [72] }],
+    ['duplicate entry ids', 'entries', { entry_ids: [72, 72] }],
+    ['zero entry id', 'entries', { entry_ids: [72, 0] }],
+    ['negative entry id', 'entries', { entry_ids: [72, -1] }],
+    ['fractional entry id', 'entries', { entry_ids: [72, 73.5] }],
+    ['unsafe entry id', 'entries', { entry_ids: [72, Number.MAX_SAFE_INTEGER + 1] }],
+    ['string entry id', 'entries', { entry_ids: [72, '73'] }],
+    ['wrong imported count', 'entries', { imported_count: 1 }],
+    ['string imported count', 'entries', { imported_count: '2' }],
+    ['invalid replay flag', 'entries', { replayed: 'false' }],
+    ['wrong project count', 'projects', { project_ids: [91] }],
+    ['duplicate project ids', 'projects', { project_ids: [91, 91] }],
+    ['malformed project ids', 'projects', { project_ids: { 0: 91, 1: 92, length: 2 } }],
+    ['invalid project id', 'projects', { project_ids: [91, false] }],
+    ['unexpected entry ids', 'projects', { entry_ids: [72] }],
+]) {
+    test(`import rejects ${label}, preserves the preview and retries with the same identity`, async () => {
+        const writes = [];
+        const { state: s, events } = make(async (_path, options) => {
+            const payload = JSON.parse(options.body); writes.push(payload);
+            return { code: 200, data: importReceipt(payload, writes.length === 1 ? overrides : {}) };
+        }, mode === 'entries' ? { project: { id: 81 } } : {});
+        await readyImport(s, mode);
+        const preview = s.preview.value, rows = s.staged.value, draft = JSON.stringify(rows);
+        await s.confirm();
+        assert.equal(events.length, 0, 'a mismatched receipt must not be adopted as saved');
+        assert.match(s.error.value, /未确认/);
+        assert.equal(s.busy.value, false);
+        assert.equal(s.preview.value, preview);
+        assert.equal(s.staged.value, rows);
+        assert.equal(JSON.stringify(s.staged.value), draft);
+        assert.equal(s.canConfirm.value, true);
+        await s.confirm();
+        assert.deepEqual(writes[1], writes[0], 'retry must preserve scope, inputs and request identity');
+        assert.equal(events.length, 1);
+        assert.equal(events[0][0], 'saved');
+        assert.equal(s.error.value, '');
+    });
+}
+
+for (const mode of ['projects', 'entries']) {
+    for (const replayed of [false, true]) {
+        test(`a complete ${mode} import receipt is accepted with replayed=${replayed}`, async () => {
+            let saved;
+            const { state: s, events } = make(async (_path, options) => {
+                saved = importReceipt(JSON.parse(options.body), { replayed });
+                return { code: 200, data: saved };
+            }, mode === 'entries' ? { project: { id: 81 } } : {});
+            await readyImport(s, mode); await s.confirm();
+            assert.equal(events.length, 1);
+            assert.equal(events[0][0], 'saved');
+            assert.equal(events[0][1], saved);
+            assert.equal(s.error.value, '');
+        });
+    }
+}
 
 test('changing recognition settings retains manual edits until regeneration is explicitly chosen', async () => {
     const writes = [];
-    const { state: s } = make(async (_path, options) => { const payload = JSON.parse(options.body); writes.push(payload); return { code: 200, data: { imported_count: payload.rows.length } }; }, { project: { id: 81 } });
+    const { state: s } = make(async (_path, options) => { const payload = JSON.parse(options.body); writes.push(payload); return { code: 200, data: importReceipt(payload) }; }, { project: { id: 81 } });
     s.pasted.value = '日期\t类型\t金额\t备注\n2026-09-29\t收回\t100\t原表备注\n2026-09-30\t收回\t200\t原表第二行';
     await s.usePasted(); await s.generate();
     s.staged.value[0].amount = '123.45'; s.staged.value[0].note = '人工核对修订'; s.staged.value[1].selected = false;
@@ -290,7 +373,7 @@ test('failed source replacement preserves edited rows and original provenance un
         const payload = JSON.parse(options.body);
         if (path.endsWith('/confirm')) {
             writes.push(payload);
-            return { code: 200, data: { imported_count: 1, mode: 'entries', entry_ids: [72] } };
+            return { code: 200, data: importReceipt(payload) };
         }
         return replacement;
     }, { project: { id: 81 } });
@@ -435,8 +518,9 @@ test('a total label in a note or investor cell never removes a valid transaction
 test('pasted cumulative projects recognize header after title, exact ten-thousand units and ignore total row', async () => {
     const writes = [];
     const { state: s, events } = make(async (path, options) => {
-        writes.push({ path, payload: JSON.parse(options.body), options });
-        return { code: 200, data: { imported_count: 1, mode: 'projects', project_ids: [91] } };
+        const payload = JSON.parse(options.body);
+        writes.push({ path, payload, options });
+        return { code: 200, data: importReceipt(payload) };
     });
     s.pasted.value = '合成项目清单\n项目名称\t投资人\t累计投入（万元）\t累计净收回（万元）\t截至日\n合成酒店甲\t测试主体\t48\t49.349\t2026/09/30\n合计\t\t48\t49.349';
     await s.usePasted();
@@ -495,7 +579,7 @@ test('failed confirmation retains edited rows, selection and same request id for
     const { state: s, events } = make(async (path, options) => {
         const payload = JSON.parse(options.body); writes.push(payload);
         if (writes.length === 1) throw new Error('合成断网');
-        return { code: 200, data: { imported_count: 1, mode: 'entries', entry_ids: [72], replayed: true } };
+        return { code: 200, data: importReceipt(payload, { replayed: true }) };
     }, { project: { id: 81 } });
     s.preview.value = provenance;
     s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '0.00', note: '原表明确零收回' }, { selected: false, row_number: 3, date: '', precision: 'day', kind: '', amount: '', note: '' }];
@@ -525,14 +609,14 @@ test('unconfirmed or mismatched import result cannot dismiss the preview as succ
 });
 
 test('a confirmation arriving after leaving the component cannot refresh a new page', async () => {
-    let finish;
-    const { state: s, events, unmount } = make(() => new Promise(resolve => { finish = resolve; }), { project: { id: 81 } });
+    let finish, payload;
+    const { state: s, events, unmount } = make((_path, options) => { payload = JSON.parse(options.body); return new Promise(resolve => { finish = resolve; }); }, { project: { id: 81 } });
     s.preview.value = provenance;
     s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '10.00', note: '' }];
     await s.checkRows?.(); s.reviewed.value = true;
     const pending = s.confirm();
     unmount();
-    finish({ code: 200, data: { imported_count: 1, mode: 'entries', project_ids: [81] } });
+    finish({ code: 200, data: importReceipt(payload) });
     await pending;
     assert.equal(events.length, 0);
     assert.equal(s.staged.value[0].amount, '10.00');
@@ -570,7 +654,7 @@ test('the file picker can select the same file again after recognition fails', a
 
 test('editing, excluding or changing project makes the old matches and impact unusable until checked again', async () => {
     const checks = [], writes = [];
-    const { state: s } = make(async (path, options) => { writes.push(JSON.parse(options.body)); return { code: 200, data: { imported_count: 1 } }; }, { project: { id: 81 }, reviewRequest: async payload => {
+    const { state: s } = make(async (path, options) => { const payload = JSON.parse(options.body); writes.push(payload); return { code: 200, data: importReceipt(payload) }; }, { project: { id: 81 }, reviewRequest: async payload => {
         checks.push(structuredClone(payload));
         const data = rowReview(payload);
         data.impact.actual_net_recovered_delta = payload.rows.filter(row => row.selected).reduce((sum, row) => sum + Number(row.amount), 0).toFixed(2);
@@ -604,7 +688,7 @@ test('editing, excluding or changing project makes the old matches and impact un
 
 test('exact duplicates require explicit exclusion and similar receipts require a separate human confirmation', async () => {
     const writes = [];
-    const { state: s } = make(async (path, options) => { writes.push(JSON.parse(options.body)); return { code: 200, data: { imported_count: 1 } }; }, { project: { id: 81 }, reviewRequest: async payload => {
+    const { state: s } = make(async (path, options) => { const payload = JSON.parse(options.body); writes.push(payload); return { code: 200, data: importReceipt(payload) }; }, { project: { id: 81 }, reviewRequest: async payload => {
         const data = rowReview(payload), exact = data.rows.find(row => row.row_number === 2);
         exact.exact_matches = [{ id: 7, date: '2026-09-29', kind: 'recovery', amount: '10.00', note: '收款A', reason: '完全相同' }];
         data.exact_count = exact.selected ? 1 : 0; data.can_confirm = !exact.selected;
@@ -665,10 +749,10 @@ test('a stale ledger conflict invalidates the preview and rechecking the same bu
 test('shipped compiled bundle preserves true confirmation and zero-recovery booleans in JSON', async () => {
     const artifact = fs.readFileSync(new URL('../../public/components/system/investment-payback.min.js', import.meta.url), 'utf8');
     let payload;
-    const { state: s } = make(async (path, options) => {
+    const { state: s, events } = make(async (path, options) => {
         payload = JSON.parse(options.body);
         assert.equal(options.withBusinessContext, false);
-        return { code: 200, data: { imported_count: 1, mode: 'entries' } };
+        return { code: 200, data: importReceipt(payload) };
     }, { project: { id: 81 } }, artifact);
     s.preview.value = provenance;
     s.staged.value = [{ selected: true, row_number: 2, date: '2026-09-29', precision: 'day', kind: 'recovery', amount: '0.00', note: '合成零收回' }];
@@ -676,4 +760,5 @@ test('shipped compiled bundle preserves true confirmation and zero-recovery bool
     await s.confirm();
     assert.equal(payload.confirmed, true);
     assert.equal(payload.rows[0].confirmed_zero, true);
+    assert.equal(events[0][0], 'saved');
 });
