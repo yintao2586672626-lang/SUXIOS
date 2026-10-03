@@ -27,6 +27,27 @@ final class InvestmentPaybackCalculatorTest extends TestCase
         self::assertSame(18, $next['forecast']['whole_months']);
     }
 
+    public function testSmallPositiveRecoveryDurationKeepsItsExactValueAndKnownRecoveryStaysSeparate(): void
+    {
+        $calculator = new Calculator();
+        $project = $this->project(['expected_monthly_amount' => '30000.00']);
+        $entries = [$this->entry('investment', '500.00', '2026-01-01')];
+        $forecast = $calculator->summarize($project, $entries)['forecast'];
+        self::assertSame('ready', $forecast['status']);
+        self::assertSame(0.0, $forecast['remaining_months']); // Preserve the legacy rounded response.
+        self::assertEqualsWithDelta(1 / 60, $forecast['remaining_months_exact'], 1e-15);
+        self::assertGreaterThan(0, $forecast['remaining_months_exact']);
+        self::assertSame(1, $forecast['whole_months']);
+        $entries[] = $this->entry('recovery', '500.00', '2026-02-01');
+        $recovered = $calculator->summarize($project, $entries)['forecast'];
+        self::assertSame('already_recovered', $recovered['status']);
+        self::assertNull($recovered['remaining_months_exact']);
+        foreach ([null, '0.00', '-1.00'] as $monthly) {
+            $result = $calculator->summarize($this->project(['expected_monthly_amount' => $monthly]), [$entries[0]]);
+            self::assertNull($result['forecast']['remaining_months_exact']);
+        }
+    }
+
     public function testFractionalPredictionAndCalendarMonthEnd(): void
     {
         $summary = (new Calculator())->summarize($this->project(['forecast_as_of' => '2026-01-31', 'expected_monthly_amount' => '100000.00']), [
@@ -147,6 +168,79 @@ final class InvestmentPaybackCalculatorTest extends TestCase
         $opening = (new Calculator())->summarize($this->project(['opening_as_of' => '2026-08-31', 'opening_invested' => '100.00', 'opening_recovered' => '0.00']), [$this->entry('investment', '20.00', '2026-09-01')]);
         self::assertNull($opening['first_invested_on']);
         self::assertNull($opening['forecast']['full_cycle_months']);
+    }
+
+    public function testAutomaticFirstInvestmentKeepsOverlappingMonthPrecisionRegardlessOfRowOrder(): void
+    {
+        $entries = [
+            $this->entry('investment', '100.00', '2026-01-20'),
+            $this->entry('investment', '10.00', '2026-01', 'month'),
+            $this->entry('recovery', '50.00', '2026-02-01'),
+        ];
+        $calculator = new Calculator();
+        foreach ([$entries, array_reverse($entries)] as $rows) {
+            $summary = $calculator->summarize($this->project(['expected_monthly_amount' => '100.00']), $rows);
+            self::assertSame('2026-01', $summary['first_invested_on']);
+            self::assertSame('month', $summary['first_invested_precision']);
+            self::assertSame(8.6, $summary['forecast']['full_cycle_months']);
+        }
+        $declared = $calculator->summarize($this->project(['first_invested_on' => '2026-01-20']), $entries);
+        self::assertSame('2026-01-20', $declared['first_invested_on']);
+        self::assertSame('day', $declared['first_invested_precision']);
+        // A shared month start also keeps one deterministic conservative precision.
+        $entries[0]['date'] = '2026-01-01';
+        foreach ([$entries, array_reverse($entries)] as $rows) {
+            self::assertSame('month', $calculator->summarize($this->project(), $rows)['first_invested_precision']);
+        }
+    }
+
+    public function testDeclaredFirstInvestmentKeepsEarlierNonOverlappingRecordCompatibility(): void
+    {
+        foreach ([['2026-01-01', 'day', 31], ['2025-12', 'month', null]] as [$date, $precision, $elapsedDays]) {
+            $entries = [
+                $this->entry('investment', '100.00', $date, $precision),
+                $this->entry('recovery', '100.00', '2026-02-01'),
+            ];
+            foreach ([$entries, array_reverse($entries)] as $rows) {
+                $summary = (new Calculator())->summarize($this->project(['first_invested_on' => '2026-01-20']), $rows);
+                self::assertSame($date, $summary['first_invested_on']);
+                self::assertSame($precision, $summary['first_invested_precision']);
+                self::assertSame($elapsedDays, $summary['first_payback']['elapsed_days']);
+            }
+        }
+        $overlapping = (new Calculator())->summarize($this->project(['first_invested_on' => '2026-01-20']), [
+            $this->entry('investment', '100.00', '2026-01', 'month'),
+        ]);
+        self::assertSame('2026-01-20', $overlapping['first_invested_on']);
+        self::assertSame('day', $overlapping['first_invested_precision']);
+    }
+
+    public function testConfirmedMonthlyZeroReceiptDoesNotDowngradeExactFirstPayback(): void
+    {
+        $calculator = new Calculator();
+        $entries = [$this->entry('investment', '100.00', '2026-01-01'), $this->entry('recovery', '100.00', '2026-06-01')];
+        $before = $calculator->summarize($this->project(), $entries);
+        $zero = $this->entry('recovery', '0.00', '2026-02', 'month');
+        $zero['confirmed_zero'] = true;
+        $entries[] = $zero;
+        foreach ([$entries, array_reverse($entries)] as $rows) {
+            $summary = $calculator->summarize($this->project(), $rows);
+            self::assertSame($before['first_payback'], $summary['first_payback']);
+            self::assertSame('2026-06-01', $summary['first_payback']['date']);
+            self::assertSame(151, $summary['first_payback']['elapsed_days']);
+        }
+        $partial = $calculator->summarize($this->project(), $entries, '2026-02-15');
+        self::assertContains('monthly_record_extends_beyond_cutoff', $partial['data_quality']['issues']);
+        self::assertFalse($partial['data_quality']['history_complete']);
+        $laterMonthly = $entries;
+        $laterMonthly[] = $this->entry('investment', '20.00', '2026-08', 'month');
+        self::assertSame($before['first_payback'], $calculator->summarize($this->project(), $laterMonthly)['first_payback']);
+        // A nonzero month still carries unknown intra-month timing.
+        $entries[2]['amount'] = '1.00';
+        $nonzero = $calculator->summarize($this->project(), $entries);
+        self::assertSame('2026-06', $nonzero['first_payback']['date']);
+        self::assertSame('month', $nonzero['first_payback']['precision']);
+        self::assertNull($nonzero['first_payback']['elapsed_days']);
     }
 
     public function testMissingZeroNegativeAndNoInvestmentDoNotBecomeZeroForecast(): void

@@ -272,6 +272,226 @@ final class InvestmentPaybackPersistenceTest extends TestCase
         self::assertSame('1002.00', $service->detail($id)['summary']['invested_amount']);
     }
 
+    public function testCreateRetryProjectIdentityDoesNotRebindToEditedValues(): void
+    {
+        $input = $this->project(['client_request_id' => 'retry-project-original', 'history_complete_through' => null]);
+        $first = $this->service()->saveProject($input);
+        $id = $first['project']['id'];
+        $before = $this->durablePaybackSnapshot();
+        $service = $this->reconnectPaybackService();
+        self::assertSame($first, $service->saveProject($input));
+        self::assertSame($before, $this->durablePaybackSnapshot());
+
+        $edited = $service->saveProject(['id' => $id, 'expected_version' => 1, 'project_name' => '已编辑项目名']);
+        $before = $this->durablePaybackSnapshot();
+        $service = $this->reconnectPaybackService();
+        foreach ([$input, array_merge($input, ['project_name' => '已编辑项目名'])] as $retry) {
+            $this->assertFailure(fn() => $service->saveProject($retry), 409);
+            self::assertSame($before, $this->durablePaybackSnapshot());
+            self::assertSame($edited, $service->detail($id));
+        }
+    }
+
+    public function testCreateRetryProjectWithImmutableAuditStillSucceedsAfterNewCash(): void
+    {
+        $service = $this->service();
+        $input = $this->project(['client_request_id' => 'retry-project-after-cash', 'history_complete_through' => null]);
+        $id = $service->saveProject($input)['project']['id'];
+        $created = Db::name('investment_payback_projects')->where('id', $id)->find();
+        $event = Db::name('investment_payback_events')->where('project_id', $id)->where('event_type', 'project_created')->find();
+        $payload = json_decode($event['payload_json'], true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame($created['input_digest'], $payload['create_input_digest']);
+        $saved = $service->saveEntry($id, $this->entry('investment', '100.01', 'retry-project-new-cash'));
+        self::assertSame(2, $saved['project']['version']);
+        $before = $this->durablePaybackSnapshot();
+        self::assertSame($saved, $this->reconnectPaybackService()->saveProject($input));
+        self::assertSame($before, $this->durablePaybackSnapshot());
+    }
+
+    public function testCreateRetryEntryIdentityDoesNotRebindToEditedAmountOrDate(): void
+    {
+        $service = $this->service();
+        $id = $service->saveProject($this->project())['project']['id'];
+        $input = $this->entry('investment', '100.01', 'retry-entry-original');
+        $first = $service->saveEntry($id, $input);
+        $entryId = $first['entries'][0]['id'];
+        $before = $this->durablePaybackSnapshot();
+        $service = $this->reconnectPaybackService();
+        self::assertSame($first, $service->saveEntry($id, $input));
+        self::assertSame($before, $this->durablePaybackSnapshot());
+
+        $edited = $service->saveEntry($id, ['id' => $entryId, 'expected_version' => 1, 'amount' => '200.02', 'date' => '2026-09-02']);
+        $before = $this->durablePaybackSnapshot();
+        $service = $this->reconnectPaybackService();
+        foreach ([$input, array_merge($input, ['amount' => '200.02', 'date' => '2026-09-02'])] as $retry) {
+            $this->assertFailure(fn() => $service->saveEntry($id, $retry), 409);
+            self::assertSame($before, $this->durablePaybackSnapshot());
+            self::assertSame($edited, $service->detail($id));
+        }
+    }
+
+    public function testCreateRetrySupportsUneditedLegacyAuditsButRejectsMissingCreationEvidence(): void
+    {
+        $service = $this->service();
+        $projectInput = $this->project(['client_request_id' => 'retry-legacy-project', 'history_complete_through' => null]);
+        $project = $service->saveProject($projectInput);
+        $id = $project['project']['id'];
+        $entryInput = $this->entry('investment', '100.01', 'retry-legacy-entry');
+        foreach (Db::name('investment_payback_events')->where('project_id', $id)->select()->toArray() as $event) {
+            $payload = json_decode($event['payload_json'], true, 512, JSON_THROW_ON_ERROR);
+            unset($payload['create_input_digest']);
+            Db::name('investment_payback_events')->where('id', $event['id'])->update(['payload_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+        }
+        $before = $this->durablePaybackSnapshot();
+        $service = $this->reconnectPaybackService();
+        self::assertSame($id, $service->saveProject($projectInput)['project']['id']);
+        self::assertSame($before, $this->durablePaybackSnapshot());
+
+        $cash = $service->saveEntry($id, $entryInput);
+        $event = Db::name('investment_payback_events')->where('entry_id', $cash['entries'][0]['id'])->where('event_type', 'entry_created')->find();
+        $payload = json_decode($event['payload_json'], true, 512, JSON_THROW_ON_ERROR);
+        unset($payload['create_input_digest']);
+        Db::name('investment_payback_events')->where('id', $event['id'])->update(['payload_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+        $before = $this->durablePaybackSnapshot();
+        $service = $this->reconnectPaybackService();
+        self::assertSame($cash['entries'], $service->saveEntry($id, $entryInput)['entries']);
+        self::assertSame($before, $this->durablePaybackSnapshot());
+
+        Db::name('investment_payback_events')->where('project_id', $id)->where('event_type', 'entry_created')->delete();
+        $before = $this->durablePaybackSnapshot();
+        $service = $this->reconnectPaybackService();
+        $this->assertFailure(fn() => $service->saveEntry($id, $entryInput), 409);
+        self::assertSame($before, $this->durablePaybackSnapshot());
+        self::assertCount(1, $service->detail($id)['entries']);
+
+        $separateInput = $this->project(['client_request_id' => 'retry-no-audit-project', 'project_name' => '缺创建证据', 'history_complete_through' => null]);
+        $separateId = $service->saveProject($separateInput)['project']['id'];
+        Db::name('investment_payback_events')->where('project_id', $separateId)->where('event_type', 'project_created')->delete();
+        $before = $this->durablePaybackSnapshot();
+        $service = $this->reconnectPaybackService();
+        $this->assertFailure(fn() => $service->saveProject($separateInput), 409);
+        self::assertSame($before, $this->durablePaybackSnapshot());
+    }
+
+    public function testCreateRetryRejectsEditedLegacyRecordsAndInvalidImmutableDigest(): void
+    {
+        $service = $this->service();
+        $projectInput = $this->project(['client_request_id' => 'retry-legacy-edited-project', 'history_complete_through' => null]);
+        $id = $service->saveProject($projectInput)['project']['id'];
+        $entryInput = $this->entry('investment', '100.01', 'retry-legacy-edited-entry');
+        $entryId = $service->saveEntry($id, $entryInput)['entries'][0]['id'];
+        foreach (Db::name('investment_payback_events')->where('project_id', $id)->select()->toArray() as $event) {
+            $payload = json_decode($event['payload_json'], true, 512, JSON_THROW_ON_ERROR);
+            unset($payload['create_input_digest']);
+            Db::name('investment_payback_events')->where('id', $event['id'])->update(['payload_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+        }
+        $service->saveProject(['id' => $id, 'project_name' => '旧记录已编辑']);
+        $service->saveEntry($id, ['id' => $entryId, 'expected_version' => 1, 'amount' => '200.02', 'date' => '2026-09-02']);
+        $before = $this->durablePaybackSnapshot();
+        $service = $this->reconnectPaybackService();
+        $this->assertFailure(fn() => $service->saveProject(array_merge($projectInput, ['project_name' => '旧记录已编辑'])), 409);
+        $this->assertFailure(fn() => $service->saveEntry($id, array_merge($entryInput, ['amount' => '200.02', 'date' => '2026-09-02'])), 409);
+        self::assertSame($before, $this->durablePaybackSnapshot());
+
+        $otherInput = $this->project(['client_request_id' => 'retry-invalid-digest-project', 'project_name' => '摘要损坏', 'history_complete_through' => null]);
+        $otherId = $service->saveProject($otherInput)['project']['id'];
+        $event = Db::name('investment_payback_events')->where('project_id', $otherId)->where('event_type', 'project_created')->find();
+        $payload = json_decode($event['payload_json'], true, 512, JSON_THROW_ON_ERROR);
+        $payload['create_input_digest'] = null;
+        Db::name('investment_payback_events')->where('id', $event['id'])->update(['payload_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+        $before = $this->durablePaybackSnapshot();
+        $this->assertFailure(fn() => $this->reconnectPaybackService()->saveProject($otherInput), 409);
+        self::assertSame($before, $this->durablePaybackSnapshot());
+    }
+
+    public function testCreateRetryKeysAndCreationEvidenceStayTenantAndActorScoped(): void
+    {
+        $created = [];
+        foreach ([[10, 7, [80]], [10, 8, [80]], [20, 7, [90]]] as [$tenantId, $actorId, $hotels]) {
+            $service = $this->service($tenantId, $actorId, $hotels);
+            $projectInput = $this->project(['client_request_id' => 'retry-scope-project', 'project_name' => '作用域' . $tenantId . '-' . $actorId, 'history_complete_through' => null]);
+            $id = $service->saveProject($projectInput)['project']['id'];
+            self::assertSame($id, $service->saveProject($projectInput)['project']['id']);
+            $entryInput = $this->entry('investment', $tenantId . '.' . str_pad((string)$actorId, 2, '0', STR_PAD_LEFT), 'retry-scope-entry');
+            $entryId = $service->saveEntry($id, $entryInput)['entries'][0]['id'];
+            $created[] = [$tenantId, $actorId, $hotels, $id, $entryId, $entryInput];
+        }
+        self::assertCount(3, array_unique(array_column($created, 3)));
+        $before = $this->durablePaybackSnapshot();
+        $this->reconnectPaybackService();
+        foreach ($created as [$tenantId, $actorId, $hotels, $id, $entryId, $entryInput]) {
+            self::assertSame($entryId, $this->service($tenantId, $actorId, $hotels)->saveEntry($id, $entryInput)['entries'][0]['id']);
+        }
+        self::assertSame($before, $this->durablePaybackSnapshot());
+
+        foreach (['actor_id' => 8, 'tenant_id' => 20] as $field => $wrongScope) {
+            $event = Db::name('investment_payback_events')->where('tenant_id', 10)->where('project_id', $created[0][3])->where('entry_id', $created[0][4])->where('event_type', 'entry_created')->find();
+            if ($field === 'tenant_id') {
+                Db::name('investment_payback_events')->where('id', $event['id'])->update(['actor_id' => 7]);
+            }
+            Db::name('investment_payback_events')->where('id', $event['id'])->update([$field => $wrongScope]);
+            $before = $this->durablePaybackSnapshot();
+            $this->assertFailure(fn() => $this->reconnectPaybackService()->saveEntry($created[0][3], $created[0][5]), 409);
+            self::assertSame($before, $this->durablePaybackSnapshot());
+        }
+    }
+
+    public function testMalformedExplicitVersionsCannotChangeProjectCashVoidArchiveOrAudit(): void
+    {
+        $service = $this->service();
+        $id = $service->saveProject($this->project())['project']['id'];
+        $cash = $service->saveEntry($id, $this->entry('investment', '100.00', 'version-format-invest'));
+        $entryId = $cash['entries'][0]['id'];
+        $before = $service->saveEntry($id, ['id' => $entryId, 'amount' => '200.00', 'expected_version' => 1]);
+        foreach ([null, true, false, 2.0, 2.5, '', '2x', '2.0', '02', '+2', ' 2', '2 ', 0, -1, [], (string)PHP_INT_MAX . '0'] as $version) {
+            $actions = [
+                fn() => $service->saveProject(['id' => $id, 'notes' => '不应写入', 'expected_version' => $version]),
+                fn() => $service->saveEntry($id, ['id' => $entryId, 'amount' => '300.00', 'expected_version' => $version]),
+                fn() => $service->voidEntry($id, $entryId, ['reason' => '不应作废', 'expected_version' => $version]),
+                fn() => $service->archive($id, ['reason' => '不应归档', 'expected_version' => $version]),
+            ];
+            foreach ($actions as $action) {
+                $this->assertValidationFailure($action, '版本');
+                self::assertSame($before, $this->service()->detail($id));
+            }
+        }
+        Db::connect('investment_payback_test')->close();
+        Db::connect(null, true);
+        self::assertSame($before, $this->service()->detail($id));
+        $updated = $service->saveEntry($id, ['id' => $entryId, 'amount' => '201.00', 'expected_version' => '2']);
+        self::assertSame(3, $updated['entries'][0]['version']);
+        $this->assertFailure(fn() => $service->saveEntry($id, ['id' => $entryId, 'amount' => '999.00', 'expected_version' => '2']), 409);
+        self::assertSame($updated, $service->detail($id));
+        // Existing clients may omit the field, while a supplied value must be exact.
+        $legacy = $service->saveEntry($id, ['id' => $entryId, 'amount' => '202.00']);
+        self::assertSame(4, $legacy['entries'][0]['version']);
+        self::assertSame($legacy, $this->service()->detail($id));
+    }
+
+    public function testMonthlyZeroReceiptRetainsExactPaybackAfterSaveConfirmationAndConnectionReopen(): void
+    {
+        $service = $this->service();
+        $id = $service->saveProject($this->project())['project']['id'];
+        $service->saveEntry($id, $this->entry('investment', '100.00', 'zero-precision-invest', ['date' => '2026-01-01']));
+        $service->saveEntry($id, $this->entry('recovery', '100.00', 'zero-precision-recovery', ['date' => '2026-06-01']));
+        $before = $service->saveProject(['id' => $id, 'history_complete_through' => '2026-09-30']);
+        $zero = $service->saveEntry($id, $this->entry('recovery', '0.00', 'zero-precision-month', [
+            'date' => '2026-02', 'precision' => 'month', 'confirmed_zero' => true,
+        ]));
+        self::assertSame('2026-06-01', $zero['summary']['first_payback']['date']);
+        self::assertSame('day', $zero['summary']['first_payback']['precision']);
+        self::assertFalse($zero['summary']['data_quality']['history_complete']);
+        self::assertSame($before['summary']['first_payback'], $zero['audit_history'][0]['payload']['summary_before']['first_payback']);
+        $confirmed = $service->saveProject(['id' => $id, 'expected_version' => $zero['project']['version'], 'history_complete_through' => '2026-09-30']);
+        self::assertSame($before['summary']['first_payback'], $confirmed['summary']['first_payback']);
+        self::assertSame('100.00', $confirmed['summary']['net_recovered_amount']);
+        self::assertSame('0.00', $confirmed['entries'][1]['amount']);
+        self::assertTrue($confirmed['entries'][1]['confirmed_zero']);
+        Db::connect('investment_payback_test')->close();
+        Db::connect(null, true);
+        self::assertSame($confirmed, $this->service()->detail($id));
+    }
+
     public function testForecastVersionsAndFirstPaybackCorrectionsRemainReadable(): void
     {
         $service = $this->service();
@@ -890,6 +1110,23 @@ final class InvestmentPaybackPersistenceTest extends TestCase
         app()->instance('request', $request);
         $reflection->getProperty('request')->setValue($controller, $request);
         return $controller;
+    }
+
+    private function durablePaybackSnapshot(): array
+    {
+        $pdo = new \PDO('sqlite:' . self::$path);
+        $snapshot = [];
+        foreach (['investment_payback_projects', 'investment_payback_entries', 'investment_payback_events', 'system_config'] as $table) {
+            $snapshot[$table] = $pdo->query('SELECT * FROM ' . $table . ' ORDER BY id')->fetchAll(\PDO::FETCH_ASSOC);
+        }
+        return $snapshot;
+    }
+
+    private function reconnectPaybackService(): InvestmentPaybackService
+    {
+        Db::connect('investment_payback_test')->close();
+        Db::connect(null, true);
+        return $this->service();
     }
 
     private function service(int $tenantId = 10, int $actorId = 7, array $allowedHotels = [80], bool $administrator = true): InvestmentPaybackService
