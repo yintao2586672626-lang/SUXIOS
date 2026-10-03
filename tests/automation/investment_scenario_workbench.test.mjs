@@ -442,13 +442,15 @@ test('scenario save refreshes the project version while keeping the visible scen
     const registry = {};
     const Vue = { ref: value => ({ value }), reactive: value => value, computed: getter => ({ get value() { return getter(); } }), onMounted: () => {}, watch: () => {} };
     const parent = fs.readFileSync(new URL('../../public/components/system/investment-payback.js', import.meta.url), 'utf8');
-    vm.runInNewContext(parent, { Vue, window: { SUXI_SYSTEM_COMPONENTS: registry }, Intl, Date, Number, Object });
+    vm.runInNewContext(parent, { Vue, window: { SUXI_SYSTEM_COMPONENTS: registry, setTimeout, clearTimeout }, AbortController, Intl, Date, Number, Object });
     const state = registry.InvestmentPaybackBody.setup({ request: async path => ok(path.includes('/projects/7?') ? { project: { id: 7, version: 8 }, entries: [], summary: {} } : { list: [], pagination: { total: 0 } }), hotels: [] });
     state.detail.value = { project: { id: 7, version: 7 }, entries: [], summary: {} };
     state.scenarioOpened.value = true;
     const entry = { amount: '500.00', notes: '仍在录入的资金记录' };
     state.entryForm.value = entry;
     await state.scenarioSaved({ project_id: 7 });
+    assert.equal(state.listError.value, '');
+    assert.equal(state.detailError.value, '');
     assert.equal(state.detail.value.project.version, 8);
     assert.equal(state.scenarioOpened.value, true);
     assert.equal(state.entryForm.value, entry);

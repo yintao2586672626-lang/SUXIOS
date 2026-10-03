@@ -8,15 +8,27 @@ const source = fs.readFileSync(new URL('../../public/components/system/investmen
 const rowReview = payload => ({ review_token: 'b'.repeat(64), rows: payload.rows.map(row => ({ row_number: row.row_number, selected: row.selected !== false, errors: [], exact_matches: [], batch_duplicates: [], similar_matches: [], similar_match_count: 0, impact_excluded_reason: null })), can_confirm: true, similar_count: 0, invalid_count: 0, exact_count: 0, as_of: '2026-10-01', impact: { actual_invested_delta: '0.00', actual_net_recovered_delta: '0.00', opening_invested_total: '0.00', opening_net_recovered_total: '0.00' } });
 const make = (request = async () => ({ code: 200, data: {} }), props = {}, script = source) => {
     const registry = {}, events = [];
+    const watchers = new Map();
+    const { reviewRequest, document: testDocument, ...componentProps } = props;
     let nonce = 0, unmount = () => {};
     const sandbox = {
-        Vue: { ref: value => ({ value }), reactive: value => value, computed: getter => ({ get value() { return getter(); } }), onMounted: () => {}, onUnmounted: callback => { unmount = callback; } },
+        Vue: {
+            ref: initial => {
+                let value = initial;
+                const state = { get value() { return value; }, set value(next) { const previous = value; value = next; if (next !== previous) watchers.get(state)?.(next, previous); } };
+                return state;
+            },
+            reactive: value => value, computed: getter => ({ get value() { return getter(); } }),
+            watch: (state, callback) => { watchers.set(state, callback); return () => watchers.delete(state); },
+            nextTick: callback => Promise.resolve().then(callback),
+            onMounted: () => {}, onUnmounted: callback => { unmount = callback; },
+        },
         window: { SUXI_SYSTEM_COMPONENTS: registry, crypto: { randomUUID: () => `00000000-0000-4000-8000-${String(++nonce).padStart(12, '0')}`, subtle: webcrypto.subtle }, setTimeout, clearTimeout },
+        document: testDocument || { activeElement: null, querySelector: () => null },
         AbortController, TextEncoder, Uint8Array, Intl, Date, BigInt,
         FileReader: class { readAsDataURL(file) { this.result = `data:application/octet-stream;base64,${Buffer.from(file.content).toString('base64')}`; this.onload(); } },
     };
     vm.runInNewContext(script, sandbox);
-    const { reviewRequest, ...componentProps } = props;
     const routedRequest = async (path, options) => {
         const payload = JSON.parse(options.body);
         if (path.endsWith('/preview') && payload.review_rows) return reviewRequest ? reviewRequest(payload) : { code: 200, data: rowReview(payload) };
@@ -26,6 +38,336 @@ const make = (request = async () => ({ code: 200, data: {} }), props = {}, scrip
     return { state, helpers: sandbox.window.SUXI_PAYBACK_IMPORT, events, unmount: () => unmount() };
 };
 const provenance = { file_name: '合成验收.csv', sha256: 'a'.repeat(64), source_method: 'spreadsheet', sheets: [] };
+
+test('changing recognition settings retains manual edits until regeneration is explicitly chosen', async () => {
+    const writes = [];
+    const { state: s } = make(async (_path, options) => { const payload = JSON.parse(options.body); writes.push(payload); return { code: 200, data: { imported_count: payload.rows.length } }; }, { project: { id: 81 } });
+    s.pasted.value = '日期\t类型\t金额\t备注\n2026-09-29\t收回\t100\t原表备注\n2026-09-30\t收回\t200\t原表第二行';
+    await s.usePasted(); await s.generate();
+    s.staged.value[0].amount = '123.45'; s.staged.value[0].note = '人工核对修订'; s.staged.value[1].selected = false;
+    await s.checkRows(); s.reviewed.value = true;
+    const rows = s.staged.value, review = s.review.value, sourceHash = s.preview.value.sha256;
+    s.unit.value = 'wan'; s.resetRows();
+    assert.equal(s.staged.value, rows, 'a settings change must not erase the edited preview');
+    assert.equal(s.unit.value, 'auto', 'old preview keeps its original interpretation until replacement');
+    assert.equal(s.canConfirm.value, false);
+    await s.confirm(); assert.equal(writes.length, 0);
+    s.keepPreview();
+    assert.equal(s.review.value, review);
+    assert.equal(s.staged.value[0].amount, '123.45');
+    assert.equal(s.staged.value[0].note, '人工核对修订');
+    assert.equal(s.staged.value[1].selected, false);
+    assert.equal(s.canConfirm.value, true);
+    s.unit.value = 'wan'; s.resetRows(); await s.regeneratePreview();
+    assert.equal(s.unit.value, 'wan');
+    assert.equal(s.staged.value[0].amount, '1000000.00');
+    assert.equal(s.staged.value[0].note, '原表备注');
+    assert.equal(s.staged.value[1].selected, true);
+    assert.equal(s.preview.value.sha256, sourceHash);
+    assert.equal(s.reviewed.value, false);
+    s.reviewed.value = true; await s.confirm();
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].rows[0].amount, '1000000.00');
+    assert.equal(writes[0].source_sha256, sourceHash);
+});
+
+test('regenerating a revised preview asks first and Escape keeps the edits without dismissing import', async () => {
+    const { state: s, events } = make(undefined, { project: { id: 81 } });
+    s.pasted.value = '日期\t类型\t金额\t备注\n2026-09-29\t收回\t100\t原表备注';
+    await s.usePasted(); await s.generate();
+    s.staged.value[0].note = '已修订备注'; const rows = s.staged.value;
+    await s.generate();
+    assert.equal(s.staged.value, rows, 'regenerating must preserve revisions until an explicit choice');
+    assert.equal(s.pendingChange.value, true);
+    s.dialogKey({ key: 'Escape', preventDefault() {} });
+    assert.equal(s.pendingChange.value, false);
+    assert.equal(s.staged.value[0].note, '已修订备注');
+    assert.equal(events.length, 0);
+    await s.generate(); s.busy.value = true; await s.regeneratePreview();
+    assert.equal(s.staged.value, rows, 'busy state cannot accept a destructive regeneration');
+    s.busy.value = false; await s.regeneratePreview();
+    assert.equal(s.staged.value[0].note, '原表备注');
+    assert.equal(s.pendingChange.value, false);
+});
+
+test('header, column, mode, year and sheet changes keep the old interpretation with revised rows', async () => {
+    const { state: s } = make(undefined, { project: { id: 81 } });
+    s.pasted.value = '日期\t类型\t金额\t备注\n2026-09-29\t收回\t100\t原表备注';
+    await s.usePasted(); await s.generate();
+    s.staged.value[0].note = '人工修订';
+    const rows = s.staged.value, hash = s.preview.value.sha256;
+    for (const [change, read, expected] of [
+        [() => { s.mode.value = 'projects'; s.resetRows(); }, () => s.mode.value, 'entries'],
+        [() => { s.headerRow.value = 0; s.remap(); }, () => s.headerRow.value, 1],
+        [() => { s.mapping.amount = 3; s.resetRows(); }, () => s.mapping.amount, 2],
+        [() => { s.year.value = '2025'; s.resetRows(); }, () => s.year.value, ''],
+        [() => { s.defaultKind.value = 'investment'; s.resetRows(); }, () => s.defaultKind.value, ''],
+    ]) {
+        change();
+        assert.equal(s.pendingChange.value, true);
+        assert.equal(s.staged.value, rows);
+        assert.equal(read(), expected);
+        s.keepPreview();
+    }
+    s.preview.value.sheets.push({ name: '第二张表', rows: [['日期','类型','金额','备注'], ['2026-09-28','收回','300','第二张表备注']] });
+    s.sheetIndex.value = 1; s.selectSheet();
+    assert.equal(s.sheetIndex.value, 0);
+    assert.equal(s.staged.value, rows);
+    await s.regeneratePreview();
+    assert.equal(s.sheetIndex.value, 1);
+    assert.equal(s.staged.value[0].amount, '300.00');
+    assert.equal(s.staged.value[0].note, '第二张表备注');
+    assert.equal(s.preview.value.sha256, hash);
+    assert.equal(s.reviewed.value, false);
+});
+
+test('choosing whether to keep revisions restores keyboard focus inside the import dialog', async () => {
+    const ui = keyboardFixture(), keep = ui.control('keep original preview');
+    ui.setKeep(keep);
+    const { state: s } = make(undefined, { project: { id: 81 }, document: ui.document });
+    s.pasted.value = '日期\t类型\t金额\n2026-09-29\t收回\t100';
+    await s.usePasted(); await s.generate(); s.staged.value[0].amount = '123.45';
+    await s.generate(); await Promise.resolve();
+    assert.equal(ui.document.activeElement, keep);
+    s.keepPreview(); await Promise.resolve();
+    assert.equal(ui.document.activeElement, ui.dialog);
+    await s.generate(); await s.regeneratePreview(); await Promise.resolve();
+    assert.equal(ui.document.activeElement, ui.dialog);
+});
+
+const keyboardFixture = () => {
+    let continueTarget = null, keepTarget = null;
+    const document = { activeElement: { name: 'BODY' }, querySelector: selector => selector === '[data-testid="payback-import-continue"]' ? continueTarget : selector === '[data-testid="payback-import-keep-preview"]' ? keepTarget : dialog };
+    const control = (name, disabled = false, visible = true) => ({ name, matches: selector => selector === ':disabled' && disabled, getClientRects: () => visible ? [{}] : [], focus() { if (!disabled) document.activeElement = this; } });
+    let controls = [];
+    const dialog = { name: 'dialog', querySelectorAll: () => controls, focus() { document.activeElement = this; } };
+    const press = (state, shiftKey = false, key = 'Tab') => {
+        let prevented = false;
+        state.dialogKey({ key, shiftKey, currentTarget: dialog, preventDefault: () => { prevented = true; } });
+        return prevented;
+    };
+    return { document, dialog, control, press, setControls: next => { controls = next; }, setContinue: target => { continueTarget = target; }, setKeep: target => { keepTarget = target; } };
+};
+
+test('busy import moves focus into the dialog and traps Tab when every form control is disabled', async () => {
+    const ui = keyboardFixture();
+    const disabledFile = ui.control('file disabled by fieldset', true);
+    ui.setControls([disabledFile]);
+    const { state: s, events } = make(undefined, { document: ui.document });
+    s.busy.value = true;
+    await Promise.resolve();
+    assert.equal(ui.document.activeElement, ui.dialog);
+    assert.equal(ui.press(s), true);
+    assert.equal(ui.document.activeElement, ui.dialog);
+    assert.equal(ui.press(s, true), true);
+    assert.equal(ui.document.activeElement, ui.dialog);
+    assert.equal(ui.press(s, false, 'Escape'), true);
+    assert.equal(events.length, 0, 'busy import cannot be dismissed');
+});
+
+test('import dialog ignores inherited disabled and hidden controls when wrapping available keyboard targets', () => {
+    const ui = keyboardFixture();
+    const disabledFile = ui.control('file disabled by fieldset', true), first = ui.control('first summary'), last = ui.control('last summary');
+    ui.setControls([disabledFile, first, ui.control('hidden input', false, false), last, ui.control('disabled checkbox', true)]);
+    const { state: s } = make(undefined, { document: ui.document });
+    ui.document.activeElement = last;
+    assert.equal(ui.press(s), true);
+    assert.equal(ui.document.activeElement, first);
+    assert.equal(ui.press(s, true), true);
+    assert.equal(ui.document.activeElement, last);
+    ui.document.activeElement = ui.dialog;
+    assert.equal(ui.press(s), true);
+    assert.equal(ui.document.activeElement, first);
+    ui.document.activeElement = ui.dialog;
+    assert.equal(ui.press(s, true), true);
+    assert.equal(ui.document.activeElement, last);
+});
+
+test('idle import preserves normal keyboard navigation and Escape dismissal', () => {
+    const ui = keyboardFixture();
+    const first = ui.control('file'), middle = ui.control('editable amount'), last = ui.control('confirm');
+    ui.setControls([first, middle, last]);
+    const { state: s, events } = make(undefined, { document: ui.document });
+    ui.document.activeElement = middle;
+    assert.equal(ui.press(s), false);
+    assert.equal(ui.document.activeElement, middle);
+    ui.document.activeElement = last;
+    assert.equal(ui.press(s), true);
+    assert.equal(ui.document.activeElement, first);
+    assert.equal(ui.press(s, true), true);
+    assert.equal(ui.document.activeElement, last);
+    assert.equal(ui.press(s, false, 'Escape'), true);
+    assert.deepEqual(events, [['close']]);
+});
+
+test('closing a prepared import asks before discarding and continuation preserves every edited row and source', async () => {
+    const ui = keyboardFixture(), continueButton = ui.control('continue import');
+    ui.setContinue(continueButton);
+    const { state: s, events } = make(undefined, { project: { id: 81 }, document: ui.document });
+    s.pasted.value = '日期\t类型\t金额\t备注\n2026-09-29\t收回\t100\t原始备注\n2026-09-30\t收回\t200\t待排除';
+    await s.usePasted(); await s.generate();
+    s.staged.value[0].note = '人工核对后修改'; s.staged.value[1].selected = false;
+    await s.checkRows(); s.reviewed.value = true;
+    const preview = s.preview.value, rows = s.staged.value, review = s.review.value;
+    const assertRetained = () => {
+        assert.equal(s.preview.value, preview);
+        assert.equal(s.staged.value, rows);
+        assert.equal(s.review.value, review);
+        assert.equal(s.reviewed.value, true);
+        assert.equal(s.staged.value[0].note, '人工核对后修改');
+        assert.equal(s.staged.value[1].selected, false);
+    };
+    s.close();
+    assert.equal(events.length, 0);
+    assert.equal(s.closePrompt.value, true);
+    await Promise.resolve();
+    assert.equal(ui.document.activeElement, continueButton);
+    assertRetained();
+    ui.press(s, false, 'Escape');
+    assert.equal(events.length, 0);
+    assertRetained();
+    s.continueImport();
+    assert.equal(s.closePrompt.value, false);
+    await Promise.resolve();
+    assert.equal(ui.document.activeElement, ui.dialog);
+    assertRetained();
+    s.close();
+    s.discardImport();
+    assert.deepEqual(events, [['close']]);
+});
+
+test('unread pasted content requires explicit discard while busy import blocks closing or abandoning', async () => {
+    const { state: s, events } = make();
+    s.pasted.value = '尚未读取的原表内容';
+    s.close();
+    assert.equal(events.length, 0);
+    assert.equal(s.closePrompt.value, true);
+    s.busy.value = true;
+    s.discardImport(); s.close();
+    assert.equal(events.length, 0);
+    assert.equal(s.pasted.value, '尚未读取的原表内容');
+    s.busy.value = false;
+    s.continueImport();
+    assert.equal(s.closePrompt.value, false);
+    assert.equal(s.pasted.value, '尚未读取的原表内容');
+    s.close(); s.discardImport();
+    assert.deepEqual(events, [['close']]);
+    const { state: empty, events: emptyEvents } = make();
+    empty.pasted.value = ' \n\t';
+    empty.close();
+    assert.deepEqual(emptyEvents, [['close']]);
+});
+
+test('pasted CSV and TSV detect delimiters outside quotes and retain multiline notes', () => {
+    const { helpers: h } = make();
+    assert.deepEqual(JSON.parse(JSON.stringify(h.parsePastedTable('日期,金额,备注\n2026-09-01,"1,234.56","首行\n次行"'))), [['日期', '金额', '备注'], ['2026-09-01', '1,234.56', '首行\n次行']]);
+    assert.deepEqual(JSON.parse(JSON.stringify(h.parsePastedTable('日期\t金额\t备注\n2026-09-01\t1,234.56\t"含,逗号"'))), [['日期', '金额', '备注'], ['2026-09-01', '1,234.56', '含,逗号']]);
+    assert.throws(() => h.parsePastedTable('日期,备注\n2026-09-01,"未闭合'), /引号未闭合/);
+});
+
+test('pasted CSV after title and blank lines maps the real header without importing the title', async () => {
+    const { state: s } = make(undefined, { project: { id: 81 } });
+    s.pasted.value = '回款台账\n\n日期,类型,金额,备注\n2026-09-29,收回,"1,234.56","第一行\t补充\n第二行,备注"';
+    await s.usePasted();
+    assert.equal(s.headerRow.value, 3);
+    assert.equal(s.mapping.date, 0);
+    assert.equal(s.mapping.kind, 1);
+    assert.equal(s.mapping.amount, 2);
+    await s.generate();
+    assert.equal(s.staged.value.length, 1);
+    assert.equal(s.staged.value[0].row_number, 4);
+    assert.equal(s.staged.value[0].date, '2026-09-29');
+    assert.equal(s.staged.value[0].kind, 'recovery');
+    assert.equal(s.staged.value[0].amount, '1234.56');
+    assert.equal(s.staged.value[0].note, '第一行\t补充\n第二行,备注');
+    assert.equal(s.invalidCount.value, 0);
+});
+
+test('failed source replacement preserves edited rows and original provenance until a new source succeeds', async () => {
+    const writes = [];
+    let replacement = { code: 503, message: '合成识别服务不可用' };
+    const { state: s } = make(async (path, options) => {
+        const payload = JSON.parse(options.body);
+        if (path.endsWith('/confirm')) {
+            writes.push(payload);
+            return { code: 200, data: { imported_count: 1, mode: 'entries', entry_ids: [72] } };
+        }
+        return replacement;
+    }, { project: { id: 81 } });
+    s.pasted.value = '日期\t类型\t金额\t备注\n2026-09-29\t收回\t100\t原始备注\n2026-09-30\t收回\t200\t待排除';
+    await s.usePasted(); await s.generate();
+    s.staged.value[0].note = '人工核对后修改'; s.staged.value[1].selected = false;
+    await s.checkRows(); s.reviewed.value = true;
+    const originalPreview = s.preview.value, originalRows = s.staged.value, originalHash = originalPreview.sha256;
+    const assertPreserved = () => {
+        assert.equal(s.preview.value, originalPreview);
+        assert.equal(s.preview.value.sha256, originalHash);
+        assert.equal(s.staged.value, originalRows);
+        assert.equal(s.staged.value[0].note, '人工核对后修改');
+        assert.equal(s.staged.value[1].selected, false);
+        assert.match(s.error.value, /此前来源/);
+        assert.match(s.error.value, /粘贴表格.txt/);
+    };
+    const pickReplacement = () => s.pickFile({ target: { value: 'C:\\fakepath\\新来源.csv', files: [{ name: '新来源.csv', size: 30, content: 'synthetic' }] } });
+    await pickReplacement(); assertPreserved();
+    s.pasted.value = ''; await s.usePasted(); assertPreserved();
+    s.pasted.value = '""'; await s.usePasted(); assertPreserved();
+    s.pasted.value = '日期\t备注\n2026-09-29\t"未闭合'; await s.usePasted(); assertPreserved();
+    s.pasted.value = `日期\t金额\n${Array.from({ length: 500 }, () => '2026-09-29\t100').join('\n')}`;
+    await s.usePasted(); assertPreserved();
+    replacement = { code: 200, data: { ...provenance, file_name: '新来源.csv', sha256: 'c'.repeat(64), sheets: [{ name: 'Sheet1', rows: Array.from({ length: 501 }, () => ['2026-09-29', '100']) }] } };
+    await pickReplacement(); assertPreserved();
+    await s.confirm();
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].source_sha256, originalHash);
+    assert.equal(writes[0].source_file_name, originalPreview.file_name);
+    assert.equal(writes[0].rows[0].note, '人工核对后修改');
+    replacement = { code: 200, data: { ...provenance, file_name: '新来源.csv', sha256: 'c'.repeat(64), sheets: [{ name: 'Sheet1', rows: [['日期', '类型', '金额'], ['2026-09-28', '收回', '300']] }] } };
+    await pickReplacement();
+    assert.equal(s.preview.value.file_name, '新来源.csv');
+    assert.equal(s.preview.value.sha256, 'c'.repeat(64));
+    assert.equal(s.staged.value.length, 0);
+    assert.equal(s.review.value, null);
+    assert.equal(s.error.value, '');
+    await s.generate();
+    assert.equal(s.staged.value[0].amount, '300.00');
+    assert.equal(s.staged.value[0].note, '');
+    s.staged.value[0].note = '新文件人工修改';
+    s.pasted.value = '日期\t类型\t金额\n2026-09-27\t收回\t400';
+    await s.usePasted();
+    assert.equal(s.preview.value.source_method, 'pasted_table');
+    assert.notEqual(s.preview.value.sha256, 'c'.repeat(64));
+    assert.equal(s.staged.value.length, 0);
+    assert.equal(s.review.value, null);
+    await s.generate();
+    assert.equal(s.staged.value[0].amount, '400.00');
+    assert.equal(s.staged.value[0].note, '');
+});
+
+test('background row checking retains a newer source-reading failure before and after the check resolves', async () => {
+    let pauseReview = false, finishReview;
+    const { state: s } = make(undefined, { project: { id: 81 }, reviewRequest: payload => pauseReview ? new Promise(resolve => { finishReview = () => resolve({ code: 200, data: rowReview(payload) }); }) : { code: 200, data: rowReview(payload) } });
+    s.pasted.value = '日期\t类型\t金额\t备注\n2026-09-29\t收回\t100\t原始备注';
+    await s.usePasted(); await s.generate();
+    const preview = s.preview.value, rows = s.staged.value;
+    s.staged.value[0].note = '人工核对后修改'; s.staged.value[0].selected = false;
+    pauseReview = true;
+    s.changed();
+    s.pasted.value = '';
+    await s.usePasted();
+    const sourceFailure = s.error.value;
+    assert.match(sourceFailure, /此前来源/);
+    const checking = s.checkRows();
+    const checkingInFlight = s.checking.value, duringCheck = s.error.value;
+    finishReview(); await checking;
+    assert.equal(checkingInFlight, true);
+    assert.equal(duringCheck, sourceFailure, 'starting the pending background check must retain the source failure');
+    assert.equal(s.error.value, sourceFailure, 'a successful check cannot imply that reading the new source succeeded');
+    assert.equal(s.preview.value, preview);
+    assert.equal(s.staged.value, rows);
+    assert.equal(s.staged.value[0].note, '人工核对后修改');
+    assert.equal(s.staged.value[0].selected, false);
+});
 
 test('money recognition retains cents, Chinese fullwidth OCR text and explicit units without rounding unknowns', () => {
     const { helpers: h } = make();
@@ -73,7 +415,8 @@ test('Excel pasted quoted cells retain embedded tabs, newlines and escaped quote
     s.pasted.value = '日期\t备注\n2026-09-29\t"未闭合';
     await s.usePasted();
     assert.match(s.error.value, /引号/);
-    assert.equal(s.staged.value.length, 0);
+    assert.equal(s.staged.value.length, 2);
+    assert.equal(s.staged.value[0].note, '第一行\n第二行\t含"引号"');
 });
 
 test('a total label in a note or investor cell never removes a valid transaction or project', async () => {

@@ -12,11 +12,150 @@ const create = (request, environment = {}) => {
         computed: getter => ({ get value() { return getter(); } }),
         onMounted: () => {}, watch: () => {},
     };
-    vm.runInNewContext(source, { Vue, window: { SUXI_SYSTEM_COMPONENTS: registry, crypto: { randomUUID: () => `test-id-${++nonce}` }, ...environment.window }, document: environment.document, Intl, Date, Number, Object });
+    vm.runInNewContext(source, { Vue, window: { SUXI_SYSTEM_COMPONENTS: registry, crypto: { randomUUID: () => `test-id-${++nonce}` }, setTimeout, clearTimeout, ...environment.window }, document: environment.document, AbortController, Intl, Date, Number, Object });
     return registry.InvestmentPaybackBody.setup({ request, hotels: [] });
 };
 const projectDetail = id => ({ project: { id, project_name: `测试项目${id}`, version: 1 }, entries: [], summary: { as_of: '2026-10-01' }, audit_history: [] });
 const ok = data => ({ code: 200, data });
+
+test('dialog tab boundaries exclude inputs disabled by their enclosing fieldset', () => {
+    const focused = [];
+    const disabledInput = { offsetParent: {}, matches: () => true, focus: () => focused.push('disabled') };
+    const summary = { offsetParent: {}, matches: () => false, focus: () => focused.push('summary') };
+    const document = { activeElement: summary };
+    const state = create(async () => ok({}), { document });
+    let prevented = false;
+    state.dialogKey({ key: 'Tab', shiftKey: false, currentTarget: { querySelectorAll: () => [disabledInput, summary] }, preventDefault() { prevented = true; } });
+    assert.equal(prevented, true);
+    assert.deepEqual(focused, ['summary']);
+    const dialog = { querySelectorAll: () => [disabledInput, summary] };
+    document.activeElement = dialog;
+    state.dialogKey({ key: 'Tab', shiftKey: true, currentTarget: dialog, preventDefault() {} });
+    assert.deepEqual(focused, ['summary', 'summary']);
+    const emptyDialog = { querySelectorAll: () => [disabledInput], focus: () => focused.push('dialog') };
+    state.dialogKey({ key: 'Tab', currentTarget: emptyDialog, preventDefault() {} });
+    assert.deepEqual(focused, ['summary', 'summary', 'dialog']);
+});
+
+test('closing a changed entry keeps its input until the user explicitly discards it', () => {
+    const state = create(async () => ok({}));
+    state.detail.value = projectDetail(5);
+    state.beginEntry('recovery');
+    state.entryForm.value.amount = '123.45';
+    state.entryForm.value.notes = '正在核对，不应被误关闭';
+    const identity = state.entryForm.value.client_request_id;
+    state.dialogKey({ key: 'Escape', preventDefault() {} });
+    assert.equal(state.entryForm.value?.amount, '123.45');
+    assert.equal(state.discardPrompt.value, true);
+    state.continueForms();
+    assert.equal(state.discardPrompt.value, false);
+    assert.equal(state.entryForm.value.client_request_id, identity);
+    state.closeForms(); state.discardForms();
+    assert.equal(state.entryForm.value, null);
+});
+
+test('project edits need explicit discard, while unchanged forms close without a prompt', () => {
+    const state = create(async () => ok({}));
+    state.beginProject(); state.closeForms();
+    assert.equal(state.projectForm.value, null);
+    state.beginProject(); state.projectForm.value.project_name = '录入中的项目';
+    state.closeForms();
+    assert.equal(state.projectForm.value?.project_name, '录入中的项目');
+    assert.equal(state.discardPrompt.value, true);
+    state.saving.value = true; state.discardForms();
+    assert.equal(state.projectForm.value?.project_name, '录入中的项目');
+    state.saving.value = false; state.discardForms();
+    assert.equal(state.projectForm.value, null);
+});
+
+const deadlineClock = () => {
+    const active = new Set();
+    return { window: { setTimeout: callback => { active.add(callback); return callback; }, clearTimeout: callback => active.delete(callback) }, expire: () => { assert.equal(active.size, 1, 'a pending request must have a bounded deadline'); [...active][0](); }, active };
+};
+
+test('an unresponsive refresh releases loading and ignores a response arriving after timeout', async () => {
+    const clock = deadlineClock();
+    let resolveLate, requestSignal;
+    const state = create((path, options) => { requestSignal = options.signal; return new Promise(resolve => { resolveLate = resolve; }); }, clock);
+    const pending = state.refreshProjects();
+    clock.expire(); await pending;
+    assert.equal(state.loading.value, false);
+    assert.equal(requestSignal.aborted, true);
+    assert.match(state.listError.value, /读取超时/);
+    resolveLate(ok({list:[{id:99}],layout:{order:[99]}})); await Promise.resolve();
+    assert.equal(state.projects.value.length, 0);
+    assert.equal(clock.active.size, 0);
+});
+
+test('an unresponsive save retains inputs and request identity, then retries once with the same identity', async () => {
+    const clock = deadlineClock(), writes = [];
+    let resolveLate;
+    const state = create((path, options) => {
+        if (options.method !== 'POST') return Promise.resolve(ok({list:[]}));
+        writes.push(JSON.parse(options.body));
+        return writes.length === 1 ? new Promise(resolve => { resolveLate = resolve; }) : Promise.resolve(ok(projectDetail(5)));
+    }, clock);
+    state.detail.value = projectDetail(5); state.beginEntry('recovery'); state.entryForm.value.amount = '123.45';
+    const identity = state.entryForm.value.client_request_id;
+    const pending = state.saveEntry(); await state.saveEntry(); assert.equal(writes.length, 1);
+    clock.expire(); await pending;
+    assert.equal(state.saving.value, false); assert.equal(state.entryForm.value.amount, '123.45');
+    assert.equal(state.entryForm.value.client_request_id, identity); assert.match(state.formError.value, /保存结果尚未确认/);
+    await state.saveEntry();
+    assert.equal(writes.length, 2); assert.equal(writes[1].client_request_id, identity);
+    resolveLate(ok(projectDetail(99))); await Promise.resolve();
+    assert.equal(state.detail.value.project.id, 5); assert.equal(clock.active.size, 0);
+});
+
+test('a mismatched save response cannot close the entry form or install another project', async () => {
+    const state = create(async (path, options) => options.method === 'POST' ? ok(projectDetail(99)) : ok({list:[]}));
+    state.detail.value = projectDetail(5); state.beginEntry('recovery'); state.entryForm.value.amount = '123.45';
+    await state.saveEntry();
+    assert.equal(state.detail.value.project.id, 5);
+    assert.equal(state.entryForm.value.amount, '123.45');
+    assert.match(state.formError.value, /读回范围或格式不一致/);
+    assert.equal(state.saving.value, false);
+});
+
+test('an unexpected project response cannot replace the requested ledger', async () => {
+    const state = create(async () => ok(projectDetail(99)));
+    await state.selectProject(5);
+    assert.equal(state.detail.value, null);
+    assert.match(state.detailError.value, /读回范围或格式不一致/);
+    assert.equal(state.detailLoading.value, false);
+});
+
+test('all ledger writes retain the selected accounting cutoff, including retry and void', async () => {
+    const writes = [];
+    const state = create(async (path, options) => {
+        if (options.method === 'POST') { writes.push(JSON.parse(options.body)); return ok(projectDetail(5)); }
+        return ok({ list: [] });
+    });
+    state.asOf.value = '2026-08-31';
+    state.detail.value = projectDetail(5);
+    state.beginEntry('recovery'); state.entryForm.value.amount = '125.01';
+    await state.saveEntry();
+    state.forecastForm.amount = '1500.00'; await state.saveForecast();
+    state.openConfirmation('void', { id: 2, version: 1 }); state.confirmation.reason = '合成测试'; await state.confirmAction();
+    state.beginProject({ id: 5, version: 1, project_name: '合成测试' }); await state.saveProject();
+    assert.equal(writes.length, 4);
+    for (const write of writes) assert.equal(write.as_of, '2026-08-31');
+});
+
+test('monthly cash totals remain exact beyond the Number safe-integer range and reject invalid values', () => {
+    const state = create(async () => ok({}));
+    const detail = projectDetail(5);
+    detail.entries = Array.from({ length: 101 }, (_, id) => ({ id, date: '2026-09-01', kind: 'recovery', amount: '999999999999.99' }));
+    detail.entries.push({ id: 102, date: '2026-09-01', kind: 'refund', amount: '0.01' });
+    state.asOf.value = '2026-10-01'; state.detail.value = detail;
+    assert.equal(state.monthlyRows.value[0].recovery, '100999999999998.98');
+    assert.equal(state.money('100999999999998.99'), '100,999,999,999,998.99 元');
+    assert.equal(state.compactMoney('100999999999998.99'), '10,099,999,999.999899 万元');
+    assert.equal(state.detailAmount('100999999999998.99').exact, '100,999,999,999,998.99 元');
+    detail.entries.push({ id: 103, date: '2026-09-01', kind: 'recovery', amount: 'bad' });
+    assert.equal(state.monthlyRows.value[0].recovery, null);
+    assert.equal(state.monthlyRows.value[0].recovery_invalid, true);
+});
 
 test('mainline template registry and runtime render expose the investment payback page', async () => {
     const { loadFrontendTemplateSource } = await import('../../scripts/lib/frontend_template_source.mjs');
@@ -267,6 +406,16 @@ test('collapsed project metadata and existing opening balances survive a simple 
     await state.saveProject();
     for (const field of ['investor_name', 'hotel_id', 'opening_as_of', 'opening_invested', 'opening_recovered', 'opening_source', 'expected_monthly_amount', 'expected_source', 'forecast_as_of', 'history_complete_through', 'first_invested_on', 'notes']) assert.equal(saved[field], existing[field], field);
     assert.equal(saved.expected_version, 4);
+});
+
+test('forecast duration displays a small positive period without claiming zero months and supports old responses', () => {
+    const state = create(async () => ok({}));
+    assert.equal(state.forecastRemainingText({ status: 'ready', remaining_months: 0, remaining_months_exact: 1 / 60, whole_months: 1 }), '少于0.1个月');
+    assert.equal(state.forecastRemainingText({ status: 'trial', remaining_months: 0, whole_months: 1 }), '少于0.1个月');
+    assert.equal(state.forecastRemainingText({ status: 'ready', remaining_months: 3.5, whole_months: 4 }), '约3.5个月');
+    assert.equal(state.forecastRemainingText({ status: 'already_recovered', remaining_months: null }), '');
+    assert.equal(state.forecastRemainingText({ status: 'non_positive', remaining_months: null }), '');
+    assert.ok(source.includes('forecastRemainingText(summary.forecast)'));
 });
 
 test('overview sums exact cents only for known amounts and progress keeps the actual signed ratio', () => {
