@@ -264,6 +264,8 @@ final class OperationInterventionJudgmentServiceTest extends TestCase
                 'hotel_id' => 80,
                 'guard_metrics' => [[
                     'metric_key' => 'refund_rate',
+                    'fact_scope' => 'ota_channel',
+                    'platform' => 'ctrip',
                     'lower_bound' => 0,
                     'upper_bound' => 5,
                 ]],

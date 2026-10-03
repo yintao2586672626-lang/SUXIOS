@@ -52,7 +52,7 @@ final class OperatingGoalMetricSnapshotService
             throw new InvalidArgumentException('operating_goal_snapshot_tenant_invalid');
         }
         $requestedMetricKey = $this->metricKey($metricKey);
-        [$metricScope, $platform] = $this->scopeContext($requestedMetricKey, $context);
+        [$metricScope, $platform] = self::resolveMetricContext($requestedMetricKey, $context);
         $result = $this->buildRange(
             $tenantId,
             $hotelId,
@@ -850,7 +850,7 @@ final class OperatingGoalMetricSnapshotService
     }
 
     /** @return array<string,mixed>|null */
-    private function metricDefinition(string $scope, string $metricKey): ?array
+    private static function metricDefinition(string $scope, string $metricKey): ?array
     {
         $wholeRevenue = [
             'canonical_key' => 'revenue',
@@ -874,9 +874,9 @@ final class OperatingGoalMetricSnapshotService
                     'precision' => 2,
                     'formula' => 'sum(verified_daily_room_revenue) / sum(verified_daily_sold_room_nights)',
                 ],
-                'occupancy' => $this->wholeOccupancyDefinition(),
-                'occupancy_rate' => $this->wholeOccupancyDefinition(),
-                'occupancy_rate_percent' => $this->wholeOccupancyDefinition(),
+                'occupancy' => self::wholeOccupancyDefinition(),
+                'occupancy_rate' => self::wholeOccupancyDefinition(),
+                'occupancy_rate_percent' => self::wholeOccupancyDefinition(),
                 'revpar' => [
                     'canonical_key' => 'revpar',
                     'unit' => 'CNY/sellable_room_night',
@@ -889,25 +889,33 @@ final class OperatingGoalMetricSnapshotService
                 ],
             ],
             self::SCOPE_OTA => [
-                'revenue' => $this->otaRevenueDefinition(),
-                'ota_revenue' => $this->otaRevenueDefinition(),
-                'orders' => $this->otaSumDefinition('orders', 'count', 0),
-                'ota_orders' => $this->otaSumDefinition('orders', 'count', 0),
-                'room_nights' => $this->otaSumDefinition('room_nights', 'room_night', 0),
-                'ota_room_nights' => $this->otaSumDefinition('room_nights', 'room_night', 0),
-                'adr' => $this->otaAdrDefinition(),
-                'ota_adr' => $this->otaAdrDefinition(),
-                'cancellation_rate' => $this->otaCancellationDefinition(),
-                'cancellation_rate_percent' => $this->otaCancellationDefinition(),
-                'ota_cancellation_rate_percent' => $this->otaCancellationDefinition(),
+                'revenue' => self::otaRevenueDefinition(),
+                'ota_revenue' => self::otaRevenueDefinition(),
+                'orders' => self::otaSumDefinition('orders', 'count', 0),
+                'ota_orders' => self::otaSumDefinition('orders', 'count', 0),
+                'room_nights' => self::otaSumDefinition('room_nights', 'room_night', 0),
+                'ota_room_nights' => self::otaSumDefinition('room_nights', 'room_night', 0),
+                'adr' => self::otaAdrDefinition(),
+                'ota_adr' => self::otaAdrDefinition(),
+                'cancellation_rate' => self::otaCancellationDefinition(),
+                'cancellation_rate_percent' => self::otaCancellationDefinition(),
+                'ota_cancellation_rate_percent' => self::otaCancellationDefinition(),
             ],
         ];
         return $definitions[$scope][$metricKey] ?? null;
     }
 
-    /** @return array{0:string,1:string} */
-    private function scopeContext(string $metricKey, array $context): array
+    /** Pure catalog resolver; the third value distinguishes supported metrics from custom declarations.
+     * @return array{0:string,1:string,2:bool}
+     */
+    public static function resolveMetricContext(string $metricKey, array $context = []): array
     {
+        $metricKey = strtolower(trim($metricKey));
+        $guard = is_array($context['guard_definition'] ?? null) ? $context['guard_definition'] : [];
+        if (is_array($context['guard_definition'] ?? null)) {
+            // A target baseline is not the declaration of a different guard metric.
+            $context = [];
+        }
         $baseline = is_array($context['baseline'] ?? null)
             ? $context['baseline']
             : (
@@ -915,13 +923,16 @@ final class OperatingGoalMetricSnapshotService
                     ? $context['baseline_snapshot']
                     : []
             );
-        $scope = $this->firstContextText([
+        $scope = self::firstContextText([
+            $guard['fact_scope'] ?? null,
+            $guard['metric_scope'] ?? null,
             $baseline['fact_scope'] ?? null,
             $baseline['metric_scope'] ?? null,
             $context['fact_scope'] ?? null,
             $context['metric_scope'] ?? null,
         ]);
-        $platform = $this->firstContextText([
+        $platform = self::firstContextText([
+            $guard['platform'] ?? null,
             $baseline['platform'] ?? null,
             $context['platform'] ?? null,
         ]);
@@ -929,18 +940,8 @@ final class OperatingGoalMetricSnapshotService
         $platform = strtolower($platform);
 
         if ($scope === '') {
-            $otaOnlyMetrics = [
-                'ota_revenue',
-                'orders',
-                'ota_orders',
-                'room_nights',
-                'ota_room_nights',
-                'ota_adr',
-                'cancellation_rate',
-                'cancellation_rate_percent',
-                'ota_cancellation_rate_percent',
-            ];
-            $scope = in_array($metricKey, $otaOnlyMetrics, true)
+            $scope = (self::metricDefinition(self::SCOPE_OTA, $metricKey) !== null
+                    && self::metricDefinition(self::SCOPE_WHOLE_HOTEL, $metricKey) === null)
                 || in_array($platform, ['ctrip', 'meituan', 'combined'], true)
                 ? self::SCOPE_OTA
                 : self::SCOPE_WHOLE_HOTEL;
@@ -953,10 +954,10 @@ final class OperatingGoalMetricSnapshotService
         if ($platform === '') {
             $platform = $scope === self::SCOPE_OTA ? 'combined' : 'whole_hotel';
         }
-        return [$scope, $this->platform($scope, $platform)];
+        return [$scope, self::platform($scope, $platform), self::metricDefinition($scope, $metricKey) !== null];
     }
 
-    private function firstContextText(array $values): string
+    private static function firstContextText(array $values): string
     {
         foreach ($values as $value) {
             if (!is_scalar($value)) {
@@ -971,7 +972,7 @@ final class OperatingGoalMetricSnapshotService
     }
 
     /** @return array<string,mixed> */
-    private function wholeOccupancyDefinition(): array
+    private static function wholeOccupancyDefinition(): array
     {
         return [
             'canonical_key' => 'occupancy_rate_percent',
@@ -990,7 +991,7 @@ final class OperatingGoalMetricSnapshotService
     }
 
     /** @return array<string,mixed> */
-    private function otaRevenueDefinition(): array
+    private static function otaRevenueDefinition(): array
     {
         return [
             'canonical_key' => 'revenue',
@@ -1004,7 +1005,7 @@ final class OperatingGoalMetricSnapshotService
     }
 
     /** @return array<string,mixed> */
-    private function otaSumDefinition(string $metric, string $unit, int $precision): array
+    private static function otaSumDefinition(string $metric, string $unit, int $precision): array
     {
         return [
             'canonical_key' => $metric,
@@ -1017,7 +1018,7 @@ final class OperatingGoalMetricSnapshotService
     }
 
     /** @return array<string,mixed> */
-    private function otaAdrDefinition(): array
+    private static function otaAdrDefinition(): array
     {
         return [
             'canonical_key' => 'adr',
@@ -1033,7 +1034,7 @@ final class OperatingGoalMetricSnapshotService
     }
 
     /** @return array<string,mixed> */
-    private function otaCancellationDefinition(): array
+    private static function otaCancellationDefinition(): array
     {
         return [
             'canonical_key' => 'cancellation_rate_percent',
@@ -1051,9 +1052,17 @@ final class OperatingGoalMetricSnapshotService
         ];
     }
 
-    private function platform(string $scope, string $platform): string
+    public static function normalizeScopePlatform(string $platform): string
     {
-        $platform = strtolower(trim($platform));
+        return match (strtolower(trim($platform))) {
+            'hotel', 'whole_hotel', 'pms', 'dingdandao_pms', 'meituan_pms', 'meituan_cloud_pms' => 'whole_hotel',
+            default => strtolower(trim($platform)),
+        };
+    }
+
+    private static function platform(string $scope, string $platform): string
+    {
+        $platform = self::normalizeScopePlatform($platform);
         if ($scope === self::SCOPE_WHOLE_HOTEL) {
             if (!in_array($platform, ['', 'combined', 'whole_hotel'], true)) {
                 throw new InvalidArgumentException('operating_goal_snapshot_platform_scope_conflict');
