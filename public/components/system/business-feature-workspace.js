@@ -111,7 +111,7 @@
             },
             execute(module) {
                 if (!this.applied || !module.enabled) return;
-                if (module.target === 'finance') return this.$emit('finance-tab', { tab: module.tab, settings: clone(this.applied) });
+                if (module.target === 'finance') return this.$emit('finance-tab', { tab: module.tab, settings: clone(this.applied), workbench_tab: [10, 12].includes(module.module_id) ? 'report' : module.module_id === 7 ? 'table' : 'budget' });
                 if (module.target === 'guests') { this.guestTab = module.tab; this.active = 'guests'; return; }
                 if (module.target === 'campaigns') { this.campaignTab = module.tab; this.active = 'campaigns'; return; }
                 if (module.target === 'review') { this.active = module.tab; return; }

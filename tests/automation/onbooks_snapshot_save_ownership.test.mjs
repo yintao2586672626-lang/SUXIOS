@@ -167,7 +167,7 @@ function harness(attempt) {
   // The production root owns this sibling's async registration. Keep the
   // on-books ownership fixture isolated without suppressing Vue warnings.
   app.component('HotelLearningWorkbench', { name: 'HotelLearningWorkbenchFixture', render: () => null });
-  for (const name of ['BusinessFeatureWorkspace', 'OperatingEconomicsWorkbench', 'BookingMonitoringPanel', 'InvestmentOperatingBridgePanel']) {
+  for (const name of ['BusinessFeatureWorkspace', 'OperatingWorkbenchPanel', 'OperatingEconomicsWorkbench', 'BookingMonitoringPanel', 'InvestmentOperatingBridgePanel']) {
     app.component(name, { name: `${name}Fixture`, render: () => null });
   }
   app.mixin({ mounted() { if (this.$options.name === 'OperatingFinanceControlCenterBody') component = this; } });

@@ -122,7 +122,7 @@ function harness(attempt) {
       selectedHotelId: '7', canExecute: true, request }); } });
   // The production finance facade owns these unrelated async siblings.
   // Keep this ownership fixture isolated while retaining its warning oracle.
-  for (const name of ['BusinessFeatureWorkspace', 'OperatingEconomicsWorkbench', 'BookingMonitoringPanel', 'InvestmentOperatingBridgePanel']) {
+  for (const name of ['BusinessFeatureWorkspace', 'OperatingWorkbenchPanel', 'OperatingEconomicsWorkbench', 'BookingMonitoringPanel', 'InvestmentOperatingBridgePanel']) {
     app.component(name, { name: `${name}Fixture`, render: () => null });
   }
   app.mixin({ mounted() { if (this.$options.name === 'OperatingFinanceControlCenterBody') component = this; } });

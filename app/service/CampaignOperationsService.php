@@ -14,7 +14,7 @@ final class CampaignOperationsService
 {
     public const TABLE = 'campaign_operation_versions';
     public const CONTRACT = 'campaign_operations.v1';
-    public const KINDS = ['handover', 'marketing', 'poster', 'video_brief', 'report_reconciliation'];
+    public const KINDS = ['handover', 'marketing', 'marketing_coverage', 'marketing_score_rule', 'poster', 'video_brief', 'report_reconciliation'];
     private const INTEGRITY_CONTRACT = 'campaign_operations.immutable_metadata.v2';
 
     public function hotelTenantId(int $hotelId): int
@@ -41,8 +41,7 @@ final class CampaignOperationsService
             'total' => $total, 'data_status' => $total > 100 ? 'partial' : ($total === 0 ? 'empty' : 'unverified'),
             'previous_handover' => is_array($previous) ? $this->stored($previous) : null,
             'existing_daily_report' => ['page' => 'operating-targets', 'api' => '/daily-reports', 'note' => '复用现有经营目标/每日事实录入、保存、回读；不重复83项。'],
-            'media_capability' => ['poster' => 'saved_version_svg_html', 'video' => 'browser_canvas_webm',
-                'video_note' => '浏览器根据保存制作单生成文字画面WebM；需要Canvas captureStream和MediaRecorder，未自动取得酒店实拍素材。'],
+            'media_capability' => CampaignCreativePayloadService::capability(),
             'boundary' => '人工记录仅作参考；预约/有效线索和实际到店结果分别保存；补录不生成平台订单。',
         ];
     }
@@ -73,6 +72,7 @@ final class CampaignOperationsService
             $platform = $this->text($body['platform'] ?? '', 20, true);
             $key = hash('sha256', $platform . '|' . $identity . '|' . $date);
         }
+        if ($kind === 'marketing_coverage') $key = hash('sha256', 'douyin_coverage|' . $date);
         if (!preg_match('/^[a-zA-Z0-9_-]{8,64}$/', $key)) throw new InvalidArgumentException('记录标识须为8至64位字母、数字或连字符');
 
         try {
@@ -193,7 +193,7 @@ final class CampaignOperationsService
             $content = '<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="' . $height . '" viewBox="0 0 1080 ' . $height . '"><rect width="1080" height="' . $height . '" fill="#f4f6f4"/><rect width="1080" height="' . $headerHeight . '" fill="' . $esc($p['brand_color']) . '"/>' . $hotelText . $titleText . $text . $footerText . '</svg>';
             $mime = 'image/svg+xml';
         } elseif ($format === 'html') {
-            $content = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . $esc($p['title']) . '</title><body style="font:18px/1.8 system-ui;color:#1c3028;background:#f4f6f4;margin:24px"><article style="max-width:900px;margin:auto;overflow-wrap:anywhere"><header style="background:' . $esc($p['brand_color']) . ';color:' . $ink . ';padding:32px"><p>' . $esc($p['hotel_name']) . '</p><h1>' . $esc($p['title']) . '</h1></header><p style="white-space:pre-wrap">' . $esc($p['copy']) . '</p><p>素材说明：' . $esc($p['material_notes']) . '</p><p>' . $esc($provenance) . '</p>' . ($record['kind'] === 'video_brief' ? '<p>制作单：浏览器文字画面WebM，时长' . $p['duration_seconds'] . '秒；不包含自动取得的酒店实拍或音乐。</p>' : '') . '</article></body></html>';
+            $content = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . $esc($p['title']) . '</title><body style="font:18px/1.8 system-ui;color:#1c3028;background:#f4f6f4;margin:24px"><article style="max-width:900px;margin:auto;overflow-wrap:anywhere"><header style="background:' . $esc($p['brand_color']) . ';color:' . $ink . ';padding:32px"><p>' . $esc($p['hotel_name']) . '</p><h1>' . $esc($p['title']) . '</h1></header><p style="white-space:pre-wrap">' . $esc($p['copy']) . '</p><p>素材说明：' . $esc($p['material_notes']) . '</p><p>' . $esc($provenance) . '</p>' . ($record['kind'] === 'video_brief' ? (new CampaignCreativePayloadService())->videoNote($p) : '') . '</article></body></html>';
             $mime = 'text/html';
         } else throw new InvalidArgumentException('导出格式不支持');
         return ['id' => $id, 'tenant_id' => $tenantId, 'hotel_id' => $hotelId, 'source_hotel_id' => $record['source_hotel_id'], 'source_scope' => $record['source_scope'], 'business_date' => $record['business_date'], 'version_no' => $record['version_no'],
@@ -252,55 +252,9 @@ final class CampaignOperationsService
                 'previous_id' => $previousId ?: null, 'items' => $items, 'acknowledged_by' => is_array($latest) ? ($prior['acknowledged_by'] ?? null) : null,
                 'acknowledged_at' => is_array($latest) ? ($prior['acknowledged_at'] ?? null) : null];
         }
-        if ($kind === 'marketing') {
-            $platform = $this->text($p['platform'] ?? '', 20, true);
-            if (!in_array($platform, ['douyin', 'xiaohongshu', 'other'], true)) throw new InvalidArgumentException('营销来源平台不支持');
-            $out = ['platform' => $platform, 'work_id' => $this->text($p['work_id'] ?? '', 120, true),
-                'title' => $this->text($p['title'] ?? '', 240, true), 'attribution_notes' => $this->text($p['attribution_notes'] ?? '', 1000),
-                'result_source_label' => $this->text($p['result_source_label'] ?? '', 240),
-                'result_business_date' => empty($p['result_business_date']) ? null : $this->date((string)$p['result_business_date'])];
-            foreach (['views', 'likes', 'reservations', 'effective_leads', 'actual_arrivals', 'actual_room_nights', 'actual_revenue'] as $metric) {
-                $value = $p[$metric] ?? null;
-                if ($value === '' || $value === null) $out[$metric] = null;
-                elseif (!is_numeric($value) || !is_finite((float)$value) || (float)$value < 0 || (float)$value > 999999999999
-                    || ($metric !== 'actual_revenue' && floor((float)$value) !== (float)$value)) throw new InvalidArgumentException('营销指标必须为有效非负数；未知请留空');
-                else $out[$metric] = $metric === 'actual_revenue' ? round((float)$value, 2) : (int)$value;
-            }
-            if (($out['actual_arrivals'] !== null || $out['actual_room_nights'] !== null || $out['actual_revenue'] !== null)
-                && ($out['result_source_label'] === '' || $out['result_business_date'] === null || $out['attribution_notes'] === '')) {
-                throw new InvalidArgumentException('实际结果须保留结果日期、来源和归因核对说明；线索不自动视为到店收入');
-            }
-            return $out;
-        }
+        if (in_array($kind, ['marketing', 'marketing_coverage', 'marketing_score_rule'], true)) return (new CampaignMarketingPayloadService())->normalize($kind, $p, $businessDate);
         if (in_array($kind, ['poster', 'video_brief'], true)) {
-            $color = $this->text($p['brand_color'] ?? '#143a31', 7, true);
-            if (!preg_match('/^#[a-fA-F0-9]{6}$/', $color)) throw new InvalidArgumentException('品牌色必须是六位十六进制颜色');
-            $out = ['hotel_name' => $this->text($p['hotel_name'] ?? '', 120, true), 'title' => $this->text($p['title'] ?? '', 80, true),
-                'copy' => $this->text($p['copy'] ?? '', 1200, true), 'brand_color' => strtolower($color),
-                'material_notes' => $this->text($p['material_notes'] ?? '', 500, true),
-                'brand_review_status' => 'pending_review', 'material_review_status' => 'pending_review'];
-            foreach (['brand_review_status', 'material_review_status'] as $review) {
-                $value = (string)($p[$review] ?? 'pending_review');
-                if (!in_array($value, ['pending_review', 'reviewed', 'rejected'], true)) throw new InvalidArgumentException('素材或品牌审核状态不支持');
-                $out[$review] = $value;
-            }
-            if ($kind === 'video_brief') {
-                $duration = $p['duration_seconds'] ?? 8;
-                if (!is_numeric($duration) || floor((float)$duration) !== (float)$duration || (float)$duration < 3 || (float)$duration > 30) throw new InvalidArgumentException('视频时长须为3至30秒的整数');
-                $out['duration_seconds'] = (int)$duration;
-                $out['render_method'] = 'browser_canvas_webm';
-                $out['real_footage_status'] = 'not_provided';
-            }
-            if (is_array($latest)) {
-                $old = $this->stored($latest)['payload'];
-                foreach (['hotel_name', 'title', 'copy', 'brand_color', 'material_notes', 'duration_seconds'] as $field) {
-                    if (($old[$field] ?? null) !== ($out[$field] ?? null)) {
-                        $out['brand_review_status'] = $out['material_review_status'] = 'pending_review';
-                        break;
-                    }
-                }
-            }
-            return $out;
+            return (new CampaignCreativePayloadService())->normalize($kind, $p, is_array($latest) ? $this->stored($latest)['payload'] : null);
         }
         $reportId = (int)($p['daily_report_id'] ?? 0);
         if ($reportId <= 0) throw new InvalidArgumentException('请选择现有日报编号');

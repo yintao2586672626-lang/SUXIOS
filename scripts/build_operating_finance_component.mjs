@@ -15,7 +15,7 @@ await buildOperatingEconomicsComponent(repoRoot);
 const sourcePath = path.join(repoRoot, 'public/components/system/operating-finance-control-center.js');
 const artifactPath = path.join(repoRoot, 'public/components/system/operating-finance-control-center.min.js');
 const bridgePanelPath = path.join(repoRoot, 'public/components/system/investment-operating-bridge-panel.js');
-const workspacePaths = ['guest-feedback-qr.js', 'guest-operations-panel.js', 'campaign-operations-panel.js', 'business-feature-workspace.js']
+const workspacePaths = ['guest-feedback-qr.js', 'guest-operations-tools.js', 'guest-operations-panel.js', 'campaign-marketing-weekly.js', 'campaign-local-media.js', 'campaign-operations-panel.js', 'business-feature-workspace.js', 'operating-workbench-panel.js']
   .map(name => path.join(repoRoot, 'public/components/system', name));
 const source = [bridgePanelPath, ...workspacePaths, sourcePath].map(file => fs.readFileSync(file, 'utf8').replace(/\r\n?/g, '\n')).join('\n');
 const startMarker = '        template: `';
