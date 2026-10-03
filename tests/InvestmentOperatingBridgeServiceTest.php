@@ -89,6 +89,8 @@ final class InvestmentOperatingBridgeServiceTest extends TestCase
         self::assertSame('2026-10-02', $current['effective_as_of']);
         self::assertSame('current_month_to_date', $current['cutoff_status']);
         self::assertSame('2026-10-02', $calls[0]['as_of']);
+        self::assertSame(2, $calls[0]['tenant_id']);
+        self::assertSame(80, $calls[0]['hotel_id']);
         self::assertTrue($calls[0]['include_archived']);
         $future = $service->overview(2, [80], 80, '2026-11');
         self::assertSame('not_started', $future['status']);
@@ -183,6 +185,53 @@ final class InvestmentOperatingBridgeServiceTest extends TestCase
             self::assertNull($result['projects']);
             self::assertNull($result['totals']);
         }
+    }
+
+    public function testOtherHotelDuplicatesAndInvalidIdsCannotClaimCompleteRead(): void
+    {
+        foreach ([[$this->project(7, ['hotel_id' => 81]), $this->project(7, ['hotel_id' => 81])],
+            [$this->project(0, ['hotel_id' => 81])], [$this->project(7, ['hotel_id' => 81, 'id' => '7bad'])]] as $projects) {
+            $result = $this->service($projects)->overview(2, [80, 81], 80, '2026-09');
+            self::assertSame('read_failed', $result['status']);
+            self::assertFalse($result['coverage']['read_complete']);
+            self::assertNull($result['projects']);
+            self::assertNull($result['totals']);
+        }
+        $calls = 0;
+        $result = $this->service([], function () use (&$calls): array {
+            $calls++;
+            return ['list' => [$this->project(7, ['hotel_id' => 81])], 'pagination' => ['total' => 2]];
+        })->overview(2, [80, 81], 80, '2026-09');
+        self::assertSame(2, $calls);
+        self::assertSame('read_failed', $result['status']);
+    }
+
+    public function testLargeCanonicalIdsWithinPhpIntegerRangeAreAccepted(): void
+    {
+        if (PHP_INT_SIZE < 8) self::markTestSkipped('IDs longer than ten digits require a 64-bit PHP runtime');
+        foreach ([10000000000, '10000000000', PHP_INT_MAX, (string)PHP_INT_MAX] as $id) {
+            $result = $this->service([$this->project(1, ['id' => $id])])->overview(2, [80], 80, '2026-09');
+            self::assertSame('ready', $result['status']);
+            self::assertTrue($result['coverage']['read_complete']);
+            self::assertSame((int)$id, $result['projects'][0]['project_id']);
+            self::assertSame('100.01', $result['totals']['actual_invested']);
+        }
+    }
+
+    public function testOverflowDecimalAndBooleanProjectIdsFailBeforeHotelFiltering(): void
+    {
+        $overflow = PHP_INT_SIZE >= 8 ? '9223372036854775808' : '2147483648';
+        foreach ([$overflow, $overflow . '0', '1.5', 1.5, 1.0, true, false, '-1', '1e3', '01', ' 1', null] as $id) {
+            foreach ([80, 81] as $hotelId) {
+                $result = $this->service([$this->project(1, ['id' => $id, 'hotel_id' => $hotelId])])->overview(2, [80, 81], 80, '2026-09');
+                self::assertSame('read_failed', $result['status']);
+                self::assertFalse($result['coverage']['read_complete']);
+                self::assertNull($result['projects']);
+                self::assertNull($result['totals']);
+            }
+        }
+        $result = $this->service([$this->project(7), $this->project(7, ['id' => '7', 'hotel_id' => 81])])->overview(2, [80, 81], 80, '2026-09');
+        self::assertSame('read_failed', $result['status']);
     }
 
     public function testHotelDeniedBeforeReading(): void

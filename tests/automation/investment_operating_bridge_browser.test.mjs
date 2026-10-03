@@ -32,15 +32,15 @@ test('generated finance page reads investor cash, hides stale scope and opens th
                 const hotel = Number(query.get('hotel_id'));
                 if (window.__cashMode === 'deferred') await new Promise(resolve => { window.__releaseCash = resolve; });
                 const amounts = { actual_invested: '10000.00', net_actual_recovered: '3000.00', unrecovered: '7000.00', excess_return: '0.00' };
-                let bridge = { contract_version: 'investment_operating_bridge.v1', hotel_id: hotel, period_month: query.get('period_month'), effective_as_of: '2026-10-02', requested_period_end: '2026-10-31', cutoff_status: 'current_month_to_date', status: 'ready', totals: amounts,
-                    projects: [{ project_id: 1, project_name: '合成验收项目', investor_name: '合成投资主体', history_complete: true, amounts }] };
+                let bridge = { contract_version: 'investment_operating_bridge.v1', tenant_id: 7, hotel_id: hotel, period_month: query.get('period_month'), effective_as_of: '2026-10-02', requested_period_end: '2026-10-31', cutoff_status: 'current_month_to_date', status: 'ready', totals: amounts,
+                    projects: [{ project_id: 1, project_name: '合成验收项目', investor_name: '合成投资主体', history_complete: true, scope_compatible: true, amounts }] };
                 if (window.__cashMode === 'partial') bridge = { ...bridge, status: 'partial', totals: null, recorded_totals: amounts, projects: [{ ...bridge.projects[0], history_complete: false }] };
                 if (window.__cashMode === 'missing') bridge = { ...bridge, status: 'missing', totals: null, projects: [] };
-                if (window.__cashMode === 'blocked') bridge = { status: 'blocked', reason_code: 'investment_view_permission_required', totals: null, projects: null };
-                return { code: 200, data: { contract_version: 'operating_finance_control_center.v1', hotel_id: hotel, period_month: query.get('period_month'), investment_bridge: bridge, monthly_finance: { status: 'missing' }, portfolio: { status: 'missing', items: [] }, boundaries: { external_write_count: 0 } } };
+                if (window.__cashMode === 'blocked') bridge = { ...bridge, status: 'blocked', reason_code: 'investment_view_permission_required', totals: null, projects: null };
+                return { code: 200, data: { contract_version: 'operating_finance_control_center.v1', tenant_id: 7, hotel_id: hotel, period_month: query.get('period_month'), investment_bridge: bridge, monthly_finance: { status: 'missing' }, portfolio: { status: 'missing', items: [] }, boundaries: { external_write_count: 0 } } };
             };
             Vue.createApp({ render() { return Vue.h(window.SUXI_SYSTEM_COMPONENTS.OperatingFinanceControlCenterBody, {
-                hotels: [{ id: 80, name: '合成酒店甲' }, { id: 81, name: '合成酒店乙' }], selectedHotelId: window.__selectedHotel.value,
+                hotels: [{ id: 80, tenant_id: 7, name: '合成酒店甲' }, { id: 81, tenant_id: 7, name: '合成酒店乙' }], selectedHotelId: window.__selectedHotel.value,
                 request, canExecute: false, 'onUpdate:selectedHotelId': value => { window.__selectedHotel.value = Number(value); },
                 onOpenInvestmentLedger: () => { window.__ledgerOpened++; },
             }); } }).mount('#app');

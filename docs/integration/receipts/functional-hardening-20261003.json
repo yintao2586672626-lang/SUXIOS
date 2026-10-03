@@ -2,7 +2,7 @@
   "contract": "suxios.functional_hardening.v1",
   "date": "2026-10-03",
   "baseline": "b4116a62480342ad26e97dc16f51e374b16e458a",
-  "prepared_against_head": "fcdf802d05d5fbacd55e0e942fa385270adcd395",
+  "prepared_against_head": "c06f5056b35a01a232cefe8154c56a2f62b50fdf",
   "pull_request": 58,
   "scope": "31工作区、客诉/活动、OTA收益/预订、投资/耗材/报告审核及直接生成入口",
   "findings": [
@@ -139,11 +139,17 @@
       "problem": "最终交付前主线合入已批准功能精简，需要与本轮修复准确组合",
       "change": "保留退休页面/API显式只读与历史隔离、当前经营入口/草稿/报告导出、PMS缺失和数值溢出边界；普通合并源码后重建共享生成物，真实组件与直接主线兼容测试验证；删除路径单列并保留历史摘要",
       "status": "fixed_and_combined_verified"
+    },
+    {
+      "id": "latest_main_revenue_investment",
+      "problem": "c06自身CI通过后主线合入收益/投资读取强化，产生真实共享冲突",
+      "change": "语义融合租户/酒店/项目规范ID与读取、资金/预测和经营边界；保留累计整数分、精确大额显示、幂等回放与有效测试；权限sentinel补安全范围字段，新增逐项目表精确decimal string显示与普通小数四舍五入",
+      "status": "fixed_and_combined_verified"
     }
   ],
   "verification": {
     "php": {
-      "files": 47,
+      "files": 55,
       "file_list": [
         "tests/BookingMonitoringServiceTest.php",
         "tests/BookingDemandPlanningServiceTest.php",
@@ -191,15 +197,23 @@
         "tests/ControllerRouteContractTest.php",
         "tests/StrategyHistoryHotelScopeTest.php",
         "tests/TransferHistorySourceIdentityTest.php",
-        "tests/BusinessChainReviewGateTest.php"
+        "tests/BusinessChainReviewGateTest.php",
+        "tests/ForecastInputRefinementTest.php",
+        "tests/ForecastManualPersistenceRefinementTest.php",
+        "tests/MonthlyOperatingFinanceArithmeticTest.php",
+        "tests/OperatingGoalInterventionServiceTest.php",
+        "tests/OperatingGuardBoundaryRegressionTest.php",
+        "tests/OperationInterventionJudgmentServiceTest.php",
+        "tests/RevenueForecastReadinessServiceTest.php",
+        "tests/RevenueOptimizationAcceptanceTest.php"
       ],
-      "tests": 811,
-      "assertions": 7946,
+      "tests": 931,
+      "assertions": 9005,
       "passed": true,
       "log": "output/deep-hardening-20261003/combined-php.log"
     },
     "node": {
-      "files": 30,
+      "files": 38,
       "file_list": [
         "tests/automation/investment_payback_workbench.test.mjs",
         "tests/automation/investment_payback_import.test.mjs",
@@ -230,9 +244,17 @@
         "tests/automation/online_data_quality_unknown_state.test.mjs",
         "tests/automation/business_chain_diagnosis_approval_boundary.test.mjs",
         "tests/automation/business_chain_review_trial.test.mjs",
-        "tests/automation/project_self_audit_read_boundary.test.mjs"
+        "tests/automation/project_self_audit_read_boundary.test.mjs",
+        "tests/automation/demand_forecast_save_receipt.test.mjs",
+        "tests/automation/forecast_input_refinement_browser.test.mjs",
+        "tests/automation/investment_optimization_browser.test.mjs",
+        "tests/automation/investment_payback_readback_browser.test.mjs",
+        "tests/automation/operating_investment_bridge_view.test.mjs",
+        "tests/automation/demand_forecast_save_busy_boundary.test.mjs",
+        "tests/automation/demand_forecast_saved_records_visibility.test.mjs",
+        "tests/automation/revenue_manual_input_cross_card_date.test.mjs"
       ],
-      "tests": 502,
+      "tests": 588,
       "passed": true,
       "skipped": 0,
       "log": "output/deep-hardening-20261003/combined-node.log"
@@ -247,7 +269,7 @@
       "additional_evidence": "output/qa/payback-import-hardening-20261003/evidence.json"
     },
     "public_entry": {
-      "startup_gzip_bytes": 607348,
+      "startup_gzip_bytes": 607781,
       "target": 620000,
       "passed": true,
       "log": "output/deep-hardening-20261003/combined-public-entry.log"
@@ -279,7 +301,7 @@
   "source_files": [
     {
       "path": "app/controller/Agent.php",
-      "sha256": "faf8200fd351f01469f683a34f88b3481137dbbb78d3ad9f5407277be50b7ab1"
+      "sha256": "8179df8c2d9731b97f3b165047f445c216d39cf8199a4ae011690999999f44a1"
     },
     {
       "path": "app/controller/BookingMonitoring.php",
@@ -295,7 +317,7 @@
     },
     {
       "path": "app/controller/OperatingFinance.php",
-      "sha256": "4ddead91e6c4d052206f6005a9065ec1a9ee594a9c14295ac3a1830b9bbe1300"
+      "sha256": "b5998b43b37d30633a12b6e80321f0ce04c00ccb1982cd864fc70691ad03869d"
     },
     {
       "path": "app/controller/StrategySimulation.php",
@@ -308,6 +330,10 @@
     {
       "path": "app/middleware/RetiredFeatureReadOnly.php",
       "sha256": "e216cd66c94677c13e6eadef6016f8cd99a3f654f59e31894ed75dae86327458"
+    },
+    {
+      "path": "app/model/DemandForecast.php",
+      "sha256": "d844b3a812d695272e2390aed8a1de376a496b99438a4da4e30b2e959c3132da"
     },
     {
       "path": "app/service/ActualConsumablesScenarioReferenceService.php",
@@ -355,7 +381,7 @@
     },
     {
       "path": "app/service/InvestmentOperatingBridgeService.php",
-      "sha256": "5c123f878efdcb72d89d46ef619c36b19bf1e89d2fcea5e53d376fd7b291dcc6"
+      "sha256": "ec6e491921f0e22079d01457e267cdbb9cf15e9269a993294fe70f3179e537bb"
     },
     {
       "path": "app/service/InvestmentPaybackCalculator.php",
@@ -367,23 +393,47 @@
     },
     {
       "path": "app/service/InvestmentPaybackService.php",
-      "sha256": "c5165aa26656a1253d12ef03cb73623192c129b0de869017e90d96f8a95a6613"
+      "sha256": "e2428294d1ce1c75f1739424e5498ad86b9ec7fdc4082a9530b6ec3fb0777bf9"
     },
     {
       "path": "app/service/InvestmentScenarioCalculator.php",
-      "sha256": "abbe6999452a9079abb15a5583d363adb7a6fd8e1b21e3b4fae3cad3eab2da12"
+      "sha256": "5ff4d8f94bc6a0a56b4d7d5e6571b4dbe37802d9638b9def25a86ead0ccc5b81"
     },
     {
       "path": "app/service/InvestmentScenarioCashPlanner.php",
-      "sha256": "d8891ca50923c0e12d5772cfefa81805c02a3726ce8864c9cc13dfa138d3952a"
+      "sha256": "71908a5d8ca957965ffda6bf02bcb46c26012bf14125f8b9f1c906e150081a5a"
+    },
+    {
+      "path": "app/service/MonthlyOperatingFinanceService.php",
+      "sha256": "bf139f622019dd9676ce82ec2454c7b311c50a41abacb2a72ed35a7cd542956c"
     },
     {
       "path": "app/service/OperatingEvidenceSnapshotStore.php",
       "sha256": "3f9522e8a352438999c100dc1a1450f66e617f061bb156210e7d308e4c5633f4"
     },
     {
+      "path": "app/service/OperatingGoalInterventionMonitorService.php",
+      "sha256": "b70685e8f008470c999ba0b5d0b02ba4d8a36f487e0e981d47de9f9bf50f096e"
+    },
+    {
+      "path": "app/service/OperatingGoalInterventionService.php",
+      "sha256": "074870f1f68bd2c25f16b44255d7880003e155409069528a1eedd8d61ac38c98"
+    },
+    {
+      "path": "app/service/OperationInterventionJudgmentService.php",
+      "sha256": "0728927820297c45bc363f4ffbc481eb25e0478b1ebe3abec45815be3fdeb149"
+    },
+    {
       "path": "app/service/PmsFactReconciliationService.php",
       "sha256": "7aa311d788b32feb57f95de45dcea0ad7c30daf7c2456ad2c807d9cead3528b5"
+    },
+    {
+      "path": "app/service/RevenueAnalysisDiagnosticsService.php",
+      "sha256": "8ab36eb43d28ead58e6c21cdacaa2e7b445a0029d060fd83be76baaddde09260"
+    },
+    {
+      "path": "app/service/RevenueForecastReadinessService.php",
+      "sha256": "9ae35c380eee868bbd011585e2514d9ed37b63e468f82b461699c5b31fcd698b"
     },
     {
       "path": "app/service/TransferDecisionService.php",
@@ -403,19 +453,19 @@
     },
     {
       "path": "public/app-main.js",
-      "sha256": "a304ccf1010c35447e6fac926bfe7596880b58ef376bf050eb381f41902f9969"
+      "sha256": "23623c763018935170b1f93236d7a019300c133090b42b47fe2c92b8f637d02a"
     },
     {
       "path": "public/app-main.min.js",
-      "sha256": "12a9e410aa978ed179874601b59d2f9158734d8bf7fd018c192e96aa129b6307"
+      "sha256": "2aeaaa5a37de2299820352435581510cdb2903f68888a3daf052977aebb70bdf"
     },
     {
       "path": "public/app-render.min.js",
-      "sha256": "2ca28cb64046bdc9e0d24fb9aa7836712788718fedf053598dcaa544d1ada4a1"
+      "sha256": "590790bae75269941b9a050eb0269b0bc5607dc42843ccd0bd678ec679fbc98c"
     },
     {
       "path": "public/app-startup-helpers.min.js",
-      "sha256": "069159345a4618e0d03f2c0db40d75f0e1898c38e612e789d0b8500cf9af9ff4"
+      "sha256": "85c88162e8f7ae744035f2193aad7e7673aae0fe80cbc79954e9d485f68acb6e"
     },
     {
       "path": "public/components/system/ai-daily-report-delivery.js",
@@ -423,11 +473,11 @@
     },
     {
       "path": "public/components/system/app-main-components-loader.js",
-      "sha256": "fb914d42731a08d188ebabc2b95fffedf900c0655b5d46a16086d3ab266c83e2"
+      "sha256": "4316e03abf136ffd7a9b97d8449d465b812d40cf8ac39984dc244169dafbcb82"
     },
     {
       "path": "public/components/system/app-main-components.js",
-      "sha256": "72af1b570dcac7061d41dd7062acef0add3f3dd113019c4e448ff368cfb1bb77"
+      "sha256": "4fc54d5e9c467a2d6375822c21742aa8598b90a793b2fa525a1dd2e5aba490f4"
     },
     {
       "path": "public/components/system/booking-monitoring-panel.js",
@@ -435,7 +485,7 @@
     },
     {
       "path": "public/components/system/business-closure-loader.js",
-      "sha256": "3394b74414b3c688584fadb27461aaba453f97a705b9e87a4fc216c04334d6ab"
+      "sha256": "9de87d69a0974b5dbfada05e0ae9ed31c2dda381dacbbad29e72154ff3d544ab"
     },
     {
       "path": "public/components/system/business-feature-workspace.js",
@@ -467,11 +517,19 @@
     },
     {
       "path": "public/components/system/investment-payback.js",
-      "sha256": "6f5fda334267a0dadf147765c2bceea6414442dda8be38c7674511314cac03e5"
+      "sha256": "354e0ef9abef2f61abb199c6fe048b9f62f20a039885348e4d80d8c0733f70e5"
     },
     {
       "path": "public/components/system/investment-payback.min.js",
-      "sha256": "872cd807627715638c16b9c35c173377180d2b18fa7b7bc50440fa6dbfc16e7c"
+      "sha256": "45b1d6bf5e4cd6e2225ec3138339b94edb9eb2ccc20307dcf7a82383774d90cc"
+    },
+    {
+      "path": "public/components/system/investment-scenario.js",
+      "sha256": "86b19b2d43377faee1e81a785eb10c536b3be9dd655e5cfb8cabf5f04b5960b1"
+    },
+    {
+      "path": "public/components/system/investment-scenario.min.js",
+      "sha256": "c86a7b65ade5787aa0f7342db2fe49c1a01c5d5b8f4774548e6729e2cf2a1172"
     },
     {
       "path": "public/components/system/operating-economics-workbench.js",
@@ -482,8 +540,12 @@
       "sha256": "9f3cdd4dd58e6fce41d7c5357d007dcf62a98a3472cf1f8882aabf6635990dbe"
     },
     {
+      "path": "public/components/system/operating-finance-control-center.js",
+      "sha256": "5d5828d3f7dc5b428af0455d04e9cad116c4f0da0882e7eea8d4cb84af9ed35e"
+    },
+    {
       "path": "public/components/system/operating-finance-control-center.min.js",
-      "sha256": "f7b3852f428c1974d829be470c0c81e36f27b7ef279780d2453ead44c2a9d255"
+      "sha256": "c04fb82c0197931af8147083cc008b0533fbf63ad37d08a31fa1beab949399ae"
     },
     {
       "path": "public/data-health-static.js",
@@ -495,7 +557,7 @@
     },
     {
       "path": "public/index.html",
-      "sha256": "983e8baee6b227bf29067b1c5f48a31831ceb517c65348acc7509139124b1351"
+      "sha256": "8ccb350326a9f9ed9d6228b96aa03198df67aa3b3713ac4f94eae32555da84f1"
     },
     {
       "path": "public/operation-static.js",
@@ -527,15 +589,19 @@
     },
     {
       "path": "resources/frontend/app-template.html",
-      "sha256": "8c7d716c8e29ef14a6d51873db9d26d8b6569a0ccf856ee588bbc267d193a327"
+      "sha256": "1b45881602b9084aa9abde942038d10370b1e028e204790f961ce9254a4232be"
     },
     {
       "path": "resources/frontend/templates/fragments/19c-page-operating-finance.html",
       "sha256": "2812b18a5e1b1937ec1c3aa9f7a8e1cc267885be796c07ca716bcbc8458b4d44"
     },
     {
+      "path": "resources/frontend/templates/fragments/27-page-agent-center.html",
+      "sha256": "4d49ecbaef9737a78eb7272f708cc042602b42d8aa15a6b3771c92630088a32e"
+    },
+    {
       "path": "resources/frontend/templates/manifest.json",
-      "sha256": "2f539acfcbd6548393d3832a757f97f4be1726e56cefc0589481c282663d6326"
+      "sha256": "2182aee78c977eb3a96e66172a05314b96c7e56b3f406facde3ae223db26ce30"
     },
     {
       "path": "scripts/clean_project_local_artifacts.ps1",
@@ -718,6 +784,14 @@
       "sha256": "dc0558028c0126cf81fd6671462ef1e517a797cc2763c5236066b3480e55d178"
     },
     {
+      "path": "tests/ForecastInputRefinementTest.php",
+      "sha256": "e39e1a3765f839fd3c3d0ab69930271253bbaf777ca781a4b82ec6a8638157b8"
+    },
+    {
+      "path": "tests/ForecastManualPersistenceRefinementTest.php",
+      "sha256": "d90fca24f09991c62c48f073cf63c55fe2e04513da63010b5c6904cff891eac1"
+    },
+    {
       "path": "tests/GuestOperationsServiceTest.php",
       "sha256": "cbcb7ad143104577c52161ea991fdfc4b0ddf98a394aec9888bd0e3746fe528c"
     },
@@ -739,15 +813,15 @@
     },
     {
       "path": "tests/InvestmentOperatingBridgeControllerTest.php",
-      "sha256": "ae7b8885afe01f8135b3fab0b3be55bebab307e339080c2297ef3918013acb33"
+      "sha256": "b31a783e624d753192b7fd43722006be791e80f2ca343f761ec8084f6abab6aa"
     },
     {
       "path": "tests/InvestmentOperatingBridgeLedgerTest.php",
-      "sha256": "0e9e95ff7af165c6810d10d4959790e50bef245a2849f14a78845230ce0e3d69"
+      "sha256": "b60f3f584e38fc764082120c1fd43f9ac9b38b939cb7b1b23864767144274a0c"
     },
     {
       "path": "tests/InvestmentOperatingBridgeServiceTest.php",
-      "sha256": "3cd6406ca9a53c93149d0aa2b9f3e74e83c2ea97768da9f66ff253cf2d73ad99"
+      "sha256": "71dc54209c44581ac0b82df2bddc5e7ab54a390703724ecd0e2b418da22b7861"
     },
     {
       "path": "tests/InvestmentPaybackCalculatorTest.php",
@@ -763,7 +837,7 @@
     },
     {
       "path": "tests/InvestmentScenarioCalculatorTest.php",
-      "sha256": "c652e6b2357f5025d5d317ef689d770d996fca52a37bd5a134fdc20645d549a6"
+      "sha256": "a6e8c54375675c5590ba7b1340f6fe98e4e430a0c85880847540621dfb483729"
     },
     {
       "path": "tests/InvestmentScenarioCashPlannerTest.php",
@@ -790,6 +864,10 @@
       "sha256": "e135ca470b81b28c0f565d48f441b7fa8c9a5de116c6699f49bbd806b5fd7f01"
     },
     {
+      "path": "tests/MonthlyOperatingFinanceArithmeticTest.php",
+      "sha256": "de1e24d0c12d51f1a1f969752a46655ea480164a242a82bd75839b606370db61"
+    },
+    {
       "path": "tests/OperatingEconomicsHardeningTest.php",
       "sha256": "894e1b2b6335d3a44be6ae3f686d86a80b8abfd0d2aaf5294f370ff1d4600d39"
     },
@@ -800,6 +878,18 @@
     {
       "path": "tests/OperatingEvidenceRoutingTest.php",
       "sha256": "8710563675d9cd048f285c9c13818d813361b75aed673863174d92f440e64cfd"
+    },
+    {
+      "path": "tests/OperatingGoalInterventionServiceTest.php",
+      "sha256": "5808be3d1062f89dd87f42918810a68fe789ed87722178af787ca0d166c2ec26"
+    },
+    {
+      "path": "tests/OperatingGuardBoundaryRegressionTest.php",
+      "sha256": "81254602c76ae8876f161b26de7b602acd5b70140c15aba7e67093347789da55"
+    },
+    {
+      "path": "tests/OperationInterventionJudgmentServiceTest.php",
+      "sha256": "b6ca3b070db9455b69b2f8504e38927d87a55f9999299e2ef3d0d97937b3a97d"
     },
     {
       "path": "tests/OtaRevenueAggregateOverflowTest.php",
@@ -820,6 +910,14 @@
     {
       "path": "tests/RetiredHistoryFixture.php",
       "sha256": "4359f12eca30c91fecf843791affc504a5f8730cb934655482884bd44a7e5e3b"
+    },
+    {
+      "path": "tests/RevenueForecastReadinessServiceTest.php",
+      "sha256": "215354ea06dffcfcf8bc9d009fe4a223b532e5ed1c6a57aae4744f544e1af8cc"
+    },
+    {
+      "path": "tests/RevenueOptimizationAcceptanceTest.php",
+      "sha256": "a0619970686afc2c126cea4f8aaf691b0cf6ee1857e6f958976c5f4633bfd141"
     },
     {
       "path": "tests/StrategyHistoryHotelScopeTest.php",
@@ -906,6 +1004,18 @@
       "sha256": "689d87c5aa6c4f552df3122168cd717ca2d737f4efdb0b25ebe0de65efd93755"
     },
     {
+      "path": "tests/automation/demand_forecast_save_busy_boundary.test.mjs",
+      "sha256": "11ba5f2cace5577686804f9c38d44f5602c2aa82a59fe9fc9c5732eaa8f09053"
+    },
+    {
+      "path": "tests/automation/demand_forecast_save_receipt.test.mjs",
+      "sha256": "06068d211fc7515c2ad97df9e500e83a0fc31564b1a5acf5771b687f291c7f34"
+    },
+    {
+      "path": "tests/automation/demand_forecast_saved_records_visibility.test.mjs",
+      "sha256": "59dd9cb0029d556178dccbc29072e0325b48c31381ba9cafaf2834bd51e88614"
+    },
+    {
       "path": "tests/automation/dual_ota_hotel_order_ui.test.mjs",
       "sha256": "37579462c70773143ca0ade251963526e5c8e7b5e080b39a97b9ead085496629"
     },
@@ -922,8 +1032,12 @@
       "sha256": "b6ea208087b1fbaac624000adac203155a5cf35b60b2bcc1cf57181e9acf816c"
     },
     {
+      "path": "tests/automation/forecast_input_refinement_browser.test.mjs",
+      "sha256": "0420c51fbca9418ed62f44dd2af5c4c976626886e7207aa4135910f1f285b069"
+    },
+    {
       "path": "tests/automation/frontend_authenticated_bootstrap.test.mjs",
-      "sha256": "0e7c9fa27e8bd21ce77e15ec230f2a0691cb5b2d58dba91837a134f9c028c6cf"
+      "sha256": "45ed4a1fff55d67c5078a8d21b5b3bc60a63493830a236e67b81add64f74ddd6"
     },
     {
       "path": "tests/automation/frontend_authenticated_style_build.test.mjs",
@@ -975,11 +1089,15 @@
     },
     {
       "path": "tests/automation/investment_operating_bridge_browser.test.mjs",
-      "sha256": "775cf424033ad80e57d07b17f6a7c593f8fe90062b20c1162d87bb676ecbef14"
+      "sha256": "9548f7841b62b499ff20a474c95e18770850ab6b9dcb585ac65a533fb1e93a66"
     },
     {
       "path": "tests/automation/investment_operating_bridge_panel.test.mjs",
       "sha256": "d804122802e63294b0084a170d9cdc13a6b0b9e9a8a6b232521a0f897d36925a"
+    },
+    {
+      "path": "tests/automation/investment_optimization_browser.test.mjs",
+      "sha256": "210a6b8cd37dd3c80bc0ce506dc92b79c8e6044608809b93781f331c4f44e3f0"
     },
     {
       "path": "tests/automation/investment_payback_import.test.mjs",
@@ -990,12 +1108,16 @@
       "sha256": "550ec624f31d128df6637820f80669d10dcadefd8757501336d77bf5d34ad492"
     },
     {
+      "path": "tests/automation/investment_payback_readback_browser.test.mjs",
+      "sha256": "815a36d43a69bf85a4434c5103b3373345e47f91dde4814b9106161369255f09"
+    },
+    {
       "path": "tests/automation/investment_payback_workbench.test.mjs",
-      "sha256": "9e811007a6a2faa3691ac951778ecdb38320ec72ade1f122ca076c2b2e38a1b5"
+      "sha256": "a13b4c2374df9c892e4aadb520d3633e5c98efee6fe418fac060de78c0c105f0"
     },
     {
       "path": "tests/automation/investment_scenario_workbench.test.mjs",
-      "sha256": "50912bc20eba502454f50f935668fac5e82db0f208f8fffae8e8d68cf127f252"
+      "sha256": "ff481573bc874f3d5ddb45d240ba8b109310b49b7015b270ebc3db0c368884be"
     },
     {
       "path": "tests/automation/online_data_quality_unknown_state.test.mjs",
@@ -1008,6 +1130,10 @@
     {
       "path": "tests/automation/operating_economics_workbench.test.mjs",
       "sha256": "38a6f9708f018e0d0b8d519be46092aae0fdc0d24d0406bab3e38beadd9ce4c2"
+    },
+    {
+      "path": "tests/automation/operating_investment_bridge_view.test.mjs",
+      "sha256": "3d53a4eeb7cf55f602017fe337947f579c97a36888e1e453df8c65424120dc34"
     },
     {
       "path": "tests/automation/operating_loop_authority.test.mjs",
@@ -1032,6 +1158,10 @@
     {
       "path": "tests/automation/quant_simulation_realization.test.mjs",
       "sha256": "f333cfe42bb46659a422e9cdd2dcd496e58cc67e82af1625dca78070a2197273"
+    },
+    {
+      "path": "tests/automation/revenue_manual_input_cross_card_date.test.mjs",
+      "sha256": "9f761774163874b29835d93b78b5263aa1412802c6a607051be4c4918c045e6c"
     },
     {
       "path": "tests/automation/runtime_asset_identity.test.mjs",
@@ -1115,7 +1245,7 @@
     "real_account_acceptance": false,
     "deployment": false,
     "github_main_merged": false,
-    "investment_permission": "existing investment.view plus investment.simulate ledger gate retained",
+    "investment_permission": "bridge read permits investment.view OR investment.simulate; ledger mutation still requires investment.simulate and read-only service rejects writes with 403",
     "github_ci": "exact final commit checked after push; separate GitHub acceptance receipt"
   },
   "root_checkpoint": {
@@ -1585,10 +1715,10 @@
     ]
   },
   "latest_main_intake": {
-    "head": "e80f1d322460ea9b84af928860438a9f3d9854fa",
-    "previous_main": "d5bc8f6d2362d8ebbae3b9213b1c57d15475b238",
-    "pull_request": 56,
-    "merge": "approved retirement remains read-only/history-compatible; preserve current native operating workspace and every accepted payback/booking/economics/report/learning repair; shared source automatically combined, rebuild assets, semantic delivery test prefix"
+    "head": "b22bba853ab743ff045cb8f1a37375981c05fbc4",
+    "previous_main": "e80f1d322460ea9b84af928860438a9f3d9854fa",
+    "pull_request": 62,
+    "merge": "revenue/forecast and investment exact reads plus strict bridge identity/permission protections; preserve root cumulative integer fen, safe edit replay, import receipts, native workspace and deferred learning; merge useful tests, rebuild all affected assets"
   },
   "prior_delivery_checkpoints": [
     {
@@ -2874,6 +3004,992 @@
           "sha256": "90d2e34f6c4e055e608b61a21906364534fee11396f850a759657890a0fcbabe"
         }
       ]
+    },
+    {
+      "head": "c06f5056b35a01a232cefe8154c56a2f62b50fdf",
+      "verification": {
+        "php": {
+          "files": 47,
+          "file_list": [
+            "tests/BookingMonitoringServiceTest.php",
+            "tests/BookingDemandPlanningServiceTest.php",
+            "tests/BookingDemandEventAsOfTest.php",
+            "tests/OtaRevenueAggregateOverflowTest.php",
+            "tests/InvestmentOperatingBridgeServiceTest.php",
+            "tests/InvestmentOperatingBridgeLedgerTest.php",
+            "tests/InvestmentOperatingBridgeControllerTest.php",
+            "tests/ActualConsumablesScenarioReferenceTest.php",
+            "tests/ConsumablesCostCalculatorTest.php",
+            "tests/ConsumablesProcurementReferenceServiceTest.php",
+            "tests/ConsumablesOperationalReconciliationServiceTest.php",
+            "tests/InvestmentScenarioPersistenceTest.php",
+            "tests/InvestmentScenarioCalculatorTest.php",
+            "tests/OperatingEvidenceChainTest.php",
+            "tests/BusinessWorkspaceServiceTest.php",
+            "tests/GuestOperationsServiceTest.php",
+            "tests/CampaignOperationsServiceTest.php",
+            "tests/BookingMonitoringRoutingTest.php",
+            "tests/OperatingEconomicsHardeningTest.php",
+            "tests/OperatingEvidenceRoutingTest.php",
+            "tests/InvestmentScenarioNumericalBoundaryTest.php",
+            "tests/InvestmentScenarioCashPlannerTest.php",
+            "tests/InvestmentScenarioPortfolioTest.php",
+            "tests/InvestmentScenarioRoutingTest.php",
+            "tests/InvestmentScenarioTargetSolverTest.php",
+            "tests/AiDailyReportPresentationReviewServiceTest.php",
+            "tests/AiDailyReportPresentationReviewRoutingTest.php",
+            "tests/AiDailyReportPresentationSpecServiceTest.php",
+            "tests/AiDailyReportPresentationRendererServiceTest.php",
+            "tests/AiDailyReportPresentationCorrectionTest.php",
+            "tests/ActualConsumablesScenarioReferencePrecisionTest.php",
+            "tests/ConsumablesActualCostPrecisionTest.php",
+            "tests/ConsumablesCostCalculatorPrecisionTest.php",
+            "tests/HotelLearningControllerTest.php",
+            "tests/HotelLearningMechanismServiceTest.php",
+            "tests/HotelLearningOtherControllerTest.php",
+            "tests/HotelLearningOtherMechanismsTest.php",
+            "tests/InvestmentPaybackCalculatorTest.php",
+            "tests/InvestmentPaybackImportTest.php",
+            "tests/InvestmentPaybackPersistenceTest.php",
+            "tests/PmsFactReconciliationServiceTest.php",
+            "tests/RetiredBackendServiceContractTest.php",
+            "tests/RetiredFeatureSlimmingTest.php",
+            "tests/ControllerRouteContractTest.php",
+            "tests/StrategyHistoryHotelScopeTest.php",
+            "tests/TransferHistorySourceIdentityTest.php",
+            "tests/BusinessChainReviewGateTest.php"
+          ],
+          "tests": 811,
+          "assertions": 7946,
+          "passed": true,
+          "log": "output/deep-hardening-20261003/combined-php.log"
+        },
+        "node": {
+          "files": 30,
+          "file_list": [
+            "tests/automation/investment_payback_workbench.test.mjs",
+            "tests/automation/investment_payback_import.test.mjs",
+            "tests/automation/investment_scenario_workbench.test.mjs",
+            "tests/automation/investment_operating_bridge_panel.test.mjs",
+            "tests/automation/ai_daily_report_presentation_review_ui.test.mjs",
+            "tests/automation/operating_economics_workbench.test.mjs",
+            "tests/automation/business_feature_workspace_async_state.test.mjs",
+            "tests/automation/campaign_operations_browser.test.mjs",
+            "tests/automation/business_feature_workspace_browser.test.mjs",
+            "tests/automation/guest_operations_panel.test.mjs",
+            "tests/automation/booking_monitoring_panel.test.mjs",
+            "tests/automation/booking_monitoring_async_browser.test.mjs",
+            "tests/automation/investment_operating_bridge_browser.test.mjs",
+            "tests/automation/operating_component_asset_build.test.mjs",
+            "tests/automation/startup_lazy_component_versions.test.mjs",
+            "tests/automation/runtime_asset_identity.test.mjs",
+            "tests/hotel-learning-workbench.test.cjs",
+            "tests/hotel-learning-other-workbench.test.cjs",
+            "tests/automation/frontend_tailwind_build.test.mjs",
+            "tests/automation/frontend_authenticated_style_build.test.mjs",
+            "tests/automation/ai_daily_report_delivery_boundary.test.mjs",
+            "tests/automation/frontend_authenticated_bootstrap.test.mjs",
+            "tests/automation/frontend_business_draft_teleport.test.mjs",
+            "tests/automation/frontend_deep_link_strategy_pagination.test.mjs",
+            "tests/automation/simulation_draft_scope_recovery.test.mjs",
+            "tests/automation/transfer_history_selection_recovery.test.mjs",
+            "tests/automation/online_data_quality_unknown_state.test.mjs",
+            "tests/automation/business_chain_diagnosis_approval_boundary.test.mjs",
+            "tests/automation/business_chain_review_trial.test.mjs",
+            "tests/automation/project_self_audit_read_boundary.test.mjs"
+          ],
+          "tests": 502,
+          "passed": true,
+          "skipped": 0,
+          "log": "output/deep-hardening-20261003/combined-node.log"
+        },
+        "browser": {
+          "tests": 2,
+          "dom_scenarios": 16,
+          "passed": true,
+          "skipped": 0,
+          "log": "output/deep-hardening-20261003/combined-browser.log",
+          "evidence": "output/qa/five-hardening-20261003/evidence.json",
+          "additional_evidence": "output/qa/payback-import-hardening-20261003/evidence.json"
+        },
+        "public_entry": {
+          "startup_gzip_bytes": 607348,
+          "target": 620000,
+          "passed": true,
+          "log": "output/deep-hardening-20261003/combined-public-entry.log"
+        },
+        "boundaries": {
+          "synthetic_database": true,
+          "synthetic_ui": true,
+          "real_account_acceptance": false,
+          "external_write_count": 0,
+          "deployment": false,
+          "final_ci_pending": true
+        },
+        "dependency_security": {
+          "passed": true,
+          "vulnerabilities": {
+            "info": 0,
+            "low": 0,
+            "moderate": 0,
+            "high": 0,
+            "critical": 0,
+            "total": 0
+          },
+          "advisory": "GHSA-vfj7-8cjw-p6xm",
+          "purgecss_version": "7.0.2",
+          "log": "output/deep-hardening-20261003/npm-final-audit.json",
+          "strategy": "remove vulnerable braces/micromatch/fast-glob chain with compatible stable PurgeCSS release; no audit bypass"
+        }
+      },
+      "source_files": [
+        {
+          "path": "app/controller/Agent.php",
+          "sha256": "faf8200fd351f01469f683a34f88b3481137dbbb78d3ad9f5407277be50b7ab1"
+        },
+        {
+          "path": "app/controller/BookingMonitoring.php",
+          "sha256": "aa6870506ba6ae3c02e5001fce6754832fb63eada029aacd4242fc6cebcb7dbc"
+        },
+        {
+          "path": "app/controller/Expansion.php",
+          "sha256": "71e17d29b0aad28dd9c035c66ab050b007b84249234c7e0c4adbc64d550d3302"
+        },
+        {
+          "path": "app/controller/HotelLearning.php",
+          "sha256": "bce9b9dba566794d764f72743e1ab7875c24f70ebd4c5ff08567e3d7c0a79a56"
+        },
+        {
+          "path": "app/controller/OperatingFinance.php",
+          "sha256": "4ddead91e6c4d052206f6005a9065ec1a9ee594a9c14295ac3a1830b9bbe1300"
+        },
+        {
+          "path": "app/controller/StrategySimulation.php",
+          "sha256": "b811c64a525f08fff3b783d4023b991c05bc2e028bb65f0bc98477833ccad4cb"
+        },
+        {
+          "path": "app/controller/TransferDecision.php",
+          "sha256": "3df46d7da2184e3955c11759bcb79e8edfac2e932a8b8c2ef7bd1afc2af4a4a6"
+        },
+        {
+          "path": "app/middleware/RetiredFeatureReadOnly.php",
+          "sha256": "e216cd66c94677c13e6eadef6016f8cd99a3f654f59e31894ed75dae86327458"
+        },
+        {
+          "path": "app/service/ActualConsumablesScenarioReferenceService.php",
+          "sha256": "94a34cfa7e494fac77eb025309ae3450cd104151372d81dbde21d9daef2bc0e0"
+        },
+        {
+          "path": "app/service/AiDailyReportPresentationReviewService.php",
+          "sha256": "91ddf359b8e264fcba1dfde7eaac0a9e624de1caa264ff2e8aea562c18f92f51"
+        },
+        {
+          "path": "app/service/BookingMonitoringService.php",
+          "sha256": "fea4f9696b44e1d61e2f6e8edec0936c12b420bbc7da0dd03f2a8e7e02850774"
+        },
+        {
+          "path": "app/service/CampaignOperationsService.php",
+          "sha256": "6127754ac1941ab86edb65c664e5f9662450c98662b1ee53361c0580f78ef5b4"
+        },
+        {
+          "path": "app/service/ChannelEconomicsService.php",
+          "sha256": "441940aa8b9d1d0b84b50eeaf56b439268c626b1ad9dd7ee3eb1b837175808e6"
+        },
+        {
+          "path": "app/service/ConsumablesActualCostService.php",
+          "sha256": "6686236cfb430767464e2db16d4164e14ce7e76018b1101bf700eb447d707e52"
+        },
+        {
+          "path": "app/service/ConsumablesCostCalculator.php",
+          "sha256": "194c542ca502eb931dbc28754d8a34a05756b4f33e7b6eb2bbd18178bcea7de5"
+        },
+        {
+          "path": "app/service/ConsumablesOperationalReconciliationService.php",
+          "sha256": "3a3811658f312ed5f568326f9dcc4ac0b57784a0e5ddab92525338016ddf83c4"
+        },
+        {
+          "path": "app/service/ExpansionService.php",
+          "sha256": "d7f6ad56a9494d0c4ff3c39fdccbbf765af704f677eb0c8dbd8dc7e0c2d3177b"
+        },
+        {
+          "path": "app/service/FeasibilityReportService.php",
+          "sha256": "300deef4c977654544b2bd73789161d20d2a44438b6d02185d06afea20890b27"
+        },
+        {
+          "path": "app/service/HotelLearningMechanismService.php",
+          "sha256": "b179aed23b5301ad16ce67bae49db4eede53fcd804fb73a9d63d6ac94c0c59bc"
+        },
+        {
+          "path": "app/service/InvestmentOperatingBridgeService.php",
+          "sha256": "5c123f878efdcb72d89d46ef619c36b19bf1e89d2fcea5e53d376fd7b291dcc6"
+        },
+        {
+          "path": "app/service/InvestmentPaybackCalculator.php",
+          "sha256": "189477139b964864d888b7feb891b67dbfbf30975056cace05195f8c50da34a5"
+        },
+        {
+          "path": "app/service/InvestmentPaybackImportService.php",
+          "sha256": "a9c87b82850e37caf68ac43a8ef4a83e4d1705064bea6a4e91cbaf13e216df0d"
+        },
+        {
+          "path": "app/service/InvestmentPaybackService.php",
+          "sha256": "c5165aa26656a1253d12ef03cb73623192c129b0de869017e90d96f8a95a6613"
+        },
+        {
+          "path": "app/service/InvestmentScenarioCalculator.php",
+          "sha256": "abbe6999452a9079abb15a5583d363adb7a6fd8e1b21e3b4fae3cad3eab2da12"
+        },
+        {
+          "path": "app/service/InvestmentScenarioCashPlanner.php",
+          "sha256": "d8891ca50923c0e12d5772cfefa81805c02a3726ce8864c9cc13dfa138d3952a"
+        },
+        {
+          "path": "app/service/OperatingEvidenceSnapshotStore.php",
+          "sha256": "3f9522e8a352438999c100dc1a1450f66e617f061bb156210e7d308e4c5633f4"
+        },
+        {
+          "path": "app/service/PmsFactReconciliationService.php",
+          "sha256": "7aa311d788b32feb57f95de45dcea0ad7c30daf7c2456ad2c807d9cead3528b5"
+        },
+        {
+          "path": "app/service/TransferDecisionService.php",
+          "sha256": "25ec32a082fee065470058bd145b04e86b7d019bbab8102ac1f11e5106986a62"
+        },
+        {
+          "path": "package-lock.json",
+          "sha256": "39389f24a19d2270dd1ce71fd9a82e9663d8f2e867e0f2627a9735f36c417455"
+        },
+        {
+          "path": "package.json",
+          "sha256": "34feaa9259f918edfc3861af48d35a1e6452e9e66373a049368773ee68733508"
+        },
+        {
+          "path": "public/app-deferred-helpers.min.js",
+          "sha256": "48c725e119f03dba39f1ed6fee42c80fb1aa79683ddf5e770d0025fd27a41d90"
+        },
+        {
+          "path": "public/app-main.js",
+          "sha256": "a304ccf1010c35447e6fac926bfe7596880b58ef376bf050eb381f41902f9969"
+        },
+        {
+          "path": "public/app-main.min.js",
+          "sha256": "12a9e410aa978ed179874601b59d2f9158734d8bf7fd018c192e96aa129b6307"
+        },
+        {
+          "path": "public/app-render.min.js",
+          "sha256": "2ca28cb64046bdc9e0d24fb9aa7836712788718fedf053598dcaa544d1ada4a1"
+        },
+        {
+          "path": "public/app-startup-helpers.min.js",
+          "sha256": "069159345a4618e0d03f2c0db40d75f0e1898c38e612e789d0b8500cf9af9ff4"
+        },
+        {
+          "path": "public/components/system/ai-daily-report-delivery.js",
+          "sha256": "63af6fece1f156ef5bfc51b98834da2bd75e6d882a0b3b405805c686810b0a9c"
+        },
+        {
+          "path": "public/components/system/app-main-components-loader.js",
+          "sha256": "fb914d42731a08d188ebabc2b95fffedf900c0655b5d46a16086d3ab266c83e2"
+        },
+        {
+          "path": "public/components/system/app-main-components.js",
+          "sha256": "72af1b570dcac7061d41dd7062acef0add3f3dd113019c4e448ff368cfb1bb77"
+        },
+        {
+          "path": "public/components/system/booking-monitoring-panel.js",
+          "sha256": "63a380bb7c6e24e75cd6b8a6f7fea7c6485aac232e043f5b5fa8a3c5963c37b7"
+        },
+        {
+          "path": "public/components/system/business-closure-loader.js",
+          "sha256": "3394b74414b3c688584fadb27461aaba453f97a705b9e87a4fc216c04334d6ab"
+        },
+        {
+          "path": "public/components/system/business-feature-workspace.js",
+          "sha256": "fc55bb0639228b009ab14d0d452c99c3da833ddec5e822bb1f2b853e51aa1908"
+        },
+        {
+          "path": "public/components/system/campaign-operations-panel.js",
+          "sha256": "99f57f71ec3e16651cbb1cfc9b09129a4ed77cb1681b44b75baeff44b226bda4"
+        },
+        {
+          "path": "public/components/system/guest-operations-panel.js",
+          "sha256": "1c5ef74ad597603b637a381900d342bbb4d31ba322d0996929fc4edfabf8add3"
+        },
+        {
+          "path": "public/components/system/hotel-learning-workbench.js",
+          "sha256": "ffc8fcea33c935530fd9d9da43bdaf02eaba6265fc2cbf6cb582556ac525e2e4"
+        },
+        {
+          "path": "public/components/system/hotel-learning-workbench.min.js",
+          "sha256": "7acbb52ee775ec3a9747c76f0d8c1b0cc96d938f00ed45d06ba1b3a238b1171b"
+        },
+        {
+          "path": "public/components/system/investment-operating-bridge-panel.js",
+          "sha256": "83ab872c78bb8848a909ce15baefe74e6cee97e809c94ea6482683f8a7ce7018"
+        },
+        {
+          "path": "public/components/system/investment-payback-import.js",
+          "sha256": "5e2abd6fbf3ce07214f5f849e2b19e0add7ea3040d874085cf4718e4e6bcf61f"
+        },
+        {
+          "path": "public/components/system/investment-payback.js",
+          "sha256": "6f5fda334267a0dadf147765c2bceea6414442dda8be38c7674511314cac03e5"
+        },
+        {
+          "path": "public/components/system/investment-payback.min.js",
+          "sha256": "872cd807627715638c16b9c35c173377180d2b18fa7b7bc50440fa6dbfc16e7c"
+        },
+        {
+          "path": "public/components/system/operating-economics-workbench.js",
+          "sha256": "29e7f115963f5ed298d1adda83a1f4b9d5650000a4b1c09daedf74d4dc6a973b"
+        },
+        {
+          "path": "public/components/system/operating-economics-workbench.min.js",
+          "sha256": "9f3cdd4dd58e6fce41d7c5357d007dcf62a98a3472cf1f8882aabf6635990dbe"
+        },
+        {
+          "path": "public/components/system/operating-finance-control-center.min.js",
+          "sha256": "f7b3852f428c1974d829be470c0c81e36f27b7ef279780d2453ead44c2a9d255"
+        },
+        {
+          "path": "public/data-health-static.js",
+          "sha256": "551688781ed526a7d126695a7f4a049d34cca47f0907941895ba79b5f9f08396"
+        },
+        {
+          "path": "public/form-operation-support.js",
+          "sha256": "93d03e46fe62dc244ce4e2878018a1141a48ccea99ef40ee8de97cf6c662467d"
+        },
+        {
+          "path": "public/index.html",
+          "sha256": "983e8baee6b227bf29067b1c5f48a31831ceb517c65348acc7509139124b1351"
+        },
+        {
+          "path": "public/operation-static.js",
+          "sha256": "a3aacee0b783ddf05eef8b3c4de919d04edb074cfa4759e63d00e0802a509ab3"
+        },
+        {
+          "path": "public/simulation-static.js",
+          "sha256": "bf984883809becea605d33ac7dd7ba1f7bb2522a2fc9bdb8d603579499f58b0e"
+        },
+        {
+          "path": "public/style-startup.min.css",
+          "sha256": "fdbccd45b68713411b879438ddbeabb7df967ff03685c4787f5fcfb1e68ff2c9"
+        },
+        {
+          "path": "public/style.css",
+          "sha256": "d3ef87524725c295f782bad922da7e2bf7e7657eb335846dc1c9a8edf0be2029"
+        },
+        {
+          "path": "public/style.min.css",
+          "sha256": "c8b2a4b9ef786679f7635db2a31633fcc1def42b58aed3739cb786c5f1b38d77"
+        },
+        {
+          "path": "public/system-static.js",
+          "sha256": "52b257f89eeba636d14b4b295369458d481024a38b8c840d61039dee0054dd23"
+        },
+        {
+          "path": "public/tailwind.min.css",
+          "sha256": "02f3ee535d73a50acd4772b522a32be0489dd5c6da82b679bf3e64583bb0219f"
+        },
+        {
+          "path": "resources/frontend/app-template.html",
+          "sha256": "8c7d716c8e29ef14a6d51873db9d26d8b6569a0ccf856ee588bbc267d193a327"
+        },
+        {
+          "path": "resources/frontend/templates/fragments/19c-page-operating-finance.html",
+          "sha256": "2812b18a5e1b1937ec1c3aa9f7a8e1cc267885be796c07ca716bcbc8458b4d44"
+        },
+        {
+          "path": "resources/frontend/templates/manifest.json",
+          "sha256": "2f539acfcbd6548393d3832a757f97f4be1726e56cefc0589481c282663d6326"
+        },
+        {
+          "path": "scripts/clean_project_local_artifacts.ps1",
+          "sha256": "01b2b77d1038593fee1c06223b5702947b4e868d6c93b27d2c9a7773a4353119"
+        },
+        {
+          "path": "scripts/lib/business_chain_p0_scope.php",
+          "sha256": "c5f13590bcacad3f5bd4a3c843653f07f69b43cc27d505d58976c5cc8f18f0a9"
+        },
+        {
+          "path": "scripts/lib/business_chain_review_scope.php",
+          "sha256": "87b014c94f782392fde9b7dd8074ab942cc09050f1ad937744df8e6a0c532591"
+        },
+        {
+          "path": "scripts/lib/frontend_lazy_asset_versions.mjs",
+          "sha256": "b4a67ecbc436a3461d5bbffa7cad8a9e9083affdf5db6b6b7a698a49abf59e25"
+        },
+        {
+          "path": "scripts/lib/frontend_template_source.mjs",
+          "sha256": "45eb099891ff61b9acee11b44cc8660072f021ab81b9b2bf3ec64cba3d219ff5"
+        },
+        {
+          "path": "scripts/lib/frozen_ai_workbench_contract.mjs",
+          "sha256": "07adbd342c6b7c530f17c81789023cbda86955c908dfcd03053d633546f21c6a"
+        },
+        {
+          "path": "scripts/lib/retired_decision_contract.mjs",
+          "sha256": "89dcbfc24c9793a1fef9e7de0a1b58395564052e5beb98f3d680ab1cae47463d"
+        },
+        {
+          "path": "scripts/project_self_audit.mjs",
+          "sha256": "76659cd5777d78fa68837534afc0d3f4dabfba099d60d19ddff9afe74f695f53"
+        },
+        {
+          "path": "scripts/report_business_chain_status.php",
+          "sha256": "c474dd5545b37882df85c51029927855d9cea37bc988b68a3ad83bb1320a9abc"
+        },
+        {
+          "path": "scripts/verify_business_chain_report_contract.mjs",
+          "sha256": "3dec1692dc2d83f31cb8b818a59da057fe25f7fed9a50fcc1a768c84a565751f"
+        },
+        {
+          "path": "scripts/verify_display_metric_contracts.php",
+          "sha256": "c1208e242f013f44a5659de6ce4a9e9ef142292d65c5abebd905bbd3f1581f0e"
+        },
+        {
+          "path": "scripts/verify_e2e_contracts.mjs",
+          "sha256": "8e2f01f99c62c91a10f2aae52e1c848bf726836ed9c1529abd6118b8adc6928c"
+        },
+        {
+          "path": "scripts/verify_expansion_p2.mjs",
+          "sha256": "c8dcb7a866fde16f80710b4c00e66726dd1a67a4490fe540236a6c0a8561c0c2"
+        },
+        {
+          "path": "scripts/verify_high_risk_security.php",
+          "sha256": "5583874d95107fffd4923935ac800190ef98055f6ade6650f5fc598f8c29949d"
+        },
+        {
+          "path": "scripts/verify_investment_decision_support_contract.mjs",
+          "sha256": "a9d9b68bc073a52752c59d95a9ce6987ea88974cbb8520cf6b33cfcddb9d9417"
+        },
+        {
+          "path": "scripts/verify_missing_modules.php",
+          "sha256": "be83bf28204e6a749ca206f82fa93d682e175d70b08ebb05d6de7f2f908fc7cd"
+        },
+        {
+          "path": "scripts/verify_route_coverage.php",
+          "sha256": "eba5629cbcfd39ded555a0394b8c4986ac4e22643be979a3720b256f2649c905"
+        },
+        {
+          "path": "scripts/verify_strategy_ai_contract.php",
+          "sha256": "5864eb52919cbfe98e4e90ba7589c5cf436debde8f33105f449c506b6512e739"
+        },
+        {
+          "path": "scripts/verify_strategy_p2.mjs",
+          "sha256": "a76128fa45fcf78d404ef5da295a61ed966f18fcc242d652a65343352a19f392"
+        },
+        {
+          "path": "scripts/verify_transfer_p2.mjs",
+          "sha256": "357d9d7079241b42b3d41f4b87f4fc5064ed1f47f630b58c9fa8449ff78f09be"
+        },
+        {
+          "path": "tests/ActualConsumablesScenarioReferencePrecisionTest.php",
+          "sha256": "5bcde1005d668532bc48d62dfa5784492e72a81847723292f41bab7d2cdb40d6"
+        },
+        {
+          "path": "tests/ActualConsumablesScenarioReferenceTest.php",
+          "sha256": "55e036e74a250c758fa5881576f4b8e8dcfdd3982cd9f52976b80a019bce4f33"
+        },
+        {
+          "path": "tests/AiDailyReportPresentationCorrectionTest.php",
+          "sha256": "a3074cabd2aaa40df82eb437040249f250be781fdf670cfaf9b42f6b0a08b8b4"
+        },
+        {
+          "path": "tests/AiDailyReportPresentationRendererServiceTest.php",
+          "sha256": "9841d1dab9d7fd8c8d63c33528e8b3140ed37100390d1588d60cd22270fe9526"
+        },
+        {
+          "path": "tests/AiDailyReportPresentationReviewRoutingTest.php",
+          "sha256": "1ea3aa717d04df7dec2c417f6283e3651880c7bee34b2f33b700ea2ecf8179f8"
+        },
+        {
+          "path": "tests/AiDailyReportPresentationReviewServiceTest.php",
+          "sha256": "d3f4fa063bc2aa47ef7514b25e95ef9a7c5a2c820b69a39d16e5b3325fc375bc"
+        },
+        {
+          "path": "tests/AiDailyReportPresentationSpecServiceTest.php",
+          "sha256": "4a31611712e217c9b9faf774eb5e3c55b3d19f7be2c2ff7071e9fa4a14b56763"
+        },
+        {
+          "path": "tests/BookingDemandEventAsOfTest.php",
+          "sha256": "308c1934aa6b97a40c01e5709b79126f5bc0f05bc8c3d1d6887fe2d1ca93bd9c"
+        },
+        {
+          "path": "tests/BookingDemandPlanningServiceTest.php",
+          "sha256": "02112254a9996cd3d9242f69cdceb0538a50810885852a0a81365321e4d389be"
+        },
+        {
+          "path": "tests/BookingMonitoringRoutingTest.php",
+          "sha256": "b94e1340a641cb8f75defcb942e8015905508ec3358c2965339b6e56a6a3fc61"
+        },
+        {
+          "path": "tests/BookingMonitoringServiceTest.php",
+          "sha256": "1960e91d8c186a6042a95b17233c3d9a886c556098ee9db467d3f3f8381fc803"
+        },
+        {
+          "path": "tests/BusinessChainP0ExecutionPlanTest.php",
+          "sha256": "9bab798d9d5a6485016a7eddcd055f9f1137580f9f3ef973c3c51dd26e7b408c"
+        },
+        {
+          "path": "tests/BusinessChainReviewGateTest.php",
+          "sha256": "db8049aba3da5f6c4766e3c83799ac5469e80282be9d0313ecb98a2a94491cdd"
+        },
+        {
+          "path": "tests/BusinessWorkspaceServiceTest.php",
+          "sha256": "b201deb07555e45cbdd08b82769a8d07559cbd46190b32d52e5f57f9484973eb"
+        },
+        {
+          "path": "tests/CampaignOperationsServiceTest.php",
+          "sha256": "168ce7fe44b16bbe08501afec52d62921726623e6974b71841e0953d3f002994"
+        },
+        {
+          "path": "tests/ConsumablesActualCostPrecisionTest.php",
+          "sha256": "51337703d832c414cb7b43dad69b45c3ac758aea3186e527e3c9b3daad7cb464"
+        },
+        {
+          "path": "tests/ConsumablesCostCalculatorPrecisionTest.php",
+          "sha256": "35cd385fb0d284254f95bc632ee2a8a754dbc6d99d1ac657872eb12119a42f5d"
+        },
+        {
+          "path": "tests/ConsumablesCostCalculatorTest.php",
+          "sha256": "e048be7b159c4d9c30b974d0e0d65d4e79e9bd91cc87ef54a6cba0e1aa9cba21"
+        },
+        {
+          "path": "tests/ConsumablesOperationalReconciliationServiceTest.php",
+          "sha256": "f1d5a6843f819053de910806f89d3ddf433492230c0a0030833ff1d68e3b167d"
+        },
+        {
+          "path": "tests/ConsumablesProcurementReferenceServiceTest.php",
+          "sha256": "55f3df1afa0429b9433a66c1f2e9bef6c85cb2a069952dfca98045c6a09b8cdc"
+        },
+        {
+          "path": "tests/ControllerRouteContractTest.php",
+          "sha256": "ebe18b4d27dfea5377c20c2fca70bc339779efb1686e1888675ba2d58f476d69"
+        },
+        {
+          "path": "tests/DatabaseVersionGovernanceTest.php",
+          "sha256": "1dd9d27dcc12d8c0a1fa9cc7751a6998385932409cc9f9410b03f593260d866e"
+        },
+        {
+          "path": "tests/ExpansionExecutionIntentIdempotencyTest.php",
+          "sha256": "3bae322f04da3360eec05e3155230f2eea48fb05484be4490c63a2f730817afc"
+        },
+        {
+          "path": "tests/ExpansionServiceTest.php",
+          "sha256": "70b017310d6c743ba47ec37a758fb0f7230b8b4326b5b9acc5756c811129dc01"
+        },
+        {
+          "path": "tests/FeasibilityReportServiceTest.php",
+          "sha256": "dc0558028c0126cf81fd6671462ef1e517a797cc2763c5236066b3480e55d178"
+        },
+        {
+          "path": "tests/GuestOperationsServiceTest.php",
+          "sha256": "cbcb7ad143104577c52161ea991fdfc4b0ddf98a394aec9888bd0e3746fe528c"
+        },
+        {
+          "path": "tests/HotelLearningControllerTest.php",
+          "sha256": "cd56dd1327ed8116ec97bff1e443764db4af1bf65d97a3b57ca6d665d9e2a39a"
+        },
+        {
+          "path": "tests/HotelLearningMechanismServiceTest.php",
+          "sha256": "ba3ae808f713db4d42eac2d97828d18f5e18920f2af8f40825dd04448429f0e4"
+        },
+        {
+          "path": "tests/HotelLearningOtherControllerTest.php",
+          "sha256": "4548ef82c002e0ed00a9cd1f2755b0edb0f2039ce2c95c02f494d9b6f32f646d"
+        },
+        {
+          "path": "tests/HotelLearningOtherMechanismsTest.php",
+          "sha256": "e37e77e11a8de89a29281419c31d428204334dfb0a6b6002a2b7f82240df4552"
+        },
+        {
+          "path": "tests/InvestmentOperatingBridgeControllerTest.php",
+          "sha256": "ae7b8885afe01f8135b3fab0b3be55bebab307e339080c2297ef3918013acb33"
+        },
+        {
+          "path": "tests/InvestmentOperatingBridgeLedgerTest.php",
+          "sha256": "0e9e95ff7af165c6810d10d4959790e50bef245a2849f14a78845230ce0e3d69"
+        },
+        {
+          "path": "tests/InvestmentOperatingBridgeServiceTest.php",
+          "sha256": "3cd6406ca9a53c93149d0aa2b9f3e74e83c2ea97768da9f66ff253cf2d73ad99"
+        },
+        {
+          "path": "tests/InvestmentPaybackCalculatorTest.php",
+          "sha256": "9f13ea65a1d6b3d0acd20f01e83aea8b243e2e983d6f6d5e50e4dc4169093a80"
+        },
+        {
+          "path": "tests/InvestmentPaybackImportTest.php",
+          "sha256": "b43495521c701810e3185ca14d5219af5bdfc4242db2ea95eac00e05c5146abc"
+        },
+        {
+          "path": "tests/InvestmentPaybackPersistenceTest.php",
+          "sha256": "0bb250e282097882ace20de6bfef6068b28617142fa547376012a5b1cad2bf8f"
+        },
+        {
+          "path": "tests/InvestmentScenarioCalculatorTest.php",
+          "sha256": "c652e6b2357f5025d5d317ef689d770d996fca52a37bd5a134fdc20645d549a6"
+        },
+        {
+          "path": "tests/InvestmentScenarioCashPlannerTest.php",
+          "sha256": "ccde509afa7c4260ea1ae98096ff3e8d08e54a388615c115385d60e471b9ace6"
+        },
+        {
+          "path": "tests/InvestmentScenarioNumericalBoundaryTest.php",
+          "sha256": "a89736bd0fbfd4f32db2ecbb9201f2869293677fe1b605a7ccaa6cc50169f868"
+        },
+        {
+          "path": "tests/InvestmentScenarioPersistenceTest.php",
+          "sha256": "29eb85c203133a94f85e529167131f086ea755b213bb045d636252e5cdd37727"
+        },
+        {
+          "path": "tests/InvestmentScenarioPortfolioTest.php",
+          "sha256": "69de0fb2f2b896bd650128297f9ebfb8d2d248e8a2f94e6283b3ee8f43dba0b7"
+        },
+        {
+          "path": "tests/InvestmentScenarioRoutingTest.php",
+          "sha256": "abed407a38446110f362cefecf1af0e7a7a0c43766857f3dc0be1fa17961c5ca"
+        },
+        {
+          "path": "tests/InvestmentScenarioTargetSolverTest.php",
+          "sha256": "e135ca470b81b28c0f565d48f441b7fa8c9a5de116c6699f49bbd806b5fd7f01"
+        },
+        {
+          "path": "tests/OperatingEconomicsHardeningTest.php",
+          "sha256": "894e1b2b6335d3a44be6ae3f686d86a80b8abfd0d2aaf5294f370ff1d4600d39"
+        },
+        {
+          "path": "tests/OperatingEvidenceChainTest.php",
+          "sha256": "0a2cb9bc3bdae1854e36097bfed508332ff904120bc80b8d6b0e8bb25a1dbaeb"
+        },
+        {
+          "path": "tests/OperatingEvidenceRoutingTest.php",
+          "sha256": "8710563675d9cd048f285c9c13818d813361b75aed673863174d92f440e64cfd"
+        },
+        {
+          "path": "tests/OtaRevenueAggregateOverflowTest.php",
+          "sha256": "b2b465cd9171228a36e2dccce7dac417648cd9ecc849de399029d9696d9e85bd"
+        },
+        {
+          "path": "tests/PmsFactReconciliationServiceTest.php",
+          "sha256": "b8ecebbee1e002e6aadcbaf0eec415e3481131169e6552b2dbb1f965fd82fe9c"
+        },
+        {
+          "path": "tests/RetiredBackendServiceContractTest.php",
+          "sha256": "caac0637f44d3009b945970301f5e38675413be5f6f3e8422c64dfd226b811cd"
+        },
+        {
+          "path": "tests/RetiredFeatureSlimmingTest.php",
+          "sha256": "f09f8f43d5ffef41865d4254b09894e97eb6d59c807c5e52bbbcc06177acecbc"
+        },
+        {
+          "path": "tests/RetiredHistoryFixture.php",
+          "sha256": "4359f12eca30c91fecf843791affc504a5f8730cb934655482884bd44a7e5e3b"
+        },
+        {
+          "path": "tests/StrategyHistoryHotelScopeTest.php",
+          "sha256": "6f062fd88ce6d6069e1b305447aae6c7f35e97f87faae4b94906561e756c23f9"
+        },
+        {
+          "path": "tests/StrategySimulationTruthTest.php",
+          "sha256": "a4296fb822317f2bdaac058574872593efe349e2ef5b7f31f11a9764e2f356d3"
+        },
+        {
+          "path": "tests/TransferDecisionControllerTest.php",
+          "sha256": "7f66f0bf6d972fd6f6553b521013ed8249359a0a4998955b1647aaa10ea4bddf"
+        },
+        {
+          "path": "tests/TransferDecisionServiceTest.php",
+          "sha256": "c0ee0f248a3e9ed6eab62ed0536e912ec12992b68d480937efe0fd7ac00c1d6c"
+        },
+        {
+          "path": "tests/TransferDecisionSourceZeroTest.php",
+          "sha256": "b34b9ff7628980d291d749c0d4f06f942575a84d89cfc4d3b4b32da08e14087d"
+        },
+        {
+          "path": "tests/TransferHistorySourceIdentityTest.php",
+          "sha256": "e7f339998b1d3ec39b8b610afb25a945f723710931509cb492e50bad08721fe8"
+        },
+        {
+          "path": "tests/automation/access_tier_permissions.test.mjs",
+          "sha256": "f0bfa1998a995c4b37ae22e67f3b53145be987a38a86c23fc78de4e5b59ad955"
+        },
+        {
+          "path": "tests/automation/ai_daily_report_delivery_boundary.test.mjs",
+          "sha256": "7b9549c7e8047e991a4c718c111a48290db0f42f31bfbb3f00508a6a74e7150c"
+        },
+        {
+          "path": "tests/automation/ai_daily_report_presentation_review_ui.test.mjs",
+          "sha256": "058a42cc63bb3f07b10d8cff3501b9a7784668c569464ac7e496a52083f835a7"
+        },
+        {
+          "path": "tests/automation/ai_decision_quality_contract.test.mjs",
+          "sha256": "94dc5cbd6c7602df758a9a7e41135b7928116fd26ce2ec21336abf60222b921d"
+        },
+        {
+          "path": "tests/automation/booking_monitoring_async_browser.test.mjs",
+          "sha256": "fc3224c15fab84c5808eac8b7ea25b679815417045130e88cb9de2aa30b9bc52"
+        },
+        {
+          "path": "tests/automation/booking_monitoring_panel.test.mjs",
+          "sha256": "2f4541834561974d5009586b26b8277661c80984475e0c4e6c5151a52b8c4a0f"
+        },
+        {
+          "path": "tests/automation/business_chain_diagnosis_approval_boundary.test.mjs",
+          "sha256": "b65987e92fbea143666bbfbca17e6ba2c8eb7b74dbd65d1629b7673b3b44d035"
+        },
+        {
+          "path": "tests/automation/business_chain_review_trial.test.mjs",
+          "sha256": "f6fc53619fe84fc561728fd2019b57205a424033209baf4f68323da53a768efd"
+        },
+        {
+          "path": "tests/automation/business_chain_status_report.test.mjs",
+          "sha256": "3da571948d441d676bcaebcf299a5a40fbfeb6f557ad3e2bc823961356c35b28"
+        },
+        {
+          "path": "tests/automation/business_date_defaults.test.mjs",
+          "sha256": "ce5aa8e3050a30b60dd6318f22cf1243e43d292bcdd45de20dd28d8b366ae05e"
+        },
+        {
+          "path": "tests/automation/business_feature_workspace_async_state.test.mjs",
+          "sha256": "514a97e91779eec245b24d511c2381570d6a4eede26efd9d6227a566364e3f98"
+        },
+        {
+          "path": "tests/automation/business_feature_workspace_browser.test.mjs",
+          "sha256": "d1eb008873bd5867e28671a9b5a58f56caca8a0889bb45407187438262e10679"
+        },
+        {
+          "path": "tests/automation/business_page_contract.test.mjs",
+          "sha256": "b13db4392da5635ab2857960f25bc7eb768b5b7ab18dd937234fd876edc7de63"
+        },
+        {
+          "path": "tests/automation/campaign_operations_browser.test.mjs",
+          "sha256": "7fedc9cf0ea7d1e27aa6f933f44e0c38d6b0016d149c08b5f112ed1bcd4a8461"
+        },
+        {
+          "path": "tests/automation/dashboard_hotel_data_cockpit.test.mjs",
+          "sha256": "689d87c5aa6c4f552df3122168cd717ca2d737f4efdb0b25ebe0de65efd93755"
+        },
+        {
+          "path": "tests/automation/dual_ota_hotel_order_ui.test.mjs",
+          "sha256": "37579462c70773143ca0ade251963526e5c8e7b5e080b39a97b9ead085496629"
+        },
+        {
+          "path": "tests/automation/dual_ota_interaction_affordance.test.mjs",
+          "sha256": "edd07aedf25223035d4e06e29567365d2054aec01a630c45af3e4bb4527d5457"
+        },
+        {
+          "path": "tests/automation/dual_ota_pms_entry_ui.test.mjs",
+          "sha256": "e48bc124b85ed2a3ee5486a026e80bf896688e0e6382c976f556a5f9dee44344"
+        },
+        {
+          "path": "tests/automation/five_hardening_browser.mjs",
+          "sha256": "b6ea208087b1fbaac624000adac203155a5cf35b60b2bcc1cf57181e9acf816c"
+        },
+        {
+          "path": "tests/automation/frontend_authenticated_bootstrap.test.mjs",
+          "sha256": "0e7c9fa27e8bd21ce77e15ec230f2a0691cb5b2d58dba91837a134f9c028c6cf"
+        },
+        {
+          "path": "tests/automation/frontend_authenticated_style_build.test.mjs",
+          "sha256": "efbdce328c27082d689eeacb0459230862f0d9f8f7b03eabd1a3ad10e6eb44f5"
+        },
+        {
+          "path": "tests/automation/frontend_business_draft_teleport.test.mjs",
+          "sha256": "2b23b795150e4c5de831986ddb8efc056b40e24f03d6859c54f7cda64aebc794"
+        },
+        {
+          "path": "tests/automation/frontend_deep_link_strategy_pagination.test.mjs",
+          "sha256": "da3f7d916344cf51fb2560d5f0bc2b91b4b29fa9aa28c80783a8e5645412c654"
+        },
+        {
+          "path": "tests/automation/frontend_lazy_asset_versions.test.mjs",
+          "sha256": "e095cfa6b2f9df9fb863fc88ab9a937b23149e7a82c207ee584c41609c3187cf"
+        },
+        {
+          "path": "tests/automation/frontend_tailwind_build.test.mjs",
+          "sha256": "0c603cdbd9d1d4cebab0502324086c54231021caa3676a09a2d27f135a90ce11"
+        },
+        {
+          "path": "tests/automation/frontend_template_build.test.mjs",
+          "sha256": "3ba326be9e8759c06e3d6304516094a914fe3beb820ee4684491aca75e351258"
+        },
+        {
+          "path": "tests/automation/global_term_help.test.mjs",
+          "sha256": "8569125de16c2f25ebe6b34709d6275ba4219ca973fc6e0c5ccdbc64d9211d5b"
+        },
+        {
+          "path": "tests/automation/guest_operations_panel.test.mjs",
+          "sha256": "e9eb1bdba46f7ef4324ec1217d7bb102de1764951d0b0e423919e356efc12012"
+        },
+        {
+          "path": "tests/automation/helpers/retired_frontend_source.mjs",
+          "sha256": "d82c814d156c772f445278e0ef42442d3fa262dd76a859814d82055d6fd51743"
+        },
+        {
+          "path": "tests/automation/home_evidence_chain_truth.test.mjs",
+          "sha256": "6f907356a42bbf7421c247b5863d3cf93b4a5be29b0b548d07ee40642bba3b6a"
+        },
+        {
+          "path": "tests/automation/home_temporal_concise_ui.test.mjs",
+          "sha256": "3e92afd6e0a6c617adeb45cdcfb095b1c9bc4797a73078174d8ecad01a7e1dbc"
+        },
+        {
+          "path": "tests/automation/home_temporal_trial_closure.test.mjs",
+          "sha256": "4acc7990b74ffa059047b984d587e6ee3ece19f2beb72283433b36d4165cce89"
+        },
+        {
+          "path": "tests/automation/investment_operating_bridge_browser.test.mjs",
+          "sha256": "775cf424033ad80e57d07b17f6a7c593f8fe90062b20c1162d87bb676ecbef14"
+        },
+        {
+          "path": "tests/automation/investment_operating_bridge_panel.test.mjs",
+          "sha256": "d804122802e63294b0084a170d9cdc13a6b0b9e9a8a6b232521a0f897d36925a"
+        },
+        {
+          "path": "tests/automation/investment_payback_import.test.mjs",
+          "sha256": "04e0a3a310aad873c8792eef9e4570c614e212ae2b4f0150613e00555afc2a16"
+        },
+        {
+          "path": "tests/automation/investment_payback_import_browser.mjs",
+          "sha256": "550ec624f31d128df6637820f80669d10dcadefd8757501336d77bf5d34ad492"
+        },
+        {
+          "path": "tests/automation/investment_payback_workbench.test.mjs",
+          "sha256": "9e811007a6a2faa3691ac951778ecdb38320ec72ade1f122ca076c2b2e38a1b5"
+        },
+        {
+          "path": "tests/automation/investment_scenario_workbench.test.mjs",
+          "sha256": "50912bc20eba502454f50f935668fac5e82db0f208f8fffae8e8d68cf127f252"
+        },
+        {
+          "path": "tests/automation/online_data_quality_unknown_state.test.mjs",
+          "sha256": "112eea160a5a05c75e6d90955d2829fc8c7b583329e856ab4cffd8524c54eaa8"
+        },
+        {
+          "path": "tests/automation/operating_component_asset_build.test.mjs",
+          "sha256": "3db4a0110c7025447d5c39973389152f72e9e21507f5d6bf66270e7df245640a"
+        },
+        {
+          "path": "tests/automation/operating_economics_workbench.test.mjs",
+          "sha256": "38a6f9708f018e0d0b8d519be46092aae0fdc0d24d0406bab3e38beadd9ce4c2"
+        },
+        {
+          "path": "tests/automation/operating_loop_authority.test.mjs",
+          "sha256": "542449478b00eab22ca9689fffd66b4edd4a75af71a00cf45710f8ec0aa2fd11"
+        },
+        {
+          "path": "tests/automation/option_a_frontend_regressions.test.mjs",
+          "sha256": "ea257b11359c0fa83a4eebc097b61568037ce375065c94d348dcabfb3b7a4b4b"
+        },
+        {
+          "path": "tests/automation/project_copy_logic.test.mjs",
+          "sha256": "b85b761cc756ce6da4a24aea8765563c019a4f2b69ee59377333dc07ffbe8033"
+        },
+        {
+          "path": "tests/automation/project_local_artifact_cleanup.test.mjs",
+          "sha256": "25fed6a6f2f8b068298bd14b8f78b505339e19ed154cf090bf0bed96acf7bbf0"
+        },
+        {
+          "path": "tests/automation/project_self_audit_read_boundary.test.mjs",
+          "sha256": "01fe766b75da952c74252853636ae307b0a8f431b51bf7604f8f02a46470a3ab"
+        },
+        {
+          "path": "tests/automation/quant_simulation_realization.test.mjs",
+          "sha256": "f333cfe42bb46659a422e9cdd2dcd496e58cc67e82af1625dca78070a2197273"
+        },
+        {
+          "path": "tests/automation/runtime_asset_identity.test.mjs",
+          "sha256": "00895b5440fa3b5af5d19a33bc45901454d54139c3e0dc155cc8d4cfda193665"
+        },
+        {
+          "path": "tests/automation/simulation_draft_scope_recovery.test.mjs",
+          "sha256": "ba51251ad0f2e7bd84525ee58908d073e4cd8362904d98e218048cc55bc3ed5e"
+        },
+        {
+          "path": "tests/automation/simulation_history_pagination.test.mjs",
+          "sha256": "e13cbebdde19f76f1f811bfd148a2a1120cb9afda4e58997c67fe99f4f64ab66"
+        },
+        {
+          "path": "tests/automation/simulation_save_selection_recovery.test.mjs",
+          "sha256": "fc5000f13bb8a579382a26e8ad6fb7369f324ed5d58affe524367c0cf73f8a74"
+        },
+        {
+          "path": "tests/automation/simulation_saved_context.test.mjs",
+          "sha256": "8cfde90d2c1f7676e956c48e3ade399fdc4a29a348d1693c50ad74b399032cd6"
+        },
+        {
+          "path": "tests/automation/startup_lazy_component_versions.test.mjs",
+          "sha256": "179d4e49aa4e6198462ff2016fac33c62b8950761d1e47ec6b91d7bdd4814d28"
+        },
+        {
+          "path": "tests/automation/transfer_history_selection_recovery.test.mjs",
+          "sha256": "aadad5178a86ab9a38052ba3d01c3b479b854aa45618654f80270761bf76bebf"
+        },
+        {
+          "path": "tests/automation/transfer_source_scope_recovery.test.mjs",
+          "sha256": "3599549512d498c471a7658a6f0e58034d19069bb5261b11034c04a6b1ee6da6"
+        },
+        {
+          "path": "tests/automation/transfer_source_zero.test.mjs",
+          "sha256": "3b864ed2deefb38cd9ee1a6f8b751f6b0ac631c125a1dff64e8087867d2f9a0b"
+        },
+        {
+          "path": "tests/automation/truth_summary_ui.test.mjs",
+          "sha256": "1e847429116e23fb1155bec4b0ce189633f2272c81c7f01217c3ff4c062f2873"
+        },
+        {
+          "path": "tests/automation/ui_truth_semantics.test.mjs",
+          "sha256": "97476cee086960d6007f3ad42c6df5dab680ca43def0c45af010806ce4610764"
+        },
+        {
+          "path": "tests/automation/unified_current_hotel_ui.test.mjs",
+          "sha256": "25c9dc7d2e8afddfcdef8a0c7f5787260f29657c7e7356a1b117b53c8294ef0b"
+        },
+        {
+          "path": "tests/fixtures/frontend-retired-20261002.json",
+          "sha256": "72d9fc601e8d29c18aac8662056ae49e5d65ee158498998e8f540bc7ac056e9f"
+        },
+        {
+          "path": "tests/fixtures/frontend-retired-20261002.zip",
+          "sha256": "232e640a2355875e15d38bfd46f9e66620cfcd63dd9709488f225a55f8ce0e75"
+        },
+        {
+          "path": "tests/fixtures/retired-generation-history.json",
+          "sha256": "5a91a0fca5186edca88b9813064ba9ae8aa9418e1be35e6aba0db84dad6b80f1"
+        },
+        {
+          "path": "tests/fixtures/retired-transfer-recovery-20261002.json",
+          "sha256": "63de32fb62df80fa1164912411cc056b7c755d7493f7dbb8a30c046b1681e6e4"
+        },
+        {
+          "path": "tests/fixtures/retired-transfer-source-20261002.json",
+          "sha256": "1f54fe29ba182a64c05be80273e815077ee061fc7fc11fe3cacfa02e6facf5c8"
+        },
+        {
+          "path": "tests/hotel-learning-other-workbench.test.cjs",
+          "sha256": "690dfac2dd9cf24dbac95f5d6de454566d9b39381a304660b746de620c331cf8"
+        },
+        {
+          "path": "tests/hotel-learning-workbench.test.cjs",
+          "sha256": "90d2e34f6c4e055e608b61a21906364534fee11396f850a759657890a0fcbabe"
+        }
+      ],
+      "github_runs": [
+        {
+          "id": 37104129008,
+          "event": "pull_request",
+          "conclusion": "success",
+          "url": "https://github.com/yintao2586672626-lang/SUXIOS/actions/runs/37104129008"
+        },
+        {
+          "id": 37104124821,
+          "event": "push",
+          "conclusion": "success",
+          "url": "https://github.com/yintao2586672626-lang/SUXIOS/actions/runs/37104124821"
+        }
+      ]
     }
   ],
   "previous_main_intakes": [
@@ -2888,6 +4004,22 @@
       "previous_main": "5821434c4839c9b9fd70bd0106ad176ba37d4b21",
       "pull_request": 60,
       "merge": "preserve latest payback accounting, import and UI plus root bridge exact cumulative fen, existing manual source and scope protections; rebuild shared entry"
+    },
+    {
+      "head": "e80f1d322460ea9b84af928860438a9f3d9854fa",
+      "previous_main": "d5bc8f6d2362d8ebbae3b9213b1c57d15475b238",
+      "pull_request": 56,
+      "merge": "approved retirement remains read-only/history-compatible; preserve current native operating workspace and every accepted payback/booking/economics/report/learning repair; shared source automatically combined, rebuild assets, semantic delivery test prefix"
+    }
+  ],
+  "verification_fixture_repairs": [
+    {
+      "path": "tests/automation/frontend_authenticated_bootstrap.test.mjs",
+      "change": "wait for actual bounded promise-chain script insertion; attach expected manifest rejection before timed events; production timeouts unchanged"
+    },
+    {
+      "path": "tests/automation/investment_operating_bridge_browser.test.mjs",
+      "change": "synthetic responses explicitly include tenant and same-scope project identity; retain strict production scope gate and null blocked amounts"
     }
   ]
 }

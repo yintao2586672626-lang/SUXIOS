@@ -378,13 +378,13 @@ class DemandForecast extends BaseTenantModel
             return [
                 'avg_error' => round($forecasts['avg_error'], 2),
                 'accuracy_rate' => round($forecasts['accurate_count'] / $forecasts['total_count'] * 100, 2),
-                'total_forecasts' => $forecasts['total_count'],
+                'total_forecasts' => (int)$forecasts['total_count'],
             ];
         }
         
         return [
-            'avg_error' => 0,
-            'accuracy_rate' => 0,
+            'avg_error' => null,
+            'accuracy_rate' => null,
             'total_forecasts' => 0,
         ];
     }

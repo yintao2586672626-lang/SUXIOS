@@ -10865,7 +10865,7 @@
                                             </div>
                                         </fieldset>
                                         <div data-testid="agent-price-suggestion-ctrip-preflight-inputs" class="mb-5 grid grid-cols-1 xl:grid-cols-2 gap-4">
-                                            <fieldset data-testid="agent-suggestion-demand-forecast-manual-input" :disabled="demandForecastSaving" class="m-0 min-w-0 rounded-lg border border-emerald-100 bg-emerald-50 p-4">
+                                            <fieldset data-testid="agent-suggestion-demand-forecast-manual-input" data-form-draft="off" :disabled="demandForecastSaving" class="m-0 min-w-0 rounded-lg border border-emerald-100 bg-emerald-50 p-4">
                                                 <div class="mb-3 flex flex-wrap items-start justify-between gap-2">
                                                     <div>
                                                         <h3 class="font-semibold text-emerald-900">目标日需求预测</h3>
@@ -10875,6 +10875,8 @@
                                                         <i class="fas fa-rotate mr-1"></i>刷新
                                                     </button>
                                                 </div>
+                                                <div v-if="demandForecastSaveReadback" data-testid="agent-demand-forecast-save-readback" class="mb-3 rounded border border-emerald-200 bg-white p-3 text-xs text-emerald-900" role="status">{{ demandForecastSaveReadback.message }}</div>
+                                                <button @click="resetDemandForecastForm" :disabled="demandForecastSaving" aria-label="清空人工预测" data-testid="agent-demand-forecast-clear" class="mb-2 rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700 disabled:opacity-50">清空</button>
                                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                     <input type="date" v-model="demandForecastForm.forecast_date" class="input-field">
                                                     <select v-model.number="demandForecastForm.room_type_id" class="input-field">
@@ -10883,7 +10885,7 @@
                                                             {{ item.name }}{{ Number(item.is_enabled) === 1 ? '' : '（停用）' }}
                                                         </option>
                                                     </select>
-                                                    <input type="number" v-model.number="demandForecastForm.predicted_occupancy" class="input-field" min="0" max="100" step="1" placeholder="预测入住率%">
+                                                    <input type="number" v-model.number="demandForecastForm.predicted_occupancy" :disabled="demandForecastSaving" aria-label="人工预测入住率" class="input-field" min="0" max="100" step="0.01" placeholder="预测入住率%">
                                                     <input type="number" v-model.number="demandForecastForm.predicted_demand" class="input-field" min="0" step="1" placeholder="需求间夜">
                                                     <input type="number" v-model.number="demandForecastForm.confidence_percent" class="input-field" min="1" max="100" step="1" placeholder="人工置信度%（必填）">
                                                     <button @click="saveDemandForecastInput" :disabled="demandForecastSaving" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white hover:bg-emerald-800 disabled:opacity-50">
@@ -11462,21 +11464,22 @@
                                                             <div class="text-sm font-semibold text-emerald-900">需求预测补录</div>
                                                             <div class="text-xs text-emerald-700">人工提供项，仅用于携程调价预检；不是 OTA 自动采集事实，不写 OTA。</div>
                                                         </div>
-                                                        <button @click="resetDemandForecastForm" class="rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50">
+                                                        <button @click="resetDemandForecastForm" :disabled="demandForecastSaving" class="rounded border border-emerald-200 bg-white px-2.5 py-1.5 text-xs text-emerald-700 hover:bg-emerald-50">
                                                             <i class="fas fa-eraser mr-1"></i>清空
                                                         </button>
                                                     </div>
+                                                    <div v-if="demandForecastSaveReadback" class="mb-3 rounded border border-emerald-200 bg-white p-3 text-xs text-emerald-900" role="status">{{ demandForecastSaveReadback.message }}</div>
                                                     <div class="grid grid-cols-1 md:grid-cols-6 gap-2">
-                                                        <input type="date" v-model="demandForecastForm.forecast_date" class="input-field">
-                                                        <select v-model.number="demandForecastForm.room_type_id" class="input-field md:col-span-2">
+                                                        <input type="date" v-model="demandForecastForm.forecast_date" :disabled="demandForecastSaving" class="input-field">
+                                                        <select v-model.number="demandForecastForm.room_type_id" :disabled="demandForecastSaving" class="input-field md:col-span-2">
                                                             <option :value="0">选择房型</option>
                                                             <option v-for="item in roomTypeConfigList" :key="`forecast-room-${item.id}`" :value="Number(item.id)" :disabled="Number(item.is_enabled) !== 1">
                                                                 {{ item.name }}{{ Number(item.is_enabled) === 1 ? '' : '（停用）' }}
                                                             </option>
                                                         </select>
-                                                        <input type="number" v-model.number="demandForecastForm.predicted_occupancy" class="input-field" min="0" max="100" step="1" placeholder="预测入住率%">
-                                                        <input type="number" v-model.number="demandForecastForm.predicted_demand" class="input-field" min="0" step="1" placeholder="需求间夜">
-                                                        <input type="number" v-model.number="demandForecastForm.confidence_percent" class="input-field" min="1" max="100" step="1" placeholder="人工置信度%（必填）">
+                                                        <input type="number" v-model.number="demandForecastForm.predicted_occupancy" :disabled="demandForecastSaving" class="input-field" min="0" max="100" step="0.01" placeholder="预测入住率%">
+                                                        <input type="number" v-model.number="demandForecastForm.predicted_demand" :disabled="demandForecastSaving" class="input-field" min="0" step="1" placeholder="需求间夜">
+                                                        <input type="number" v-model.number="demandForecastForm.confidence_percent" :disabled="demandForecastSaving" class="input-field" min="1" max="100" step="1" placeholder="人工置信度%（必填）">
                                                     </div>
                                                     <div class="mt-2 flex flex-wrap items-center gap-2">
                                                         <input v-model.trim="demandForecastForm.remark" class="input-field flex-1 min-w-[220px]" placeholder="预测口径备注（可选）">

@@ -137,6 +137,15 @@ function createAuthenticatedAssetLoaderHarness(timeoutMs = 20, manifestTimeoutMs
   };
 }
 
+async function waitForScriptNode(loader, predicate) {
+  for (let turn = 0; turn < 20; turn += 1) {
+    const node = loader.scripts.find(predicate);
+    if (node) return node;
+    await Promise.resolve();
+  }
+  assert.fail('the loader must create its script node within its bounded promise chain');
+}
+
 test('Meituan helper bindings resolve the deferred bundle at call time', () => {
   const bindingStart = appMain.indexOf('const currentMeituanStatic =');
   const bindingEnd = appMain.indexOf('const OTA_BROWSER_ASSIST_STATIC_ASSET', bindingStart);
@@ -232,8 +241,8 @@ test('authenticated asset loads share in-flight work and recover after error or 
   const firstDeferredScript = loader.scripts.find(node => node.src.includes('deferred-retry.js'));
   assert.equal(firstDeferredScript.async, true, 'JS-sequential deferred scripts must not join the native ordered queue');
   firstDeferredScript.emit('error');
-  await new Promise(resolve => setImmediate(resolve));
-  const retriedDeferredScript = loader.scripts.find(node => node.src.includes('deferred-retry.js'));
+  const retriedDeferredScript = await waitForScriptNode(loader,
+    node => node.src.includes('deferred-retry.js') && node !== firstDeferredScript);
   assert.notEqual(retriedDeferredScript, firstDeferredScript, 'a deferred asset gets one fresh bounded retry');
   assert.equal(retriedDeferredScript.async, true);
   assert.equal(new URL(retriedDeferredScript.src).searchParams.get('suxi_retry'), '1');
@@ -283,15 +292,15 @@ test('deferred manifest resets a rejected attempt and enforces one shared termin
   const assets = [{ type: 'script', src: 'manifest-retry.js?v=1' }];
 
   const firstManifestLoad = retryLoader.loadDeferredAuthenticatedAssets(assets);
-  await new Promise(resolve => setImmediate(resolve));
-  const firstAttempt = retryLoader.scripts.find(node => node.src.includes('manifest-retry.js'));
+  const firstManifestRejection = assert.rejects(firstManifestLoad, /manifest-retry\.js 加载失败/);
+  const firstAttempt = await waitForScriptNode(retryLoader, node => node.src.includes('manifest-retry.js'));
   firstAttempt.emit('error');
-  await new Promise(resolve => setImmediate(resolve));
-  const automaticRetry = retryLoader.scripts.find(node => node.src.includes('manifest-retry.js'));
+  const automaticRetry = await waitForScriptNode(retryLoader,
+    node => node.src.includes('manifest-retry.js') && node !== firstAttempt);
   assert.notEqual(automaticRetry, firstAttempt);
   assert.equal(new URL(automaticRetry.src).searchParams.get('suxi_retry'), '1');
   automaticRetry.emit('error');
-  await assert.rejects(firstManifestLoad, /manifest-retry\.js 加载失败/);
+  await firstManifestRejection;
   assert.equal(
     retryLoader.events.filter(event => event.type === 'suxi:full-render-error').length,
     1,
@@ -300,8 +309,8 @@ test('deferred manifest resets a rejected attempt and enforces one shared termin
 
   const secondManifestLoad = retryLoader.loadDeferredAuthenticatedAssets(assets);
   assert.notEqual(secondManifestLoad, firstManifestLoad, 'a rejected manifest must create a fresh top-level Promise');
-  await new Promise(resolve => setImmediate(resolve));
-  const explicitRetry = retryLoader.scripts.find(node => node.src.includes('manifest-retry.js'));
+  const explicitRetry = await waitForScriptNode(retryLoader,
+    node => node.src.includes('manifest-retry.js') && node !== automaticRetry);
   assert.notEqual(explicitRetry, automaticRetry, 'an explicit manifest retry must create a fresh failed asset node');
   explicitRetry.emit('load');
   await secondManifestLoad;
@@ -318,9 +327,10 @@ test('deferred manifest resets a rejected attempt and enforces one shared termin
     { type: 'script', src: 'slow-before-deadline.js?v=1' },
     { type: 'script', src: 'late-stall.js?v=1' },
   ]);
+  const deadlineRejection = assert.rejects(deadlineLoad, /完整页面资源清单加载超时/);
   await new Promise(resolve => setTimeout(resolve, 12));
   deadlineLoader.scripts.find(node => node.src.startsWith('slow-before-deadline.js'))?.emit('load');
-  await assert.rejects(deadlineLoad, /完整页面资源清单加载超时/);
+  await deadlineRejection;
   const elapsedMs = Date.now() - deadlineStartedAt;
   assert(
     elapsedMs < 80,

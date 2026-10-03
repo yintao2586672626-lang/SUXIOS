@@ -78,16 +78,27 @@ final class InvestmentOperatingBridgeService
             return $reply;
         }
         try {
-            [$rows, $complete, $pages, $readIssues] = $this->readProjects($asOf);
+            [$rows, $complete, $pages, $readIssues] = $this->readProjects($tenantId, $hotelId, $asOf);
             $projects = []; $seen = [];
             foreach ($rows as $row) {
                 if (!is_array($row) || (int)($row['tenant_id'] ?? 0) !== $tenantId) {
                     throw new RuntimeException('investment_bridge_reader_scope_mismatch');
                 }
-                if ((int)($row['hotel_id'] ?? 0) !== $hotelId) continue;
-                $id = (int)($row['id'] ?? 0);
-                if ($id <= 0 || isset($seen[$id])) throw new RuntimeException('investment_bridge_project_identity_invalid');
+                $rawId = $row['id'] ?? null;
+                if (!is_int($rawId) && !is_string($rawId)) {
+                    throw new RuntimeException('investment_bridge_project_identity_invalid');
+                }
+                $idText = (string)$rawId;
+                $maxIdText = (string)PHP_INT_MAX;
+                if (!preg_match('/^[1-9]\d*$/D', $idText) || strlen($idText) > strlen($maxIdText)
+                    || (strlen($idText) === strlen($maxIdText) && strcmp($idText, $maxIdText) > 0)) {
+                    throw new RuntimeException('investment_bridge_project_identity_invalid');
+                }
+                $id = (int)$rawId;
+                if (isset($seen[$id])) throw new RuntimeException('investment_bridge_project_identity_invalid');
                 $seen[$id] = true;
+                // Defend against a reader that ignores the hotel filter without exposing its rows.
+                if ((int)($row['hotel_id'] ?? 0) !== $hotelId) continue;
                 $projects[] = $this->project($row, $asOf);
             }
             $reply['read_status'] = 'available';
@@ -110,12 +121,12 @@ final class InvestmentOperatingBridgeService
         }
     }
 
-    private function readProjects(string $asOf): array
+    private function readProjects(int $tenantId, int $hotelId, string $asOf): array
     {
         if ($this->projectReader === null && $this->ledger === null) throw new RuntimeException('investment_bridge_reader_missing');
         $rows = []; $expectedTotal = null;
         for ($page = 1; $page <= self::MAX_PAGES; $page++) {
-            $filters = ['as_of' => $asOf, 'include_archived' => true, 'page_size' => self::PAGE_SIZE, 'page' => $page];
+            $filters = ['tenant_id' => $tenantId, 'hotel_id' => $hotelId, 'as_of' => $asOf, 'include_archived' => true, 'page_size' => self::PAGE_SIZE, 'page' => $page];
             $result = $this->projectReader === null ? $this->ledger->projects($filters) : ($this->projectReader)($filters);
             if (!is_array($result) || !is_array($result['list'] ?? null) || !array_is_list($result['list'])
                 || !is_array($result['pagination'] ?? null) || !is_int($result['pagination']['total'] ?? null)

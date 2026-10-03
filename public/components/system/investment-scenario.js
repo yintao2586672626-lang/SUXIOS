@@ -289,13 +289,15 @@
             const cancelReplacement = () => { pendingReplacement.value = null; };
             const confirmReplacement = async () => {
                 if (!pendingReplacement.value || busy.value) return;
-                const kind = pendingReplacement.value.kind;
+                const replacement = pendingReplacement.value;
+                const kind = replacement.kind;
                 pendingReplacement.value = null;
                 if (kind === 'blank') newBlank(true);
                 else if (kind === 'reference') await loadReference(true);
                 else if (kind === 'reload') await loadScenario({ discardDraft: true });
                 else if (kind === 'switch') await switchScenario(pendingActionKey, true);
                 else if (kind === 'history') await viewVersion(pendingActionKey, true);
+                else if (kind === 'months') generateMonths(true, replacement.monthRangeSignature);
             };
             let pendingActionKey = null;
             const switchScenario = async (key, discardDraft = false) => {
@@ -355,7 +357,7 @@
                 }
             };
             const scenarioLabel = key => ({ conservative: '保守', base: '基准', optimistic: '乐观' }[key] || key);
-            const statusLabel = status => ({ within_limit: '在目标期内', beyond_limit: '超过目标期', not_reached_in_horizon: '测算期内未达成', trial_only: '仅税前代理试算，完整现金待补', inputs_missing: '条件未补齐', forecast_missing: '经营假设未补齐', expired: '合同已到期', user_confirmed: '用户已核对来源', unverified: '合同资料待核对' }[status] || status || '待补齐');
+            const statusLabel = status => ({ within_limit: '在目标期内', beyond_limit: '超过目标期', not_reached_in_horizon: '测算期内未达成', trial_only: '仅税前代理试算，完整现金待补', inputs_missing: '条件未补齐', forecast_missing: '经营假设未补齐', expired: '合同已到期', not_started: '合同尚未开始', before_contract_start: '回本假设早于合同开始', user_confirmed: '用户已核对来源', unverified: '合同资料待核对' }[status] || status || '待补齐');
             const loadScenarioPanel = async () => {
                 if (busy.value) return;
                 const projectId = props.project.id, stamp = generation;
@@ -434,12 +436,21 @@
             };
             const addConstraints = () => { if (!busy.value && !readOnly.value && !writeBlocked.value && !form.value.decision_constraints) form.value.decision_constraints = { target_payback_months: '', contract_start_on: '', contract_end_on: '', contract_source: '', contract_confirmed: false }; };
             const addCashPlan = () => { if (!busy.value && !readOnly.value && !writeBlocked.value && !form.value.cash_plan) form.value.cash_plan = { start_month: form.value.as_of?.slice(0, 7) || '', months: '12', opening_liquidity: '', source_label: '', loans: [], monthly_inputs: [] }; };
-            const generateMonths = () => {
+            const generateMonths = (discardFilled = false, confirmedSignature = null) => {
                 const plan = form.value.cash_plan;
                 if (busy.value || readOnly.value || writeBlocked.value || !plan || !/^\d{4}-(0[1-9]|1[0-2])$/.test(plan.start_month) || Number(plan.months) < 1 || Number(plan.months) > 360 || !Number.isInteger(Number(plan.months))) return;
                 const start = new Date(plan.start_month + '-01T00:00:00Z');
                 const existing = new Map(plan.monthly_inputs.map(row => [row.month, row]));
-                plan.monthly_inputs = Array.from({ length: Number(plan.months) }, (_, n) => { const date = new Date(start); date.setUTCMonth(date.getUTCMonth() + n); const month = date.toISOString().slice(0, 7); return existing.get(month) || { month, operating_net_cash: '', capex_cash: '', other_net_cash: '' }; });
+                const nextRows = Array.from({ length: Number(plan.months) }, (_, n) => { const date = new Date(start); date.setUTCMonth(date.getUTCMonth() + n); const month = date.toISOString().slice(0, 7); return existing.get(month) || { month, operating_net_cash: '', capex_cash: '', other_net_cash: '' }; });
+                const keptMonths = new Set(nextRows.map(row => row.month));
+                const removed = plan.monthly_inputs.filter(row => !keptMonths.has(row.month) && ['operating_net_cash', 'capex_cash', 'other_net_cash'].some(key => row[key] !== null && row[key] !== undefined && String(row[key]).trim() !== ''));
+                const signature = canonical({ start_month: plan.start_month, months: Number(plan.months), removed });
+                if (removed.length && (discardFilled !== true || confirmedSignature !== signature)) {
+                    pendingReplacement.value = { kind: 'months', label: '重新生成计划月份', months: removed.map(row => row.month), monthRangeSignature: signature };
+                    return;
+                }
+                pendingReplacement.value = null;
+                plan.monthly_inputs = nextRows;
             };
             const addLoan = () => { if (!busy.value && !readOnly.value && !writeBlocked.value && form.value.cash_plan && form.value.cash_plan.loans.length < 20) form.value.cash_plan.loans.push({ id: 'loan-' + Date.now() + '-' + form.value.cash_plan.loans.length, name: '', funding: 'new', principal: '', annual_rate: '', start_month: form.value.cash_plan.start_month, term_months: '', method: 'equal_principal' }); };
             const receiveActualCost = event => {
@@ -628,7 +639,7 @@
             <div v-if="actualReferenceAvailable && actualCostReference" class="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-2 text-sm" data-testid="scenario-actual-cost-reference"><p>收到同酒店 {{ actualCostReference.business_month }} 人工月度耗材参考：{{ money(actualCostReference.actual_consumables_cost_per_room_night) }} 元 / 已售间夜。采用会替换当前耗材明细，保留其他变动成本；请先核对重复项和全酒店分母。测算仍为假设。</p><button type="button" @click="adoptActualCost" :disabled="busy || readOnly || writeBlocked" class="border rounded-lg px-3 py-3" data-testid="scenario-actual-cost-adopt">已核对，采用为本方案耗材参考</button><button type="button" @click="actualCostReference=null" class="px-3 py-3">取消</button></div>
             <p v-if="readOnly" class="rounded-lg border p-3 text-sm text-gray-600" data-testid="scenario-readonly">本项目已归档，经营测算仅供读取与导出。</p>
             <div class="flex flex-wrap gap-2"><button type="button" class="border rounded-lg px-3 py-3" :disabled="busy || readOnly || writeBlocked" @click="newBlank" data-testid="scenario-new-blank">新建空白测算</button><button type="button" class="border rounded-lg px-3 py-3" :disabled="busy || readOnly || writeBlocked" @click="loadReference" data-testid="scenario-reference-example">载入清远参考样例</button><button type="button" class="text-green-800 px-3 py-3" :disabled="busy" @click="loadScenario" data-testid="scenario-reload">重新读取已保存测算</button></div>
-            <div v-if="pendingReplacement" class="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-3 text-sm text-amber-900" role="alert" data-testid="scenario-draft-replacement"><p>当前有未保存的修改。继续“{{ pendingReplacement.label }}”会替换当前输入；已保存版本不会改变。</p><div class="flex flex-wrap gap-2"><button type="button" class="border rounded-lg px-3 py-3" :disabled="busy" @click="cancelReplacement" data-testid="scenario-keep-draft">保留当前输入</button><button type="button" class="border rounded-lg px-3 py-3" :disabled="busy" @click="confirmReplacement" data-testid="scenario-confirm-replacement">放弃修改并继续</button></div></div>
+            <div v-if="pendingReplacement" class="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-3 text-sm text-amber-900" role="alert" data-testid="scenario-draft-replacement"><p v-if="pendingReplacement.kind === 'months'">新计划范围会移除以下已填写月份及金额：{{ pendingReplacement.months.join('、') }}。其他草稿与已保存版本保持原样，请核对后确认。</p><p v-else>当前有未保存的修改。继续“{{ pendingReplacement.label }}”会替换当前输入；已保存版本不会改变。</p><div class="flex flex-wrap gap-2"><button type="button" class="border rounded-lg px-3 py-3" :disabled="busy" @click="cancelReplacement" data-testid="scenario-keep-draft">保留当前输入</button><button type="button" class="border rounded-lg px-3 py-3" :disabled="busy" @click="confirmReplacement" data-testid="scenario-confirm-replacement">{{ pendingReplacement.kind === 'months' ? '确认移除这些月份' : '放弃修改并继续' }}</button></div></div>
             <p v-if="loading" class="text-sm text-gray-500" role="status">正在读取本项目经营测算…</p>
             <p v-if="error" class="border border-red-200 bg-red-50 rounded-lg p-3 text-sm text-red-800 break-words" role="alert" data-testid="scenario-error">{{ error }}</p>
             <p v-if="notice" class="border border-green-200 rounded-lg p-3 text-sm text-green-800" role="status" data-testid="scenario-notice">{{ notice }}</p>
