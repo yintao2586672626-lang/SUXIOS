@@ -4,12 +4,98 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\service\OperatingGoalInterventionMonitorService;
+use app\service\OperatingGoalMetricSnapshotService;
 use app\service\OperationInterventionJudgmentService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class OperatingGuardBoundaryRegressionTest extends TestCase
 {
+    #[DataProvider('snapshotGuardProvider')]
+    public function testRealSnapshotsKeepEachGuardMetricScope(string $targetMetric, string $guardMetric, array $definition,
+        string $pmsProvider = 'meituan_cloud_pms'): void
+    {
+        [$baseline, $followup, $guard] = $this->realSnapshots($targetMetric, $guardMetric, $definition, $pmsProvider);
+        $result = $this->judgeSnapshots($baseline, $followup, $guard, $definition);
+        self::assertSame('supported', $result['verdict'], implode(',', $result['reason_codes']));
+        self::assertSame('within_bounds', $result['guard_results'][0]['status']);
+        self::assertSame($pmsProvider, $guardMetric === 'occupancy' ? $guard['platform'] : $followup['platform']);
+        self::assertFalse($result['causality_claimed']);
+    }
+
+    public static function snapshotGuardProvider(): iterable
+    {
+        yield 'actual PMS alias in explicit whole hotel guard' => ['orders', 'occupancy', [
+            'lower_bound' => 0, 'upper_bound' => 80, 'fact_scope' => 'whole_hotel_accommodation',
+        ]];
+        yield 'OTA goal and scope-free whole hotel occupancy guard' => ['orders', 'occupancy', [
+            'lower_bound' => 0, 'upper_bound' => 80,
+        ]];
+        yield 'whole hotel goal and scope-free OTA cancellation guard' => ['room_revenue', 'cancellation_rate', [
+            'lower_bound' => 0, 'upper_bound' => 5,
+        ]];
+        yield 'dingdandao PMS followup roundtrip' => ['room_revenue', 'cancellation_rate', [
+            'lower_bound' => 0, 'upper_bound' => 5,
+        ], 'dingdandao_pms'];
+        yield 'whole hotel goal and explicit single channel cancellation guard' => ['room_revenue', 'cancellation_rate', [
+            'lower_bound' => 0, 'upper_bound' => 5, 'fact_scope' => 'ota_channel', 'platform' => 'ctrip',
+        ]];
+    }
+
+    public function testRealGuardSnapshotStillRejectsExplicitScopeAndPlatformConflicts(): void
+    {
+        $definition = ['lower_bound' => 0, 'upper_bound' => 80, 'fact_scope' => 'whole_hotel_accommodation',
+            'platform_hotel_id' => 'pms-80'];
+        [$baseline, $followup, $guard] = $this->realSnapshots('orders', 'occupancy', $definition);
+        foreach ([['fact_scope' => 'ota_channel'], ['platform' => 'ctrip'], ['platform_hotel_id' => 'pms-81'], ['tenant_id' => 999],
+            ['hotel_id' => 81], ['period_start' => '2026-08-05'], ['quality_status' => 'partial'],
+            ['readback_status' => 'not_verified', 'readback_verified' => false]] as $conflict) {
+            $result = $this->judgeSnapshots($baseline, $followup, [...$guard, ...$conflict], $definition);
+            self::assertSame('indeterminate', $result['verdict']);
+            self::assertSame('indeterminate', $result['guard_results'][0]['status']);
+        }
+    }
+
+    public function testUnknownGuardCannotChooseItsOwnScope(): void
+    {
+        foreach ([['fact_scope' => 'ota_channel', 'platform' => 'ctrip'],
+            ['fact_scope' => 'whole_hotel_accommodation', 'platform' => 'pms']] as $observationScope) {
+            $result = $this->judge(definition: ['lower_bound' => 0, 'upper_bound' => 5],
+                guard: ['metric_key' => 'unknown_metric', ...$observationScope]);
+            self::assertSame('indeterminate', $result['verdict']);
+            self::assertContains('guard_definition_fact_scope_unverified:unknown_metric', $result['reason_codes']);
+        }
+    }
+
+    public function testCustomGuardRemainsComparableWhenItsScopeWasDeclared(): void
+    {
+        $result = $this->judge(definition: ['lower_bound' => 0, 'upper_bound' => 5,
+            'fact_scope' => 'ota_channel', 'platform' => 'ctrip'], guard: ['metric_key' => 'custom_refund_rate']);
+        self::assertSame('supported', $result['verdict']);
+    }
+
+    public function testKnownMetricCannotBeReassignedToAnUnsupportedScope(): void
+    {
+        [$baseline, $followup, $guard] = $this->realSnapshots('orders', 'occupancy', ['upper_bound' => 80]);
+        $result = $this->judgeSnapshots($baseline, $followup, $guard,
+            ['upper_bound' => 80, 'fact_scope' => 'ota_channel', 'platform' => 'ctrip']);
+        self::assertSame('indeterminate', $result['verdict']);
+        self::assertContains('guard_definition_metric_scope_mismatch:occupancy', $result['reason_codes']);
+    }
+
+    public function testMixedScopeOtaGuardKeepsItsDeclaredPlatformHotelIdentity(): void
+    {
+        $definition = ['upper_bound' => 5, 'fact_scope' => 'ota_channel', 'platform' => 'ctrip',
+            'platform_hotel_id' => 'ctrip-80'];
+        [$baseline, $followup, $guard] = $this->realSnapshots('room_revenue', 'cancellation_rate', $definition);
+        self::assertSame('supported', $this->judgeSnapshots($baseline, $followup, $guard, $definition)['verdict']);
+        foreach (['ctrip-81' => 'mismatch', '' => 'unverified'] as $providerHotel => $reason) {
+            $result = $this->judgeSnapshots($baseline, $followup, [...$guard, 'platform_hotel_id' => $providerHotel], $definition);
+            self::assertSame('indeterminate', $result['verdict']);
+            self::assertContains('guard_observation_platform_hotel_' . $reason . ':cancellation_rate', $result['reason_codes']);
+        }
+    }
+
     #[DataProvider('foreignGuardProvider')]
     public function testForeignGuardObservationCannotSupportAnIntervention(array $overrides, string $reason): void
     {
@@ -166,22 +252,71 @@ final class OperatingGuardBoundaryRegressionTest extends TestCase
         ];
         $followup = [...$snapshot, 'period_start' => '2026-08-04', 'period_end' => '2026-08-10',
             'captured_at' => '2026-08-11 08:00:00', 'value' => 13, 'evidence_refs' => ['online_daily_data#followup']];
+        return $this->judgeSnapshots($snapshot, $followup, [...$followup,
+            'metric_key' => 'refund_rate', 'unit' => 'percent', 'value' => 4,
+            'evidence_refs' => ['fixture#guard'], ...$guard], $definition);
+    }
+
+    private function judgeSnapshots(array $snapshot, array $followup, array $guard, array $definition): array
+    {
+        $guardKey = (string)$guard['metric_key'];
+        if ($guardKey === 'refund_rate' && !array_key_exists('fact_scope', $definition)
+            && !array_key_exists('metric_scope', $definition)) {
+            // Legacy custom refund fixtures declare their scope; they are not a supported fact-layer metric.
+            $definition = ['fact_scope' => 'ota_channel', 'platform' => 'ctrip', ...$definition];
+        }
         return (new OperationInterventionJudgmentService())->judge(
             ['id' => 21, 'tenant_id' => 3, 'hotel_id' => 80, 'guard_metrics' => [[
-                'metric_key' => 'refund_rate', ...($definition === [] ? ['lower_bound' => 0, 'upper_bound' => 5] : $definition)]]],
+                'metric_key' => $guardKey, ...($definition === [] ? ['lower_bound' => 0, 'upper_bound' => 5] : $definition)]]],
             ['id' => 31, 'tenant_id' => 3, 'hotel_id' => 80, 'intent_id' => 41, 'goal_contract_id' => 21,
-                'design_timing' => 'prospective', 'action_type' => 'price_review', 'target_metric_key' => 'orders',
+                'design_timing' => 'prospective', 'action_type' => 'price_review', 'target_metric_key' => $snapshot['metric_key'],
                 'expected_direction' => 'increase', 'expected_delta' => 2, 'expected_delta_unit' => 'absolute',
-                'risk_metric_keys' => ['refund_rate'], 'baseline_snapshot' => $snapshot,
+                'risk_metric_keys' => [$guardKey], 'baseline_snapshot' => $snapshot,
                 'observation_window_start' => '2026-08-04', 'observation_window_end' => '2026-08-10',
                 'comparison_mode' => 'same_length_period', 'minimum_sample_size' => 7],
             ['id' => 51, 'tenant_id' => 3, 'hotel_id' => 80, 'intent_id' => 41,
                 'status' => 'executed', 'executed_at' => '2026-08-03 12:00:00'],
             [['id' => 61, 'task_id' => 51, 'evidence_type' => 'manual_operation_execution', 'created_by' => 9]],
-            ['followup_snapshot' => $followup, 'guard_observations' => [[...$followup,
-                'metric_key' => 'refund_rate', 'unit' => 'percent', 'value' => 4,
-                'evidence_refs' => ['fixture#guard'], ...$guard]],
+            ['followup_snapshot' => $followup, 'guard_observations' => [$guard],
                 'external_interferences' => [], 'stop_triggered' => false, 'assessed_at' => '2026-08-11 09:00:00']
         );
+    }
+
+    /** Synthetic fact loader; all identities and aggregates use the production snapshot service. */
+    private function realSnapshots(string $targetMetric, string $guardMetric, array $definition,
+        string $pmsProvider = 'meituan_cloud_pms'): array
+    {
+        $service = new OperatingGoalMetricSnapshotService(static function (int $hotel, string $date) use ($pmsProvider): array {
+            $value = $date >= '2026-08-04' ? 13 : 10;
+            $source = ['tenant_id' => 3, 'system_hotel_id' => $hotel, 'data_date' => $date,
+                'captured_at' => $date . ' 23:00:00', 'readback_status' => 'readback_verified'];
+            $envelope = ['data_status' => 'readback_verified', 'business_date' => $date, 'actual_business_date' => $date];
+            $wholeFacts = ['room_revenue' => $value, 'sold_room_nights' => 4, 'sellable_room_nights' => 10];
+            $sources = [$pmsProvider => [...$envelope, 'metric_scope' => 'whole_hotel_accommodation',
+                'facts' => $wholeFacts, 'fact_statuses' => array_fill_keys(array_keys($wholeFacts), ['status' => 'readback_verified']),
+                'source' => [...$source, 'provider' => $pmsProvider,
+                    'table' => $pmsProvider === 'meituan_cloud_pms' ? 'meituan_cloud_pms_captures' : 'dingdandao_operating_target_captures',
+                    'record_id' => (int)str_replace('-', '', $date), 'provider_hotel_id' => 'pms-80', 'target_business_date' => $date]]];
+            foreach (['ctrip', 'meituan'] as $index => $platform) {
+                $facts = ['orders' => $value, 'cancellation_rate_percent' => 4, 'cancellation_gross_order_count' => 100];
+                $sources[$platform . '_ota'] = [...$envelope, 'metric_scope' => 'ota_channel', 'platform' => $platform,
+                    'facts' => $facts, 'fact_statuses' => array_fill_keys(array_keys($facts), ['status' => 'readback_verified']),
+                    'source' => [...$source, 'table' => 'online_daily_data', 'platform' => $platform,
+                        'platform_hotel_id' => $platform . '-80', 'row_ids' => [100 * ($index + 1) + (int)substr($date, -2)]]];
+            }
+            return ['hotel' => ['tenant_id' => 3, 'system_hotel_id' => $hotel], 'business_date' => $date,
+                'pms_binding' => ['binding_status' => 'configured', 'effective_provider' => $pmsProvider], 'sources' => $sources];
+        });
+        $context = $targetMetric === 'orders' ? ['fact_scope' => 'ota_channel', 'platform' => 'ctrip'] : [];
+        $baseline = $service->snapshot(3, 80, $targetMetric, '2026-07-27', '2026-08-02', $context);
+        self::assertSame('ready', $baseline['status']);
+        $followup = $service->snapshot(3, 80, $targetMetric, '2026-08-04', '2026-08-10', $baseline['snapshot']);
+        self::assertSame('ready', $followup['status']);
+        $guard = $service->snapshot(3, 80, $guardMetric, '2026-08-04', '2026-08-10', ['guard_definition' => $definition]);
+        self::assertSame('ready', $guard['status']);
+        $withTargetContext = $service->snapshot(3, 80, $guardMetric, '2026-08-04', '2026-08-10',
+            ['guard_definition' => $definition, 'baseline' => $baseline['snapshot'], ...$context]);
+        self::assertSame($guard['snapshot'], $withTargetContext['snapshot']);
+        return [$baseline['snapshot'], $followup['snapshot'], $guard['snapshot']];
     }
 }

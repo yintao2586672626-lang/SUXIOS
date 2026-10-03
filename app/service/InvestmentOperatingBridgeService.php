@@ -191,17 +191,24 @@ final class InvestmentOperatingBridgeService
             return $reply;
         }
         $investors = array_values(array_unique(array_column($projects, 'investor_name')));
-        $sameInvestor = count($investors) === 1 && $investors[0] !== '';
+        $sameName = count($investors) === 1 && $investors[0] !== '';
+        // The ledger stores display names, with no durable investor identity.
+        // Neither matching names nor a shared record creator proves one investor.
+        $multipleProjects = count($projects) > 1;
+        $summableIdentity = !$multipleProjects && $sameName;
         $scopeCompatible = array_reduce($projects, static fn(bool $ok, array $project): bool => $ok && $project['scope_compatible'], true);
-        if (!$sameInvestor) $issues[] = 'cross_investor_or_unknown_identity_not_summable';
+        if (!$summableIdentity) $issues[] = 'cross_investor_or_unknown_identity_not_summable';
+        if ($multipleProjects) $issues[] = 'investor_identity_unverified';
         if (!$scopeCompatible) $issues[] = 'project_cash_scope_incompatible';
         $historyComplete = $reply['coverage']['read_complete'] && array_reduce($projects, static fn(bool $ok, array $project): bool => $ok && $project['history_complete'], true);
         $allAmounts = count($projects) === $reply['coverage']['summable_project_count'];
         foreach ($projects as $project) $issues = array_merge($issues, $project['issues']);
         $reply['quality']['history_complete'] = $historyComplete;
         $reply['quality']['investor_names'] = $investors;
+        $reply['quality']['investor_identity_status'] = $multipleProjects ? 'not_verified' : ($sameName ? 'single_project_only' : 'missing');
+        $reply['quality']['cross_project_aggregation_allowed'] = false;
         $reply['quality']['issues'] = array_values(array_unique($issues));
-        if ($sameInvestor && $scopeCompatible && $reply['coverage']['summable_project_count'] > 0) {
+        if ($summableIdentity && $scopeCompatible && $reply['coverage']['summable_project_count'] > 0) {
             $totals = array_fill_keys(array_keys(self::AMOUNT_FIELDS), 0);
             foreach ($projects as $project) {
                 if (!$project['amounts_complete']) continue;
@@ -216,8 +223,13 @@ final class InvestmentOperatingBridgeService
             $reply['recorded_totals'] = array_map(static fn(int $value): string => InvestmentPaybackCalculator::yuan($value), $totals);
             if ($allAmounts && $historyComplete) $reply['totals'] = $reply['recorded_totals'];
         }
-        $reply['status'] = !$sameInvestor || !$scopeCompatible ? 'blocked' : ($reply['totals'] !== null ? 'ready' : 'partial');
-        $reply['reason_code'] = $reply['status'] === 'ready' ? 'manual_ledger_records_only' : ($reply['status'] === 'blocked' ? 'project_cash_comparison_scope_mismatch' : 'project_cash_history_or_coverage_incomplete');
+        $comparisonBlocked = !$sameName || !$scopeCompatible;
+        $reply['status'] = $comparisonBlocked || ($multipleProjects && $reply['coverage']['read_complete'])
+            ? 'blocked' : ($reply['totals'] !== null ? 'ready' : 'partial');
+        $reply['reason_code'] = $reply['status'] === 'ready' ? 'manual_ledger_records_only'
+            : ($reply['status'] === 'blocked'
+                ? ($comparisonBlocked ? 'project_cash_comparison_scope_mismatch' : 'investor_identity_unverified')
+                : 'project_cash_history_or_coverage_incomplete');
         return $reply;
     }
 }
