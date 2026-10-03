@@ -363,6 +363,53 @@ final class OperatingEvidenceRoutingTest extends TestCase
         self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
     }
 
+    public function testEditedActualVersionKeepsOldReadbackHistoryAndReplayAfterDecimalCorrection(): void
+    {
+        $this->database();
+        $originalRequest = $this->input(['idempotency_key' => 'synthetic-actual-original-version']);
+        $originalResponse = $this->call('saveEvidence', $originalRequest, $this->user());
+        self::assertSame(200, $originalResponse->getCode(), $originalResponse->getContent());
+        $original = $originalResponse->getData()['data'];
+        self::assertSame(200, $original['result']['actual_consumed_cost']);
+        $originalRow = Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id', $original['snapshot_id'])->find();
+
+        $editedRequest = $originalRequest;
+        $editedRequest['inputs']['items'][0] = array_replace($editedRequest['inputs']['items'][0], [
+            'opening_quantity' => 999999999999.99, 'purchased_quantity' => 0.010001,
+            'closing_quantity' => 1e12, 'written_off_quantity' => 0, 'unit_price' => 1e12]);
+        $conflict = $this->call('saveEvidence', $editedRequest, $this->user());
+        self::assertSame(409, $conflict->getCode());
+        self::assertSame(1, Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+
+        $editedRequest['idempotency_key'] = 'synthetic-actual-edited-version';
+        $editedResponse = $this->call('saveEvidence', $editedRequest, $this->user());
+        self::assertSame(200, $editedResponse->getCode(), $editedResponse->getContent());
+        $edited = $editedResponse->getData()['data'];
+        self::assertSame(1000000, $edited['result']['actual_consumed_cost']);
+        self::assertSame(0.000001, $edited['result']['items'][0]['consumed_quantity']);
+        self::assertNotSame($original['snapshot_id'], $edited['snapshot_id']);
+        self::assertNotSame($original['content_digest'], $edited['content_digest']);
+        self::assertSame($originalRow, Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id', $original['snapshot_id'])->find());
+
+        foreach ([$originalRequest, $editedRequest] as $index => $request) {
+            $expected = [$original, $edited][$index];
+            $read = $this->call('readEvidence', $request, $this->user(), ['id' => $expected['snapshot_id']]);
+            self::assertSame(200, $read->getCode(), $read->getContent());
+            self::assertSame($expected['result'], $read->getData()['data']['result']);
+            self::assertSame($expected['content_digest'], $read->getData()['data']['content_digest']);
+            $replay = $this->call('saveEvidence', $request, $this->user());
+            self::assertSame(200, $replay->getCode(), $replay->getContent());
+            self::assertSame($expected['snapshot_id'], $replay->getData()['data']['snapshot_id']);
+            self::assertSame($expected['content_digest'], $replay->getData()['data']['content_digest']);
+            self::assertTrue($replay->getData()['data']['idempotent']);
+        }
+        $overview = $this->call('evidenceOverview', $originalRequest, $this->user());
+        self::assertSame(200, $overview->getCode(), $overview->getContent());
+        self::assertSame($edited['snapshot_id'], $overview->getData()['data']['latest']['snapshot_id']);
+        self::assertSame([$edited['snapshot_id'], $original['snapshot_id']], array_column($overview->getData()['data']['history'], 'snapshot_id'));
+        self::assertSame(2, Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('legacyStorageFormats')]
     public function testLegacyVersionWithoutRequestDigestRetainsItsOriginalReplayContract(bool $uncompacted): void
     {

@@ -272,10 +272,10 @@ if (file_exists(APP_PATH . 'start.php')) {
     require APP_PATH . 'start.php';
 } elseif (file_exists(__DIR__ . '/../think')) {
     // ThinkPHP 框架
-    require __DIR__ . '/../vendor/autoload.php';
+    $application = require __DIR__ . '/../bootstrap.php';
     
     // 执行HTTP应用
-    $http = (new think\App())->http;
+    $http = $application->http;
     $response = $http->run();
     $response->send();
 } else {

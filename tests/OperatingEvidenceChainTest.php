@@ -108,6 +108,41 @@ final class OperatingEvidenceChainTest extends TestCase
         self::assertContains('inventory_balance_negative', $result['items'][0]['missing_items']);
         self::assertSame($result, $service->calculate($result['inputs']));
     }
+    public function testDecimalCancellationRetainsSmallPositiveConsumptionAndItsActualCost(): void
+    {
+        $input = $this->actual();
+        $input['items'][0] = array_replace($input['items'][0], ['opening_quantity' => 999999999999.99,
+            'purchased_quantity' => 0.010001, 'closing_quantity' => 1e12,
+            'transfer_out_quantity' => 0, 'returned_quantity' => 0, 'written_off_quantity' => 0,
+            'unit_price' => 1e12, 'budget_unit_price' => 1e12, 'budget_usage_per_room_night' => 0]);
+        $service = new ConsumablesActualCostService(); $result = $service->calculate($input);
+        self::assertSame('calculated', $result['status']);
+        self::assertSame(0.000001, $result['items'][0]['consumed_quantity']);
+        self::assertSame(1000000.0, $result['actual_consumed_cost']);
+        self::assertSame($result, $service->calculate($result['inputs']));
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(7, [80], 80, '2026-10', 'whole_hotel', 'consumables_actual');
+        $saved = $store->save($scope, ['inputs' => $result['inputs'], 'result' => $result], 'decimal-positive-small', 1, $input);
+        $read = $store->read($scope, $saved['snapshot_id']);
+        self::assertSame($saved['content_digest'], $read['content_digest']);
+        self::assertSame(0.000001, $read['result']['items'][0]['consumed_quantity']);
+        self::assertSame($read['result'], $store->replayRequest($scope, 'decimal-positive-small', $input)['result']);
+    }
+    public function testDecimalCancellationCannotPromoteSmallActualDeficitToPositiveConsumption(): void
+    {
+        $input = $this->actual();
+        $input['items'][0] = array_replace($input['items'][0], ['opening_quantity' => 1e12,
+            'purchased_quantity' => 0, 'closing_quantity' => 999999999999.99,
+            'transfer_out_quantity' => 0.010001, 'returned_quantity' => 0, 'written_off_quantity' => 0,
+            'unit_price' => 1e12, 'budget_unit_price' => 1e12, 'budget_usage_per_room_night' => 0]);
+        $service = new ConsumablesActualCostService(); $result = $service->calculate($input);
+        self::assertSame('partial', $result['status']);
+        self::assertNull($result['items'][0]['consumed_quantity']);
+        self::assertNull($result['actual_consumed_cost']);
+        self::assertNull($result['known_consumed_cost']);
+        self::assertContains('inventory_balance_negative', $result['items'][0]['missing_items']);
+        self::assertSame($result, $service->calculate($result['inputs']));
+    }
     public function testChannelCostsDeductOnceAndAttributionStaysBounded(): void { $r=(new ChannelEconomicsService())->calculate($this->channel()); self::assertSame(700.0,$r['channel_net_contribution_amount']); self::assertSame(4.0,$r['attributed_roas']); self::assertFalse($r['boundaries']['whole_hotel_profit']); self::assertFalse($r['boundaries']['incremental_ad_effect_established']); }
     public function testBlankOnlyChannelSourceReferencesStayMissingThroughSaveAndReadback(): void {
         $input=$this->channel();$input['source_refs']=['', '   ', "\t\r\n"];

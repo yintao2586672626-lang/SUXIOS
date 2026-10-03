@@ -644,6 +644,85 @@ final class BookingMonitoringServiceTest extends TestCase
         $this->service()->overview(7, [80, 81, 82], [80, 81], $this->query());
     }
 
+    public function testSourceReferencesRejectNonTextWithoutSavingAnyBatchRows(): void
+    {
+        $service = $this->service();
+        foreach ([true, 9, 9.5, [], ['export' => 'TEST-ONLY-report'], false, new \stdClass()] as $invalid) {
+            $first = $this->row('2026-10-01 09:00:00', 8);
+            $second = array_replace($this->row('2026-10-02 09:00:00', 10), ['source_ref' => $invalid]);
+            $failure = null;
+            try {
+                $service->saveSnapshots(7, [80], [$first, $second], 9);
+            } catch (InvalidArgumentException $error) {
+                $failure = $error;
+            }
+            self::assertInstanceOf(InvalidArgumentException::class, $failure, 'a coerced source reference cannot become saved provenance');
+            self::assertSame('on_books_snapshot_source_ref_invalid', $failure->getMessage());
+            self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+        }
+        $user = new class {
+            public int $id = 9;
+            public function getPermittedHotelIds(): array { return [80]; }
+            public function hasHotelPermission(int $hotelId, string $capability): bool { return $hotelId === 80; }
+        };
+        $response = $this->controller(['rows' => [array_replace($this->row('2026-10-02 09:00:00', 10), ['source_ref' => ['TEST-ONLY-report']])]], $user, 'POST')->saveSnapshots();
+        self::assertSame(422, $response->getCode());
+        self::assertSame('on_books_snapshot_source_ref_invalid', $response->getData()['data']['reason_code']);
+        self::assertFalse($response->getData()['data']['readback_verified']);
+        self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    public function testDisabledHotelCannotUseStalePermissionsForSaveReplayCorrectionReadOrOverview(): void
+    {
+        $service = $this->service();
+        $row = $this->row('2026-10-02 09:00:00', 10);
+        $original = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        Db::name('hotels')->where('id', 80)->update(['status' => 0]);
+        $otherHotel = array_replace($this->row('2026-10-02 09:00:00', 12, 3), ['hotel_id' => 82]);
+        foreach ([
+            fn() => $service->saveSnapshots(7, [80, 82], [$otherHotel, $this->row('2026-10-02 10:00:00', 11)], 9),
+            fn() => $service->saveSnapshots(7, [80], [$row], 9),
+            fn() => $service->saveSnapshots(7, [80], [array_replace($row, ['on_books_room_nights' => 11, 'supersedes_snapshot_id' => $original['id']])], 9),
+            fn() => $service->readSnapshot(7, [80], 80, $original['id']),
+            fn() => $service->overview(7, [80], [80], $this->query()),
+        ] as $operation) {
+            $failure = null;
+            try {
+                $operation();
+            } catch (RuntimeException $error) {
+                $failure = $error;
+            }
+            self::assertInstanceOf(RuntimeException::class, $failure, 'an enabled-hotel requirement must survive stale permissions');
+            self::assertSame(403, $failure->getCode());
+            self::assertSame(1, Db::name(BookingMonitoringService::TABLE)->count());
+        }
+        $view = $service->overview(7, [80, 82], [82], $this->query());
+        self::assertSame([82], array_column($view['selectable_hotels'], 'id'));
+        Db::name('hotels')->where('id', 80)->update(['status' => 1]);
+        $replay = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        self::assertTrue($replay['idempotent']);
+        self::assertSame($original['id'], $replay['id']);
+        self::assertSame($original['content_digest'], $service->readSnapshot(7, [80], 80, $original['id'])['content_digest']);
+    }
+
+    public function testControllerRechecksHotelDisabledAfterCapabilityLookupBeforeSaving(): void
+    {
+        $user = new class {
+            public int $id = 9;
+            public function getPermittedHotelIds(): array { return [80]; }
+            public function hasHotelPermission(int $hotelId, string $capability): bool {
+                Db::name('hotels')->where('id', $hotelId)->update(['status' => 0]);
+                return true;
+            }
+        };
+        $response = $this->controller(['rows' => [$this->row('2026-10-02 09:00:00', 10)]], $user, 'POST')->saveSnapshots();
+        self::assertSame(403, $response->getCode());
+        self::assertSame('hotel_disabled', $response->getData()['data']['reason_code']);
+        self::assertSame('酒店已停用，请刷新酒店目录后重试', $response->getData()['message']);
+        self::assertFalse($response->getData()['data']['readback_verified']);
+        self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
     public function testMatrixAllows1000CellsAndRejectsTheNextDimensionBeforeSnapshotReads(): void
     {
         for ($id = 100; $id < 147; $id++) Db::name('room_types')->insert(['id'=>$id,'hotel_id'=>80,'name'=>'TEST-ONLY-cap-'.$id]);

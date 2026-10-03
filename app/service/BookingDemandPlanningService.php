@@ -52,7 +52,7 @@ final class BookingDemandPlanningService
     }
 
     /** Internal batch normalization; scope cache is created from this call's permissions only. */
-    public function validatedSnapshotBatchContent(int $tenantId, array $permittedHotelIds, array $rows): array
+    public function validatedSnapshotBatchContent(int $tenantId, array $permittedHotelIds, array $rows, bool $requireEnabledHotels = false): array
     {
         $tenants = [];
         $contents = [];
@@ -61,7 +61,7 @@ final class BookingDemandPlanningService
             if (!is_int($hotelValue) && !(is_string($hotelValue) && preg_match('/^\d+$/D', $hotelValue))) throw new InvalidArgumentException('hotel_scope_required');
             $hotelId = filter_var($hotelValue, FILTER_VALIDATE_INT);
             if ($hotelId === false || $hotelId <= 0) throw new InvalidArgumentException('hotel_scope_required');
-            $tenants[$hotelId] ??= $this->resolveScope($tenantId, $permittedHotelIds, $hotelId);
+            $tenants[$hotelId] ??= $this->resolveScope($tenantId, $permittedHotelIds, $hotelId, $requireEnabledHotels);
             $contents[] = $this->normalizeSnapshot($tenants[$hotelId], $hotelId, $row);
         }
         return $contents;
@@ -827,7 +827,8 @@ final class BookingDemandPlanningService
             throw new InvalidArgumentException('ota_on_books_snapshot_must_keep_channel_scope');
         }
         $quality = $this->enum((string)($input['quality_status'] ?? ''), self::QUALITY_STATUSES, 'on_books_snapshot_quality_invalid');
-        $sourceRef = trim((string)($input['source_ref'] ?? ''));
+        if (!is_string($input['source_ref'] ?? null)) throw new InvalidArgumentException('on_books_snapshot_source_ref_invalid');
+        $sourceRef = trim($input['source_ref']);
         if ($sourceRef === '' || strlen($sourceRef) > 500) {
             throw new InvalidArgumentException('on_books_snapshot_source_ref_invalid');
         }
@@ -980,7 +981,7 @@ final class BookingDemandPlanningService
     }
 
     /** @param list<int> $permittedHotelIds */
-    private function resolveScope(int $tenantId, array $permittedHotelIds, int $hotelId): int
+    private function resolveScope(int $tenantId, array $permittedHotelIds, int $hotelId, bool $requireEnabledHotel = false): int
     {
         if ($hotelId <= 0) {
             throw new InvalidArgumentException('hotel_scope_required');
@@ -989,13 +990,16 @@ final class BookingDemandPlanningService
         if (!in_array($hotelId, $permitted, true)) {
             throw new RuntimeException('hotel_outside_permitted_scope', 403);
         }
-        $row = Db::name('hotels')->where('id', $hotelId)->field('id,tenant_id')->find();
+        $row = Db::name('hotels')->where('id', $hotelId)->field($requireEnabledHotel ? 'id,tenant_id,status' : 'id,tenant_id')->find();
         if (!$row) {
             throw new RuntimeException('hotel_not_found', 404);
         }
         $actualTenant = (int)($row['tenant_id'] ?? 0);
         if ($actualTenant <= 0 || ($tenantId > 0 && $tenantId !== $actualTenant)) {
             throw new RuntimeException('hotel_tenant_scope_mismatch', 403);
+        }
+        if ($requireEnabledHotel && (int)$row['status'] !== \app\model\Hotel::STATUS_ENABLED) {
+            throw new RuntimeException('hotel_disabled', 403);
         }
         return $actualTenant;
     }

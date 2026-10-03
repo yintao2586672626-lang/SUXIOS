@@ -710,6 +710,27 @@ final class BookingDemandPlanningServiceTest extends TestCase
         $service->bookingOverview(7, [], 80, 'ctrip', '2026-09-10');
     }
 
+    public function testLegacySnapshotSourceReferenceRequiresTextBeforePersistence(): void
+    {
+        $service = $this->service();
+        foreach ([true, 9, 9.5, [], ['export' => 'TEST-ONLY-report'], false, new \stdClass()] as $invalid) {
+            $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-invalid-source'), ['source_ref' => $invalid]);
+            $failure = null;
+            try { $service->saveOnBooksSnapshot(7, [80], 80, $input, 11); }
+            catch (InvalidArgumentException $error) { $failure = $error; }
+            self::assertInstanceOf(InvalidArgumentException::class, $failure);
+            self::assertSame('on_books_snapshot_source_ref_invalid', $failure->getMessage());
+            self::assertSame(0, Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+        }
+        $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-valid-source'), ['source_ref' => '  TEST-ONLY-export-fingerprint  ']);
+        $saved = $service->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+        $input['source_ref'] = trim($input['source_ref']);
+        $replay = $service->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+        self::assertTrue($replay['idempotent']);
+        self::assertSame($saved['id'], $replay['id']);
+        self::assertSame(hash('sha256', 'on-books-source-v1|TEST-ONLY-export-fingerprint'), $saved['source_ref_hash']);
+    }
+
     private function service(?callable $transactionRunner = null): BookingDemandPlanningService
     {
         return new BookingDemandPlanningService(

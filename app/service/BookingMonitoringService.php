@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use app\model\Hotel;
 use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
@@ -45,7 +46,7 @@ final class BookingMonitoringService
             $row['quality_status'] = filter_var($row['operator_attested'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 'manual_confirmed' : 'unverified';
             $normalizedRows[] = $row;
         }
-        $contents = $this->planning->validatedSnapshotBatchContent($tenantId, $permittedHotelIds, $normalizedRows);
+        $contents = $this->planning->validatedSnapshotBatchContent($tenantId, $permittedHotelIds, $normalizedRows, true);
         $prepared = [];
         $keys = [];
         $rooms = [];
@@ -233,7 +234,7 @@ final class BookingMonitoringService
         }
         $readyCount = count(array_filter($cells, static fn(array $cell): bool => $cell['status'] === 'ready'));
         $completeBaselineCount = count(array_filter($cells, static fn(array $cell): bool => $cell['baseline_readiness']['status'] === 'ready'));
-        $selectableHotels = Db::name('hotels')->where('tenant_id', $tenantId)->whereIn('id', array_map('intval', $permittedHotelIds))
+        $selectableHotels = Db::name('hotels')->where('tenant_id', $tenantId)->where('status', Hotel::STATUS_ENABLED)->whereIn('id', array_map('intval', $permittedHotelIds))
             ->field('id,tenant_id,name')->order('id', 'asc')->select()->toArray();
         foreach ($selectableHotels as &$hotel) {
             $hotel['id'] = (int)$hotel['id'];
@@ -328,7 +329,7 @@ final class BookingMonitoringService
         if ($tenantId <= 0 || $ids === [] || count($ids) > 20) throw new InvalidArgumentException('booking_monitor_requires_1_to_20_same_tenant_hotels');
         $ids = array_values(array_unique(array_map(fn(mixed $id): int => $this->roomId($id), $ids)));
         if (in_array(0, $ids, true) || array_diff($ids, array_map('intval', $permitted)) !== []) throw new RuntimeException('booking_monitor_hotel_outside_permitted_scope', 403);
-        $rows = Db::name('hotels')->where('tenant_id', $tenantId)->whereIn('id', $ids)->field('id,tenant_id,name')->select()->toArray();
+        $rows = Db::name('hotels')->where('tenant_id', $tenantId)->where('status', Hotel::STATUS_ENABLED)->whereIn('id', $ids)->field('id,tenant_id,name')->select()->toArray();
         if (count($rows) !== count($ids)) throw new RuntimeException('booking_monitor_hotel_tenant_scope_mismatch', 403);
         $result = [];
         foreach ($rows as $row) $result[(int)$row['id']] = $row;
