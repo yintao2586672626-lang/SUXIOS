@@ -3,80 +3,212 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="了解宿析 OS 的渠道数据、经营分析、AI 日报和任务复盘能力，从一家店、一天数据开始核对与跟进。">
 <title>宿析 OS · 产品能力与使用步骤</title>
 <style>
-:root{color-scheme:light;--ink:#143a31;--deep:#06110d;--gold:#dcc591;--paper:#f6f7f3;--line:#dce3dc;--muted:#53625a}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--deep);font:16px/1.75 "Microsoft YaHei","PingFang SC",system-ui,sans-serif}
-a{color:var(--ink);text-underline-offset:4px}a:focus-visible,summary:focus-visible{outline:3px solid #a88a52;outline-offset:5px}
-.wrap{max-width:1120px;margin:auto;padding:0 28px}header{background:var(--deep);color:#f8fafc;padding:30px 0 52px}
-nav{display:flex;align-items:center;justify-content:space-between;gap:20px}nav a{color:#f8fafc;text-decoration:none}.brand{font-size:23px;font-weight:700;display:flex;gap:12px;align-items:center;white-space:nowrap}.brand img{width:34px;height:34px;flex-shrink:0}
-.eyebrow{font-size:13px;letter-spacing:2px;color:var(--gold);margin:42px 0 12px}h1{font-size:clamp(29px,4.5vw,49px);line-height:1.35;letter-spacing:-1px;margin:0 0 18px}
-.lead{max-width:750px;color:#dce6df;font-size:18px}.actions{display:flex;gap:14px;flex-wrap:wrap;margin-top:27px}.button{display:inline-block;padding:11px 19px;border-radius:9px;text-decoration:none;font-weight:700;background:var(--gold);color:var(--deep)}.button.secondary{background:transparent;border:1px solid #597369;color:#fff}
-.note{font-size:13px;color:var(--muted)}header .note{color:#b8c8bf;margin-top:20px}main{padding:34px 0 45px}section{margin-bottom:38px}h2{font-size:25px;line-height:1.5;margin:0 0 10px}h3{font-size:19px;line-height:1.5;margin:0 0 9px}p{margin:0 0 12px}
-.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:20px}.step{border-top:3px solid var(--ink);background:white;padding:22px;border-radius:4px 4px 12px 12px}.number{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#e8eee8;color:var(--ink);font-weight:700;margin-bottom:15px}.step p{font-size:14px;color:var(--muted)}
-.features{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;margin-top:18px}.feature{background:white;border:1px solid var(--line);border-radius:12px;padding:20px 22px;display:flex;flex-direction:column}.feature .condition{font-size:13px;color:var(--muted);margin-top:auto;padding-top:6px}.feature a{font-size:14px;font-weight:700;margin-top:9px;align-self:flex-start}
-.box{background:white;border:1px solid var(--line);border-radius:12px;padding:23px}.states{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:18px}.state strong{display:block;color:var(--ink)}.state p{font-size:14px;color:var(--muted)}
-details{border-top:1px solid var(--line);padding:15px 0}summary{cursor:pointer;font-weight:700}details p{margin-top:9px;color:var(--muted)}.scope{border-left:4px solid #a88a52;padding:14px 20px;background:#f1ece1;color:#4e4636;font-size:14px;margin:20px 0}
-footer{border-top:1px solid var(--line);padding:20px 0 32px;color:var(--muted);font-size:13px}.closing{display:flex;align-items:center;justify-content:space-between;gap:22px;background:var(--ink);color:#fff;border-radius:13px;padding:24px}.closing h2{font-size:23px}.closing p{color:#dce6df;font-size:14px}
-@media(max-width:720px){.wrap{padding:0 20px}.steps,.states{grid-template-columns:1fr}.eyebrow{margin-top:28px}.lead{font-size:16px}.closing{align-items:flex-start;flex-direction:column}.features{grid-template-columns:1fr}nav>a{font-size:14px}h2{font-size:23px}.step{padding:20px}.feature{padding:19px}}
-@media(max-width:380px){nav{gap:10px}.brand{gap:8px;font-size:19px}nav>a:last-child{font-size:12px}.brand img{width:28px;height:28px}}
-@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+:root{color-scheme:light;--ink:#143a31;--deep:#06110d;--gold:#dcc591;--paper:#f4f6f4;--line:#dce3dc;--muted:#53625a;--text:#1c3028}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:86px;scroll-padding-bottom:24px}
+body{margin:0;background:var(--paper);color:var(--text);font:15px/1.75 "Microsoft YaHei","PingFang SC","Segoe UI",system-ui,sans-serif}
+a{color:var(--ink);text-underline-offset:5px}
+a,summary{transition:background-color 160ms,color 160ms,border-color 160ms}
+a:focus-visible,summary:focus-visible{outline:3px solid #a88a52;outline-offset:4px}
+h1,h2,h3,h4,p{margin:0}
+h2{font-size:28px;line-height:1.45;letter-spacing:-.4px}
+h3,h4{font-size:19px;line-height:1.5}
+.wrap{width:100%;max-width:1184px;margin:auto;padding-right:32px;padding-left:32px}
+.skip-link{position:fixed;left:16px;top:12px;z-index:20;padding:10px 18px;border-radius:8px;background:var(--gold);color:var(--deep);transform:translateY(-150%)}
+.skip-link:focus{transform:translateY(0)}
+.site-header{background:var(--deep);color:#f8fafc;background-image:radial-gradient(ellipse at 100% 15%,rgba(20,58,49,.55),transparent 65%)}
+.top-nav{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:84px;border-bottom:1px solid rgba(220,197,145,.14)}
+.brand{display:inline-flex;gap:12px;align-items:center;color:#f8fafc;text-decoration:none;font-size:23px;font-weight:700;white-space:nowrap;min-height:44px}
+.brand img{width:34px;height:34px;flex-shrink:0}
+.nav-entry{display:inline-flex;align-items:center;gap:12px;min-height:44px;padding:8px 14px;border:1px solid rgba(220,197,145,.35);border-radius:9px;color:var(--gold);text-decoration:none;font-size:14px;white-space:nowrap}
+.nav-entry:hover{background:rgba(220,197,145,.08);border-color:var(--gold)}
+.hero-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:56px;align-items:center;padding-top:44px;padding-bottom:46px}
+.eyebrow{font-size:13px;letter-spacing:1.5px;color:var(--gold);margin-bottom:14px}
+h1{font-size:clamp(32px,3.8vw,46px);line-height:1.35;letter-spacing:-1px;margin-bottom:20px}
+.lead{max-width:610px;color:#dce6df;font-size:17px;line-height:1.9}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:26px}
+.button{display:inline-flex;align-items:center;justify-content:center;gap:12px;min-height:48px;padding:11px 20px;border:1px solid var(--gold);border-radius:10px;text-decoration:none;font-weight:700;background:var(--gold);color:var(--deep);font-size:15px}
+.button:hover{background:#e6d3ab;border-color:#e6d3ab}
+.button.secondary{background:transparent;border-color:#597369;color:#f8fafc}
+.button.secondary:hover{background:rgba(255,255,255,.06);border-color:#a7b9af}
+.hero-note{font-size:13px;line-height:1.8;color:#b8c8bf;margin-top:20px;max-width:590px}
+.hero-aside{background:rgba(255,255,255,.035);border:1px solid rgba(220,197,145,.25);border-radius:18px;padding:26px}
+.aside-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:24px}
+.aside-heading strong{font-size:16px;color:var(--gold)}
+.aside-heading span{font-size:12px;color:#b8c8bf;white-space:nowrap}
+.hero-flow{list-style:none;margin:0;padding:0;display:grid;gap:22px}
+.hero-flow li{display:grid;grid-template-columns:34px minmax(0,1fr);gap:14px;position:relative}
+.hero-flow li:not(:last-child)::after{content:"";position:absolute;left:16px;top:39px;bottom:-16px;border-left:1px solid rgba(220,197,145,.22)}
+.flow-number{display:grid;place-items:center;width:34px;height:34px;background:#143a31;border:1px solid rgba(220,197,145,.25);border-radius:50%;color:var(--gold);font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+.hero-flow strong{display:block;font-size:16px;line-height:1.5;margin-bottom:3px}
+.hero-flow p{color:#b8c8bf;font-size:13px;line-height:1.7}
+.aside-note{margin-top:23px;padding-top:16px;border-top:1px solid rgba(220,197,145,.16);font-size:13px;color:#b8c8bf}
+.section-nav{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid var(--line)}
+.section-nav-inner{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:64px}
+.nav-caption{font-size:13px;color:var(--muted)}
+.nav-links{display:flex;gap:8px}
+.nav-links a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:9px 14px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:700;white-space:nowrap}
+.nav-links a:hover{background:#edf2ee}
+main{padding-top:42px;padding-bottom:44px}
+section{margin-bottom:44px}
+.section-kicker{font-size:12px;font-weight:700;letter-spacing:1.2px;color:var(--muted);margin-bottom:8px}
+.section-lead{margin-top:10px;color:var(--muted);font-size:15px;max-width:810px}
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:24px}
+.step{background:#fff;border:1px solid var(--line);border-top:3px solid var(--ink);padding:24px;border-radius:12px;display:flex;flex-direction:column}
+.step-heading{display:flex;align-items:center;gap:12px;margin-bottom:13px}
+.number{display:inline-grid;place-items:center;width:34px;height:34px;flex-shrink:0;border-radius:50%;background:#e8eee8;color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+.step p{font-size:14px;color:var(--muted);line-height:1.8}
+.entry-link{display:inline-flex;align-items:center;gap:12px;min-height:44px;text-decoration:none;font-size:14px;font-weight:700}
+.entry-link:hover{text-decoration:underline}
+.step .entry-link{margin-top:auto;padding-top:15px;align-self:flex-start}
+.scope{display:flex;align-items:flex-start;gap:14px;padding:17px 20px;border-left:3px solid #a88a52;border-radius:0 9px 9px 0;background:#f0ede5;margin-top:20px;font-size:13px;color:#514735;line-height:1.8}
+.scope strong{white-space:nowrap;font-weight:700}
+.capability-group{margin-top:27px}
+.group-heading{display:flex;align-items:baseline;gap:16px;margin-bottom:13px}
+.group-heading h3{font-size:16px;color:var(--ink)}
+.group-heading p{font-size:13px;color:var(--muted)}
+.features{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.feature{background:#fff;border:1px solid var(--line);border-radius:12px;padding:22px 24px;display:flex;flex-direction:column;min-width:0}
+.feature h4{margin-bottom:9px}
+.feature>p{font-size:14px;color:var(--muted);line-height:1.8}
+.feature .condition{font-size:13px;margin-top:14px;padding-top:12px;border-top:1px solid #e7ece7}
+.condition-label{font-weight:700;color:var(--text);margin-right:8px}
+.feature .location{margin-top:14px;padding:10px 12px;border-radius:7px;background:#f4f6f4;color:var(--text);font-size:13px;line-height:1.8}
+.location-label{display:block;font-weight:700;color:var(--ink);margin-bottom:2px}
+.feature-links{display:flex;gap:22px;flex-wrap:wrap;margin-top:auto;padding-top:9px}
+.feature-links .entry-link{font-size:13px}
+.box{background:#fff;border:1px solid var(--line);border-radius:16px;padding:28px 30px}
+.state-list{margin:22px 0 0}
+.state-row{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px;align-items:start;padding:16px 0;border-top:1px solid var(--line)}
+.state-row dt{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700}
+.state-row dd{margin:0;color:var(--muted);font-size:14px;line-height:1.8}
+.state-dot{width:8px;height:8px;border-radius:50%;background:#446f59;flex-shrink:0}
+.state-dot.pending{background:#a88a52}.state-dot.manual{background:#877447}.state-dot.history{background:#7b8b83}.state-dot.failed{background:#ad6555}
+.faq-list{margin-top:22px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:0 23px}
+details+details{border-top:1px solid var(--line)}
+summary{display:flex;align-items:center;justify-content:space-between;gap:24px;cursor:pointer;font-weight:700;font-size:15px;list-style:none;padding:18px 0;min-height:56px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";color:var(--ink);font-size:23px;line-height:1;font-weight:400;flex-shrink:0}
+details[open] summary::after{content:"−"}
+details p{padding-bottom:20px;color:var(--muted);font-size:14px;line-height:1.85;max-width:940px}
+.closing{display:flex;align-items:center;justify-content:space-between;gap:30px;background:var(--ink);color:#fff;border-radius:16px;padding:28px 30px;margin-bottom:0}
+.closing h2{font-size:23px;letter-spacing:0}
+.closing p{color:#dce6df;font-size:14px;margin-top:6px}
+.closing .button{flex-shrink:0}
+footer{border-top:1px solid var(--line);padding:24px 0 30px;color:var(--muted);font-size:12px}
+.footer-inner{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap}
+@media(max-width:960px){.hero-grid{gap:30px;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)}h1{font-size:38px}.hero-aside{padding:22px}.nav-caption{display:none}.section-nav-inner{justify-content:center}}
+@media(max-width:840px){.hero-grid{grid-template-columns:1fr;padding-top:35px;padding-bottom:37px}.hero-aside{display:none}.hero-copy{max-width:720px}h1{font-size:42px}}
+@media(max-width:720px){.wrap{padding-right:16px;padding-left:16px}.top-nav{min-height:74px}.brand{font-size:21px;gap:10px}.nav-entry{font-size:13px;padding:8px 12px;gap:8px}h1{font-size:clamp(30px,6vw,38px)}h2{font-size:24px}.lead{font-size:16px}.hero-note{font-size:12px}.steps,.features{grid-template-columns:1fr}.step{padding:20px}.section-nav-inner{min-height:58px;gap:0}.nav-links{width:100%;justify-content:space-between;gap:4px}.nav-links a{font-size:13px;padding:8px 7px}main{padding-top:30px;padding-bottom:30px}section{margin-bottom:34px}.section-lead{font-size:14px}.scope{display:block;padding:14px 16px}.scope strong{display:block;margin-bottom:4px}.feature{padding:20px}.group-heading{gap:6px;align-items:flex-start;flex-direction:column}.state-row{grid-template-columns:1fr;gap:5px;padding:15px 0}.box{padding:22px 20px}.faq-list{padding:0 18px}summary{font-size:14px;gap:16px}.closing{align-items:flex-start;flex-direction:column;gap:20px;padding:24px}.closing .button{width:100%}.footer-inner{gap:8px;flex-direction:column;align-items:flex-start}}
+@media(max-width:380px){.brand{font-size:19px;gap:8px}.brand img{width:29px;height:29px}.nav-entry{font-size:12px;padding:8px 10px}.top-nav{gap:12px}.actions{flex-direction:column}.actions .button{width:100%}.feature-links{gap:14px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}a,summary{transition:none}}
 </style>
 </head>
 <body>
-<header><div class="wrap">
-<nav><a class="brand" href="/"><img src="/images/logo.svg" alt="">宿析 OS</a><a href="/?page=compass">进入经营工作台 →</a></nav>
+<a class="skip-link" href="#main-content">跳到使用指南</a>
+<header class="site-header">
+<div class="wrap">
+<nav class="top-nav" aria-label="主导航">
+<a class="brand" href="/"><img src="/images/logo.svg" alt="">宿析 OS</a>
+<a class="nav-entry" href="/?page=compass">进入工作台 <span aria-hidden="true">↗</span></a>
+</nav>
+<div class="hero-grid">
+<div class="hero-copy">
 <p class="eyebrow">酒店 OTA 经营分析与行动工作台</p>
 <h1>今天重点看哪里，<br>下一步先做什么？</h1>
-<p class="lead">把携程、美团的经营数据，整理成可核对的分析与可跟进的任务。数值有出处，判断有边界，关键动作由人确认。</p>
-<div class="actions"><a class="button" href="#start">先看使用步骤</a><a class="button secondary" href="#capabilities">查看功能与使用条件</a></div>
-<p class="note">本页说明产品能力。具体门店的数据是否可用，请进入系统查看来源、日期与核验状态。</p>
-</div></header>
-<main class="wrap">
-<section id="start" aria-labelledby="start-title">
-<h2 id="start-title">从一家店、一天数据开始</h2>
-<p>先把一个范围查清楚，再逐步建立日常经营流程。</p>
-<div class="steps">
-<article class="step"><span class="number">1</span><h3>查清数据</h3><p>选择有权限的门店与业务日期，查看已保存记录。需要补数时，按平台页面提供的授权采集或导入方式处理。</p><a href="/?page=online-data">打开数据中心 →</a></article>
-<article class="step"><span class="number">2</span><h3>找到重点</h3><p>确认来源与指标口径，结合渠道销售、流量转化和竞争圈，查看异常线索。数据不足时，先补齐影响判断的部分。</p><a href="/?page=compass">查看今日经营重点 →</a></article>
-<article class="step"><span class="number">3</span><h3>跟进结果</h3><p>审阅建议并由人确认，记录负责人、期限和执行证据。取得后续同口径数据后，再进行复盘。</p><a href="/?page=ops-track">查看任务与复盘 →</a></article>
+<p class="lead">核对携程、美团的经营数据，找到重点。<br>把判断变成可跟进、可复盘的任务。</p>
+<div class="actions">
+<a class="button" href="/?page=online-data">开始核对数据 <span aria-hidden="true">↗</span></a>
+<a class="button secondary" href="#start">查看使用步骤 <span aria-hidden="true">↓</span></a>
 </div>
-<div class="scope">初次使用需要管理员建立门店、分配访问权限并配置数据来源。已有历史数据与当前平台登录状态分别管理；当前采集失败，不表示历史记录不存在。</div>
+<p class="hero-note">来源可追溯，判断有边界，关键动作由人确认。具体数据以门店、业务日期与核验状态为准。</p>
+</div>
+<aside class="hero-aside" aria-label="经营使用路径示意">
+<div class="aside-heading"><strong>一条清楚的经营路径</strong><span>使用示意</span></div>
+<ol class="hero-flow">
+<li><span class="flow-number" aria-hidden="true">01</span><div><strong>核对数据</strong><p>门店 · 平台 · 业务日期 · 来源</p></div></li>
+<li><span class="flow-number" aria-hidden="true">02</span><div><strong>找到经营重点</strong><p>看渠道表现，也看影响判断的缺口</p></div></li>
+<li><span class="flow-number" aria-hidden="true">03</span><div><strong>跟进任务与复盘</strong><p>人工确认 · 执行证据 · 后续观察</p></div></li>
+</ol>
+<p class="aside-note">先把一个范围查清楚，再逐步建立日常经营流程。</p>
+</aside>
+</div>
+</div>
+</header>
+<nav class="section-nav" aria-label="使用指南目录">
+<div class="wrap section-nav-inner">
+<span class="nav-caption">产品能力 · 使用指南</span>
+<div class="nav-links"><a href="#start">使用步骤</a><a href="#capabilities">功能入口</a><a href="#states">数据状态</a><a href="#faq">常见问题</a></div>
+</div>
+</nav>
+<main class="wrap" id="main-content" tabindex="-1">
+<section id="start" aria-labelledby="start-title">
+<p class="section-kicker">01 / 开始使用</p>
+<h2 id="start-title">从一家店、一天数据开始</h2>
+<p class="section-lead">选定门店与业务日期，按这三个步骤完成一次核对与跟进。</p>
+<div class="steps">
+<article class="step"><div class="step-heading"><span class="number" aria-hidden="true">1</span><h3>查清数据</h3></div><p>进入数据中心的“记录与下载”，选择有权限的门店与业务日期，查看已保存记录。需要补数时，使用平台页面提供的授权采集或导入方式。</p><a class="entry-link" href="/?page=online-data">打开数据中心 <span aria-hidden="true">→</span></a></article>
+<article class="step"><div class="step-heading"><span class="number" aria-hidden="true">2</span><h3>找到重点</h3></div><p>核对来源与指标口径，再看渠道销售、流量转化和竞争圈。数据不足时，先补齐影响判断的部分。</p><a class="entry-link" href="/?page=compass">查看今日经营重点 <span aria-hidden="true">→</span></a></article>
+<article class="step"><div class="step-heading"><span class="number" aria-hidden="true">3</span><h3>跟进结果</h3></div><p>审阅建议并由人确认，记录负责人、期限和执行证据。有后续同口径数据后，再进行复盘。</p><a class="entry-link" href="/?page=ops-track">查看任务与复盘 <span aria-hidden="true">→</span></a></article>
+</div>
+<div class="scope"><strong>首次使用</strong><span>请由管理员建立门店、分配权限并配置数据来源。已有历史记录与当前平台登录状态分别管理；当前采集失败，不表示历史记录不存在。</span></div>
 </section>
 <section id="capabilities" aria-labelledby="cap-title">
-<h2 id="cap-title">八项能力，明确能看什么、需要什么</h2>
-<p class="note">以下入口需要登录及相应权限。打开入口不会自动批准或执行经营动作。</p>
+<p class="section-kicker">02 / 功能入口</p>
+<h2 id="cap-title">八项能力，按经营流程找到入口</h2>
+<p class="section-lead">入口先打开对应页面，再按卡片中的栏目名称查看。需要登录及相应权限；打开入口不会自动批准或执行经营动作。</p>
+<div class="capability-group">
+<div class="group-heading"><h3>数据基础</h3><p>先确认记录、范围与来源。</p></div>
 <div class="features">
-<article class="feature" data-capability="channel-data"><h3>渠道数据</h3><p>查看已接入的携程、美团经营数据，按平台区分来源与日期。</p><p class="condition">条件：门店绑定、数据来源可用；未取得或未核验的数据保留缺失状态。</p><a href="/?page=online-data">数据中心 →</a></article>
-<article class="feature" data-capability="history"><h3>历史记录</h3><p>回查已经保存的记录，核对业务日期、数据状态与来源。</p><p class="condition">条件：该门店和日期有历史记录；没有记录时不能用其他日期替代。</p><a href="/?page=ctrip-ebooking">携程历史入口 →</a><a href="/?page=meituan-ebooking">美团历史入口 →</a></article>
-<article class="feature" data-capability="analysis"><h3>渠道经营分析</h3><p>查看销售、流量与转化表现，辅助识别异常和排查重点。</p><p class="condition">条件：同范围指标足够且口径可比；OTA 数据不能自动代表全酒店经营。</p><a href="/?page=revenue-research-center">收益分析中心 →</a></article>
-<article class="feature" data-capability="competitors"><h3>竞争圈对比</h3><p>查看平台可取得的竞争圈、同行榜单与历史对比。</p><p class="condition">条件：平台提供对应样本；不同平台的排名与竞争圈定义分别看待。</p><a href="/?page=ctrip-ebooking">携程竞争圈 →</a><a href="/?page=meituan-ebooking">美团同行数据 →</a></article>
-<article class="feature" data-capability="quality"><h3>平台服务质量</h3><p>查看平台服务质量与点评相关指标，作为经营排查线索。</p><p class="condition">范围：平台数据；不代表客房巡检、员工质检或全酒店服务管理。</p><a href="/?page=ctrip-ebooking">携程服务质量 →</a></article>
-<article class="feature" data-capability="advertising"><h3>广告效果数据</h3><p>查看已接入的广告效果记录，在口径一致时辅助人工评估。</p><p class="condition">条件：广告服务适用、消费与归因字段完整；不自动调整预算、出价或投放。</p><a href="/?page=ctrip-ebooking">携程广告数据 →</a><a href="/?page=meituan-ebooking">美团广告数据 →</a></article>
-<article class="feature" data-capability="daily-report"><h3>AI 经营日报</h3><p>根据可用数据辅助整理诊断与建议，留存日报供后续查看。</p><p class="condition">条件：所需事实可核对，AI 配置可用；生成、保存和回读分别确认。</p><a href="/?page=ai-daily-report">AI 经营日报 →</a></article>
-<article class="feature" data-capability="tasks"><h3>任务与复盘</h3><p>记录建议、人工确认、负责人、执行证据与后续观察。</p><p class="condition">条件：执行和复盘各有对应证据；完成复盘不等于收益改善或因果成立。</p><a href="/?page=ops-track">任务执行与复盘 →</a></article>
+<article class="feature" data-capability="channel-data"><h4>渠道数据</h4><p>查看已接入的携程、美团经营数据，按平台区分来源与日期。</p><p class="condition"><span class="condition-label">使用条件</span>门店绑定、数据来源可用；未取得的数据保留缺失，已有但未核验的数据单独标注，不能当作已核验事实。</p><p class="location"><span class="location-label">进入后查看</span>数据中心 → 昨日经营闭环，核对渠道来源与数据缺口。</p><div class="feature-links"><a class="entry-link" href="/?page=online-data">进入数据中心 <span aria-hidden="true">→</span></a></div></article>
+<article class="feature" data-capability="history"><h4>历史记录</h4><p>回查已经保存的记录，核对业务日期、数据状态与来源。</p><p class="condition"><span class="condition-label">使用条件</span>门店和日期有历史记录；没有记录时不能用其他日期替代。</p><p class="location"><span class="location-label">进入后查看</span>数据中心 → 记录与下载；携程 → 入库记录；美团 → 全部已存。</p><div class="feature-links"><a class="entry-link" href="/?page=online-data">查询保存记录 <span aria-hidden="true">→</span></a><a class="entry-link" href="/?page=ctrip-ebooking">携程数据页 <span aria-hidden="true">→</span></a><a class="entry-link" href="/?page=meituan-ebooking">美团数据页 <span aria-hidden="true">→</span></a></div></article>
+</div>
+</div>
+<div class="capability-group">
+<div class="group-heading"><h3>分析与判断</h3><p>看表现，也看口径和判断条件。</p></div>
+<div class="features">
+<article class="feature" data-capability="analysis"><h4>渠道经营分析</h4><p>查看销售、流量与转化表现，辅助识别异常和排查重点。</p><p class="condition"><span class="condition-label">使用条件</span>同范围指标足够且口径可比；OTA 数据不能自动代表全酒店经营。</p><p class="location"><span class="location-label">进入后查看</span>数据中心 → 数据分析。需要研究本地已有记录与情景时，再进入收益分析的“已有信息研究”。</p><div class="feature-links"><a class="entry-link" href="/?page=online-data">查看渠道数据分析 <span aria-hidden="true">→</span></a><a class="entry-link" href="/?page=revenue-research-center">研究已有信息 <span aria-hidden="true">→</span></a></div></article>
+<article class="feature" data-capability="competitors"><h4>竞争圈对比</h4><p>查看平台可取得的竞争圈、同行榜单与历史对比。</p><p class="condition"><span class="condition-label">使用条件</span>平台提供对应样本；不同平台的排名与竞争圈定义分别看待。</p><p class="location"><span class="location-label">进入后查看</span>携程 → 竞争圈数据 / 市场与竞对；美团 → 同行榜单。</p><div class="feature-links"><a class="entry-link" href="/?page=ctrip-ebooking">携程平台页 <span aria-hidden="true">→</span></a><a class="entry-link" href="/?page=meituan-ebooking">美团平台页 <span aria-hidden="true">→</span></a></div></article>
+<article class="feature" data-capability="quality"><h4>平台服务质量</h4><p>查看平台服务质量与点评相关指标，作为经营排查线索。</p><p class="condition"><span class="condition-label">适用范围</span>平台数据；不代表客房巡检、员工质检或全酒店服务管理。</p><p class="location"><span class="location-label">进入后查看</span>携程 → 服务质量；数据中心 → 点评口碑。</p><div class="feature-links"><a class="entry-link" href="/?page=ctrip-ebooking">查看携程服务质量 <span aria-hidden="true">→</span></a><a class="entry-link" href="/?page=online-data">查看点评口碑 <span aria-hidden="true">→</span></a></div></article>
+<article class="feature" data-capability="advertising"><h4>广告效果数据</h4><p>查看已接入的广告效果记录，在口径一致时辅助人工评估。</p><p class="condition"><span class="condition-label">使用条件</span>广告服务适用、消费与归因字段完整；不自动调整预算、出价或投放。</p><p class="location"><span class="location-label">进入后查看</span>携程 / 美团 → 广告数据。未开通服务时按“不适用”查看，不能当作零消费。</p><div class="feature-links"><a class="entry-link" href="/?page=ctrip-ebooking">携程平台页 <span aria-hidden="true">→</span></a><a class="entry-link" href="/?page=meituan-ebooking">美团平台页 <span aria-hidden="true">→</span></a></div></article>
+</div>
+</div>
+<div class="capability-group">
+<div class="group-heading"><h3>输出与跟进</h3><p>把重点留存下来，让任务有后续。</p></div>
+<div class="features">
+<article class="feature" data-capability="daily-report"><h4>AI 经营日报</h4><p>查看可信经营播报，并在竞争圈证据就绪后生成分析报告；保存后可回看。</p><p class="condition"><span class="condition-label">使用条件</span>可信播报与竞争圈分析分别核对就绪状态；竞争圈分析需同门店、同业务日期的携程与美团竞争圈均就绪。调用 AI 时需要可用配置；生成、保存和回读分别确认。</p><p class="location"><span class="location-label">进入后查看</span>AI经营日报 → 选择酒店和业务日期，先查看“可信经营播报”与数据就绪状态，再按条件“生成竞争圈分析报告”。</p><div class="feature-links"><a class="entry-link" href="/?page=ai-daily-report">进入 AI 经营日报 <span aria-hidden="true">→</span></a></div></article>
+<article class="feature" data-capability="tasks"><h4>任务与复盘</h4><p>记录建议、人工确认、负责人、执行证据与后续观察。</p><p class="condition"><span class="condition-label">使用条件</span>执行和复盘各有对应证据；完成复盘不等于收益改善或因果成立。</p><p class="location"><span class="location-label">进入后查看</span>任务执行与复盘 → 我的待办 / 我的待复盘；按权限切换任务范围。</p><div class="feature-links"><a class="entry-link" href="/?page=ops-track">进入任务与复盘 <span aria-hidden="true">→</span></a></div></article>
+</div>
 </div>
 </section>
 <section class="box" id="states" aria-labelledby="states-title">
-<h2 id="states-title">看到数据状态后，下一步怎么做</h2>
-<div class="states">
-<div class="state"><strong>已有记录 / 已核验</strong><p>先核对酒店、平台和日期。已返回记录与已核验保存状态分别确认。</p></div>
-<div class="state"><strong>部分数据 / 缺少数据</strong><p>查看缺失项，补齐所需范围。部分金额不等于全期间金额，空缺不等于零。</p></div>
-<div class="state"><strong>人工导入 / 未核验</strong><p>核对来源、字段和保存结果；人工输入不能直接升级为平台已核验事实。</p></div>
-<div class="state"><strong>历史记录 / 日期不符</strong><p>保留原业务日期，按目标日期重新查询；历史记录不充当今天的数据。</p></div>
-<div class="state"><strong>读取失败 / 条件未满足</strong><p>查看原因并重新读取。来源或权限需要维护时，先处理对应问题。</p></div>
-<div class="state"><strong>等待执行 / 等待复盘</strong><p>由人确认关键动作，记录执行；有后续同口径数据后再复盘。</p></div>
-</div>
+<p class="section-kicker">03 / 数据状态</p>
+<h2 id="states-title">看到状态，知道下一步怎么做</h2>
+<p class="section-lead">这些是使用说明，具体记录的状态请在系统内核对。</p>
+<dl class="state-list">
+<div class="state-row"><dt><span class="state-dot" aria-hidden="true"></span>已有记录</dt><dd>先核对门店、平台和日期，再看来源核验状态。保存成功与事实已核验分别确认。</dd></div>
+<div class="state-row"><dt><span class="state-dot pending" aria-hidden="true"></span>部分数据 / 缺少数据</dt><dd>查看缺失项，补齐所需范围。部分金额不等于全期间金额，空缺不等于零。</dd></div>
+<div class="state-row"><dt><span class="state-dot manual" aria-hidden="true"></span>人工导入 / 未核验</dt><dd>核对来源、字段和保存结果；人工输入不能直接升级为平台已核验事实。</dd></div>
+<div class="state-row"><dt><span class="state-dot history" aria-hidden="true"></span>历史记录 / 日期不符</dt><dd>保留原业务日期，按目标日期重新查询；历史记录不充当今天的数据。</dd></div>
+<div class="state-row"><dt><span class="state-dot failed" aria-hidden="true"></span>读取失败 / 条件未满足</dt><dd>查看原因并重新读取。来源或权限需要维护时，先处理对应问题。</dd></div>
+<div class="state-row"><dt><span class="state-dot pending" aria-hidden="true"></span>等待执行 / 等待复盘</dt><dd>由人确认关键动作，记录执行；有后续同口径数据后再复盘。</dd></div>
+</dl>
 </section>
-<section aria-labelledby="faq-title">
+<section id="faq" aria-labelledby="faq-title">
+<p class="section-kicker">04 / 常见问题</p>
 <h2 id="faq-title">使用前，先说清楚</h2>
+<div class="faq-list">
 <details><summary>这是完整的前台 PMS 或自动经营系统吗？</summary><p>当前重点是酒店 OTA 数据、经营分析、建议与任务复盘。不能由渠道数据推断已覆盖全酒店房态、收入与利润；关键经营动作需要人工确认和相应授权。</p></details>
 <details><summary>商旅订单是否代表有独立的商旅分析模块？</summary><p>订单记录可能包含商旅渠道分类。当前不将其作为独立已验收的商旅分析模块宣传。</p></details>
 <details><summary>为什么有些数据能看到，仍然不能得出结论？</summary><p>日期、来源或指标口径不一致时，直接比较容易误导判断。系统需要分别核对事实、缺口与建议适用条件。</p></details>
 <details><summary>首次接入后，怎样确认可以开始日常使用？</summary><p>用同一门店、同一日期完成一次数据取得、保存、回读与页面核对，再查看诊断和任务。后续取得同口径数据后补做复盘；接入完成不等于经营效果已经验证。</p></details>
+</div>
 </section>
-<section class="closing"><div><h2>从一份可核对的数据开始</h2><p>登录后选定门店和日期，看看已有记录，以及下一步需要补齐什么。</p></div><a class="button" href="/?page=online-data">进入系统核对数据 →</a></section>
+<section class="closing" aria-labelledby="closing-title"><div><h2 id="closing-title">从一份可核对的数据开始</h2><p>选定门店和日期，查看已有记录，以及下一步需要补齐什么。</p></div><a class="button" href="/?page=online-data">进入系统核对数据 <span aria-hidden="true">↗</span></a></section>
 </main>
-<footer><div class="wrap">宿析 OS · 产品能力与使用步骤 · 2026-09-08<br>具体功能与数据以门店授权、实际接入及验证状态为准。</div></footer>
+<footer><div class="wrap footer-inner"><span>宿析 OS · 产品能力与使用指南</span><span>具体功能与数据以门店授权、实际接入及验证状态为准。</span></div></footer>
 </body>
 </html>
