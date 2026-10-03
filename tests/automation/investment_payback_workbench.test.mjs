@@ -12,11 +12,290 @@ const create = (request, environment = {}) => {
         computed: getter => ({ get value() { return getter(); } }),
         onMounted: () => {}, watch: () => {},
     };
-    vm.runInNewContext(source, { Vue, window: { SUXI_SYSTEM_COMPONENTS: registry, crypto: { randomUUID: () => `test-id-${++nonce}` }, setTimeout, clearTimeout, ...environment.window }, document: environment.document, AbortController, Intl, Date, Number, Object });
+    vm.runInNewContext(source, { Vue, window: { SUXI_SYSTEM_COMPONENTS: registry, crypto: { randomUUID: () => `test-id-${++nonce}` }, setTimeout: environment.setTimeout || setTimeout, clearTimeout: environment.clearTimeout || clearTimeout, ...environment.window }, document: environment.document, Intl, Date, Number, Object, AbortController, DOMException, setTimeout: environment.setTimeout || setTimeout, clearTimeout: environment.clearTimeout || clearTimeout });
     return registry.InvestmentPaybackBody.setup({ request, hotels: [] });
 };
-const projectDetail = id => ({ project: { id, project_name: `测试项目${id}`, version: 1 }, entries: [], summary: { as_of: '2026-10-01' }, audit_history: [] });
+const fixtureToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const projectDetail = (id, asOf = fixtureToday) => ({ project: { id, project_name: `测试项目${id}`, version: 1 }, entries: [], summary: { as_of: asOf }, audit_history: [] });
 const ok = data => ({ code: 200, data });
+const entryReadback = (projectId, input, changes = {}) => ({ ...projectDetail(projectId, input.as_of ?? fixtureToday), entries: [{
+    id: input.id || 900, project_id: projectId, tenant_id: 2, client_request_id: input.client_request_id,
+    kind: input.kind, amount: String(input.amount), date: input.date, precision: input.precision || 'day',
+    is_planned: input.is_planned === true, confirmed_zero: input.confirmed_zero === true, original_entry_id: input.original_entry_id || null,
+    source: String(input.source ?? '').trim(), category: String(input.category ?? '').trim(), notes: String(input.notes ?? '').trim(), voided_at: null, ...changes,
+}] });
+const projectReadback = (id, input, changes = {}) => {
+    const project = { ...input, id, version: input.expected_version ? Number(input.expected_version) + 1 : 1, tenant_id: input.tenant_id ?? 2 };
+    for (const key of ['project_name', 'investor_name', 'expected_source', 'opening_source', 'notes']) if (key in input) project[key] = String(input[key] ?? '').trim();
+    for (const key of ['hotel_id', 'first_invested_on', 'forecast_as_of', 'history_complete_through', 'opening_as_of', 'opening_invested', 'opening_recovered', 'expected_monthly_amount']) if (key in input) project[key] = input[key] == null || input[key] === '' ? null : key === 'hotel_id' ? Number(input[key]) : String(input[key]).trim();
+    return { ...projectDetail(id, input.as_of ?? fixtureToday), project: { ...project, ...changes } };
+};
+
+test('different saved forecast values cannot replace the project or erase the forecast draft', async () => {
+    for (const changes of [{ expected_monthly_amount: '123.46' }, { expected_source: '其他假设' }, { forecast_as_of: '2026-09-30' }]) {
+        let input;
+        const state = create(async (path, options) => { if (options.method === 'POST') input = JSON.parse(options.body); return ok(projectReadback(5, input, changes)); });
+        state.asOf.value = '2026-10-01'; state.detail.value = projectDetail(5);
+        state.forecastForm.amount = '123.45'; state.forecastForm.source = '当前假设';
+        const before = state.detail.value;
+        await state.saveForecast();
+        assert.equal(state.detail.value, before);
+        assert.equal(state.forecastForm.amount, '123.45'); assert.equal(state.forecastForm.source, '当前假设');
+        assert.equal(state.notice.value, ''); assert.match(state.detailError.value, /精确回读未通过/);
+    }
+});
+
+test('project create readback verifies saved fields and the creation identity', async () => {
+    for (const changes of [{ project_name: '其他项目' }, { investor_name: '其他主体' }, { status: 'draft' }, { expected_source: '其他假设' }, { expected_monthly_amount: '600.02' }, { first_invested_on: '2026-09-01' }, { forecast_as_of: '2026-09-30' }, { opening_as_of: '2026-09-30' }, { opening_invested: '1000.02' }, { opening_recovered: '2.02' }, { opening_source: '其他凭据' }, { history_complete_through: '2026-09-30' }, { notes: '其他备注' }, { client_request_id: 'another-creation' }]) {
+        let input;
+        const state = create(async (path, options) => { if (options.method === 'POST') input = JSON.parse(options.body); return ok(projectReadback(5, input, changes)); });
+        state.asOf.value = '2026-10-01'; state.beginProject();
+        Object.assign(state.projectForm.value, { project_name: '本次项目', opening_invested: '1000.01', opening_recovered: '2.01', expected_monthly_amount: '600.01', notes: '本次备注' });
+        const nonce = state.projectForm.value.client_request_id;
+        await state.saveProject();
+        assert.equal(state.projectForm.value?.project_name, '本次项目');
+        assert.equal(state.projectForm.value?.client_request_id, nonce);
+        assert.equal(state.detail.value, null); assert.equal(state.notice.value, '');
+        assert.match(state.formError.value, /精确回读未通过/);
+    }
+});
+
+test('a partial project or forecast write reply is confirmed by one scoped reread', async () => {
+    for (const mode of ['project', 'forecast']) {
+        let input, writes = 0, reads = 0;
+        const state = create(async (path, options) => {
+            if (options.method === 'POST') { writes++; input = JSON.parse(options.body); const response = projectReadback(5, input); delete response.project.expected_source; return ok(response); }
+            if (path.includes('/projects/5?')) { reads++; return ok(projectReadback(5, input)); }
+            return ok({ list: [] });
+        });
+        state.asOf.value = '2026-10-01';
+        if (mode === 'project') { state.beginProject(); state.projectForm.value.project_name = '补读项目'; await state.saveProject(); assert.equal(state.projectForm.value, null); }
+        else { state.detail.value = projectDetail(5); state.forecastForm.amount = '123.40'; state.forecastForm.source = ' 规范假设 '; await state.saveForecast(); }
+        assert.equal(state.detail.value.project.expected_source, String(input.expected_source).trim());
+        assert.equal(state.notice.value.includes('已保存并读回'), true);
+        assert.equal(writes, 1); assert.equal(reads, 1);
+    }
+});
+
+test('a wrong project edit retains its draft while a changed opening basis accepts cleared completeness', async () => {
+    const existing = { id: 5, version: 4, tenant_id: 2, hotel_id: null, basis: 'investor_cash', currency: 'CNY', project_name: '原项目', investor_name: '本人', status: 'operating', forecast_as_of: '2026-10-01', opening_as_of: '2026-09-01', opening_invested: '1000.00', opening_recovered: '0.00', opening_source: '原始凭据', first_invested_on: null, history_complete_through: '2026-10-01', expected_monthly_amount: null, expected_source: '', notes: '' };
+    for (const correct of [false, true]) {
+        let input;
+        const state = create(async (path, options) => {
+            if (options.method === 'POST') input = JSON.parse(options.body);
+            return path.includes('/projects?') ? ok({ list: [] }) : ok(projectReadback(5, input, { history_complete_through: null, ...(correct ? {} : { opening_source: '未采用本次凭据' }) }));
+        });
+        state.asOf.value = '2026-10-01'; state.detail.value = { ...projectDetail(5, '2026-10-01'), project: existing }; state.beginProject(existing);
+        state.projectForm.value.opening_source = '新核对凭据';
+        await state.saveProject();
+        if (correct) {
+            assert.equal(state.projectForm.value, null); assert.equal(state.detail.value.project.opening_source, '新核对凭据');
+            assert.equal(state.detail.value.project.history_complete_through, null); assert.equal(state.formError.value, '');
+        } else {
+            assert.equal(state.projectForm.value?.opening_source, '新核对凭据'); assert.equal(state.detail.value.project.opening_source, '原始凭据');
+            assert.match(state.formError.value, /精确回读未通过/); assert.equal(state.notice.value, '');
+        }
+    }
+});
+
+test('forecast clearing preserves explicit null and server text normalization including nonbreaking spaces', async () => {
+    const source = '\u00a0人工假设\u00a0';
+    let input;
+    const state = create(async (path, options) => {
+        if (options.method === 'POST') { input = JSON.parse(options.body); return ok(projectReadback(5, input, { expected_monthly_amount: null, expected_source: source })); }
+        return ok({ list: [] });
+    });
+    state.asOf.value = '2026-10-01'; state.detail.value = projectDetail(5, '2026-10-01');
+    state.forecastForm.amount = ''; state.forecastForm.source = ' ' + source + ' ';
+    await state.saveForecast();
+    assert.equal(state.detail.value.project.expected_monthly_amount, null);
+    assert.equal(state.detail.value.project.expected_source, source); assert.equal(state.detailError.value, '');
+    assert.match(state.notice.value, /已保存并读回/);
+});
+
+test('unlinked creation and a permitted draft unlink normalize hotel identity without accepting zero or bad IDs', async () => {
+    for (const editing of [false, true]) {
+        let writes = 0;
+        const state = create(async (path, options) => {
+            if (options.method === 'POST') { writes++; const input = JSON.parse(options.body); return ok(projectReadback(5, input, { hotel_id: null, history_complete_through: null })); }
+            return ok({ list: [] });
+        });
+        state.asOf.value = '2026-10-01';
+        state.beginProject(editing ? { ...projectReadback(5, { project_name: '草稿解绑', investor_name: '本人', hotel_id: 80, status: 'draft', basis: 'investor_cash', currency: 'CNY', forecast_as_of: '2026-10-01' }).project, id: 5 } : undefined);
+        state.projectForm.value.project_name = '无绑定项目'; state.projectForm.value.hotel_id = '';
+        await state.saveProject();
+        assert.equal(state.projectForm.value, null); assert.equal(state.detail.value.project.hotel_id, null); assert.equal(writes, 1);
+    }
+    for (const hotel of [0, '0', 'oops', '080']) {
+        let writes = 0;
+        const state = create(async () => { writes++; return ok(projectDetail(5)); });
+        state.beginProject(); state.projectForm.value.project_name = '保留错误酒店草稿'; state.projectForm.value.hotel_id = hotel;
+        await state.saveProject();
+        assert.equal(writes, 0); assert.equal(state.projectForm.value.hotel_id, hotel);
+        assert.match(state.formError.value, /读回范围或格式不一致/);
+    }
+});
+
+test('a legacy blank hotel scope agrees with a normalized null on a readonly response', async () => {
+    const state = create(async () => ok({ ...projectDetail(5), project: { ...projectDetail(5).project, hotel_id: null } }));
+    state.projects.value = [{ id: 5, hotel_id: '' }];
+    await state.selectProject(5);
+    assert.equal(state.detail.value.project.hotel_id, null); assert.equal(state.detailError.value, '');
+});
+
+test('normalizing a legacy opening source can legitimately clear its old history confirmation', async () => {
+    const existing = { ...projectReadback(5, { id: 5, project_name: '旧项目', investor_name: '本人', hotel_id: null, basis: 'investor_cash', currency: 'CNY', status: 'operating', forecast_as_of: '2026-10-01', opening_as_of: '2026-09-01', opening_invested: '1000.00', opening_recovered: '0.00', opening_source: '原凭据', history_complete_through: '2026-10-01' }).project, opening_source: ' 原凭据 ' };
+    const state = create(async (path, options) => options.method === 'POST' ? ok(projectReadback(5, JSON.parse(options.body), { history_complete_through: null })) : ok({ list: [] }));
+    state.asOf.value = '2026-10-01'; state.beginProject(existing); state.projectForm.value.project_name = '更正名称';
+    await state.saveProject();
+    assert.equal(state.projectForm.value, null); assert.equal(state.detail.value.project.opening_source, '原凭据');
+    assert.equal(state.detail.value.project.history_complete_through, null); assert.equal(state.formError.value, '');
+});
+
+test('an empty post and reread cannot claim an entry was saved or discard its draft', async () => {
+    let writes = 0, reads = 0;
+    const state = create(async (path, options) => { options.method === 'POST' ? writes++ : reads++; return ok(projectDetail(5, '2026-10-01')); });
+    state.asOf.value = '2026-10-01'; state.detail.value = projectDetail(5); state.beginEntry('recovery'); state.entryForm.value.amount = '123.45';
+    const identity = state.entryForm.value.client_request_id;
+    await state.saveEntry();
+    assert.equal(state.entryForm.value?.amount, '123.45');
+    assert.equal(state.entryForm.value?.client_request_id, identity);
+    assert.equal(state.notice.value, '');
+    assert.match(state.formError.value, /精确回读未通过/);
+    assert.equal(writes, 1); assert.equal(reads, 1);
+});
+
+test('an incomplete post response can confirm one exact record through a scoped reread', async () => {
+    let input, writes = 0, reads = 0;
+    const state = create(async (path, options) => {
+        if (options.method === 'POST') { input = JSON.parse(options.body); writes++; return ok(projectDetail(5, input.as_of)); }
+        if (path.includes('/projects/5?')) { reads++; return ok(entryReadback(5, input)); }
+        return ok({ list: [] });
+    });
+    state.asOf.value = '2026-10-01'; state.detail.value = projectDetail(5); state.beginEntry('refund');
+    Object.assign(state.entryForm.value, { amount: '123.45', original_entry_id: '7', notes: ' 同项目退款 ', source: ' 人工确认 ', category: ' 冲回 ' });
+    await state.saveEntry();
+    assert.equal(state.entryForm.value, null); assert.equal(state.detail.value.entries[0].original_entry_id, '7');
+    assert.match(state.notice.value, /已保存并读回/);
+    assert.equal(writes, 1); assert.equal(reads, 1);
+});
+
+test('matching record identity cannot confirm a different amount, date, type or provenance', async () => {
+    for (const changes of [{ amount: '123.46' }, { date: '2026-09-30' }, { precision: 'month' }, { kind: 'investment' }, { source: '其他来源' }, { category: '其他类别' }, { notes: '其他原因' }, { is_planned: true }, { confirmed_zero: true }, { original_entry_id: 8 }, { voided_at: '2026-10-01' }]) {
+        const state = create(async (path, options) => ok(entryReadback(5, JSON.parse(options.body), changes)));
+        state.asOf.value = '2026-10-01'; state.detail.value = projectDetail(5); state.beginEntry('refund');
+        Object.assign(state.entryForm.value, { amount: '123.45', original_entry_id: 7, notes: '退款核对', source: '人工来源', category: '冲回' });
+        await state.saveEntry();
+        assert.equal(state.entryForm.value?.amount, '123.45');
+        assert.equal(state.notice.value, '');
+        assert.match(state.formError.value, /精确回读未通过/);
+    }
+});
+
+test('an edited record is confirmed by its ID, with cents normalized exactly', async () => {
+    const state = create(async (path, options) => ok(entryReadback(5, JSON.parse(options.body), { amount: '0.00', version: 4 })));
+    state.asOf.value = '2026-10-01'; state.detail.value = projectDetail(5);
+    state.beginEntry('recovery', { id: 7, version: 3, kind: 'recovery', amount: '0', confirmed_zero: true, date: '2026-10-01', precision: 'day', source: '人工核对', notes: '', category: '', is_planned: false });
+    await state.saveEntry();
+    assert.equal(state.entryForm.value, null);
+    assert.equal(state.detail.value.entries[0].id, 7);
+    assert.match(state.notice.value, /已保存并读回/);
+});
+
+test('a save response from another cutoff or cash scope preserves the entry draft', async () => {
+    for (const changes of [{ as_of: '2026-09-30' }, { basis: 'hotel_profit' }, { currency: 'USD' }]) {
+        const state = create(async () => ok({ ...projectDetail(5), summary: { as_of: '2026-10-01', basis: 'investor_cash', currency: 'CNY', ...changes } }));
+        state.asOf.value = '2026-10-01';
+        state.detail.value = projectDetail(5); state.beginEntry('recovery'); state.entryForm.value.amount = '123.45';
+        const identity = state.entryForm.value.client_request_id;
+        await state.saveEntry();
+        assert.equal(state.entryForm.value?.amount, '123.45');
+        assert.equal(state.entryForm.value?.client_request_id, identity);
+        assert.match(state.formError.value, /读回范围或格式不一致/);
+        assert.equal(state.notice.value, '');
+    }
+});
+
+test('matching project ID cannot admit another tenant, hotel or entry project scope', async () => {
+    const known = { ...projectDetail(5, '2026-10-01'), project: { ...projectDetail(5).project, tenant_id: 2, hotel_id: 80 } };
+    for (const changes of [{ project: { tenant_id: 3 } }, { project: { hotel_id: 81 } }, { entries: [{ id: 8, project_id: 6, tenant_id: 2 }] }, { entries: [{ id: 8, project_id: 5, tenant_id: 3 }] }]) {
+        const reply = { ...known, ...changes, project: { ...known.project, ...changes.project } };
+        const state = create(async () => ok(reply)); state.asOf.value = '2026-10-01';
+        state.detail.value = known; state.beginEntry('recovery'); state.entryForm.value.amount = '1.00';
+        await state.saveEntry();
+        assert.equal(state.detail.value.project.tenant_id, 2);
+        assert.equal(state.detail.value.project.hotel_id, 80);
+        assert.equal(state.entryForm.value?.amount, '1.00');
+        assert.match(state.formError.value, /读回范围或格式不一致/);
+    }
+});
+
+test('duplicate projects and wrong-cutoff lists never double the displayed investment', async () => {
+    for (const list of [[{ id: 5 }, { id: '5' }], [{ id: 5, summary: { as_of: '2026-09-30' } }], [{ id: 5, summary: { basis: 'hotel_profit' } }], [{ id: 5, currency: 'USD' }]]) {
+        const state = create(async () => ok({ list, pagination: { total: list.length } })); state.asOf.value = '2026-10-01';
+        await state.refreshProjects();
+        assert.equal(state.projects.value.length, 0);
+        assert.match(state.listError.value, /读回范围或格式不一致/);
+        assert.equal(state.overview.value.investment.amount, null);
+    }
+});
+
+test('opening a known card validates its hotel even after the detail is cleared for loading', async () => {
+    const card = { id: 5, tenant_id: 2, hotel_id: 80 };
+    const state = create(async () => ok({ ...projectDetail(5, '2026-10-01'), project: { ...card, hotel_id: 81 } }));
+    state.asOf.value = '2026-10-01'; state.projects.value = [card];
+    await state.selectProject(5);
+    assert.equal(state.detail.value, null);
+    assert.match(state.detailError.value, /读回范围或格式不一致/);
+});
+
+test('a next page from another tenant preserves the loaded accounting scope', async () => {
+    const first = { id: 5, tenant_id: 2, summary: { as_of: '2026-10-01', invested_amount: '100.01' } };
+    const second = { ...first, id: 6, tenant_id: 3 };
+    const state = create(async path => ok({ list: [path.includes('&page=2') ? second : first], pagination: { total: 2 }, layout: { order: [5, 6] } }));
+    state.asOf.value = '2026-10-01'; await state.refreshProjects(); await state.loadMore();
+    assert.equal(state.projects.value.length, 1);
+    assert.equal(state.overview.value.investment.amount, '100.01');
+    assert.match(state.listError.value, /读回范围或格式不一致/);
+});
+
+test('a list refresh cannot silently replace the known tenant scope', async () => {
+    const state = create(async () => ok({ list: [{ id: 6, tenant_id: 3 }], pagination: { total: 1 } }));
+    state.projects.value = [{ id: 5, tenant_id: 2 }]; await state.refreshProjects();
+    assert.equal(state.projects.value.length, 0);
+    assert.match(state.listError.value, /读回范围或格式不一致/);
+});
+
+test('a duplicate on the next page keeps the first page and cannot be appended twice', async () => {
+    const first = { id: 5, tenant_id: 2, summary: { as_of: '2026-10-01', invested_amount: '100.01' } };
+    const state = create(async () => ok({ list: [first], pagination: { total: 2 }, layout: { order: [5] } })); state.asOf.value = '2026-10-01';
+    await state.refreshProjects(); await state.loadMore();
+    assert.equal(state.projects.value.length, 1);
+    assert.equal(state.overview.value.investment.amount, '100.01');
+    assert.match(state.listError.value, /读回范围或格式不一致/);
+    assert.equal(state.hasMore.value, true);
+});
+
+test('scope readback remains compatible with older responses and ignores a late cutoff read', async () => {
+    let resolveOld;
+    const state = create(path => path.includes('2026-09-30') ? new Promise(resolve => { resolveOld = resolve; }) : Promise.resolve(ok({ ...projectDetail(5), summary: { as_of: '2026-10-01' } })));
+    state.asOf.value = '2026-09-30'; const old = state.selectProject(5);
+    state.asOf.value = '2026-10-01'; await state.selectProject(5);
+    resolveOld(ok({ ...projectDetail(5), summary: { as_of: '2026-09-30', basis: 'investor_cash', currency: 'CNY' } })); await old;
+    assert.equal(state.detail.value.summary.as_of, '2026-10-01');
+    assert.equal(state.detailError.value, '');
+});
+
+test('mainline template registry and runtime render expose the investment payback page', async () => {
+    const { loadFrontendTemplateSource } = await import('../../scripts/lib/frontend_template_source.mjs');
+    const root = new URL('../../', import.meta.url);
+    const { fileURLToPath } = await import('node:url');
+    const template = loadFrontendTemplateSource(fileURLToPath(root));
+    assert.match(template.templateBuffer.toString(), /investment-payback-view/);
+    const manifest = JSON.parse(fs.readFileSync(new URL('../../resources/frontend/templates/manifest.json', import.meta.url), 'utf8'));
+    assert.equal(manifest.fragments.filter(row => row.id === 'page-investment-payback').length, 1);
+    assert.match(fs.readFileSync(new URL('../../public/app-render.min.js', import.meta.url), 'utf8'), /investment-payback-view/);
+});
 
 test('dialog tab boundaries exclude inputs disabled by their enclosing fieldset', () => {
     const focused = [];
@@ -93,7 +372,7 @@ test('an unresponsive save retains inputs and request identity, then retries onc
     const state = create((path, options) => {
         if (options.method !== 'POST') return Promise.resolve(ok({list:[]}));
         writes.push(JSON.parse(options.body));
-        return writes.length === 1 ? new Promise(resolve => { resolveLate = resolve; }) : Promise.resolve(ok(projectDetail(5)));
+        return writes.length === 1 ? new Promise(resolve => { resolveLate = resolve; }) : Promise.resolve(ok(entryReadback(5, writes.at(-1))));
     }, clock);
     state.detail.value = projectDetail(5); state.beginEntry('recovery'); state.entryForm.value.amount = '123.45';
     const identity = state.entryForm.value.client_request_id;
@@ -103,6 +382,9 @@ test('an unresponsive save retains inputs and request identity, then retries onc
     assert.equal(state.entryForm.value.client_request_id, identity); assert.match(state.formError.value, /保存结果尚未确认/);
     await state.saveEntry();
     assert.equal(writes.length, 2); assert.equal(writes[1].client_request_id, identity);
+    assert.equal(state.entryForm.value, null);
+    assert.equal(state.detail.value.entries[0].client_request_id, identity);
+    assert.match(state.notice.value, /已保存并读回/);
     resolveLate(ok(projectDetail(99))); await Promise.resolve();
     assert.equal(state.detail.value.project.id, 5); assert.equal(clock.active.size, 0);
 });
@@ -128,7 +410,7 @@ test('an unexpected project response cannot replace the requested ledger', async
 test('all ledger writes retain the selected accounting cutoff, including retry and void', async () => {
     const writes = [];
     const state = create(async (path, options) => {
-        if (options.method === 'POST') { writes.push(JSON.parse(options.body)); return ok(projectDetail(5)); }
+        if (options.method === 'POST') { const input = JSON.parse(options.body); writes.push(input); return ok(path.endsWith('/entries') ? entryReadback(5, input) : path === '/investment-payback/projects' ? projectReadback(5, input) : projectDetail(5, input.as_of)); }
         return ok({ list: [] });
     });
     state.asOf.value = '2026-08-31';
@@ -136,10 +418,14 @@ test('all ledger writes retain the selected accounting cutoff, including retry a
     state.beginEntry('recovery'); state.entryForm.value.amount = '125.01';
     await state.saveEntry();
     state.forecastForm.amount = '1500.00'; await state.saveForecast();
+    assert.equal(state.detailError.value, '');
+    assert.equal(state.detail.value.project.expected_monthly_amount, '1500.00');
     state.openConfirmation('void', { id: 2, version: 1 }); state.confirmation.reason = '合成测试'; await state.confirmAction();
     state.beginProject({ id: 5, version: 1, project_name: '合成测试' }); await state.saveProject();
     assert.equal(writes.length, 4);
     for (const write of writes) assert.equal(write.as_of, '2026-08-31');
+    assert.equal(state.formError.value, '');
+    assert.equal(state.detail.value.summary.as_of, '2026-08-31');
 });
 
 test('monthly cash totals remain exact beyond the Number safe-integer range and reject invalid values', () => {
@@ -155,17 +441,6 @@ test('monthly cash totals remain exact beyond the Number safe-integer range and 
     detail.entries.push({ id: 103, date: '2026-09-01', kind: 'recovery', amount: 'bad' });
     assert.equal(state.monthlyRows.value[0].recovery, null);
     assert.equal(state.monthlyRows.value[0].recovery_invalid, true);
-});
-
-test('mainline template registry and runtime render expose the investment payback page', async () => {
-    const { loadFrontendTemplateSource } = await import('../../scripts/lib/frontend_template_source.mjs');
-    const root = new URL('../../', import.meta.url);
-    const { fileURLToPath } = await import('node:url');
-    const template = loadFrontendTemplateSource(fileURLToPath(root));
-    assert.match(template.templateBuffer.toString(), /investment-payback-view/);
-    const manifest = JSON.parse(fs.readFileSync(new URL('../../resources/frontend/templates/manifest.json', import.meta.url), 'utf8'));
-    assert.equal(manifest.fragments.filter(row => row.id === 'page-investment-payback').length, 1);
-    assert.match(fs.readFileSync(new URL('../../public/app-render.min.js', import.meta.url), 'utf8'), /investment-payback-view/);
 });
 
 test('compact ledger columns retain mixed provenance, missing sources, notes and excluded row status', () => {
@@ -336,7 +611,7 @@ test('failed project save preserves values and request identity for safe retry',
             inputs.push(JSON.parse(options.body));
             assert.equal(options.withBusinessContext, false);
             if (++attempts === 1) throw new Error('测试保存失败');
-            return ok(projectDetail(3));
+            return ok(projectReadback(3, inputs.at(-1)));
         }
         return ok({ list: [], pagination: { total: 0 } });
     });
@@ -349,13 +624,15 @@ test('failed project save preserves values and request identity for safe retry',
     await state.saveProject();
     assert.equal(inputs[0].client_request_id, inputs[1].client_request_id);
     assert.equal(state.detail.value.project.id, 3);
+    assert.equal(state.projectForm.value, null);
+    assert.equal(state.detail.value.project.project_name, '明确标注的测试项目');
     assert.equal(state.entryForm.value, null);
 });
 
 test('new project can save current cumulative balances in one request without inventing history', async () => {
     const saved = [];
     const state = create(async (path, options) => {
-        if (options.method === 'POST') { saved.push({ path, input: JSON.parse(options.body) }); return ok(projectDetail(3)); }
+        if (options.method === 'POST') { const input = JSON.parse(options.body); saved.push({ path, input }); return ok(projectReadback(3, input)); }
         return ok({ list: [] });
     });
     state.beginProject();
@@ -370,12 +647,15 @@ test('new project can save current cumulative balances in one request without in
     assert.equal(saved[0].input.history_complete_through, '');
     assert.equal(saved[0].input.first_invested_on, '');
     assert.equal(state.entryForm.value, null);
+    assert.equal(state.projectForm.value, null);
+    assert.equal(state.detail.value.project.opening_invested, '1200000.01');
+    assert.equal(state.detail.value.project.opening_recovered, '250000.02');
 });
 
 test('name-only creation keeps missing amounts missing and rejects a half-filled opening balance', async () => {
     const saved = [];
     const state = create(async (path, options) => {
-        if (options.method === 'POST') { saved.push(JSON.parse(options.body)); return ok(projectDetail(1)); }
+        if (options.method === 'POST') { const input = JSON.parse(options.body); saved.push(input); return ok(projectReadback(1, input)); }
         return ok({ list: [] });
     });
     state.beginProject();
@@ -392,12 +672,15 @@ test('name-only creation keeps missing amounts missing and rejects a half-filled
     assert.equal(saved[0].opening_source, '');
     assert.equal(saved[0].opening_invested, '');
     assert.equal(saved[0].opening_recovered, '');
+    assert.equal(state.projectForm.value, null);
+    assert.equal(state.detail.value.project.opening_invested, null);
+    assert.equal(state.detail.value.project.opening_recovered, null);
 });
 
 test('collapsed project metadata and existing opening balances survive a simple edit', async () => {
     let saved;
     const state = create(async (path, options) => {
-        if (options.method === 'POST') { saved = JSON.parse(options.body); return ok(projectDetail(7)); }
+        if (options.method === 'POST') { saved = JSON.parse(options.body); return ok(projectReadback(7, saved)); }
         return ok({list: []});
     });
     const existing = { id: 7, version: 4, project_name: '编辑前', investor_name: '测试投资公司', hotel_id: 12, opening_as_of: '2026-09-01', opening_invested: '15000.10', opening_recovered: '-50.20', opening_source: '测试核对表', expected_monthly_amount: '2500.01', expected_source: '测试预测', forecast_as_of: '2026-08-31', history_complete_through: '2026-09-30', first_invested_on: '2026-01-02', notes: '保留测试备注' };
@@ -406,6 +689,8 @@ test('collapsed project metadata and existing opening balances survive a simple 
     await state.saveProject();
     for (const field of ['investor_name', 'hotel_id', 'opening_as_of', 'opening_invested', 'opening_recovered', 'opening_source', 'expected_monthly_amount', 'expected_source', 'forecast_as_of', 'history_complete_through', 'first_invested_on', 'notes']) assert.equal(saved[field], existing[field], field);
     assert.equal(saved.expected_version, 4);
+    assert.equal(state.projectForm.value, null);
+    assert.equal(state.detail.value.project.project_name, '编辑后');
 });
 
 test('forecast duration displays a small positive period without claiming zero months and supports old responses', () => {
@@ -570,7 +855,7 @@ test('a cutoff refresh cannot reopen the old project after the user selects anot
     let resolveList;
     const state = create(path => path.includes('/projects?')
         ? new Promise(resolve => { resolveList = resolve; })
-        : Promise.resolve(ok(projectDetail(Number(path.match(/\/projects\/(\d+)/)[1])))));
+        : Promise.resolve(ok(projectDetail(Number(path.match(/\/projects\/(\d+)/)[1]), '2026-10-01'))));
     state.detail.value = projectDetail(1);
     state.asOf.value = '2026-10-01';
     const pendingCutoff = state.changeAsOf();
@@ -584,7 +869,7 @@ test('a late project read cannot overwrite a newly created project', async () =>
     let resolveRead;
     const state = create(async (path, options) => {
         if (path.includes('/projects/1?')) return new Promise(resolve => { resolveRead = resolve; });
-        if (options.method === 'POST') return ok(projectDetail(3));
+        if (options.method === 'POST') return ok(projectReadback(3, JSON.parse(options.body)));
         return ok({list: []});
     });
     const pending = state.selectProject(1);
@@ -600,7 +885,7 @@ test('a late project read cannot overwrite a newly created project', async () =>
 test('refund and confirmed-zero inputs preserve explicit types and precision', async () => {
     const saved = [];
     const state = create(async (path, options) => {
-        if (options.method === 'POST') { saved.push(JSON.parse(options.body)); return ok(projectDetail(1)); }
+        if (options.method === 'POST') { const input = JSON.parse(options.body); saved.push(input); return ok(entryReadback(1, input)); }
         return ok({ list: [] });
     });
     state.detail.value = projectDetail(1);
@@ -610,6 +895,8 @@ test('refund and confirmed-zero inputs preserve explicit types and precision', a
     await state.saveEntry();
     assert.equal(saved[0].kind, 'refund');
     assert.equal(saved[0].amount, '100.01');
+    assert.equal(state.entryForm.value, null);
+    assert.equal(state.detail.value.entries[0].kind, 'refund');
     state.beginEntry('recovery');
     state.entryForm.value.amount = '0';
     state.entryForm.value.confirmed_zero = true;

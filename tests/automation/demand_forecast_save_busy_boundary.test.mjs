@@ -32,7 +32,7 @@ const names = [
   ...(main.includes('            const applyDemandForecastReadback =') ? ['applyDemandForecastReadback'] : []),
   'manualCtripPricingInputMeta', 'firstEnabledRoomTypeId', 'createDemandForecastForm',
   'captureAgentRevenueRequestContext', 'isAgentRevenueRequestCurrent', 'setRevenueLoadState',
-  'syncRevenuePricingInputDate', 'resetDemandForecastForm', 'saveDemandForecastInput', 'loadDemandForecasts',
+  'syncRevenuePricingInputDate', 'resetDemandForecastForm', 'demandForecastInputNumber', 'demandForecastSavedReceiptMatches', 'saveDemandForecastInput', 'loadDemandForecasts',
 ];
 let card, tab, cardAncestors, hiddenAncestors;
 const walkAst = (node, ancestors = []) => {
@@ -68,7 +68,7 @@ const tick = async () => { await Vue.nextTick(); await new Promise(resolve => se
 async function harness() {
   const state = Object.fromEntries(Object.entries({
     currentPage: 'agent-center', agentTab: 'revenue', revenueAgentTab: 'settings', filterReportHotel: '80',
-    demandForecastSaving: false, demandForecastForm: {}, demandForecasts: [], forecastAccuracy: {}, highDemandDates: [],
+    demandForecastSaving: false, demandForecastSaveReadback: null, demandForecastForm: {}, demandForecasts: [], forecastAccuracy: {}, highDemandDates: [],
     forecastFilter: { start_date: '2026-09-15', end_date: '2026-09-16' }, priceSuggestionFilter: { date: '2026-09-15' },
     competitorPriceForm: { analysis_date: '2026-09-15' }, competitorFilter: { date: '2026-09-15' },
     roomTypeConfigList: [{ id: 501, hotel_id: 80, name: 'Current hotel room', is_enabled: 1 }, { id: 502, hotel_id: 80, name: 'Next synthetic room', is_enabled: 1 }],
@@ -176,7 +176,7 @@ async function assertBusy(h, expected) {
   const controls = h.controls();
   assert.equal(controls.filter(entry => entry.node.type === 'input').length, 5);
   assert.equal(controls.filter(entry => entry.node.type === 'select').length, 1);
-  assert.deepEqual(controls.filter(entry => entry.node.type === 'button').map(entry => text(entry.node).trim()), ['刷新', '保存预测']);
+  assert.deepEqual(controls.filter(entry => entry.node.type === 'button').map(entry => text(entry.node).trim()), ['刷新', '清空', '保存预测']);
   for (const { node, parents } of controls) {
     assert.equal(h.disabled(node), expected, 'Every original control follows save busy: ' + (node.props.placeholder || node.props.type || text(node).trim()));
     if (expected) assert.ok(parents.some(parent => parent.type === 'fieldset' && parent.props.disabled && parent.props['data-testid'] === 'agent-suggestion-demand-forecast-manual-input'));

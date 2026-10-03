@@ -231,6 +231,15 @@
             currentDemand() { return this.overview?.demand_calendar || {}; },
             currentWecom() { return this.overview?.wecom_task_receipt || {}; },
             currentFinance() { return this.overview?.monthly_finance || {}; },
+            currentInvestmentBridge() {
+                const bridge = this.overview?.investment_bridge;
+                const tenantId = Number(this.hotels.find(hotel => Number(hotel.id) === Number(this.hotelId))?.tenant_id || 0);
+                return bridge?.contract_version === 'investment_operating_bridge.v1'
+                    && Number.isSafeInteger(bridge.hotel_id) && bridge.hotel_id > 0 && bridge.hotel_id === Number(this.hotelId)
+                    && Number.isSafeInteger(bridge.tenant_id) && bridge.tenant_id > 0 && (!tenantId || bridge.tenant_id === tenantId)
+                    && bridge.period_month === this.periodMonth
+                    ? bridge : null;
+            },
             currentPortfolio() { return this.overview?.portfolio || {}; },
             visibleFinanceFields() {
                 return financeFields.filter(field => field.scopes.includes(this.financeForm.fact_scope));
@@ -991,6 +1000,21 @@
                 </section>
 
                 <section v-if="activeTab === 'portfolio'" class="rounded-2xl border border-slate-200 bg-white p-5" data-testid="operating-finance-portfolio"><div class="flex items-center justify-between"><h3 class="font-bold text-slate-900">多店老板组合视图</h3><span class="rounded-full border px-2 py-1 text-xs">{{ statusText(currentPortfolio.ranking_status || currentPortfolio.status) }}</span></div><div class="mt-4 overflow-x-auto"><table class="min-w-full text-left text-sm"><thead class="text-xs text-slate-400"><tr><th class="px-3 py-2">酒店</th><th class="px-3 py-2">范围</th><th class="px-3 py-2">来源</th><th class="px-3 py-2">税口径</th><th class="px-3 py-2">状态</th><th class="px-3 py-2">GOP</th><th class="px-3 py-2">GOP率</th><th class="px-3 py-2">同口径排名</th></tr></thead><tbody><tr v-for="item in currentPortfolio.items || []" :key="item.hotel_id" class="border-t border-slate-100"><td class="px-3 py-3 font-medium">{{ item.hotel_name }}</td><td class="px-3 py-3">{{ scopeText(item.fact_scope) }}</td><td class="px-3 py-3">{{ statusText(item.source_quality_status) }}</td><td class="px-3 py-3">{{ item.tax_basis === 'tax_inclusive' ? '含税' : (item.tax_basis === 'tax_exclusive' ? '不含税' : '未确认') }}</td><td class="px-3 py-3">{{ statusText(item.status) }}</td><td class="px-3 py-3">{{ money(item.gop) }}</td><td class="px-3 py-3">{{ item.gop_margin_percent ?? '未取得' }}</td><td class="px-3 py-3">{{ item.rank ?? '不可比' }}</td></tr></tbody></table></div><p class="mt-3 text-xs text-slate-500">只有所有授权酒店都具备同账期、全酒店口径、完整成本、CNY、相同含税/不含税口径、同一指标版本且已人工核对来源时才显示人工快照排名；排名不等于会计审计，也不授权员工奖惩或跨店数据外发。</p></section>
+                <section v-if="activeTab === 'finance' || activeTab === 'portfolio'" data-testid="operating-investment-bridge" class="mt-4 rounded-2xl border border-slate-200 bg-white p-5">
+                    <h3 class="font-bold text-slate-900">关联项目的投资人现金台账</h3>
+                    <p class="mt-2 text-xs leading-5 text-slate-500">人工台账，未经独立核验；金额为截至日期的累计记录，经营利润和测算不能当作投资人回款。不同项目逐项展示，不跨投资人合计。</p>
+                    <p v-if="loading" class="mt-3 text-sm" role="status">正在读取当前范围台账…</p>
+                    <p v-else-if="!currentInvestmentBridge" class="mt-3 text-sm text-amber-700" role="status">未取得当前酒店及账期的投资台账。</p>
+                    <template v-else>
+                        <p class="mt-3 text-xs">账期 {{ currentInvestmentBridge.period_month }} · 截止 {{ currentInvestmentBridge.effective_as_of || '未取得' }} · {{ statusText(currentInvestmentBridge.status) }}</p>
+                        <div v-if="currentInvestmentBridge.projects?.length" class="mt-3 overflow-x-auto">
+                            <table class="min-w-full text-left text-sm"><thead><tr><th class="px-2 py-2">项目 / 投资人</th><th class="px-2 py-2">已记录投入</th><th class="px-2 py-2">已记录净回款</th><th class="px-2 py-2">尚未回收</th></tr></thead>
+                                <tbody><tr v-for="project in currentInvestmentBridge.projects" :key="project.project_id" class="border-t"><td class="px-2 py-2">{{ project.project_name || '未命名项目' }} / {{ project.investor_name || '投资人未确认' }}<span v-if="!project.scope_compatible" class="block text-xs text-amber-700">资金口径、币种或截止日待核</span></td><td class="px-2 py-2">{{ money(project.scope_compatible ? project.amounts?.actual_invested : null) }}</td><td class="px-2 py-2">{{ money(project.scope_compatible ? project.amounts?.net_actual_recovered : null) }}</td><td class="px-2 py-2">{{ money(project.scope_compatible ? project.amounts?.unrecovered : null) }}</td></tr></tbody>
+                            </table>
+                        </div>
+                        <p v-else class="mt-3 text-sm text-amber-700" role="status">{{ currentInvestmentBridge.reason_code === 'linked_investment_project_missing' ? '当前范围没有关联项目。' : (currentInvestmentBridge.status === 'not_started' ? '账期尚未开始，暂无该账期现金记录。' : '当前范围台账尚不可展示，请刷新核对；缺失金额不计为零。') }}</p>
+                    </template>
+                </section>
             </section>
         `,
     };

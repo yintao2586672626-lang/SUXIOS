@@ -84,9 +84,17 @@ final class RevenueAnalysisDiagnosticsService
         $verifiedSourceCount = 0;
         $sourceChecks = [];
         foreach ($requiredSources as $source => $label) {
+            $otaEnvelope = is_array($factLayer['sources'][$source] ?? null)
+                ? $factLayer['sources'][$source] : [];
+            $envelopeStatus = trim((string)($otaEnvelope['data_status'] ?? ''));
+            $completenessStatus = trim((string)($sourceCompleteness[$source] ?? ''));
             $sourceStatus = $source === $pmsSourceKey
                 ? (string)$pmsSelection['data_status']
-                : trim((string)($sourceCompleteness[$source] ?? 'missing'));
+                : ($envelopeStatus !== '' ? $envelopeStatus : ($completenessStatus !== '' ? $completenessStatus : 'missing'));
+            if ($source !== $pmsSourceKey && $envelopeStatus !== '' && $completenessStatus !== ''
+                && $envelopeStatus !== $completenessStatus) {
+                $sourceStatus = 'conflict';
+            }
             $verified = $sourceStatus === 'readback_verified';
             if ($verified) {
                 $verifiedSourceCount++;
@@ -118,11 +126,6 @@ final class RevenueAnalysisDiagnosticsService
 
         $analysisGaps = $this->arrayRows($factLayer['analysis_gaps'] ?? []);
         $reviewGaps = $this->arrayRows($factLayer['ai_review_gaps'] ?? []);
-        $issues = $this->issues($analysisGaps, $reviewGaps);
-        $analysisAllowed = $status === 'ready'
-            && ($factLayer['all_three_sources_readback_verified'] ?? false) === true;
-        $aiReviewAllowed = $analysisAllowed
-            && (string)($factLayer['ai_review_status'] ?? '') === 'ready_for_manual_review';
         $nullPolicyPassed = is_array($factLayer['aggregation_policy'] ?? null)
             && array_key_exists('missing_source_value', $factLayer['aggregation_policy'])
             && $factLayer['aggregation_policy']['missing_source_value'] === null
@@ -146,6 +149,23 @@ final class RevenueAnalysisDiagnosticsService
                 'aligned',
                 'same_date_key_distinct_source_semantics',
             ], true);
+        $analysisAllowed = $status === 'ready'
+            && ($factLayer['all_three_sources_readback_verified'] ?? false) === true
+            && $scopeReady && $dateAlignmentPassed && $nullPolicyPassed
+            && $verifiedSourceCount === count($requiredSources)
+            && $analysisGaps === [] && $calculableMetricCount > 0;
+        $aiReviewAllowed = $analysisAllowed
+            && (string)($factLayer['ai_review_status'] ?? '') === 'ready_for_manual_review'
+            && $reviewGaps === [] && $allMetricsCalculable;
+        if ($metricCheckStatus === 'warning') {
+            $reviewGaps[] = [
+                'code' => 'diagnostic_metric_calculability_incomplete',
+                'source' => 'diagnostic_validation', 'status' => 'partial',
+                'category' => 'metric_calculability',
+                'display_reason' => '部分指标尚不可计算；仅能使用已验证指标，不能进入调价审核。',
+                'next_action' => '保留已验证指标，并补齐不可计算指标的输入与口径后重新生成诊断。',
+            ];
+        }
 
         $checks = [
             $this->check(
@@ -200,6 +220,28 @@ final class RevenueAnalysisDiagnosticsService
             ),
         ];
 
+        $validationGaps = [];
+        foreach ($checks as $check) {
+            if (($check['status'] !== 'blocked'
+                    && !($check['key'] === 'source_readback' && $check['status'] !== 'passed'))
+                || $check['key'] === 'pricing_review_guard') {
+                continue;
+            }
+            $validationGaps[] = [
+                'code' => 'diagnostic_' . $check['key'] . '_failed',
+                'source' => 'diagnostic_validation', 'status' => 'blocked',
+                'category' => $check['key'], 'display_reason' => $check['evidence'],
+                'next_action' => match ($check['key']) {
+                    'scope_identity' => '先确认有权限的酒店、租户及有效业务日，再重新读取事实。',
+                    'target_date_alignment' => '按当前酒店业务日核对各来源日期与语义，完成对齐后重新生成诊断。',
+                    'null_and_scope_policy' => '恢复缺失值为 null，并禁止 PMS 与 OTA 跨口径相加后重新生成诊断。',
+                    default => $this->issueNextAction('diagnostic_' . $check['key'] . '_failed', 'diagnostic_validation'),
+                },
+            ];
+        }
+        $issues = $this->issues(array_merge($analysisGaps, $validationGaps), $reviewGaps);
+        $effectiveStatus = !$analysisAllowed && $status === 'ready' ? 'blocked' : $status;
+
         $assessment = !$analysisAllowed
             ? 'needs_revision'
             : ($aiReviewAllowed && $issues === [] ? 'ready_to_share' : 'share_with_caveats');
@@ -223,7 +265,7 @@ final class RevenueAnalysisDiagnosticsService
                 'fact_mutation_allowed' => false,
             ],
             'overall_assessment' => $assessment,
-            'status' => $status,
+            'status' => $effectiveStatus,
             'confidence' => $analysisAllowed ? 'high' : ($verifiedSourceCount > 0 ? 'medium' : 'low'),
             'summary' => $summary,
             'scope' => [
@@ -235,7 +277,7 @@ final class RevenueAnalysisDiagnosticsService
             'decision_use' => [
                 'revenue_analysis' => [
                     'allowed' => $analysisAllowed,
-                    'status' => $analysisAllowed ? 'allowed' : $status,
+                    'status' => $analysisAllowed ? 'allowed' : $effectiveStatus,
                 ],
                 'ai_manual_review' => [
                     'allowed' => $aiReviewAllowed,
@@ -283,13 +325,19 @@ final class RevenueAnalysisDiagnosticsService
     {
         $status = trim((string)($metric['status'] ?? 'not_calculable'));
         $truth = is_array($metric['truth'] ?? null) ? $metric['truth'] : [];
+        $value = $metric['value'] ?? null;
+        $numeric = !is_bool($value) && is_numeric($value) && is_finite((float)$value);
+        $truthVerified = ($truth['status'] ?? null) === 'verified';
+        $calculable = $status === 'ok' && $numeric && $truthVerified;
         return [
             'key' => trim((string)($metric['key'] ?? $fallbackKey)),
             'label' => trim((string)($metric['label'] ?? $fallbackKey)),
-            'value' => array_key_exists('value', $metric) ? $metric['value'] : null,
+            'value' => $numeric ? $value : null,
             'unit' => trim((string)($metric['unit'] ?? '')),
-            'status' => $status === 'ok' ? 'ok' : 'not_calculable',
-            'reason' => $status === 'ok' ? '' : trim((string)($metric['reason'] ?? 'metric_not_calculable')),
+            'status' => $calculable ? 'ok' : 'not_calculable',
+            'reason' => $calculable ? '' : ($status === 'ok'
+                ? ($numeric ? 'metric_truth_not_verified' : 'metric_value_missing_or_invalid')
+                : trim((string)($metric['reason'] ?? 'metric_not_calculable'))),
             'scope' => trim((string)($metric['scope'] ?? 'unknown')),
             'date_basis' => trim((string)($metric['date_basis'] ?? 'unknown')),
             'source_channels' => $this->textList($metric['source_channels'] ?? []),

@@ -444,6 +444,24 @@ final class InvestmentScenarioCalculatorTest extends TestCase
         self::assertSame(7.0, $calculator->calculate($input)['annual_rows'][0]['operating_cost']);
     }
 
+    public function testForwardContractUsesSameNaturalCalendarAsTargetSolver(): void
+    {
+        foreach ([['2024-02-29', '2025-02-28'], ['2026-01-31', '2027-01-31']] as [$origin, $end]) {
+            $input = array_replace($this->smallScenario(), ['as_of' => $origin, 'years' => 1,
+                'cash_adjustments' => [['year' => 1, 'tax_cash' => 0, 'financing_net_cash' => 0,
+                    'maintenance_capex' => 0, 'working_capital_change' => 0, 'deposit_refund' => 0, 'salvage_cash' => 0]],
+                'decision_constraints' => ['target_payback_months' => 12, 'contract_start_on' => $origin,
+                    'contract_end_on' => $end, 'contract_source' => 'synthetic lease', 'contract_confirmed' => true]]);
+            $result = (new InvestmentScenarioCalculator())->calculate($input);
+            self::assertSame('ready', $result['status']);
+            self::assertSame('within_limit', $result['decision_constraints']['contract_payback_status']);
+            self::assertSame($end, $result['decision_constraints']['forecast_payback_on']);
+            self::assertSame(0, $result['decision_constraints']['contract_safety_days']);
+            self::assertSame(12.0, $result['decision_constraints']['contract_remaining_months']);
+            self::assertFalse($result['decision_constraints']['actual_cash_written']);
+        }
+    }
+
     private function smallScenario(): array
     {
         return [

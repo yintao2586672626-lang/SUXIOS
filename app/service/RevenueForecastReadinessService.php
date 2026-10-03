@@ -34,7 +34,7 @@ final class RevenueForecastReadinessService
 
     public function buildForecastReadiness(array $row, array $suggestionStats = []): array
     {
-        $forecastDate = substr($this->stringValue($row, 'forecast_date'), 0, 10);
+        $forecastDate = $this->forecastDate($this->stringValue($row, 'forecast_date'));
         $occupancy = $this->floatValue($row, 'predicted_occupancy');
         $demand = $this->floatValue($row, 'predicted_demand');
         $confidence = $this->normalizedConfidence($this->floatValue($row, 'confidence_score'));
@@ -54,11 +54,16 @@ final class RevenueForecastReadinessService
         $latestSuggestionAt = $this->stringValue($suggestionStats, 'latest_suggestion_at');
         $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
 
-        if ($forecastDate === '' || $occupancy <= 0 || $occupancy > 100) {
+        if ($forecastDate === '' || $occupancy === null || $occupancy < 0 || $occupancy > 100
+            || ($demand !== null && $demand < 0)) {
             $readiness = $this->readiness('forecast_metric_missing', '预测值待核', 25, false, false, '补齐有效预测日期和入住率', [
                 $this->missing('forecast_metric', '有效预测值', '补齐预测日期、入住率和需求量'),
             ]);
-        } elseif ($confidence > 0 && $confidence < 60) {
+        } elseif ($confidence === null) {
+            $readiness = $this->readiness('forecast_confidence_missing', '置信度待核', 25, false, false, '补齐有效置信度后重新核对预测', [
+                $this->missing('confidence_score', '有效预测置信度', '补齐 0–1 或 0–100 范围内的有限置信度'),
+            ]);
+        } elseif ($confidence < 60) {
             $readiness = $this->readiness('forecast_low_confidence', '低置信预测', 40, false, false, '补充样本或人工复核后再用于调价', [
                 $this->missing('confidence_score', '预测置信度', '补充样本或人工复核预测口径'),
             ]);
@@ -151,8 +156,11 @@ final class RevenueForecastReadinessService
         return $readiness;
     }
 
-    private function normalizedConfidence(float $value): float
+    private function normalizedConfidence(?float $value): ?float
     {
+        if ($value === null || $value < 0 || $value > 100) {
+            return null;
+        }
         if ($value > 0 && $value <= 1) {
             return round($value * 100, 2);
         }
@@ -181,18 +189,35 @@ final class RevenueForecastReadinessService
         return (int)$row[$key];
     }
 
-    private function floatValue(array $row, string $key): float
+    private function floatValue(array $row, string $key): ?float
     {
-        if (!isset($row[$key]) || $row[$key] === '') {
-            return 0.0;
+        $value = $row[$key] ?? null;
+        if (is_bool($value) || !is_numeric($value) || !is_finite((float)$value)) {
+            return null;
         }
 
-        return (float)$row[$key];
+        return (float)$value;
+    }
+
+    private function forecastDate(string $value): string
+    {
+        // Preserve DATE and legacy SQL/ISO datetime rows, but reject invalid dates.
+        if (preg_match('/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})?)?$/D', $value) !== 1) {
+            return '';
+        }
+        try {
+            $parsed = new \DateTimeImmutable($value, new \DateTimeZone('Asia/Shanghai'));
+            $errors = \DateTimeImmutable::getLastErrors();
+            return $errors === false || ($errors['warning_count'] === 0 && $errors['error_count'] === 0)
+                ? substr($value, 0, 10) : '';
+        } catch (\Exception) {
+            return '';
+        }
     }
 
     private function stringValue(array $row, string $key): string
     {
-        if (!isset($row[$key]) || $row[$key] === null) {
+        if (!isset($row[$key]) || !is_scalar($row[$key])) {
             return '';
         }
 
