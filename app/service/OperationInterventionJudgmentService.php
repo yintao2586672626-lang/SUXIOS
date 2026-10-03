@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace app\service;
 
+use InvalidArgumentException;
+
 /**
  * Conservatively judges one prospective operating intervention.
  *
@@ -427,7 +429,7 @@ final class OperationInterventionJudgmentService
             if (!is_array($observation)) {
                 $reasons[] = 'guard_observation_missing:' . $metricKey;
             } else {
-                foreach ($this->guardObservationScopeReasons($goalContract, $intervention, $definition, $observation) as $reason) {
+                foreach ($this->guardObservationScopeReasons($goalContract, $intervention, $metricKey, $definition, $observation) as $reason) {
                     $reasons[] = $reason . ':' . $metricKey;
                 }
                 $value = $this->numeric($observation['value'] ?? null);
@@ -543,7 +545,7 @@ final class OperationInterventionJudgmentService
     }
 
     /** References identify records; they do not prove a missing observation identity. */
-    private function guardObservationScopeReasons(array $goal, array $intervention, ?array $definition, array $observation): array
+    private function guardObservationScopeReasons(array $goal, array $intervention, string $metricKey, ?array $definition, array $observation): array
     {
         $reasons = [];
         $scope = is_array($observation['scope'] ?? null) ? $observation['scope'] : [];
@@ -574,14 +576,34 @@ final class OperationInterventionJudgmentService
             'whole_hotel', 'whole_hotel_accommodation', 'pms' => 'whole_hotel_accommodation',
             'ota', 'ota_channel' => 'ota_channel', default => $value,
         };
-        $platform = static fn(string $value): string => match ($value) {
-            'hotel', 'whole_hotel', 'pms', 'dingdandao_pms', 'meituan_pms' => 'whole_hotel', default => $value,
-        };
-        $expectedScope = $factScope($text($condition['fact_scope'] ?? $condition['metric_scope'] ?? $baseline['fact_scope'] ?? ''));
-        $expectedPlatform = $platform($text($condition['platform'] ?? ($expectedScope === 'whole_hotel_accommodation'
-            ? 'whole_hotel' : ($baseline['platform'] ?? ''))));
+        $platform = OperatingGoalMetricSnapshotService::normalizeScopePlatform(...);
+        $explicitScope = $factScope($text($condition['fact_scope'] ?? $condition['metric_scope'] ?? ''));
+        try {
+            [$expectedScope, $expectedPlatform, $supported] = OperatingGoalMetricSnapshotService::resolveMetricContext(
+                $metricKey,
+                ['guard_definition' => $condition]
+            );
+            if (!$supported) {
+                [, , $knownMetric] = OperatingGoalMetricSnapshotService::resolveMetricContext($metricKey);
+                if ($knownMetric) {
+                    $reasons[] = 'guard_definition_metric_scope_mismatch';
+                } elseif ($explicitScope === '') {
+                    // Custom metrics need a persisted declaration, never an identity borrowed from an observation or target.
+                    $reasons[] = 'guard_definition_fact_scope_unverified';
+                    $expectedScope = '';
+                    $expectedPlatform = '';
+                }
+            }
+        } catch (InvalidArgumentException $exception) {
+            $expectedScope = $explicitScope;
+            $expectedPlatform = $platform($text($condition['platform'] ?? ''));
+            $reasons[] = str_contains($exception->getMessage(), 'scope_invalid')
+                ? 'guard_definition_fact_scope_invalid' : 'guard_definition_platform_scope_mismatch';
+        }
         $wholeHotelScope = $expectedScope === 'whole_hotel_accommodation';
-        if ($wholeHotelScope && $expectedPlatform !== 'whole_hotel') {
+        $declaredPlatform = $platform($text($condition['platform'] ?? ''));
+        if ($wholeHotelScope && ($expectedPlatform !== 'whole_hotel'
+            || ($declaredPlatform !== '' && $declaredPlatform !== 'whole_hotel'))) {
             $reasons[] = 'guard_definition_platform_scope_mismatch';
         }
         foreach ([

@@ -11,6 +11,43 @@ require_once __DIR__ . '/Support/InvestmentScenarioFixture.php';
 
 final class InvestmentOperatingBridgeLedgerTest extends TestCase
 {
+    public function testDifferentCreatorsUsingDefaultSelfNameKeepSavedCashSeparate(): void
+    {
+        (new \think\App())->initialize();
+        restore_error_handler();
+        restore_exception_handler();
+        $original = Config::get('database');
+        $path = sys_get_temp_dir() . '/investment-scenario-test-bridge-identity-' . bin2hex(random_bytes(5)) . '.sqlite';
+        try {
+            Fixture::connect($path);
+            Fixture::schema();
+            $input = Fixture::project(['investor_name' => '本人', 'history_complete_through' => '2026-09-30',
+                'opening_as_of' => '2026-08-31', 'opening_invested' => '100.01', 'opening_recovered' => '30.01', 'opening_source' => 'synthetic-bank-reference']);
+            $firstLedger = Fixture::ledger(10, 7);
+            $first = $firstLedger->saveProject($input);
+            $bridge = new InvestmentOperatingBridgeService($firstLedger, null, static fn(): string => '2026-10-02');
+            self::assertSame('ready', $bridge->overview(10, [80], 80, '2026-09')['status']);
+            $second = Fixture::ledger(10, 8)->saveProject($input);
+            self::assertNotSame($first['project']['created_by'], $second['project']['created_by']);
+            self::assertSame($first['project']['investor_name'], $second['project']['investor_name']);
+            $before = Db::name('investment_payback_projects')->order('id')->select()->toArray();
+            $result = $bridge->overview(10, [80], 80, '2026-09');
+            self::assertSame('blocked', $result['status']);
+            self::assertSame('investor_identity_unverified', $result['reason_code']);
+            self::assertSame('not_verified', $result['quality']['investor_identity_status']);
+            self::assertCount(2, $result['projects']);
+            self::assertSame(['100.01', '100.01'], array_column(array_column($result['projects'], 'amounts'), 'actual_invested'));
+            self::assertNull($result['totals']);
+            self::assertNull($result['recorded_totals']);
+            self::assertSame($before, Db::name('investment_payback_projects')->order('id')->select()->toArray());
+        } finally {
+            Db::connect()->close();
+            Config::set($original, 'database');
+            Db::connect(null, true);
+            if (is_file($path)) unlink($path);
+        }
+    }
+
     public function testSavedLedgerReadbackIsVisibleInBridgeWithoutWritingCashOrIncludingPlans(): void
     {
         (new \think\App())->initialize();
