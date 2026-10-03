@@ -449,12 +449,35 @@ test('independent snapshot readback preserves null, zero and local microseconds 
 });
 
 test('late correction read cannot overwrite edits made to the current correction draft', async () => {
-    const old=deferred();const {ctx}=component(()=>old.promise);
+    const old=deferred();const {ctx}=component(()=>old.promise,true,true);
     ctx.form.correctionId='9';const pending=ctx.loadCorrection();
     ctx.form.rooms='77';ctx.form.sourceRef='TEST-ONLY new source';ctx.form.attested=true;
-    const edited=structuredClone(ctx.form);
+    const edited=JSON.parse(JSON.stringify(ctx.form));
     old.resolve(snapshotRead(receipt()));await pending;
-    assert.deepEqual(ctx.form,edited);assert.equal(ctx.notice,'');assert.equal(ctx.error,'');
+    assert.deepEqual(ctx.form,edited);assert.match(ctx.notice,/当前草稿已修改.*保留当前输入.*重新回读/);assert.equal(ctx.error,'');
+});
+
+test('late correction draft guidance cannot overwrite a newer notice, error, sequence or scope', async () => {
+    for (const change of [ctx => { ctx.notice = 'TEST-ONLY newer notice'; }, ctx => { ctx.error = 'TEST-ONLY current error'; },
+        ctx => { ctx.correctionReadSeq++; }, ctx => { ctx.platform = 'meituan'; }]) {
+        const old = deferred(); const { ctx } = component(() => old.promise);
+        ctx.form.correctionId = '9'; const reading = ctx.loadCorrection();
+        ctx.form.rooms = '77'; change(ctx); const notice = ctx.notice, error = ctx.error;
+        old.resolve(snapshotRead(receipt())); await reading;
+        assert.equal(ctx.form.rooms, '77'); assert.equal(ctx.notice, notice); assert.equal(ctx.error, error);
+    }
+});
+
+test('late failed correction replies preserve an edited draft without publishing success guidance', async () => {
+    for (const failure of ['network', 'business', 'identity']) {
+        const old = deferred(); const { ctx } = component(() => old.promise);
+        ctx.form.correctionId = '9'; const reading = ctx.loadCorrection(); ctx.form.rooms = '77';
+        if (failure === 'network') old.reject(new Error('TEST-ONLY delayed unavailable'));
+        else if (failure === 'business') old.resolve({ code: 503, message: 'TEST-ONLY delayed service failure' });
+        else old.resolve({ code: 200, data: { ...snapshotRead(receipt()).data, hotel_id: 82 } });
+        await reading;
+        assert.equal(ctx.form.rooms, '77'); assert.equal(ctx.notice, ''); assert.equal(ctx.error, '');
+    }
 });
 
 test('late correction errors and earlier duplicate reads cannot replace the latest loaded draft', async () => {

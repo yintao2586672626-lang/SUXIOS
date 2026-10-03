@@ -166,4 +166,23 @@ final class BookingMonitoringRoutingTest extends TestCase
         self::assertFalse($response->getData()['data']['readback_verified']);
         self::assertSame(0,$response->getData()['data']['external_write_count']);
     }
+
+    public function testHotelScopeParserRejectsBooleanFloatAndNestedArrayIdentities(): void
+    {
+        $class=new \ReflectionClass(\app\controller\BookingMonitoring::class);
+        $controller=$class->newInstanceWithoutConstructor();
+        foreach ([true,false,80.0,[true],[false],[80.0],[[80]]] as $value) {
+            $rejected=false;
+            try { $class->getMethod('hotelIds')->invoke($controller,$value); }
+            catch (\InvalidArgumentException $error) {
+                $rejected=true;
+                $response=$class->getMethod('failure')->invoke($controller,$error,'固定基线预订读取失败');
+                self::assertSame(422,$response->getCode());
+                self::assertStringContainsString('整数',$response->getData()['message']);
+                self::assertFalse($response->getData()['data']['readback_verified']);
+            }
+            self::assertTrue($rejected,'Malformed hotel identities must be rejected before any permission lookup');
+        }
+        foreach ([80,'80',[80],['80']] as $value) self::assertSame([80],$class->getMethod('hotelIds')->invoke($controller,$value));
+    }
 }

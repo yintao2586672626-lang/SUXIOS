@@ -184,6 +184,50 @@ final class BookingMonitoringServiceTest extends TestCase
         self::assertSame('missing', $this->cell($view, 80, 1)['current']['status']);
     }
 
+    public function testLegacyHighRevenueSummaryRemainsReadableInMonitorWithoutRelaxingWrites(): void
+    {
+        $planning = new BookingDemandPlanningService(static fn(): DateTimeImmutable => new DateTimeImmutable('2026-10-02 12:00:00', new DateTimeZone('Asia/Shanghai')));
+        $digests = [];
+        foreach (['2026-10-01 09:00:00' => '9999999999.00', '2026-10-02 09:00:00' => '10000000000.00'] as $capture => $revenue) {
+            $input = array_replace($this->row($capture, 10), [
+                'source_method' => 'manual_file_import', 'quality_status' => 'manual_confirmed',
+            ]);
+            $content = $planning->validatedSnapshotContent(7, [80], 80, $input);
+            $content['on_books_room_revenue'] = (float)$revenue;
+            $digestContent = $content;
+            unset($digestContent['hotel_id']);
+            ksort($digestContent);
+            $digest = hash('sha256', json_encode($digestContent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR));
+            $stored = array_replace($content, ['on_books_room_revenue' => $revenue]) + [
+                'content_digest' => $digest, 'idempotency_key' => 'TEST-ONLY-legacy-high-' . $capture,
+                'created_by' => 9, 'created_at' => $capture,
+            ];
+            // Seed an old decimal as a bound string; the current writer must still reject new high amounts.
+            $pdo = Db::connect()->getPdo();
+            $statement = $pdo->prepare('INSERT INTO ' . BookingDemandPlanningService::SNAPSHOT_TABLE . ' (' . implode(',', array_keys($stored)) . ') VALUES (' . implode(',', array_fill(0, count($stored), '?')) . ')');
+            $statement->execute(array_values($stored));
+            $id = (int)$pdo->lastInsertId();
+            $read = $planning->readSnapshot(7, 80, $id);
+            self::assertSame((float)$revenue, $read['on_books_room_revenue']);
+            self::assertSame($digest, $read['content_digest']);
+            $digests[$id] = $digest;
+        }
+        $cell = $this->cell($this->service()->overview(7, [80], [80], $this->query()), 80, 0);
+        self::assertSame('ready', $cell['status']);
+        self::assertSame(10000000000.0, $cell['current']['on_books_room_revenue']);
+        self::assertSame(9999999999.0, $cell['baseline']['on_books_room_revenue']);
+        self::assertSame(1.0, $cell['room_revenue_delta_24h']);
+        foreach ($digests as $id => $digest) self::assertSame($digest, Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->where('id', $id)->value('content_digest'));
+        try {
+            $this->service()->saveSnapshots(7, [80], [array_replace($this->row('2026-10-02 10:00:00', 10, 0), ['on_books_room_revenue' => '10000000000.00'])], 9);
+            self::fail('Legacy read compatibility must not relax the new monitoring writer limit');
+        } catch (InvalidArgumentException $error) {
+            self::assertSame('on_books_room_revenue_out_of_range', $error->getMessage());
+        }
+        self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+        self::assertSame(2, Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+    }
+
     public function testDisabledRoomRejectsNewFactsButKeepsHistoricalCorrectionAndDimension(): void
     {
         $service = $this->service();
@@ -267,6 +311,114 @@ final class BookingMonitoringServiceTest extends TestCase
                 }
             }
         }
+    }
+
+    public static function invalidSnapshotIdentityTypes(): array
+    {
+        $cases=[];
+        foreach (['hotel_id','room_type_id','supersedes_snapshot_id'] as $field) {
+            foreach (['true'=>true,'false'=>false,'integer float'=>1.0,'zero float'=>0.0,'empty array'=>[],
+                'array identity'=>[1],'fractional string'=>'1.0'] as $name=>$value) $cases[$field.' '.$name]=[$field,$value];
+        }
+        return $cases;
+    }
+
+    #[DataProvider('invalidSnapshotIdentityTypes')]
+    public function testImportRejectsNonIntegerIdentityTypesWithoutAnyBatchWrite(string $field,mixed $value): void
+    {
+        Db::name('hotels')->insert(['id'=>1,'tenant_id'=>7,'name'=>'TEST-ONLY boolean target']);
+        $originalRow=$this->row('2026-10-02 09:00:00',1);
+        $original=$this->service()->saveSnapshots(7,[1,80],[$originalRow],9)['snapshots'][0];
+        // Model a real existing identity 1, so bool true could otherwise adopt it as a correction.
+        Db::name(BookingMonitoringService::TABLE)->where('id',$original['id'])->update(['id'=>1]);
+        $original=$this->service()->readSnapshot(7,[1,80],80,1);
+        $valid=$this->row('2026-10-02 10:00:00',2)+['idempotency_key'=>'TEST-ONLY-valid-before-type-error'];
+        $invalid=array_replace($originalRow,[$field=>$value,'idempotency_key'=>'TEST-ONLY-invalid-identity']);
+        if ($field==='hotel_id') $invalid['room_type_id']=0;
+        $rejected=false;
+        try { $this->service()->saveSnapshots(7,[1,80],[$valid,$invalid],9); }
+        catch (InvalidArgumentException $error) {
+            self::assertSame('booking_monitor_room_type_id_invalid',$error->getMessage());
+            $rejected=true;
+        }
+        self::assertTrue($rejected,'Only integer/string identities can enter the prepared batch');
+        self::assertSame(1,Db::name(BookingMonitoringService::TABLE)->count());
+        self::assertSame($original,$this->service()->readSnapshot(7,[1,80],80,1));
+    }
+
+    public function testIntegerAndIntegerStringIdentitiesPreserveSaveReplayCorrectionAndReadback(): void
+    {
+        $row=array_replace($this->row('2026-10-02 09:00:00',1),[
+            'hotel_id'=>'80','room_type_id'=>'1','supersedes_snapshot_id'=>'0','idempotency_key'=>'TEST-ONLY-string-identity']);
+        $saved=$this->service()->saveSnapshots(7,[80],[$row],9)['snapshots'][0];
+        self::assertSame(80,$saved['hotel_id']);
+        self::assertSame(1,$saved['room_type_id']);
+        self::assertNull($saved['supersedes_snapshot_id']);
+        self::assertSame($saved,$this->service()->readSnapshot(7,[80],80,$saved['id'])+['idempotent'=>false]);
+        $integerRow=array_replace($row,['hotel_id'=>80,'room_type_id'=>1,'supersedes_snapshot_id'=>0]);
+        $replay=$this->service()->saveSnapshots(7,[80],[$integerRow],9)['snapshots'][0];
+        self::assertSame($saved['id'],$replay['id']);
+        self::assertSame($saved['content_digest'],$replay['content_digest']);
+        $correction=array_replace($row,['supersedes_snapshot_id'=>(string)$saved['id'],
+            'on_books_room_nights'=>2,'idempotency_key'=>'TEST-ONLY-string-correction']);
+        $corrected=$this->service()->saveSnapshots(7,[80],[$correction],9)['snapshots'][0];
+        self::assertSame($saved['id'],$corrected['supersedes_snapshot_id']);
+        self::assertSame($corrected,$this->service()->readSnapshot(7,[80],80,$corrected['id'])+['idempotent'=>false]);
+        self::assertSame($corrected['id'],$this->service()->saveSnapshots(7,[80],[$correction],9)['snapshots'][0]['id']);
+    }
+
+    public function testControllerRejectsIdentityTypesBeforeCoercionAndKeepsMixedBatchAtomic(): void
+    {
+        Db::name('hotels')->insert(['id'=>1,'tenant_id'=>7,'name'=>'TEST-ONLY boolean target']);
+        $user=new class {
+            public int $id=9;
+            public function getPermittedHotelIds(): array { return [1,80]; }
+            public function hasHotelPermission(int $hotelId,string $capability): bool { return in_array($hotelId,[1,80],true); }
+        };
+        $valid=$this->row('2026-10-02 09:00:00',1)+['idempotency_key'=>'TEST-ONLY-controller-valid-row'];
+        foreach (self::invalidSnapshotIdentityTypes() as [$field,$value]) {
+            $invalid=array_replace($valid,[$field=>$value,'idempotency_key'=>'TEST-ONLY-controller-bad-row']);
+            if ($field==='hotel_id') $invalid['room_type_id']=0;
+            $response=$this->controller(['rows'=>[$valid,$invalid]],$user,'POST')->saveSnapshots();
+            self::assertSame(422,$response->getCode(),$response->getContent());
+            self::assertFalse($response->getData()['data']['readback_verified']);
+            self::assertSame(0,Db::name(BookingMonitoringService::TABLE)->count());
+        }
+    }
+
+    public function testControllerReadRejectsBooleanFloatAndArrayIdentities(): void
+    {
+        Db::name('hotels')->insert(['id'=>1,'tenant_id'=>7,'name'=>'TEST-ONLY boolean target']);
+        $saved=$this->service()->saveSnapshots(7,[1,80],[$this->row('2026-10-02 09:00:00',1)],9)['snapshots'][0];
+        Db::name(BookingMonitoringService::TABLE)->where('id',$saved['id'])->update(['id'=>1]);
+        $user=new class {
+            public function getPermittedHotelIds(): array { return [1,80]; }
+            public function hasHotelPermission(int $hotelId,string $capability): bool { return in_array($hotelId,[1,80],true); }
+        };
+        foreach (['hotel_id','id'] as $field) foreach ([true,false,1.0,80.0,[],[1],'1.0'] as $value) {
+            $response=$this->controller(array_replace(['hotel_id'=>80,'id'=>1],[$field=>$value]),$user)->readSnapshot();
+            self::assertSame(422,$response->getCode(),$response->getContent());
+            self::assertFalse($response->getData()['data']['readback_verified']);
+        }
+        self::assertSame(200,$this->controller(['hotel_id'=>'80','id'=>'1'],$user)->readSnapshot()->getCode());
+    }
+
+    public function testOverviewRejectsNonIntegerScopeAndHorizonTypes(): void
+    {
+        Db::name('hotels')->insert(['id'=>1,'tenant_id'=>7,'name'=>'TEST-ONLY boolean target']);
+        foreach ([true,false,1.0,80.0,[],[1],'1.0'] as $value) {
+            $rejected=false;
+            try { $this->service()->overview(7,[1,80],[$value],$this->query()); }
+            catch (InvalidArgumentException $error) { $rejected=true; }
+            self::assertTrue($rejected,'An invalid overview identity cannot name an authorized integer hotel');
+            $rejected=false;
+            try { $this->service()->overview(7,[80],[80],array_replace($this->query(),['horizon_days'=>$value])); }
+            catch (InvalidArgumentException $error) { self::assertSame('booking_monitor_horizon_invalid',$error->getMessage()); $rejected=true; }
+            self::assertTrue($rejected,'Display days must be an integer or integer-form string');
+        }
+        $view=$this->service()->overview(7,[80],['80'],array_replace($this->query(),['horizon_days'=>'1']));
+        self::assertSame([80],$view['hotel_ids']);
+        self::assertSame(1,$view['horizon_days']);
     }
 
     #[DataProvider('originalRetryCatalogueChanges')]

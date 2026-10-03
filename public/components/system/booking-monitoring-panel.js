@@ -354,13 +354,16 @@
                 const current = () => seq === this.correctionReadSeq && key === this.scopeKey && draft === JSON.stringify(this.form);
                 try {
                     const response = await this.request(`/booking-monitoring/snapshots/${id}?hotel_id=${hotelId}`, { businessContext: { hotelId } });
-                    if (!current()) return;
                     const snapshot = response?.data;
                     if (response?.code !== 200) throw new Error(response?.message || '快照回读失败。');
                     if (snapshot?.contract_version !== 'room_type_on_books_snapshot.v1'
                         || snapshot.id !== id || snapshot.hotel_id !== hotelId || snapshot.platform !== this.platform
                         || typeof snapshot.room_type_name !== 'string' || snapshot.room_type_name.trim() === ''
                         || snapshot.external_write_count !== 0 || Number(snapshot.readback_verified) !== 1) throw new Error('快照回读范围不匹配。');
+                    if (!current()) {
+                        if (seq === this.correctionReadSeq && key === this.scopeKey && !this.notice && !this.error) this.notice = '当前草稿已修改；保留当前输入，请重新回读更正来源。';
+                        return;
+                    }
                     this.correct(snapshot); this.error = '';
                 } catch (error) { if (current()) this.error = error.message; }
             },

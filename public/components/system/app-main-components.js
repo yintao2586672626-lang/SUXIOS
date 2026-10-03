@@ -883,7 +883,7 @@
     // SUXI_HOTEL_LEARNING_END
     const OperatingFinanceControlCenterAsync = systemComponents.OperatingFinanceControlCenterBody || Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript('components/system/operating-economics-workbench.min.js?v=economics-h12db89f965')
-            .then(() => loadOnlineDataComponentScript('components/system/booking-monitoring-panel.js?v=booking-h41f9a7d05c'))
+            .then(() => loadOnlineDataComponentScript('components/system/booking-monitoring-panel.js?v=booking-h80f9b3aa1e'))
             .then(() => loadOnlineDataComponentScript(operatingFinanceControlCenterScript))
             .then(() => requireSystemComponent('OperatingFinanceControlCenterBody')),
         delay: 0,

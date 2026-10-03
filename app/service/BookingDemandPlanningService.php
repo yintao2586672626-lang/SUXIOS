@@ -57,7 +57,9 @@ final class BookingDemandPlanningService
         $tenants = [];
         $contents = [];
         foreach ($rows as $row) {
-            $hotelId = filter_var($row['hotel_id'] ?? 0, FILTER_VALIDATE_INT);
+            $hotelValue = $row['hotel_id'] ?? null;
+            if (!is_int($hotelValue) && !(is_string($hotelValue) && preg_match('/^\d+$/D', $hotelValue))) throw new InvalidArgumentException('hotel_scope_required');
+            $hotelId = filter_var($hotelValue, FILTER_VALIDATE_INT);
             if ($hotelId === false || $hotelId <= 0) throw new InvalidArgumentException('hotel_scope_required');
             $tenants[$hotelId] ??= $this->resolveScope($tenantId, $permittedHotelIds, $hotelId);
             $contents[] = $this->normalizeSnapshot($tenants[$hotelId], $hotelId, $row);
@@ -354,7 +356,7 @@ final class BookingDemandPlanningService
             return $base;
         }
         $currentRooms = $this->nullableNumber($current['on_books_room_nights'] ?? null, 'on_books_room_nights');
-        $currentRevenue = $this->nullableNumber($current['on_books_room_revenue'] ?? null, 'on_books_room_revenue');
+        $currentRevenue = $this->nullableNumber($current['on_books_room_revenue'] ?? null, 'on_books_room_revenue', false);
         $currentCancel = $this->nullableNumber($current['cumulative_cancel_room_nights'] ?? null, 'cumulative_cancel_room_nights');
         $grossBookings = $this->nullableNumber($current['gross_booking_room_nights'] ?? null, 'gross_booking_room_nights');
         $base['current_on_books_room_nights'] = $currentRooms;
@@ -423,7 +425,7 @@ final class BookingDemandPlanningService
             $base['pickup_room_nights_per_hour'] = round($netPickup / $hours, 4);
         }
 
-        $previousRevenue = $this->nullableNumber($previous['on_books_room_revenue'] ?? null, 'previous_on_books_room_revenue');
+        $previousRevenue = $this->nullableNumber($previous['on_books_room_revenue'] ?? null, 'previous_on_books_room_revenue', false);
         if ($currentRevenue !== null && $previousRevenue !== null) {
             $delta = $currentRevenue - $previousRevenue;
             $base['room_revenue_delta'] = round($delta, 4);
@@ -918,7 +920,7 @@ final class BookingDemandPlanningService
             'source_method' => (string)$row['source_method'],
             'source_ref_hash' => (string)$row['source_ref_hash'],
             'on_books_room_nights' => $this->nullableNumber($row['on_books_room_nights'] ?? null, 'on_books_room_nights'),
-            'on_books_room_revenue' => $this->nullableNumber($row['on_books_room_revenue'] ?? null, 'on_books_room_revenue'),
+            'on_books_room_revenue' => $this->nullableNumber($row['on_books_room_revenue'] ?? null, 'on_books_room_revenue', false),
             'cumulative_cancel_room_nights' => $this->nullableNumber($row['cumulative_cancel_room_nights'] ?? null, 'cumulative_cancel_room_nights'),
             'gross_booking_room_nights' => $this->nullableNumber($row['gross_booking_room_nights'] ?? null, 'gross_booking_room_nights'),
             'quality_status' => (string)$row['quality_status'],
@@ -1007,7 +1009,7 @@ final class BookingDemandPlanningService
         return hash('sha256', 'operating-finance-idempotency-v1|' . $text);
     }
 
-    private function nullableNumber(mixed $value, string $field): ?float
+    private function nullableNumber(mixed $value, string $field, bool $enforceWriteLimit = true): ?float
     {
         if ($value === null || $value === '') {
             return null;
@@ -1028,7 +1030,10 @@ final class BookingDemandPlanningService
             'cumulative_cancel_room_nights' => 9999999999.9999,
             'gross_booking_room_nights' => 9999999999.9999,
         ];
-        if (isset($maximums[$field]) && $number > $maximums[$field]) {
+        // Legacy revenue rows can use all fourteen integer digits retained by
+        // the precision migration. Their read/overview path still checks the
+        // number and digest; the conservative float/PDO limit gates new writes.
+        if ($enforceWriteLimit && isset($maximums[$field]) && $number > $maximums[$field]) {
             throw new InvalidArgumentException($field . '_out_of_range');
         }
         $parts = preg_split('/[eE]/', trim((string)$value));

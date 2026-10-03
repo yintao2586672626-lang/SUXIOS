@@ -334,6 +334,73 @@ final class BookingDemandPlanningServiceTest extends TestCase
         }
     }
 
+    public function testLegacyHighRevenueRemainsReadableWithoutRelaxingNewWriteLimits(): void
+    {
+        $service = $this->service();
+        foreach (['10000000000.00', '1000000000000.25', '90000000000000.25'] as $index => $legacyRevenue) {
+            $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-legacy-high-' . $index), [
+                'stay_date' => '2026-08-31', 'captured_at' => '2026-08-30 10:0' . $index . ':00',
+            ]);
+            $content = $service->validatedSnapshotContent(7, [80], 80, $input);
+            $content['on_books_room_revenue'] = (float)$legacyRevenue;
+            $digestContent = $content;
+            unset($digestContent['hotel_id']);
+            ksort($digestContent);
+            $digest = hash('sha256', json_encode($digestContent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR));
+            $storedContent = array_replace($content, ['on_books_room_revenue' => $legacyRevenue]);
+            $storedRow = $storedContent + [
+                'content_digest' => $digest, 'idempotency_key' => 'TEST-ONLY-stored-legacy-high-' . $index,
+                'created_by' => 11, 'created_at' => '2026-08-30 10:0' . $index . ':00',
+            ];
+            // Seed a legacy decimal as a bound string, bypassing the present
+            // writer's float conversion whose conservative cap is under test.
+            $pdo = Db::connect()->getPdo();
+            $statement = $pdo->prepare('INSERT INTO ' . BookingDemandPlanningService::SNAPSHOT_TABLE . ' (' . implode(',', array_keys($storedRow)) . ') VALUES (' . implode(',', array_fill(0, count($storedRow), '?')) . ')');
+            $statement->execute(array_values($storedRow));
+            $id = (int)$pdo->lastInsertId();
+            self::assertSame((float)$legacyRevenue, (float)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->where('id', $id)->value('on_books_room_revenue'));
+            $read = $service->readSnapshot(7, 80, $id);
+            self::assertSame((float)$legacyRevenue, $read['on_books_room_revenue']);
+            self::assertSame($digest, $read['content_digest']);
+            self::assertSame($read, $service->validatedSnapshotReadback(Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->where('id', $id)->find()));
+            self::assertSame((float)$legacyRevenue, $service->bookingOverview(7, [80], 80, 'ctrip', '2026-08-31')['current_on_books_room_revenue']);
+            self::assertSame((float)$legacyRevenue, $service->demandPlan(7, [80], 80, 'ctrip', '2026-08-30')['windows'][0]['on_books_room_revenue_total']);
+            try {
+                $service->saveOnBooksSnapshot(7, [80], 80, array_replace($input, ['on_books_room_revenue' => $legacyRevenue]), 11);
+                self::fail('reading a legacy amount must not authorize a new high-value write');
+            } catch (InvalidArgumentException $error) {
+                self::assertSame('on_books_room_revenue_out_of_range', $error->getMessage());
+            }
+            self::assertSame($index + 1, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+            self::assertSame($digest, Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->where('id', $id)->value('content_digest'));
+        }
+        $stored = Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->where('id', $id)->find();
+        $stored['on_books_room_revenue'] = 10000000000.0;
+        try {
+            $service->validatedSnapshotReadback($stored);
+            self::fail('legacy readback must still verify the immutable digest');
+        } catch (RuntimeException $error) {
+            self::assertSame('on_books_snapshot_content_digest_mismatch', $error->getMessage());
+        }
+    }
+
+    public function testBatchHotelIdentityRejectsCoercibleNonIntegerValues(): void
+    {
+        foreach ([true, false, 80.0, [], null, '80.0', '8e1'] as $invalidId) {
+            try {
+                $this->service()->validatedSnapshotBatchContent(7, [80], [['hotel_id' => $invalidId] + $this->concurrentSnapshotInput('TEST-ONLY-batch-identity')]);
+                self::fail('batch scope identity must be an integer or integer-form string');
+            } catch (InvalidArgumentException $error) {
+                self::assertSame('hotel_scope_required', $error->getMessage());
+            }
+        }
+        foreach ([80, '80'] as $validId) {
+            $normalized = $this->service()->validatedSnapshotBatchContent(7, [80], [['hotel_id' => $validId] + $this->concurrentSnapshotInput('TEST-ONLY-batch-identity')]);
+            self::assertSame(80, $normalized[0]['hotel_id']);
+        }
+        self::assertSame(0, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+    }
+
     public function testSnapshotDeadlockRetriesTheWholeTransactionWithinTheBoundedBudget(): void
     {
         $attempts = 0;

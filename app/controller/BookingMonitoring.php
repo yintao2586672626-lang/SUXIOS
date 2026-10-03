@@ -42,7 +42,7 @@ final class BookingMonitoring extends Base
             $rows = $input['rows'] ?? null;
             if (!is_array($rows) || !array_is_list($rows) || $rows === [] || count($rows) > 200) throw new InvalidArgumentException('booking_monitor_import_requires_1_to_200_rows');
             foreach ($rows as $row) if (!is_array($row)) throw new InvalidArgumentException('booking_monitor_row_invalid');
-            $ids = array_values(array_unique(array_map(static fn(array $row): int => (int)($row['hotel_id'] ?? 0), $rows)));
+            $ids = array_values(array_unique(array_map(fn(array $row): int => $this->hotelIds([$row['hotel_id'] ?? 0])[0], $rows)));
             [$tenantId, $permitted] = $this->scope($ids, 'operation.execute');
             $saved = (new BookingMonitoringService())->saveSnapshots($tenantId, $permitted, $rows, (int)$this->currentUser->id);
             return $this->success($saved, '快照已保存并精确回读；人工确认与平台身份核验分别保留');
@@ -55,7 +55,9 @@ final class BookingMonitoring extends Base
     {
         try {
             $hotelId = $this->hotelIds([$this->request->param('hotel_id', 0)])[0];
-            $snapshotId = filter_var($this->request->param('id', 0), FILTER_VALIDATE_INT);
+            $snapshotInput = $this->request->param('id', 0);
+            if (!is_int($snapshotInput) && !is_string($snapshotInput)) throw new InvalidArgumentException('booking_monitor_snapshot_id_invalid');
+            $snapshotId = filter_var($snapshotInput, FILTER_VALIDATE_INT);
             if ($snapshotId === false || $snapshotId <= 0) throw new InvalidArgumentException('booking_monitor_snapshot_id_invalid');
             [$tenantId, $permitted] = $this->scope([$hotelId], 'operation.view');
             return $this->success((new BookingMonitoringService())->readSnapshot($tenantId, $permitted, $hotelId, $snapshotId));
@@ -66,10 +68,12 @@ final class BookingMonitoring extends Base
 
     private function hotelIds(mixed $value): array
     {
+        if (!is_array($value) && !is_int($value) && !is_string($value)) throw new InvalidArgumentException('booking_monitor_hotel_scope_required');
         $values = is_array($value) ? $value : explode(',', (string)$value);
         if ($values === [] || count($values) > 20) throw new InvalidArgumentException('booking_monitor_requires_1_to_20_same_tenant_hotels');
         $ids = [];
         foreach ($values as $id) {
+            if (!is_int($id) && !is_string($id)) throw new InvalidArgumentException('booking_monitor_hotel_scope_required');
             $parsed = filter_var($id, FILTER_VALIDATE_INT);
             if ($parsed === false || $parsed <= 0) throw new InvalidArgumentException('booking_monitor_hotel_scope_required');
             $ids[] = $parsed;
@@ -99,6 +103,10 @@ final class BookingMonitoring extends Base
         $reason = $error->getMessage();
         $messages = [
             'booking_monitor_login_required' => '请先登录宿析OS',
+            'booking_monitor_hotel_scope_required' => '酒店编号格式不正确，请填写正整数编号',
+            'booking_monitor_room_type_id_invalid' => '酒店、房型或更正快照编号格式不正确，请填写整数编号',
+            'booking_monitor_snapshot_id_invalid' => '快照编号格式不正确，请填写正整数编号',
+            'booking_monitor_horizon_invalid' => '展示天数必须是1至30的整数',
             'booking_monitor_hotel_outside_permitted_scope' => '选择或导入的酒店超出当前账号权限',
             'booking_monitor_hotel_tenant_scope_mismatch' => '请选择同一租户内的授权酒店',
             'booking_monitor_room_type_outside_hotel' => '房型不属于当前酒店，请检查房型ID',

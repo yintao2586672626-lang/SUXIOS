@@ -142,7 +142,9 @@ final class BookingMonitoringService
         $date = $this->date((string)($input['business_date'] ?? $this->now()->format('Y-m-d')));
         $fixedTime = trim((string)($input['fixed_time'] ?? '09:00'));
         if (!preg_match('/^(?:[01]\d|2[0-3]):[0-5]\d$/D', $fixedTime)) throw new InvalidArgumentException('booking_monitor_fixed_time_invalid');
-        $horizon = filter_var($input['horizon_days'] ?? 7, FILTER_VALIDATE_INT);
+        $horizonInput = $input['horizon_days'] ?? 7;
+        if (!is_int($horizonInput) && !is_string($horizonInput)) throw new InvalidArgumentException('booking_monitor_horizon_invalid');
+        $horizon = filter_var($horizonInput, FILTER_VALIDATE_INT);
         if ($horizon === false || $horizon < 1 || $horizon > 30) throw new InvalidArgumentException('booking_monitor_horizon_invalid');
         $anchor = new DateTimeImmutable($date . ' ' . $fixedTime . ':00', new DateTimeZone('Asia/Shanghai'));
         if ($date > $this->now()->format('Y-m-d')) throw new InvalidArgumentException('booking_monitor_business_date_future');
@@ -410,6 +412,7 @@ final class BookingMonitoringService
 
     private function roomId(mixed $value): int
     {
+        if (!is_int($value) && !is_string($value)) throw new InvalidArgumentException('booking_monitor_room_type_id_invalid');
         $id = filter_var($value, FILTER_VALIDATE_INT);
         if ($id === false || $id < 0) throw new InvalidArgumentException('booking_monitor_room_type_id_invalid');
         return $id;
