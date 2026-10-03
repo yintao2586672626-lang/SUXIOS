@@ -19,7 +19,7 @@ class InvestmentPaybackService
     private InvestmentPaybackCalculator $calculator;
     private HotelScopeService $hotelScope;
 
-    public function __construct(private User $user, ?PermissionService $permissions = null, ?InvestmentPaybackCalculator $calculator = null, ?HotelScopeService $hotelScope = null)
+    public function __construct(private User $user, ?PermissionService $permissions = null, ?InvestmentPaybackCalculator $calculator = null, ?HotelScopeService $hotelScope = null, private bool $readOnly = false)
     {
         $this->tenantId = (int)($user->tenant_id ?? 0);
         $this->actorId = (int)($user->id ?? 0);
@@ -37,9 +37,21 @@ class InvestmentPaybackService
 
     public function projects(array $filters = []): array
     {
+        if (array_key_exists('tenant_id', $filters) && (int)$filters['tenant_id'] !== $this->tenantId) {
+            throw new RuntimeException('无权访问此投资项目租户', 403);
+        }
+        $hotelId = null;
+        if (array_key_exists('hotel_id', $filters)) {
+            $hotelId = self::nullableId($filters['hotel_id'], '酒店编号');
+            if ($hotelId === null) {
+                throw new InvalidArgumentException('酒店编号必须大于0');
+            }
+            $this->assertHotelTenant($hotelId);
+            $this->authorize($hotelId);
+        }
         $page = max(1, (int)($filters['page'] ?? 1));
         $pageSize = min(100, max(1, (int)($filters['page_size'] ?? 20)));
-        $query = $this->accessibleProjectsQuery();
+        $query = $this->accessibleProjectsQuery($hotelId);
         // Read the full accessible preference before applying page/search/archive filters.
         $accessibleIds = (clone $query)->column('id');
         try {
@@ -88,6 +100,7 @@ class InvestmentPaybackService
     /** Personal display preference; never updates projects, ledger values, versions, or audit history. */
     public function saveLayout(array $input): array
     {
+        $this->assertWriteMode();
         $submitted = self::normalizeLayoutOrder($input['order'] ?? null);
         foreach ($submitted as $id) {
             $this->findProject($id);
@@ -127,9 +140,15 @@ class InvestmentPaybackService
         return ['order' => $order];
     }
 
-    private function accessibleProjectsQuery(): \think\db\Query
+    private function accessibleProjectsQuery(?int $hotelId = null): \think\db\Query
     {
+        if ($hotelId !== null) {
+            return Db::name('investment_payback_projects')->where('tenant_id', $this->tenantId)->where('hotel_id', $hotelId);
+        }
         $hotelIds = $this->hotelScope->accessibleHotelIds($this->user, 'investment.simulate');
+        if ($this->readOnly) {
+            $hotelIds = array_values(array_unique(array_merge($hotelIds, $this->hotelScope->accessibleHotelIds($this->user, 'investment.view'))));
+        }
         $hotelIds = array_values(array_filter($hotelIds, fn(int $id): bool => $this->hotelAllowed($id)));
         return Db::name('investment_payback_projects')->where('tenant_id', $this->tenantId)->where(function ($query) use ($hotelIds): void {
             $query->whereNull('hotel_id');
@@ -210,12 +229,13 @@ class InvestmentPaybackService
             'audit_history' => $events,
             'audit_history_limit' => 100,
             'source_label' => InvestmentPaybackCalculator::SOURCE_LABEL,
-            'can_delete_entries' => $project['archived_at'] === null && $this->user->isSuperAdmin(),
+            'can_delete_entries' => !$this->readOnly && $project['archived_at'] === null && $this->user->isSuperAdmin(),
         ];
     }
 
     public function saveProject(array $input): array
     {
+        $this->assertWriteMode();
         $asOf = self::requestedAsOf($input);
         $id = (int)($input['id'] ?? 0);
         if ($id < 0) {
@@ -307,6 +327,7 @@ class InvestmentPaybackService
 
     public function archive(int $id, array $input = []): array
     {
+        $this->assertWriteMode();
         $asOf = self::requestedAsOf($input);
         Db::transaction(function () use ($id, $input): void {
             $old = $this->findProject($id, true);
@@ -325,6 +346,7 @@ class InvestmentPaybackService
 
     public function saveEntry(int $projectId, array $input): array
     {
+        $this->assertWriteMode();
         $asOf = self::requestedAsOf($input);
         Db::transaction(function () use ($projectId, $input): void {
             $project = $this->findProject($projectId, true);
@@ -368,6 +390,7 @@ class InvestmentPaybackService
 
     public function voidEntry(int $projectId, int $entryId, array $input): array
     {
+        $this->assertWriteMode();
         $asOf = self::requestedAsOf($input);
         $reason = self::text($input['reason'] ?? '', '作废原因', 1000, true);
         Db::transaction(function () use ($projectId, $entryId, $input, $reason): void {
@@ -394,6 +417,7 @@ class InvestmentPaybackService
 
     public function deleteEntry(int $projectId, int $entryId, array $input): array
     {
+        $this->assertWriteMode();
         if (!$this->user->isSuperAdmin()) {
             throw new RuntimeException('仅管理员可删除资金记录', 403);
         }
@@ -662,7 +686,17 @@ class InvestmentPaybackService
 
     private function hotelAllowed(?int $hotelId): bool
     {
+        if ($this->readOnly && ($this->permissions->authorize($this->user, 'investment.view', $hotelId)['allowed'] ?? false) === true) {
+            return true;
+        }
         return ($this->permissions->authorize($this->user, 'investment.simulate', $hotelId)['allowed'] ?? false) === true;
+    }
+
+    private function assertWriteMode(): void
+    {
+        if ($this->readOnly) {
+            throw new RuntimeException('投资资金连接只允许读取', 403);
+        }
     }
 
     private function assertHotelTenant(int $hotelId): void

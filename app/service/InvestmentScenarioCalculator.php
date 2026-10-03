@@ -8,7 +8,7 @@ use InvalidArgumentException;
 /** Pure scenario arithmetic. It does not load hotel facts or write business data. */
 final class InvestmentScenarioCalculator
 {
-    public const MODEL_VERSION = 'investment-scenario-v1.3';
+    public const MODEL_VERSION = 'investment-scenario-v1.4';
     private const MAX_CASH = 1000000000000.0;
     private const CASH_KEYS = ['tax_cash', 'financing_net_cash', 'maintenance_capex', 'working_capital_change', 'deposit_refund', 'salvage_cash'];
     private const MONEY_TOTALS = ['revenue', 'operating_cost', 'rent', 'depreciation', 'management_fee', 'pretax_profit', 'pretax_cash_proxy'];

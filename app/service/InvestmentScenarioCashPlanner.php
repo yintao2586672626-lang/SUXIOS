@@ -157,28 +157,8 @@ final class InvestmentScenarioCashPlanner
 
     public function constraints(?array $input, array $result): ?array
     {
-        if ($input === null) return null;
-        $missing = []; $asOf = $result['input']['as_of'] ?? null;
-        foreach (['contract_start_on', 'contract_end_on', 'contract_source'] as $key) if (!$input[$key]) $missing[] = $key;
-        if (!$input['contract_confirmed']) $missing[] = 'contract_confirmed';
-        if (!$asOf) $missing[] = 'as_of';
-        $remaining = $missing === [] ? max(0, (new DateTimeImmutable($asOf))->diff(new DateTimeImmutable($input['contract_end_on']))->days * ($input['contract_end_on'] >= $asOf ? 1 : -1) / 30.4375) : null;
-        $full = $result['scenario_payback'] ?? null; $proxy = $result['payback'] ?? null;
-        $payback = $full ?? $proxy; $months = ($payback['total_years'] ?? null) === null ? null : $payback['total_years'] * 12;
-        $ready = $full !== null && ($result['status'] ?? '') === 'ready';
-        $evaluate = static function (?float $limit) use ($payback, $months, $ready): string {
-            if ($limit === null) return 'inputs_missing';
-            if (!$payback) return 'forecast_missing';
-            if (!$ready) return 'trial_only';
-            if ($months === null) return 'not_reached_in_horizon';
-            return $months <= $limit ? 'within_limit' : 'beyond_limit';
-        };
-        return ['contract_status' => $missing === [] ? ($input['contract_end_on'] < $asOf ? 'expired' : 'user_confirmed') : 'unverified',
-            'contract_missing_fields' => $missing, 'contract_remaining_months' => $remaining === null ? null : round($remaining, 2),
-            'target_payback_months' => $input['target_payback_months'], 'target_status' => $evaluate($input['target_payback_months'] === null ? null : (float)$input['target_payback_months']),
-            'contract_payback_status' => $evaluate($remaining), 'forecast_payback_months' => $months,
-            'forecast_basis' => $full !== null ? 'cash_adjusted_assumption' : 'pretax_proxy_only',
-            'basis_note' => '合同为用户核对来源，未独立鉴真；情景从测算基准日计时，含营建期，不确认投资人实际回本。'];
+        // Forward previews and the target solver must use the same natural-month deadline.
+        return (new InvestmentContractDateConstraintService())->evaluate($input, $result);
     }
 
     private function money(mixed $value, string $label, bool $signed = false): ?string

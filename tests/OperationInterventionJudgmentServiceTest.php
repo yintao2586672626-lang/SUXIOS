@@ -82,6 +82,11 @@ final class OperationInterventionJudgmentServiceTest extends TestCase
             [],
             [
                 'guard_observations' => [[
+                    'tenant_id' => 3,
+                    'hotel_id' => 80,
+                    'platform' => 'ctrip',
+                    'platform_hotel_id' => 'ctrip-80',
+                    'fact_scope' => 'ota_channel',
                     'metric_key' => 'refund_rate',
                     'value' => 8,
                     'quality_status' => 'verified',
@@ -372,6 +377,11 @@ final class OperationInterventionJudgmentServiceTest extends TestCase
     private function guardObservation(): array
     {
         return [
+            'tenant_id' => 3,
+            'hotel_id' => 80,
+            'platform' => 'ctrip',
+            'platform_hotel_id' => 'ctrip-80',
+            'fact_scope' => 'ota_channel',
             'metric_key' => 'refund_rate',
             'value' => 4,
             'quality_status' => 'verified',

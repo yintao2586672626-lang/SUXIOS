@@ -872,7 +872,7 @@
             });
         },
     };
-    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-hfaed748ae4';
+    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-hb3c36cd3be';
     const OperatingFinanceControlCenterAsync = systemComponents.OperatingFinanceControlCenterBody || Vue.defineAsyncComponent({
         loader: () => loadOnlineDataComponentScript(operatingFinanceControlCenterScript)
             .then(() => requireSystemComponent('OperatingFinanceControlCenterBody')),

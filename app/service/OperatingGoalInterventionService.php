@@ -395,14 +395,10 @@ final class OperatingGoalInterventionService
             ->toArray();
         $evidenceRows = array_map(fn(array $row): array => $this->executionEvidenceFromRow($row), $evidenceRows);
 
+        $input = $this->normalizeAssessmentEvidenceInput($input);
         $judgmentInput = $systemMonitorAssessment
             ? $input
             : $this->downgradeHumanAssessmentEvidence($input);
-        if (!array_key_exists('followup_snapshot', $judgmentInput)
-            && is_array($judgmentInput['followup'] ?? null)
-        ) {
-            $judgmentInput['followup_snapshot'] = $judgmentInput['followup'];
-        }
         $judgment = $this->judgmentService()->judge(
             $goal,
             $intervention,
@@ -1044,14 +1040,98 @@ final class OperatingGoalInterventionService
         ];
     }
 
+    /** Parse every supported alias once so judgment and persistence use the same evidence. */
+    private function normalizeAssessmentEvidenceInput(array $input): array
+    {
+        foreach ([
+            'followup_snapshot' => ['followup_snapshot', 'followup', 'followup_snapshot_json'],
+            'guard_observations' => ['guard_observations', 'guard_observations_json'],
+            'external_interferences' => ['external_interferences', 'external_interferences_json'],
+        ] as $field => $aliases) {
+            $resolved = null;
+            $signature = null;
+            foreach ($aliases as $alias) {
+                if (!array_key_exists($alias, $input)) {
+                    continue;
+                }
+                $value = $input[$alias];
+                if (is_string($value)) {
+                    try {
+                        $value = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+                    } catch (\JsonException $error) {
+                        throw new InvalidArgumentException($alias . ' must contain valid JSON', 0, $error);
+                    }
+                }
+                if (!is_array($value)
+                    || ($field === 'followup_snapshot' && $value !== [] && array_is_list($value))
+                    || ($field === 'external_interferences' && !array_is_list($value))
+                ) {
+                    throw new InvalidArgumentException($alias . ' must be a '
+                        . match ($field) {
+                            'followup_snapshot' => 'snapshot object',
+                            'guard_observations' => 'list or metric observation map',
+                            default => 'list',
+                        });
+                }
+                if ($field === 'guard_observations') {
+                    $value = $this->normalizeGuardObservationInput($value);
+                }
+                $value = $this->canonicalize($value);
+                // JSON numbers can decode as integers even when the array alias
+                // uses a float. Compare their semantic JSON without forcing a
+                // caller to preserve PHP's numeric representation.
+                $candidateSignature = json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+                if ($signature !== null && $signature !== $candidateSignature) {
+                    throw new InvalidArgumentException($field . ' aliases conflict');
+                }
+                $resolved ??= $value;
+                $signature = $candidateSignature;
+            }
+            if ($resolved !== null) {
+                foreach ($aliases as $alias) {
+                    unset($input[$alias]);
+                }
+                $input[$field] = $resolved;
+            }
+        }
+        return $input;
+    }
+
+    /** Preserve wrapper metadata while making metric-keyed legacy input persist as a list. */
+    private function normalizeGuardObservationInput(array $observations): array
+    {
+        $normalized = [];
+        foreach ($this->canonicalize($observations) as $key => $observation) {
+            if (!is_array($observation)) {
+                throw new InvalidArgumentException('guard_observations items must be objects');
+            }
+            $wrapped = array_key_exists('followup_snapshot', $observation);
+            if ($wrapped && !is_array($observation['followup_snapshot'])) {
+                throw new InvalidArgumentException('guard_observations followup_snapshot must be an object');
+            }
+            if (is_string($key) && !ctype_digit($key)) {
+                $metricKey = $this->metricKey($key, 'guard_observations metric_key');
+                $snapshot = $wrapped ? $observation['followup_snapshot'] : $observation;
+                if (isset($snapshot['metric_key'])
+                    && $this->metricKey($snapshot['metric_key'], 'guard_observations metric_key') !== $metricKey
+                ) {
+                    throw new InvalidArgumentException('guard_observations metric_key conflicts with its map key');
+                }
+                $snapshot['metric_key'] = $metricKey;
+                if ($wrapped) {
+                    $observation['followup_snapshot'] = $snapshot;
+                } else {
+                    $observation = $snapshot;
+                }
+            }
+            $normalized[] = $observation;
+        }
+        return $normalized;
+    }
+
     /**
      * A human form may cite evidence but cannot attest its own system quality
-     * or readback state. Downgrade before the deterministic judge runs so a
-     * client-supplied `verified` label can never produce a supported verdict.
-     * Scheduler assessments keep their server-built evidence envelope.
-     *
-     * @param array<string,mixed> $input
-     * @return array<string,mixed>
+     * or readback state. Scheduler assessments retain their server-built envelope.
      */
     private function downgradeHumanAssessmentEvidence(array $input): array
     {
@@ -1062,6 +1142,7 @@ final class OperatingGoalInterventionService
             }
             $input[$field]['quality_status'] = 'unverified';
             $input[$field]['readback_status'] = 'unverified';
+            $input[$field]['readback_verified'] = false;
             $input[$field]['evidence_origin'] = 'user_provided';
         }
         if (is_array($input['guard_observations'] ?? null)) {
@@ -1071,7 +1152,14 @@ final class OperatingGoalInterventionService
                 }
                 $input['guard_observations'][$index]['quality_status'] = 'unverified';
                 $input['guard_observations'][$index]['readback_status'] = 'unverified';
+                $input['guard_observations'][$index]['readback_verified'] = false;
                 $input['guard_observations'][$index]['evidence_origin'] = 'user_provided';
+                if (is_array($observation['followup_snapshot'] ?? null)) {
+                    $input['guard_observations'][$index]['followup_snapshot']['quality_status'] = 'unverified';
+                    $input['guard_observations'][$index]['followup_snapshot']['readback_status'] = 'unverified';
+                    $input['guard_observations'][$index]['followup_snapshot']['readback_verified'] = false;
+                    $input['guard_observations'][$index]['followup_snapshot']['evidence_origin'] = 'user_provided';
+                }
             }
         }
         return $input;

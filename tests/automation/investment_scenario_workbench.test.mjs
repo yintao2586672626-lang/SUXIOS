@@ -190,6 +190,71 @@ test('cash plan month generation keeps same-month inputs and percentage loan rat
     assert.equal(input.cash_plan.monthly_inputs[1].other_net_cash, null);
 });
 
+test('changing cash plan range confirms removal of filled months, including known zero, and cancellation preserves them', async () => {
+    for (const [amount, compiled] of [['500', false], ['0', false], ['500', true], ['0', true]]) {
+        const { state } = create(async () => ok(saved()), undefined, { compiled }); await state.loadScenario();
+        state.form.value.as_of = '2026-10-01'; state.addCashPlan(); state.form.value.cash_plan.months = '2'; state.generateMonths();
+        state.form.value.cash_plan.monthly_inputs[1].operating_net_cash = amount;
+        state.form.value.cash_plan.months = '1'; state.generateMonths();
+        assert.equal(state.form.value.cash_plan.monthly_inputs.length, 2);
+        assert.equal(state.pendingReplacement.value.kind, 'months');
+        state.cancelReplacement();
+        assert.equal(state.form.value.cash_plan.monthly_inputs[1].operating_net_cash, amount);
+        state.form.value.cash_plan.months = '2'; state.generateMonths();
+        assert.equal(state.form.value.cash_plan.monthly_inputs[1].operating_net_cash, amount);
+        state.form.value.cash_plan.months = '1'; state.generateMonths(); await state.confirmReplacement();
+        assert.equal(state.form.value.cash_plan.monthly_inputs.length, 1);
+        assert.equal(state.pendingReplacement.value, null);
+    }
+    const { state } = create(async () => ok(saved())); await state.loadScenario();
+    state.form.value.as_of = '2026-10-01'; state.addCashPlan(); state.form.value.cash_plan.months = '2'; state.generateMonths();
+    state.form.value.cash_plan.monthly_inputs[0].capex_cash = '0';
+    state.form.value.cash_plan.start_month = '2026-11'; state.generateMonths();
+    assert.equal(state.pendingReplacement.value.kind, 'months'); state.cancelReplacement();
+    assert.equal(state.form.value.cash_plan.monthly_inputs[0].month, '2026-10');
+    state.form.value.cash_plan.monthly_inputs[0].capex_cash = ''; state.generateMonths();
+    assert.equal(state.pendingReplacement.value, null);
+    assert.equal(state.form.value.cash_plan.monthly_inputs[0].month, '2026-11');
+});
+
+test('cash month replacement verifies the range again before confirming and preserves all other draft fields', async () => {
+    const { state } = create(async () => ok(saved())); await state.loadScenario();
+    state.form.value.scenario_name = '保留整个草稿'; state.form.value.as_of = '2026-10-01'; state.addCashPlan();
+    state.form.value.cash_plan.months = '2'; state.generateMonths(); state.form.value.cash_plan.monthly_inputs[1].other_net_cash = '-5';
+    state.form.value.cash_plan.months = '1'; state.generateMonths();
+    state.form.value.cash_plan.months = '2'; await state.confirmReplacement();
+    assert.equal(state.form.value.cash_plan.monthly_inputs[1].other_net_cash, '-5');
+    assert.equal(state.form.value.scenario_name, '保留整个草稿');
+});
+
+test('a changed pending month removal requires a new confirmation and confirmed range saves with exact readback', async () => {
+    let current = saved();
+    const { state, events } = create(async (path, options) => {
+        if (options?.method === 'POST') {
+            const input = JSON.parse(options.body).scenario;
+            current = saved(input, 1, result(input), 3);
+        }
+        return ok(current);
+    });
+    await state.loadScenario(); state.form.value.as_of = '2026-10-01'; state.form.value.scenario_name = '缩期保存草稿';
+    state.addCashPlan(); state.form.value.cash_plan.months = '3'; state.generateMonths();
+    state.form.value.cash_plan.monthly_inputs[1].operating_net_cash = '500';
+    state.form.value.cash_plan.monthly_inputs[2].operating_net_cash = '0';
+    state.form.value.cash_plan.months = '2'; state.generateMonths();
+    assert.equal(state.pendingReplacement.value.months.join(','), '2026-12');
+    state.form.value.cash_plan.months = '1'; await state.confirmReplacement();
+    assert.equal(state.form.value.cash_plan.monthly_inputs.length, 3);
+    assert.equal(state.pendingReplacement.value.months.join(','), '2026-11,2026-12');
+    await state.confirmReplacement(); await state.save();
+    assert.equal(state.form.value.cash_plan.monthly_inputs.length, 1);
+    assert.equal(state.form.value.cash_plan.monthly_inputs[0].operating_net_cash, null);
+    assert.equal(current.input.cash_plan.monthly_inputs[0].operating_net_cash, null);
+    assert.equal(current.input.cash_plan.months, 1);
+    assert.equal(state.form.value.scenario_name, '缩期保存草稿');
+    assert.equal(state.readback.value, 'exact');
+    assert.equal(events.filter(row => row[0] === 'saved').length, 1);
+});
+
 test('actual consumables reference stays pending until explicit adoption and rejects another hotel', async () => {
     const { state } = createWithReferences(async () => ok(saved())); await state.loadScenario();
     const data = { hotel_id: 81, snapshot_id: 5, content_digest: 'a'.repeat(64), business_month: '2026-09', actual_consumables_cost_per_room_night: '3.25' };
