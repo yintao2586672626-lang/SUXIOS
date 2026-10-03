@@ -25,6 +25,7 @@ final class InvestmentOperatingBridgeServiceTest extends TestCase
         ], $changes);
     }
 
+    /** Explicit synthetic callback records; never reads a business database. */
     private function service(array $projects, ?callable $reader = null): Bridge
     {
         return new Bridge(null, $reader ?? static function (array $filters) use ($projects): array {
@@ -55,21 +56,27 @@ final class InvestmentOperatingBridgeServiceTest extends TestCase
             self::assertSame('read_failed', $failed['status']);
             self::assertNull($failed['totals']);
         }
-        $overflow = $this->service([$this->project(1, [], ['invested_amount' => $atLimit]), $this->project(2)])
+        $unverified = $this->service([$this->project(1, [], ['invested_amount' => $atLimit]), $this->project(2)])
             ->overview(2, [80], 80, '2026-09');
-        self::assertSame('read_failed', $overflow['status']);
-        self::assertNull($overflow['totals']);
+        self::assertSame('blocked', $unverified['status']);
+        self::assertSame('investor_identity_unverified', $unverified['reason_code']);
+        self::assertSame($atLimit, $unverified['projects'][0]['amounts']['actual_invested']);
+        self::assertNull($unverified['totals']);
+        self::assertNull($unverified['recorded_totals']);
     }
 
-    public function testExactFenTotalsAndHotelFilteringNeverAddProfitOrScenario(): void
+    public function testExactProjectCashAndHotelFilteringNeverAddProfitOrScenario(): void
     {
         $projects = [$this->project(1), $this->project(2, ['archived_at' => '2026-09-29'], [
             'invested_amount' => '50.02', 'net_recovered_amount' => '60.03', 'unrecovered_amount' => '0.00', 'excess_recovered_amount' => '10.01',
             'gop' => 999999, 'forecast' => ['payback_month' => '2027-01'], 'scenario_cashflow' => 888888,
         ]), $this->project(3, ['hotel_id' => 81]), $this->project(4, ['hotel_id' => null])];
         $result = $this->service($projects)->overview(2, [80, 81], 80, '2026-09');
-        self::assertSame('ready', $result['status']);
-        self::assertSame(['actual_invested' => '150.03', 'net_actual_recovered' => '90.04', 'unrecovered' => '70.00', 'excess_return' => '10.01'], $result['totals']);
+        self::assertSame('blocked', $result['status']);
+        self::assertNull($result['totals']);
+        self::assertNull($result['recorded_totals']);
+        self::assertSame(['actual_invested' => '100.01', 'net_actual_recovered' => '30.01', 'unrecovered' => '70.00', 'excess_return' => '0.00'], $result['projects'][0]['amounts']);
+        self::assertSame(['actual_invested' => '50.02', 'net_actual_recovered' => '60.03', 'unrecovered' => '0.00', 'excess_return' => '10.01'], $result['projects'][1]['amounts']);
         self::assertCount(2, $result['projects']);
         self::assertSame('manual_unverified', $result['quality']['source_quality_status']);
         self::assertFalse($result['quality']['actual_cash_independently_verified']);
@@ -104,7 +111,9 @@ final class InvestmentOperatingBridgeServiceTest extends TestCase
     {
         $projects = array_map(fn(int $id): array => $this->project($id), range(1, 101));
         $result = $this->service($projects)->overview(2, [80], 80, '2026-09');
-        self::assertSame('10101.01', $result['totals']['actual_invested']);
+        self::assertSame('blocked', $result['status']);
+        self::assertNull($result['totals']);
+        self::assertNull($result['recorded_totals']);
         self::assertSame(2, $result['coverage']['pages_read']);
         self::assertTrue($result['coverage']['read_complete']);
         self::assertCount(101, $result['projects']);
@@ -122,7 +131,8 @@ final class InvestmentOperatingBridgeServiceTest extends TestCase
         self::assertNull($result['totals']);
         self::assertSame(100, $result['coverage']['pages_read']);
         self::assertContains('project_pagination_limit_reached', $result['quality']['issues']);
-        self::assertNotNull($result['recorded_totals']);
+        self::assertNull($result['recorded_totals']);
+        self::assertSame('not_verified', $result['quality']['investor_identity_status']);
     }
 
     public function testReadFailureIsNullAndDoesNotExposeExceptionMaterial(): void
@@ -145,15 +155,26 @@ final class InvestmentOperatingBridgeServiceTest extends TestCase
 
     public function testPartialHistoryAndMissingActualInvestmentDoNotBecomeCompleteOrZero(): void
     {
-        $result = $this->service([$this->project(1, [], [
+        $partialHistory = $this->project(1, [], [
             'data_quality' => ['manual_unverified' => true, 'history_complete' => false, 'history_complete_through' => '2026-08-31', 'issues' => ['history_not_checked_through_cutoff']],
-        ]), $this->project(2, [], ['invested_amount' => null, 'net_recovered_amount' => null, 'unrecovered_amount' => null, 'excess_recovered_amount' => null])])->overview(2, [80], 80, '2026-09');
+        ]);
+        $result = $this->service([$partialHistory])->overview(2, [80], 80, '2026-09');
         self::assertSame('partial', $result['status']);
         self::assertNull($result['totals']);
         self::assertSame('100.01', $result['recorded_totals']['actual_invested']);
         self::assertSame(1, $result['coverage']['summable_project_count']);
         self::assertFalse($result['quality']['history_complete']);
-        self::assertNull($result['projects'][1]['amounts']['actual_invested']);
+        $missingAmounts = $this->project(2, [], ['invested_amount' => null, 'net_recovered_amount' => null, 'unrecovered_amount' => null, 'excess_recovered_amount' => null]);
+        $missing = $this->service([$missingAmounts])->overview(2, [80], 80, '2026-09');
+        self::assertSame('partial', $missing['status']);
+        self::assertNull($missing['totals']);
+        self::assertNull($missing['recorded_totals']);
+        self::assertNull($missing['projects'][0]['amounts']['actual_invested']);
+        $multiple = $this->service([$partialHistory, $missingAmounts])->overview(2, [80], 80, '2026-09');
+        self::assertSame('blocked', $multiple['status']);
+        self::assertNull($multiple['totals']);
+        self::assertNull($multiple['recorded_totals']);
+        self::assertContains('history_not_checked_through_cutoff', $multiple['quality']['issues']);
     }
 
     public function testDifferentInvestorsAndUnknownInvestorAreVisibleButNeverAggregated(): void
@@ -165,6 +186,41 @@ final class InvestmentOperatingBridgeServiceTest extends TestCase
             self::assertNull($result['totals']);
             self::assertNull($result['recorded_totals']);
         }
+    }
+
+    public function testSameNameAndCreatorNeverProveDurableInvestorIdentityAcrossProjects(): void
+    {
+        foreach (['本人', '同名投资人'] as $name) {
+            foreach ([7, 8] as $secondCreator) {
+                $result = $this->service([
+                    $this->project(1, ['investor_name' => $name, 'created_by' => 7]),
+                    $this->project(2, ['investor_name' => $name, 'created_by' => $secondCreator]),
+                ])->overview(2, [80], 80, '2026-09');
+                self::assertSame('blocked', $result['status']);
+                self::assertSame('investor_identity_unverified', $result['reason_code']);
+                self::assertSame('not_verified', $result['quality']['investor_identity_status']);
+                self::assertFalse($result['quality']['cross_project_aggregation_allowed']);
+                self::assertCount(2, $result['projects']);
+                self::assertSame('100.01', $result['projects'][0]['amounts']['actual_invested']);
+                self::assertSame('100.01', $result['projects'][1]['amounts']['actual_invested']);
+                self::assertNull($result['totals']);
+                self::assertNull($result['recorded_totals']);
+            }
+        }
+    }
+
+    public function testSingleProjectRetainsExactCashWithoutClaimingInvestorIdentityVerification(): void
+    {
+        $result = $this->service([$this->project()])->overview(2, [80], 80, '2026-09');
+        self::assertSame('ready', $result['status']);
+        self::assertSame(['actual_invested' => '100.01', 'net_actual_recovered' => '30.01', 'unrecovered' => '70.00', 'excess_return' => '0.00'], $result['totals']);
+        self::assertSame($result['totals'], $result['recorded_totals']);
+        self::assertSame('single_project_only', $result['quality']['investor_identity_status']);
+        self::assertFalse($result['quality']['cross_project_aggregation_allowed']);
+        $unnamed = $this->service([$this->project(1, ['investor_name' => ''])])->overview(2, [80], 80, '2026-09');
+        self::assertSame('blocked', $unnamed['status']);
+        self::assertNull($unnamed['totals']);
+        self::assertSame('missing', $unnamed['quality']['investor_identity_status']);
     }
 
     public function testIncompatibleCutoffBasisAndCurrencyAreNotAggregated(): void

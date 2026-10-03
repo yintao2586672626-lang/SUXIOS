@@ -181,12 +181,15 @@ final class InvestmentOperatingBridgeControllerTest extends TestCase
         Db::name('investment_payback_projects')->where('tenant_id', 20)->update(['opening_invested' => 'malformed-other-tenant-cash']);
         $bridge = new InvestmentOperatingBridgeService($reader, null, static fn(): string => '2026-10-02');
         $result = $bridge->overview(10, [80, 81], 80, '2026-09');
-        self::assertSame('ready', $result['status']);
+        self::assertSame('blocked', $result['status']);
+        self::assertSame('investor_identity_unverified', $result['reason_code']);
         self::assertSame(2, $result['coverage']['pages_read']);
         self::assertSame(101, $result['coverage']['scanned_project_count']);
         self::assertSame(101, $result['coverage']['linked_project_count']);
         self::assertTrue($result['coverage']['read_complete']);
-        self::assertSame('10101.01', $result['totals']['actual_invested']);
+        self::assertNull($result['totals']);
+        self::assertNull($result['recorded_totals']);
+        self::assertSame(['100.01'], array_values(array_unique(array_column(array_column($result['projects'], 'amounts'), 'actual_invested'))));
         self::assertCount(101, $summarized);
         self::assertSame([80], array_values(array_unique(array_column($summarized, 'hotel_id'))));
         self::assertSame([10], array_values(array_unique(array_column($summarized, 'tenant_id'))));
