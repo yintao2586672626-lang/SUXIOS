@@ -119,7 +119,7 @@ final class ConsumablesActualCostService
     {
         if ($value === null || is_string($value) && trim($value) === '') return null;
         if (is_bool($value) || !is_numeric($value) || !is_finite((float)$value) || (float)$value < 0 || (float)$value > 1e12) throw new InvalidArgumentException('consumables_number_invalid');
-        if (is_string($value) && (float)$value === 0.0 && strpbrk(preg_split('/[eE]/', trim($value))[0], '123456789') !== false) throw new InvalidArgumentException('consumables_number_precision_loss');
+        if (is_string($value) && (float)$value === 0.0 && strpbrk(preg_split('/[eE]/', trim($value))[0], '123456789') !== false) throw new InvalidArgumentException('consumables_number_invalid');
         return (float)$value;
     }
     private function valuedAmount(float $quantity, float $price): float
@@ -133,5 +133,5 @@ final class ConsumablesActualCostService
         if (!is_scalar($value) || is_bool($value) || mb_strlen((string)$value) > $limit) throw new InvalidArgumentException('consumables_text_invalid');
         return trim((string)$value);
     }
-    private function validDate(string $date): bool { $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $date); return $d !== false && $d->format('Y-m-d') === $date; }
+    private function validDate(string $date): bool { if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date)) return false; $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $date); return $d !== false && $d->format('Y-m-d') === $date; }
 }

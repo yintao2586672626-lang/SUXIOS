@@ -1,7 +1,7 @@
 (() => {
     const registry = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
-    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h81815879c7';
-    const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-hedbefa7c92';
+    const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-hf5eadefa7d';
+    const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-h63af6fece1';
     let loadPromise = null;
 
     const loadScript = (source) => new Promise((resolve, reject) => {
@@ -41,7 +41,7 @@
             if (!paybackPromise) {
                 paybackPromise = loadScript('investment-scenario.min.js?v=investment-scenario-hc86a7b65ad').then(() => {
                     if (!registry.InvestmentScenarioWorkbench) throw new Error('投资经营测算组件未注册');
-                    return loadScript('investment-payback.min.js?v=investment-payback-h8de11be1ef');
+                    return loadScript('investment-payback.min.js?v=investment-payback-h45b1d6bf5e');
                 }).then(() => {
                     if (!registry.InvestmentPaybackBody) throw new Error('投资回本组件未注册');
                     return registry.InvestmentPaybackBody;

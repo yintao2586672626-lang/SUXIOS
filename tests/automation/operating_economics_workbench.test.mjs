@@ -9,7 +9,8 @@ const source = readFileSync(new URL('../../public/components/system/operating-ec
 const scopedReceipt = () => ({scope:{tenant_id:7,hotel_id:80,period_month:'2026-10',platform:'ctrip',kind:'channel_economics'},snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'unverified',inputs:{source_refs:[],net_revenue:0},result:{net_revenue:0}});
 function component(request = async () => ({ code:200,data:{} }), code = source, browser = {}) {
     const window = { confirm:()=>true, dispatchEvent:event=>window.event=event };
-    new Function('window','crypto','CustomEvent','Vue','document','URL','setTimeout',code)(window,{randomUUID},class { constructor(type,opts){this.type=type;this.detail=opts.detail;} },new Proxy({}, {get:()=>()=>({})}),browser.document,browser.URL || globalThis.URL,browser.setTimeout || globalThis.setTimeout);
+    class ShanghaiClock extends Date { constructor(...args) { super(...(args.length ? args : ['2026-10-02T16:30:00Z'])); } }
+    new Function('window','crypto','CustomEvent','Vue','document','URL','setTimeout','Date',code)(window,{randomUUID},class { constructor(type,opts){this.type=type;this.detail=opts.detail;} },new Proxy({}, {get:()=>()=>({})}),browser.document,browser.URL || globalThis.URL,browser.setTimeout || globalThis.setTimeout,ShanghaiClock);
     const definition = window.SUXI_SYSTEM_COMPONENTS.OperatingEconomicsWorkbench;
     const ctx = {...definition.data(),hotelId:80,periodMonth:'2026-10',platform:'ctrip',canExecute:true,request};
     for(const [key,fn] of Object.entries(definition.methods))ctx[key]=fn.bind(ctx);
@@ -170,12 +171,12 @@ test('metric references survive input serialization and old snapshots have no in
     assert.match(ctx.evidenceText({metric:'refund_amount',status:'source_missing'}),/退款：来源缺失/);
 });
 test('unverified or draft actual cost cannot be adopted; verified zero can',()=>{
-    const {ctx}=component();ctx.kind='consumables_actual';ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:0};
-    ctx.saved={readback_verified:true,source_quality:'unverified'};assert.equal(ctx.canAdopt,false);
+    const {ctx}=component();ctx.kind='consumables_actual';ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:0,items:[{enabled:true,source_date:'2026-10-03'}]};
+    ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'unverified'};assert.equal(ctx.canAdopt,false);
     ctx.saved.source_quality='operator_attested';assert.equal(ctx.canAdopt,true);ctx.edit();assert.equal(ctx.canAdopt,false);
 });
 test('adoption retains same-hotel snapshot reference for next page',()=>{
-    const {ctx,window}=component();ctx.kind='consumables_actual';ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:2};
+    const {ctx,window}=component();ctx.kind='consumables_actual';ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:2,items:[{enabled:true,source_date:'2026-10-03'}]};
     ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};ctx.adopt();
     assert.equal(window.SUXI_PENDING_ACTUAL_CONSUMABLES_REFERENCE.hotel_id,80);assert.equal(window.event.detail.snapshot_id,9);
 });
@@ -350,8 +351,8 @@ test('failed historical restore invalidates the previous result and adoption rec
             return {code:200,data:{...scopedReceipt(),snapshot_id:8}};
         });
         ctx.kind='consumables_actual';ctx.actual.occupied_room_nights='77';
-        ctx.saved={snapshot_id:9,readback_verified:true,source_quality:'operator_attested'};
-        ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'TEST-ONLY PMS'},actual_consumables_cost_per_room_night:2};
+        ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};
+        ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'TEST-ONLY PMS'},actual_consumables_cost_per_room_night:2,items:[{enabled:true,source_date:'2026-10-03'}]};
         assert.equal(ctx.canAdopt,true);
         await ctx.restore(10,true);
         assert.equal(ctx.result,null,failure);assert.equal(ctx.saved,null,failure);
@@ -388,4 +389,50 @@ test('historical restore explains standard network failures in Chinese and prese
         const {ctx}=component(async()=>({code:403,message}));await ctx.restore(10,true);
         assert.equal(ctx.error,message,'server messages must retain their original business meaning');
     }
+});
+
+test('cross-month enabled source cannot be adopted; disabled legacy rows stay compatible',()=>{
+    const {ctx,window}=component();ctx.kind='consumables_actual';
+    ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-pms'},actual_consumables_cost_per_room_night:0,
+        items:[{enabled:true,source_date:'2026-09-20'}]};
+    ctx.saved={snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'operator_attested'};
+    assert.equal(ctx.canAdopt,false);ctx.adopt();assert.equal(window.event,undefined);
+    ctx.result.items=[{enabled:true,source_date:'2026-10-03'},{enabled:false,source_date:'2026-09-20'}];
+    assert.equal(ctx.canAdopt,true);ctx.adopt();assert.equal(window.event.detail.as_of,'2026-10-03');
+});
+
+test('an incomplete save receipt cannot make the current actual cost adoptable',()=>{
+    const {ctx}=component();ctx.kind='consumables_actual';
+    ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'synthetic-room-ledger'},actual_consumables_cost_per_room_night:0,items:[{enabled:true,source_date:'2026-10-03'}]};
+    for(const receipt of [{readback_verified:true,source_quality:'operator_attested'},
+        {snapshot_id:9,readback_verified:true,source_quality:'operator_attested'},
+        {snapshot_id:9,content_digest:'invalid',readback_verified:true,source_quality:'operator_attested'}]){
+        ctx.saved=receipt;assert.equal(ctx.canAdopt,false);
+    }
+});
+
+function savedActual(ctx, overrides = {}) {
+    const inputs = structuredClone(ctx.input);
+    return { scope:{tenant_id:10,...ctx.scope}, snapshot_id:9, content_digest:'a'.repeat(64), readback_verified:true,
+        source_quality:'operator_attested', status:'calculated', inputs,
+        result:{status:'calculated',source_quality:'operator_attested',inputs,items:inputs.items,
+            actual_consumables_cost_per_room_night:0}, ...overrides };
+}
+function actualDraft(ctx) {
+    ctx.kind='consumables_actual';
+    ctx.actual={occupied_room_nights:'100',occupied_room_nights_source_ref:'synthetic whole-hotel ledger',denominator_scope:'whole_hotel',operator_attested:true,
+        items:[{enabled:true,source_date:'2026-10-03',source_ref:'synthetic inventory',unit_price:'0'}]};
+}
+
+
+for(const [name,date,month] of [['future date','2026-10-04','2026-10'],['future month','2026-11-01','2026-11']]) {
+    test(`same-month saved actual from a ${name} cannot dispatch an adoption reference`,()=>{
+        const {ctx,window}=component();actualDraft(ctx);ctx.periodMonth=month;ctx.actual.items[0].source_date=date;
+        ctx.saved=savedActual(ctx);ctx.result=ctx.saved.result;assert.equal(ctx.canAdopt,false);ctx.adopt();assert.equal(window.event,undefined);assert.equal(window.SUXI_PENDING_ACTUAL_CONSUMABLES_REFERENCE,undefined);
+    });
+}
+
+test('actual dated today follows Shanghai midnight even when the UTC calendar is still yesterday',()=>{
+    const {ctx,window}=component();actualDraft(ctx);ctx.saved=savedActual(ctx);ctx.result=ctx.saved.result;
+    assert.equal(ctx.canAdopt,true);ctx.adopt();assert.equal(window.event.detail.as_of,'2026-10-03');assert.equal(window.event.detail.actual_consumables_cost_per_room_night,0);
 });

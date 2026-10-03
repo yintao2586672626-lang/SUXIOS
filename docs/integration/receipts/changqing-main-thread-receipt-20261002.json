@@ -4,7 +4,7 @@
   "verified_at": "2026-10-02T10:34:48.045Z",
   "timezone": "Asia/Shanghai",
   "package_id": "changqing-three-phase-31-20261002",
-  "status": "registered_source_self_review_in_progress_waiting_final_delta",
+  "status": "final_source_product_integrated_and_composed_target_verified",
   "source_thread": {
     "id": "01a0f621-a613-7382-827e-ac02395f7693",
     "title": "深度解析长青账户数据"
@@ -1131,14 +1131,33 @@
     "final_source_accepted": false
   },
   "source_finalization": {
-    "status": "in_progress",
-    "last_notice_file": "changqing-source-progress-20261002.json",
-    "notice_sha256": "69352a239760e909053e306b2e9a7801de269db3b17839d3fb9f545690daa765",
-    "initial_receipt_snapshot_file": "changqing-main-thread-receipt-20261002.initial.json",
-    "initial_receipt_sha256": "6cd78c17a24bc265b85332eced84323f512fff6a08c738ee281b4f924b3e1b53",
-    "prior_fingerprints_are_historical_snapshot_only": true,
-    "source_ready_for_integration": false,
-    "final_delta_sha_and_acceptance_pending": true
+    "source_ready_for_integration": true,
+    "received_at": "2026-10-02T11:09:33.651Z",
+    "final_delta_pending": false,
+    "final_handoff": "output/handoffs/changqing-deep-hardening-20261002.md",
+    "source_final_sha256": {
+      "app/service/BusinessWorkspaceService.php": "83e6e64d736dc26e96ca7ea93f3f348b346e7ad9d994a7fb41044a967e697b78",
+      "app/service/GuestOperationsService.php": "e7598f145aca23aecc221692be920ace966a394e52973df942d764f535225e4f",
+      "app/service/CampaignOperationsService.php": "f9d74173003dcc486a080e72fced4cfe772fb17ea74da69d1123cb6c1a92d61f",
+      "app/controller/GuestOperations.php": "6d37c13eebc4cc46a6b2b44ac2058fb52bd581d8422ea98da2de9bf282a99e1f",
+      "tests/Support/GuestOperationsSqliteFixture.php": "573a38afd2e5d4eb2b4c6f828f872078521d55705a4b618604f0a5fa2ab4c5ef",
+      "tests/BusinessWorkspaceServiceTest.php": "b201deb07555e45cbdd08b82769a8d07559cbd46190b32d52e5f57f9484973eb",
+      "tests/GuestOperationsServiceTest.php": "cbcb7ad143104577c52161ea991fdfc4b0ddf98a394aec9888bd0e3746fe528c",
+      "tests/CampaignOperationsServiceTest.php": "72f53f2da564d9269776ed784df15456c4164a67fcd8b5d4479bf84fb83daebd",
+      "public/components/system/business-feature-workspace.js": "87ee8cbfc4fc38d3264ab44ecfe2cf6036135ea6afdd5791cda0be5a742a6609",
+      "public/components/system/campaign-operations-panel.js": "9938ae2ac74a1b7da816cdc2d5361fbeb0af5fca5b3ad457a335adb69a147022",
+      "tests/automation/business_feature_workspace_async_state.test.mjs": "416fb6aca3f94424af0a612c2e9f9c16af1a5fb4ad70dbb247cdb40da925a5e9",
+      "tests/automation/business_feature_workspace_browser.test.mjs": "ee1d82700f3c72916dbaebde30f8a27033c0f8c7f04653b688022c4ff17c2959",
+      "tests/automation/campaign_operations_browser.test.mjs": "622228b99cc53dc74fe5adbee6cdaa5c10929a219b38bdf3d02aa23e688ac805",
+      "public/components/system/operating-finance-control-center.min.js": "d7acf115feb1d2eb9f49562d4e936ffbd68789a734628be635d54a6c9b1b3e2b",
+      "public/components/system/app-main-components.js": "7f145764cb88a5b6b41143dae621753c2d77bc5ef9cabdf635c4857a7557512e",
+      "public/components/system/app-main-components-loader.js": "1ed6d4bb3b8c3a34888a24df64cb863ffe3d76808fc55eb88075e7e5660448a3",
+      "public/app-startup-helpers.min.js": "309a1199bd2f27bb82df65a3088aeff0b4e552e5add2bcd1a9e4003e63aba0a5",
+      "public/index.html": "e7fc9a0a59d7162458d6ce0c56d877410cf716e24a55a4c10be34e3567c3f7a4"
+    },
+    "source_evidence": "docs/integration/receipts/changqing-deep-hardening-source-evidence-20261002.json",
+    "source_evidence_scope": "source local synthetic acceptance; target build, tests, GitHub and deployment are separate",
+    "new_issues_resolved": 12
   },
   "receiver_update_target_snapshot": {
     "head": "84d6520bce93dd16de21fc55a582d0e4269196cf",
@@ -1163,5 +1182,253 @@
       "other_nine_initial_file_hashes_unchanged": true,
       "initial_json_preserved_byte_identically": true
     }
-  ]
+  ],
+  "target_final_source_intake": {
+    "copied_new_owned_files": [
+      {
+        "path": "app/service/BusinessFeatureCatalog.php",
+        "bytes": 5130,
+        "sha256": "ff0a3350c5f9bf1a95e04e1f5a4d40ad9faaf59742e93a62025f99947d6a1156"
+      },
+      {
+        "path": "app/service/BusinessWorkspaceService.php",
+        "bytes": 11344,
+        "sha256": "83e6e64d736dc26e96ca7ea93f3f348b346e7ad9d994a7fb41044a967e697b78"
+      },
+      {
+        "path": "app/service/GuestOperationsService.php",
+        "bytes": 29965,
+        "sha256": "e7598f145aca23aecc221692be920ace966a394e52973df942d764f535225e4f"
+      },
+      {
+        "path": "app/service/CampaignOperationsService.php",
+        "bytes": 30740,
+        "sha256": "f9d74173003dcc486a080e72fced4cfe772fb17ea74da69d1123cb6c1a92d61f"
+      },
+      {
+        "path": "app/controller/BusinessWorkspace.php",
+        "bytes": 3448,
+        "sha256": "178a9caca76930de1ae0635695bf47fd1a3c5817af38c7e05889def3960f884a"
+      },
+      {
+        "path": "app/controller/GuestOperations.php",
+        "bytes": 3508,
+        "sha256": "6d37c13eebc4cc46a6b2b44ac2058fb52bd581d8422ea98da2de9bf282a99e1f"
+      },
+      {
+        "path": "app/controller/CampaignOperations.php",
+        "bytes": 3555,
+        "sha256": "91bbb76136c25629bd917a3cd8548184955c11cd3135ef105323277c049d043b"
+      },
+      {
+        "path": "route/domain/business_workspace.php",
+        "bytes": 478,
+        "sha256": "345f72abdc4caf5acd7f49078cde882fc0e64d984bcdc66662f927bc56017c0a"
+      },
+      {
+        "path": "route/domain/guest_operations.php",
+        "bytes": 797,
+        "sha256": "9817ada28a785ee33bffd55a0674f54d60bf214a4b2cf02e3c6200d581f5a0cc"
+      },
+      {
+        "path": "route/domain/campaign_operations.php",
+        "bytes": 674,
+        "sha256": "2d0672e4444e38aa28f53184093e69e8d4066fedd46bd07038e982209273c4f9"
+      },
+      {
+        "path": "public/components/system/business-feature-workspace.js",
+        "bytes": 25688,
+        "sha256": "87ee8cbfc4fc38d3264ab44ecfe2cf6036135ea6afdd5791cda0be5a742a6609"
+      },
+      {
+        "path": "public/components/system/guest-operations-panel.js",
+        "bytes": 26286,
+        "sha256": "bc503590643df09037664bd0dbc21f534ca4b66f309f3c5c6729ab784437ac81"
+      },
+      {
+        "path": "public/components/system/campaign-operations-panel.js",
+        "bytes": 31246,
+        "sha256": "9938ae2ac74a1b7da816cdc2d5361fbeb0af5fca5b3ad457a335adb69a147022"
+      },
+      {
+        "path": "public/components/system/guest-feedback-qr.js",
+        "bytes": 4840,
+        "sha256": "47ec679dc1ec46b5fa9b695fe03003603d6c17ae9f100a42fc136ad469c1cdbf"
+      },
+      {
+        "path": "database/migrations/20261002_create_campaign_operation_versions.sql",
+        "bytes": 1311,
+        "sha256": "14b8b42a053aa0dd5727f4179d08f5e36fdad4b4045358255bc700365b2dd4a7"
+      },
+      {
+        "path": "database/migrations/20261002_z_create_business_workspace.sql",
+        "bytes": 835,
+        "sha256": "ac3790578902ebaee967679297a70b71a2fde42fc8c08d109ead6e80dc892bd5"
+      },
+      {
+        "path": "database/migrations/20261002_z_create_guest_operations.sql",
+        "bytes": 4353,
+        "sha256": "55f3c81977025ebd84ac010cf7596a10afecf70936fe0805b684ed5bed9f76e8"
+      },
+      {
+        "path": "tests/BusinessWorkspaceServiceTest.php",
+        "bytes": 12859,
+        "sha256": "b201deb07555e45cbdd08b82769a8d07559cbd46190b32d52e5f57f9484973eb"
+      },
+      {
+        "path": "tests/GuestOperationsServiceTest.php",
+        "bytes": 23362,
+        "sha256": "cbcb7ad143104577c52161ea991fdfc4b0ddf98a394aec9888bd0e3746fe528c"
+      },
+      {
+        "path": "tests/CampaignOperationsServiceTest.php",
+        "bytes": 30133,
+        "sha256": "72f53f2da564d9269776ed784df15456c4164a67fcd8b5d4479bf84fb83daebd"
+      },
+      {
+        "path": "tests/Support/business_workspace_fixture_rpc.php",
+        "bytes": 3158,
+        "sha256": "0774bcde2cb1436da3812065b174e8f18a12e01d566bd96a2663cb528f4bc3b2"
+      },
+      {
+        "path": "tests/Support/GuestOperationsSqliteFixture.php",
+        "bytes": 2810,
+        "sha256": "573a38afd2e5d4eb2b4c6f828f872078521d55705a4b618604f0a5fa2ab4c5ef"
+      },
+      {
+        "path": "tests/fixtures/guest_operations_http_bridge.php",
+        "bytes": 2593,
+        "sha256": "4e2b99065e7bae4fc44fa3abb7276d557d2ad4f40a63bd5a6fa2a2c517264673"
+      },
+      {
+        "path": "tests/automation/business_feature_workspace_browser.test.mjs",
+        "bytes": 17774,
+        "sha256": "ee1d82700f3c72916dbaebde30f8a27033c0f8c7f04653b688022c4ff17c2959"
+      },
+      {
+        "path": "tests/automation/business_feature_workspace_async_state.test.mjs",
+        "bytes": 7617,
+        "sha256": "416fb6aca3f94424af0a612c2e9f9c16af1a5fb4ad70dbb247cdb40da925a5e9"
+      },
+      {
+        "path": "tests/automation/frontend_login_destination.test.mjs",
+        "bytes": 3193,
+        "sha256": "8cc7d949794fc6f097e670c5691cbcd6ba877606471d115ea564bdc04392ed2b"
+      },
+      {
+        "path": "tests/automation/guest_operations_panel.test.mjs",
+        "bytes": 19353,
+        "sha256": "ef4618ed01b8ab42c839ef11ace75f8019e94298cc6111baba7e60c70db78ed4"
+      },
+      {
+        "path": "tests/automation/campaign_operations_browser.test.mjs",
+        "bytes": 13955,
+        "sha256": "622228b99cc53dc74fe5adbee6cdaa5c10929a219b38bdf3d02aa23e688ac805"
+      },
+      {
+        "path": "tests/automation/business_workspace_migrations_contract.test.mjs",
+        "bytes": 4405,
+        "sha256": "e597d318780e5919a532908d740064cfeb19c9fb19072ac8c6d5b87fd4f82bdd"
+      },
+      {
+        "path": "tests/automation/changqing_operating_hub.test.mjs",
+        "bytes": 17280,
+        "sha256": "8a543dcc2621b0072c9b0afca6b617dcdf1a0dde4d77541301522525d4e97589"
+      },
+      {
+        "path": "docs/capability-absorption/2026-10-02-three-round-hardening.md",
+        "bytes": 7534,
+        "sha256": "4ffc038731ec113754aa945a4163c82f13169568049909e19e844e6f89c3b944"
+      },
+      {
+        "path": "docs/capability-absorption/2026-10-02-three-phase-custom-workspace.md",
+        "bytes": 8027,
+        "sha256": "50d5626b51dd066ae336d30279a7028cb3baf5ae0098ea8799d652cf61449a2b"
+      },
+      {
+        "path": "docs/capability-absorption/2026-10-02-changqing-feature-priorities.md",
+        "bytes": 19693,
+        "sha256": "b328b0a820b54c9768d4bd83a976e2cf662f069391b7f2433bb4a4f61467a100"
+      },
+      {
+        "path": "docs/capability-absorption/2026-10-02-changqing-integration.md",
+        "bytes": 6704,
+        "sha256": "e600ea424b79a3d8fda2134c7a64aedba1ec17511469f0305e3f8974b994753b"
+      },
+      {
+        "path": "docs/capability-absorption/2026-10-02-deep-hardening-followup.md",
+        "bytes": 6208,
+        "sha256": "9326d20627cce4e13510fd2d114ce6d2f48bc6e90dc3b2b9ce04f90dc0048028"
+      }
+    ],
+    "shared_files_and_generated_assets": "semantic integration and target rebuild still pending"
+  },
+  "composed_acceptance": {
+    "at": "2026-10-02T13:58:53.113Z",
+    "prepared_against_head": "73b696d6672845040c07e69419dabc2bf79759f0",
+    "receipt": "docs/integration/receipts/composed-main-thread-20261002.json",
+    "verification": {
+      "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
+      "php": {
+        "deduplicated": true,
+        "files": 54,
+        "assertions": 7692,
+        "skipped": 0,
+        "tests": 856
+      },
+      "node": {
+        "deduplicated": true,
+        "skipped": 0,
+        "tests": 322,
+        "passed": 322,
+        "files": 30,
+        "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28 + operating asset build4 + viewer4; repeats not counted",
+        "runner_breakdown": {
+          "playwright": {
+            "tests": 1,
+            "files": 1
+          },
+          "node": {
+            "tests": 321,
+            "files": 29
+          },
+          "caliber": "30files322 automation tests; separate seven mounted probes; full focused runs deduplicated by file"
+        }
+      },
+      "browser_probes": {
+        "scope": "finance facade, learning, investment/import/scenario, review exact readback/export, deferred network/factory retry",
+        "passed": true,
+        "final_generated": 7
+      },
+      "frontend_build": "npm run build:frontend passed after latest main composition",
+      "public_entry": {
+        "target": 620000,
+        "startup_gzip_bytes": 619534,
+        "passed": true
+      },
+      "routes": {
+        "controllers": 69,
+        "public_actions": 787,
+        "covered": true
+      },
+      "integration_gate": "passed by mandatory exact-index pre-commit; final clean worktree gate separately verified before delivery",
+      "real_business_database_writes": false,
+      "real_account_acceptance": false,
+      "production_migration": false,
+      "deployment": false,
+      "business_chain_local": {
+        "runtime": "default CLI runtime verified in CI isolated MySQL; dedicated synthetic hotel case not configured and skipped",
+        "static_contract": "passed",
+        "ci_snapshot": {
+          "passed": 7,
+          "head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e",
+          "overall_ci": "failed on unrelated finance fixture, not a passed full run",
+          "skipped": 1,
+          "test_cases": 8
+        }
+      }
+    },
+    "shared_files_and_generated_assets": "semantic integration and complete target-source rebuild passed",
+    "github": "remote acceptance recorded separately"
+  }
 }

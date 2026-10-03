@@ -256,6 +256,93 @@ final class InvestmentPaybackPersistenceTest extends TestCase
         self::assertSame('2026-09-30', $archived['summary']['as_of']);
     }
 
+    public function testCommittedProjectEditReplaysExactLostReplyWithoutChangingHistoryOrAudit(): void
+    {
+        $service = $this->service();
+        $created = $service->saveProject($this->project(['opening_as_of' => '2026-08-31',
+            'opening_invested' => '1000.00', 'opening_recovered' => '0.00', 'opening_source' => '合成期初银行核对']));
+        $id = $created['project']['id'];
+        $request = ['id' => $id, 'expected_version' => $created['project']['version'],
+            'opening_invested' => '1200.01', 'history_complete_through' => '2026-09-30', 'notes' => '合成期初更正'];
+        $saved = $service->saveProject($request); // The committed POST reply is lost before the caller sees it.
+        self::assertNull($saved['project']['history_complete_through']);
+        self::assertSame($request['expected_version'] + 1, $saved['project']['version']);
+        $durable = $this->durablePaybackSnapshot();
+        $retry = $this->reconnectPaybackService()->saveProject($request);
+        self::assertSame($saved, $retry);
+        self::assertSame($durable, $this->durablePaybackSnapshot());
+        self::assertSame($retry, $this->service()->detail($id));
+    }
+
+    public function testCommittedEntryEditReplaysExactLostReplyWithoutChangingCashOrAudit(): void
+    {
+        $service = $this->service();
+        $id = $service->saveProject($this->project())['project']['id'];
+        $cash = $service->saveEntry($id, $this->entry('investment', '100.01', 'lost-entry-reply'));
+        $entryId = $cash['entries'][0]['id'];
+        $request = ['id' => $entryId, 'expected_version' => $cash['entries'][0]['version'],
+            'amount' => '125.37', 'date' => '2026-09-02', 'source' => '合成更正银行流水', 'notes' => '合成资金更正'];
+        $saved = $service->saveEntry($id, $request); // Retry the same draft, including the old version.
+        self::assertSame($request['expected_version'] + 1, $saved['entries'][0]['version']);
+        $durable = $this->durablePaybackSnapshot();
+        $retry = $this->reconnectPaybackService()->saveEntry($id, $request);
+        self::assertSame($saved, $retry);
+        self::assertSame($durable, $this->durablePaybackSnapshot());
+        self::assertSame($retry, $this->service()->detail($id));
+    }
+
+    public function testCommittedUpdateReplayRejectsOtherActorsDifferentContentAndLaterTransitions(): void
+    {
+        foreach (['project', 'entry'] as $mode) {
+            $edit = $this->committedUpdateFixture($mode, 'boundary-' . $mode);
+            $durable = $this->durablePaybackSnapshot();
+            $this->assertFailure(fn() => $this->repeatCommittedUpdate($edit, $edit['request'], $this->service(10, 8)), 409);
+            $this->assertFailure(fn() => $this->repeatCommittedUpdate($edit, $edit['request'], $this->service(20, 7, [90])), 404);
+            $this->assertFailure(fn() => $this->repeatCommittedUpdate($edit, array_merge($edit['request'], ['notes' => '另一份草稿'])), 409);
+            $this->assertFailure(fn() => $this->repeatCommittedUpdate($edit, array_merge($edit['request'], ['expected_version' => 99])), 409);
+            self::assertSame($durable, $this->durablePaybackSnapshot(), $mode);
+            $canonical = $edit['request']; $canonical['expected_version'] = (string)$canonical['expected_version'];
+            self::assertSame($edit['saved'], $this->repeatCommittedUpdate($edit, $canonical));
+            self::assertSame($durable, $this->durablePaybackSnapshot(), $mode);
+            $version = $mode === 'project' ? $edit['saved']['project']['version'] : $edit['saved']['entries'][0]['version'];
+            $changed = $this->repeatCommittedUpdate($edit, array_merge($edit['request'], ['expected_version' => $version, 'notes' => '中间更正']));
+            $version = $mode === 'project' ? $changed['project']['version'] : $changed['entries'][0]['version'];
+            $restored = $this->repeatCommittedUpdate($edit, array_merge($edit['request'], ['expected_version' => $version]));
+            self::assertSame($edit['request']['notes'], $mode === 'project' ? $restored['project']['notes'] : $restored['entries'][0]['notes']);
+            $durable = $this->durablePaybackSnapshot();
+            $this->assertFailure(fn() => $this->repeatCommittedUpdate($edit, $edit['request']), 409);
+            self::assertSame($durable, $this->durablePaybackSnapshot(), $mode . ': identical content cannot bypass later versions');
+        }
+    }
+
+    public function testCommittedUpdateReplayRequiresExactUntamperedScopedUpdateEvidence(): void
+    {
+        foreach (['project', 'entry'] as $mode) {
+            foreach (['missing', 'json', 'before_version', 'before_scope', 'after_version', 'after_content', 'actor', 'digest'] as $damage) {
+                $edit = $this->committedUpdateFixture($mode, $mode . '-' . $damage);
+                $query = Db::name('investment_payback_events')->where('project_id', $edit['project_id'])
+                    ->where('event_type', $mode === 'project' ? 'project_updated' : 'entry_updated');
+                $event = $query->order('id', 'desc')->find();
+                $payload = json_decode($event['payload_json'], true, 512, JSON_THROW_ON_ERROR);
+                if ($damage === 'missing') Db::name('investment_payback_events')->where('id', $event['id'])->delete();
+                elseif ($damage === 'json') Db::name('investment_payback_events')->where('id', $event['id'])->update(['payload_json' => '{broken']);
+                elseif ($damage === 'actor') Db::name('investment_payback_events')->where('id', $event['id'])->update(['actor_id' => 8]);
+                elseif ($damage === 'digest') Db::name($mode === 'project' ? 'investment_payback_projects' : 'investment_payback_entries')
+                    ->where('id', $edit['record_id'])->update(['input_digest' => str_repeat('a', 64)]);
+                else {
+                    if ($damage === 'before_version') $payload['before']['version'] = 99;
+                    elseif ($damage === 'before_scope') $payload['before']['tenant_id'] = 20;
+                    elseif ($damage === 'after_version') $payload['after']['version'] = 99;
+                    elseif ($damage === 'after_content') $payload['after']['notes'] = '被改坏的审计内容';
+                    Db::name('investment_payback_events')->where('id', $event['id'])->update(['payload_json' => json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)]);
+                }
+                $durable = $this->durablePaybackSnapshot();
+                $this->assertFailure(fn() => $this->repeatCommittedUpdate($edit, $edit['request'], $this->reconnectPaybackService()), 409);
+                self::assertSame($durable, $this->durablePaybackSnapshot(), $mode . ':' . $damage);
+            }
+        }
+    }
+
     public function testRequestIdentityConflictAndOptimisticVersionProtectAgainstLostWrites(): void
     {
         $service = $this->service();
@@ -1110,6 +1197,29 @@ final class InvestmentPaybackPersistenceTest extends TestCase
         app()->instance('request', $request);
         $reflection->getProperty('request')->setValue($controller, $request);
         return $controller;
+    }
+
+    private function committedUpdateFixture(string $mode, string $key): array
+    {
+        $service = $this->service();
+        $created = $service->saveProject($this->project(['client_request_id' => 'edit-replay-' . $key,
+            'project_name' => '合成重试项目-' . $key, 'hotel_id' => 80, 'history_complete_through' => null]));
+        $id = $created['project']['id'];
+        if ($mode === 'project') $request = ['id' => $id, 'expected_version' => $created['project']['version'], 'notes' => '同一份原始草稿'];
+        else {
+            $cash = $service->saveEntry($id, $this->entry('investment', '100.01', 'edit-cash-' . $key));
+            $request = ['id' => $cash['entries'][0]['id'], 'expected_version' => $cash['entries'][0]['version'],
+                'amount' => '125.37', 'source' => '合成原始更正流水', 'notes' => '同一份原始草稿'];
+        }
+        $edit = ['mode' => $mode, 'project_id' => $id, 'record_id' => $request['id'], 'request' => $request];
+        $edit['saved'] = $this->repeatCommittedUpdate($edit, $request, $service);
+        return $edit;
+    }
+
+    private function repeatCommittedUpdate(array $edit, array $request, ?InvestmentPaybackService $service = null): array
+    {
+        $service ??= $this->service();
+        return $edit['mode'] === 'project' ? $service->saveProject($request) : $service->saveEntry($edit['project_id'], $request);
     }
 
     private function durablePaybackSnapshot(): array

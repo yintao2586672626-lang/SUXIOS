@@ -1,5 +1,5 @@
 (() => {
-    const DELIVERY_VERSION = '2026-08-26.1';
+    const DELIVERY_VERSION = '2026-10-02.1';
 
     const parsedValue = (value) => {
         if (typeof value !== 'string') return value;
@@ -785,6 +785,11 @@
         const aiDailyReportPresentationLoading = ref(false);
         const aiDailyReportPresentationResult = ref(null);
         const aiEvidenceProposals = ref({});
+        const aiDailyReportPresentationReview = ref(null);
+        const aiDailyReportPresentationReviewBusy = ref(false);
+        const aiDailyReportPresentationReviewError = ref('');
+        let reviewSequence = 0;
+        let persistedReviewItems = '';
         const aiDailyReportBroadcastSpeaking = ref(false);
         let presentationReadSequence = 0;
         let presentationGenerationSequence = 0;
@@ -993,6 +998,86 @@
                 && current.sessionEpoch === expected.sessionEpoch;
         };
 
+        const reviewIdentityMatches = (identity, sequence) => {
+            const current = currentIdentity();
+            return sequence === reviewSequence && current.reportId === identity.reportId
+                && current.hotelId === identity.hotelId && current.audience === identity.audience;
+        };
+        const validateReview = (review, identity, spec, saved = false) => {
+            if (!review || Number(review.report_id) !== identity.reportId || Number(review.hotel_id) !== identity.hotelId
+                || review.audience !== identity.audience || Number(review.presentation_spec_id) !== Number(spec.record_id)
+                || review.spec_fingerprint !== spec.spec_fingerprint || !/^[a-f0-9]{64}$/.test(review.review_fingerprint || '')
+                || !Array.isArray(review.items) || !review.items.length || (saved && review.readback_verified !== true)) {
+                throw new Error('报告复核身份、版本或回读验证失败');
+            }
+            return review;
+        };
+        const reviewQuery = (identity, spec) => `/ai-daily-reports/${identity.reportId}/presentation-review?audience=${encodeURIComponent(identity.audience)}&presentation_spec_id=${Number(spec.record_id)}&expected_spec_fingerprint=${spec.spec_fingerprint}`;
+        const prepareAiDailyReportPresentationReview = async () => {
+            const identity = currentIdentity();
+            if (!identity.reportId || !identity.hotelId || aiDailyReportPresentationReviewBusy.value) return;
+            const sequence = ++reviewSequence;
+            aiDailyReportPresentationReviewBusy.value = true;
+            aiDailyReportPresentationReviewError.value = '';
+            aiDailyReportPresentationReview.value = null;
+            try {
+                const response = await request(`/ai-daily-reports/${identity.reportId}/presentation-spec`, { method: 'POST', body: JSON.stringify({ audience: identity.audience }) });
+                if (!reviewIdentityMatches(identity, sequence)) return;
+                const spec = response.data || {};
+                if (response.code !== 200 || spec.readback_verified !== true || !/^[a-f0-9]{64}$/.test(spec.spec_fingerprint || '')
+                    || Number(spec.report_id) !== identity.reportId || Number(spec.hotel_id) !== identity.hotelId || spec.audience !== identity.audience) throw new Error(response.message || '当前报告规格回读失败');
+                const read = await request(reviewQuery(identity, spec));
+                if (!reviewIdentityMatches(identity, sequence)) return;
+                if (read.code !== 200) throw new Error(read.message || '报告复核读取失败');
+                aiDailyReportPresentationReview.value = validateReview(read.data, identity, spec);
+                persistedReviewItems = JSON.stringify(read.data.items);
+            } catch (error) {
+                if (reviewIdentityMatches(identity, sequence)) aiDailyReportPresentationReviewError.value = errorMessage(error, '报告复核读取失败');
+            } finally {
+                if (reviewIdentityMatches(identity, sequence)) aiDailyReportPresentationReviewBusy.value = false;
+            }
+        };
+        const saveAiDailyReportPresentationReview = async () => {
+            const identity = currentIdentity();
+            const current = aiDailyReportPresentationReview.value;
+            if (!current || aiDailyReportPresentationReviewBusy.value) return;
+            const sequence = ++reviewSequence;
+            aiDailyReportPresentationReviewBusy.value = true;
+            aiDailyReportPresentationReviewError.value = '';
+            const spec = { record_id: current.presentation_spec_id, spec_fingerprint: current.spec_fingerprint };
+            try {
+                const response = await request(`/ai-daily-reports/${identity.reportId}/presentation-review`, { method: 'POST', body: JSON.stringify({
+                    audience: identity.audience, presentation_spec_id: spec.record_id, expected_spec_fingerprint: spec.spec_fingerprint,
+                    expected_review_fingerprint: current.review_fingerprint,
+                    decisions: current.items.map(item => ({ id: item.id, decision: item.decision, note: item.note || '' })),
+                }) });
+                if (!reviewIdentityMatches(identity, sequence)) return;
+                if (response.code !== 200) throw new Error(response.message || '报告复核保存失败');
+                const saved = validateReview(response.data, identity, spec, true);
+                const read = await request(reviewQuery(identity, spec));
+                if (!reviewIdentityMatches(identity, sequence)) return;
+                if (read.code !== 200) throw new Error(read.message || '复核保存后的回读失败');
+                const readback = validateReview(read.data, identity, spec, true);
+                if (saved.review_id !== readback.review_id || saved.review_fingerprint !== readback.review_fingerprint) throw new Error('复核已变化，请刷新后核对');
+                aiDailyReportPresentationReview.value = readback;
+                persistedReviewItems = JSON.stringify(readback.items);
+                notify('报告逐项复核已保存并精确回读', 'success');
+            } catch (error) {
+                if (reviewIdentityMatches(identity, sequence)) {
+                    aiDailyReportPresentationReview.value = null;
+                    aiDailyReportPresentationReviewError.value = errorMessage(error, '报告复核保存失败，请刷新');
+                }
+            } finally {
+                if (reviewIdentityMatches(identity, sequence)) aiDailyReportPresentationReviewBusy.value = false;
+            }
+        };
+        const aiDailyReportFormalExportReady = () => {
+            const review = aiDailyReportPresentationReview.value;
+            return review?.status === 'reviewed' && review.readback_verified === true && review.pending_item_count === 0
+                && review.revision_item_count === 0 && JSON.stringify(review.items) === persistedReviewItems
+                && review.items.every(item => item.decision === (item.is_evidence_gap ? 'gap_acknowledged' : 'confirmed'));
+        };
+
         const loadAiDailyReportPresentationArtifact = async () => {
             const identity = currentIdentity();
             const sequence = ++presentationReadSequence;
@@ -1037,6 +1122,9 @@
                     contentBytes: Number(artifact.content_bytes || 0),
                     contentSha256: String(artifact.content_sha256 || '').slice(0, 16),
                     specFingerprint: String(artifact.spec_fingerprint || '').slice(0, 16),
+                    humanReviewStatus: artifact.human_review_status || 'pending',
+                    exportMode: artifact.export_mode || 'draft',
+                    reviewFingerprint: artifact.review_fingerprint || null,
                 };
             } catch (error) {
                 if (!identityMatches(identity, sequence, 'read')) return;
@@ -1056,7 +1144,8 @@
             }
         };
 
-        const downloadAiDailyReportPackage = async () => {
+        const downloadAiDailyReportPackage = async (mode = 'draft') => {
+            mode = mode === 'formal' ? 'formal' : 'draft';
             const identity = currentIdentity();
             if (!identity.reportId || aiDailyReportPresentationGenerating.value) return;
             const sequence = ++presentationGenerationSequence;
@@ -1085,6 +1174,13 @@
                 ) {
                     throw new Error('演示规格身份或精确回读验证失败');
                 }
+                const reviewResponse = await request(reviewQuery(identity, storedSpec));
+                if (!isCurrent()) return;
+                if (reviewResponse.code !== 200) throw new Error(reviewResponse.message || '当前版本复核回读失败');
+                const currentReview = validateReview(reviewResponse.data, identity, storedSpec);
+                aiDailyReportPresentationReview.value = currentReview;
+                persistedReviewItems = JSON.stringify(currentReview.items);
+                if (mode === 'formal' && !aiDailyReportFormalExportReady()) throw new Error('正式导出需要当前版本逐项复核完成；请先下载草稿核对HTML和PPTX');
 
                 const response = await request(`/ai-daily-reports/${identity.reportId}/presentation-artifacts`, {
                     method: 'POST',
@@ -1092,6 +1188,8 @@
                         audience: identity.audience,
                         presentation_spec_id: presentationSpecId,
                         expected_spec_fingerprint: expectedSpecFingerprint,
+                        export_mode: mode,
+                        expected_review_fingerprint: currentReview.review_fingerprint,
                     }),
                 });
                 if (!isCurrent()) return;
@@ -1111,6 +1209,8 @@
                     || String(artifact.audience || '') !== identity.audience
                     || Number(artifact.presentation_spec_id || 0) !== presentationSpecId
                     || String(artifact.spec_fingerprint || '').trim().toLowerCase() !== expectedSpecFingerprint
+                    || artifact.export_mode !== mode || artifact.review_fingerprint !== currentReview.review_fingerprint
+                    || artifact.human_review_status !== currentReview.status
                 ) {
                     throw new Error('演示包未通过服务端保存回读验证');
                 }
@@ -1142,6 +1242,9 @@
                     contentBytes: expectedBytes,
                     contentSha256: expectedSha.slice(0, 16),
                     specFingerprint: String(artifact.spec_fingerprint || '').slice(0, 16),
+                    humanReviewStatus: artifact.human_review_status,
+                    exportMode: artifact.export_mode,
+                    reviewFingerprint: artifact.review_fingerprint,
                 };
                 notify('PPTX/HTML 演示包已验真并开始下载', 'success');
             } catch (error) {
@@ -1290,6 +1393,10 @@
                 presentationGenerationSequence++;
                 aiDailyReportPresentationGenerating.value = false;
                 aiDailyReportPresentationResult.value = null;
+                reviewSequence++;
+                aiDailyReportPresentationReview.value = null;
+                aiDailyReportPresentationReviewError.value = '';
+                aiDailyReportPresentationReviewBusy.value = false;
                 void loadAiDailyReportPresentationArtifact();
             },
             { flush: 'post', immediate: true },
@@ -1299,6 +1406,7 @@
             stopAiDailyOperationsBroadcast();
             presentationReadSequence++;
             presentationGenerationSequence++;
+            reviewSequence++;
         });
 
         const local = {
@@ -1312,6 +1420,12 @@
             aiDailyReportPresentationGenerating,
             aiDailyReportPresentationLoading,
             aiDailyReportPresentationResult,
+            aiDailyReportPresentationReview,
+            aiDailyReportPresentationReviewBusy,
+            aiDailyReportPresentationReviewError,
+            prepareAiDailyReportPresentationReview,
+            saveAiDailyReportPresentationReview,
+            aiDailyReportFormalExportReady,
             aiDailyReportBroadcastSpeaking,
             aiDailyOperationsBroadcast,
             aiDailyReportBroadcastSpeechSupported,

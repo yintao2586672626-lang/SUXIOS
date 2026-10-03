@@ -1,0 +1,37 @@
+{
+  "source_kind": "user_supplied_procurement_price_recommendation",
+  "source_filename": "1001酒店易耗品采购价目表（各档位推荐）(1).xlsx",
+  "source_sha256": "BF8AA1E0290BCF7F6464D6FFA63BDB653C1E11745A816EA53F517E2FC3EBA4F0",
+  "source_sheet": "Sheet1",
+  "source_range": "A1:G41",
+  "extracted_on": "2026-10-01",
+  "version_label": "consumables-price-list-reference-20261001-v1",
+  "quote_effective_date": null,
+  "supplier": null,
+  "contains_current_hotel_fact": false,
+  "original_workbook_modified": false,
+  "formulas_executed": false,
+  "external_links_fetched": false,
+  "retained_files": [
+    {
+      "file": "source.xlsx",
+      "sha256": "BF8AA1E0290BCF7F6464D6FFA63BDB653C1E11745A816EA53F517E2FC3EBA4F0"
+    },
+    {
+      "file": "extracted.json",
+      "sha256": "3B33B841AF2C0E1361CFD29100C37E4393155DA4C09093151B43807FDF9EBD67"
+    },
+    {
+      "file": "catalog.json",
+      "sha256": "D129A820408654FC79B9E9345037590DC6BFDD27AD2BAFF7A80C24EEE1EB8053"
+    },
+    {
+      "file": "README.md",
+      "sha256": "4C864367955F5E0CBA2FE43654A9A1340C4D7F418E253BCC7F46F13B3E16EE08"
+    },
+    {
+      "file": "knowledge-pack.json",
+      "sha256": "BF6EE05962C3D6684E5E9F8ADE9DB399B1CC1E331771760D3F5F8F40BEC57178"
+    }
+  ]
+}

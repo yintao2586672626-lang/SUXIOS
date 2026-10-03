@@ -324,7 +324,7 @@ final class BookingMonitoringService
     private function authorizedHotels(int $tenantId, array $permitted, array $ids): array
     {
         if ($tenantId <= 0 || $ids === [] || count($ids) > 20) throw new InvalidArgumentException('booking_monitor_requires_1_to_20_same_tenant_hotels');
-        $ids = array_values(array_unique(array_map('intval', $ids)));
+        $ids = array_values(array_unique(array_map(fn(mixed $id): int => $this->roomId($id), $ids)));
         if (in_array(0, $ids, true) || array_diff($ids, array_map('intval', $permitted)) !== []) throw new RuntimeException('booking_monitor_hotel_outside_permitted_scope', 403);
         $rows = Db::name('hotels')->where('tenant_id', $tenantId)->whereIn('id', $ids)->field('id,tenant_id,name')->select()->toArray();
         if (count($rows) !== count($ids)) throw new RuntimeException('booking_monitor_hotel_tenant_scope_mismatch', 403);

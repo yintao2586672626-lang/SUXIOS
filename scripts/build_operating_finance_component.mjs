@@ -14,7 +14,10 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 await buildOperatingEconomicsComponent(repoRoot);
 const sourcePath = path.join(repoRoot, 'public/components/system/operating-finance-control-center.js');
 const artifactPath = path.join(repoRoot, 'public/components/system/operating-finance-control-center.min.js');
-const source = fs.readFileSync(sourcePath, 'utf8').replace(/\r\n?/g, '\n');
+const bridgePanelPath = path.join(repoRoot, 'public/components/system/investment-operating-bridge-panel.js');
+const workspacePaths = ['guest-feedback-qr.js', 'guest-operations-panel.js', 'campaign-operations-panel.js', 'business-feature-workspace.js']
+  .map(name => path.join(repoRoot, 'public/components/system', name));
+const source = [bridgePanelPath, ...workspacePaths, sourcePath].map(file => fs.readFileSync(file, 'utf8').replace(/\r\n?/g, '\n')).join('\n');
 const startMarker = '        template: `';
 const closingMarker = '\n        `,';
 const endMarker = `${closingMarker}\n    };`;
@@ -28,9 +31,11 @@ const compiled = compileFrontendTemplate(template);
 const compiledSource = source.slice(0, markerStart)
   + `        render: (function(Vue){${compiled}})(Vue),`
   + source.slice(templateEnd + closingMarker.length);
+const options = structuredClone(FRONTEND_TEMPLATE_MINIFY_OPTIONS);
+options.compress.booleans_as_integers = false;
 const result = await minify(
   { 'operating-finance-control-center.js': compiledSource },
-  structuredClone(FRONTEND_TEMPLATE_MINIFY_OPTIONS),
+  options,
 );
 if (!result.code) throw new Error('Operating-finance component minification returned empty output.');
 const artifact = `${result.code}\n`;

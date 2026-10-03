@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
+import { minify as realMinify } from 'terser';
 import { buildOperatingEconomicsComponent } from '../../scripts/build_operating_economics_component.mjs';
 
 const repoRoot = process.cwd();
@@ -19,6 +20,11 @@ const runScript = new AsyncFunction('crypto', 'fs', 'path', 'fileURLToPath', 'mi
     'buildOperatingEconomicsComponent', '__buildScriptUrl', 'console', script);
 const names = {
     finance: 'components/system/operating-finance-control-center.js',
+    bridgePanel: 'components/system/investment-operating-bridge-panel.js',
+    guestQr: 'components/system/guest-feedback-qr.js',
+    guest: 'components/system/guest-operations-panel.js',
+    campaign: 'components/system/campaign-operations-panel.js',
+    workspace: 'components/system/business-feature-workspace.js',
     artifact: 'components/system/operating-finance-control-center.min.js',
     lab: 'components/system/operating-opportunity-lab.js',
     economics: 'components/system/operating-economics-workbench.min.js',
@@ -30,10 +36,15 @@ const names = {
 };
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 10);
 
-function fixture() {
+function fixture({ realMinifier = false } = {}) {
     const tick = String.fromCharCode(96);
     const entries = {
         finance: 'x = {\n        template: ' + tick + '内容\n        ' + tick + ',\n    };',
+        bridgePanel: '// synthetic bridge panel source\n',
+        guestQr: '// synthetic guest QR source\n',
+        guest: '// synthetic guest panel source\n',
+        campaign: '// synthetic campaign panel source\n',
+        workspace: '// synthetic workspace source\n',
         artifact: 'compiled-finance;\n',
         lab: '// synthetic 今日事项 A\n',
         economics: '// synthetic 渠道贡献与耗材\n',
@@ -68,7 +79,7 @@ function fixture() {
     const run = async () => {
         let output;
         await runScript(crypto, closedFs, path, fileURLToPath,
-            async () => ({ code: 'compiled-finance;' }), () => 'return null;', {},
+            realMinifier ? realMinify : async () => ({ code: 'compiled-finance;' }), () => 'return null;', { compress: {} },
             updateFrontendAssetVersion, async () => {
                 const artifact = '// synthetic economics compiled ' + hash(get('economicsSource')) + '\n';
                 if (get('economics') !== artifact) closedFs.writeFileSync(path.join(repoRoot, 'public', names.economics), artifact);
@@ -80,6 +91,8 @@ function fixture() {
 }
 
 function assertChain(f) {
+    assert.equal(readFrontendAssetVersion(f.get('component'), names.artifact).hash, hash(f.get('artifact')),
+        'finance URL follows its exact compiled bundle bytes');
     const child = readFrontendAssetVersion(f.get('component'), names.lab);
     assert.equal(child.hash, hash(f.get('lab')), 'nested URL follows exact child bytes');
     assert.equal(child.versionPrefix, '20260831-impact-estimate');
@@ -170,7 +183,7 @@ test('the parent build compiles changed economics source before publishing its c
         const source = marker => 'window.syntheticEconomics = {\n        template: ' + tick
             + '<div v-if="available">' + marker + '</div>\n        ' + tick + ',\n};';
         const run = () => runScript(crypto, fs, path, fileURLToPath,
-            async () => ({ code: 'compiled-finance;' }), () => 'return null;', {},
+            async () => ({ code: 'compiled-finance;' }), () => 'return null;', { compress: {} },
             updateFrontendAssetVersion, buildOperatingEconomicsComponent,
             pathToFileURL(path.join(temporaryRoot, 'scripts/build_operating_finance_component.mjs')).href,
             { log() {} });
@@ -194,4 +207,39 @@ test('the parent build compiles changed economics source before publishing its c
         assert.ok(path.basename(temporaryRoot).startsWith('suxios-economics-build-'));
         fs.rmSync(temporaryRoot, { recursive: true, force: true });
     }
+});
+
+test('bridge source content changes propagate through the real minified finance bundle and remain stable on repeat', async () => {
+    const f = fixture({ realMinifier: true });
+    const financeSource = f.get('finance');
+    f.set('bridgePanel', "window.SUXI_BRIDGE_PANEL_MARKER = 'bridge-before';\n");
+    await f.run();
+    assert.ok(f.get('artifact').includes('bridge-before'), 'the official build must include the bridge source');
+    assertChain(f);
+    const namesInChain = ['artifact', 'component', 'bridge', 'index'];
+    const previous = namesInChain.map(name => f.get(name));
+    f.set('bridgePanel', "window.SUXI_BRIDGE_PANEL_MARKER = 'bridge-after';\n");
+    const changed = await f.run();
+    assert.equal(changed.changed, true);
+    assert.ok(f.get('artifact').includes('bridge-after'));
+    assert.ok(!f.get('artifact').includes('bridge-before'));
+    assertChain(f);
+    namesInChain.forEach((name, index) => assert.notEqual(f.get(name), previous[index], name + ' follows changed bridge content'));
+    assert.equal(f.get('finance'), financeSource, 'source identity changes must not rewrite the finance business source');
+    f.writes.length = 0;
+    const repeated = await f.run();
+    assert.equal(repeated.changed, false);
+    assert.deepEqual(f.writes, [], 'an identical bridge bundle does not republish assets');
+});
+
+for (const dependency of ['guestQr', 'guest', 'campaign', 'workspace']) test(dependency + ' content reaches the finance bundle and entry without rewriting business sources', async () => {
+    const f = fixture({ realMinifier: true });
+    const finance = f.get('finance');
+    f.set(dependency, 'window.TEST_ONLY_' + dependency + ' = "before";\n');
+    await f.run(); assert.ok(f.get('artifact').includes('before')); assertChain(f);
+    const previous = ['artifact','component','bridge','index'].map(name => f.get(name));
+    f.set(dependency, 'window.TEST_ONLY_' + dependency + ' = "after";\n');
+    await f.run(); assert.ok(f.get('artifact').includes('after')); assertChain(f);
+    ['artifact','component','bridge','index'].forEach((name,index) => assert.notEqual(f.get(name), previous[index]));
+    assert.equal(f.get('finance'), finance); f.writes.length = 0; await f.run(); assert.deepEqual(f.writes, []);
 });

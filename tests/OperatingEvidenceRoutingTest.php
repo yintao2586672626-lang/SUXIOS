@@ -523,4 +523,38 @@ final class OperatingEvidenceRoutingTest extends TestCase
     {
         return array_map(static fn($middleware) => is_array($middleware) ? $middleware[0] : $middleware, $rule->getOption('middleware', []));
     }
+
+    public function testMalformedConsumablesCollectionsRejectAsInputErrorsWithoutSaving(): void
+    {
+        $this->database();
+        $before = $this->storedRows();
+        foreach (['not-an-array', [['enabled' => true, 'source_date' => ['2026-09-20']]]] as $items) {
+            $request = $this->input(); $request['inputs']['items'] = $items;
+            $response = $this->call('saveEvidence', $request, $this->user());
+            self::assertSame(422, $response->getCode(), $response->getContent());
+            self::assertSame($before, $this->storedRows());
+        }
+    }
+
+    public function testFractionalHotelIdentityCannotReadOrWriteAnotherHotelEvidence(): void
+    {
+        $this->database();
+        $before = $this->storedRows();
+        foreach (['80.5', 80.5] as $hotelId) {
+            foreach (['evidenceOverview', 'previewEvidence', 'saveEvidence'] as $action) {
+                $response = $this->call($action, $this->input(['hotel_id' => $hotelId]), $this->user());
+                self::assertSame(422, $response->getCode(), $response->getContent());
+                self::assertSame($before, $this->storedRows());
+            }
+        }
+    }
+
+    public function testMalformedAccountingMonthIsRejectedWithoutServerFailure(): void
+    {
+        $this->database();
+        $before = $this->storedRows();
+        $response = $this->call('saveEvidence', $this->input(['period_month' => '2026-' . chr(0) . '9']), $this->user());
+        self::assertSame(422, $response->getCode(), $response->getContent());
+        self::assertSame($before, $this->storedRows());
+    }
 }

@@ -532,9 +532,6 @@ Route::group('api/lifecycle', function () {
     Route::get('/overview', 'Lifecycle/overview');
 })->middleware(\app\middleware\Auth::class);
 require __DIR__ . '/domain/investment_payback.php'; // P4 投资决策辅助 API
-Route::group('api/investment-decision', function () {
-    Route::get('/overview', 'InvestmentDecision/overview');
-})->middleware(\app\middleware\Auth::class);
 // ==================== 智略·战略推演 API ====================
 Route::group('api/strategy', function () {
     Route::post('/simulate', 'StrategySimulation/simulate');
@@ -554,6 +551,9 @@ Route::group('api/simulation', function () {
 // Operating loop, opportunity, action, opening, expansion and transfer routes.
 // The manifest is required here to preserve the original registration order.
 require __DIR__ . '/domain/operations.php';
+require __DIR__ . '/domain/business_workspace.php';
+require __DIR__ . '/domain/guest_operations.php';
+require __DIR__ . '/domain/campaign_operations.php';
 // ==================== 竞对价格监控 API ====================
 Route::get('api/competitor/events', 'CompetitorApi/events')->middleware(\app\middleware\Auth::class); Route::get('api/competitor/future-window', 'CompetitorApi/futureWindow')->middleware(\app\middleware\Auth::class);
 Route::get('api/competitor/targets', 'CompetitorApi/targets')->middleware(\app\middleware\Auth::class);

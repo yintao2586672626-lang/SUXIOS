@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "source_snapshot": "resources/frontend/app-template.html",
-  "source_snapshot_sha256": "12bd7a048eae22c68ece0bacb056c3cdeea109656478e9e2a4facc3f5a776b7c",
-  "source_snapshot_bytes": 2068298,
+  "source_snapshot_sha256": "1b45881602b9084aa9abde942038d10370b1e028e204790f961ce9254a4232be",
+  "source_snapshot_bytes": 2087793,
   "fragments": [
     {
       "id": "app-shell",
@@ -122,7 +122,7 @@
       "id": "page-operating-finance",
       "domain": "operations",
       "path": "fragments/19c-page-operating-finance.html",
-      "anchor": "<operating-finance-control-center"
+      "anchor": "<div v-if=\"currentPage === 'operating-finance'\""
     },
     {
       "id": "page-knowledge-center",

@@ -47,6 +47,10 @@ final class InvestmentOperatingBridgeControllerTest extends TestCase
         $response = $this->overview($this->user([]));
         self::assertSame(200, $response['code']);
         self::assertSame(80, $response['data']['hotel_id']);
+        self::assertSame(InvestmentOperatingBridgeService::CONTRACT_VERSION, $response['data']['investment_bridge']['contract_version']);
+        self::assertSame(10, $response['data']['investment_bridge']['tenant_id']);
+        self::assertSame(80, $response['data']['investment_bridge']['hotel_id']);
+        self::assertSame('2026-09', $response['data']['investment_bridge']['period_month']);
         self::assertSame('blocked', $response['data']['investment_bridge']['status']);
         self::assertSame('investment_view_permission_required', $response['data']['investment_bridge']['reason_code']);
         self::assertNull($response['data']['investment_bridge']['projects']);

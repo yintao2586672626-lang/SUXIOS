@@ -301,4 +301,36 @@ final class OperatingEvidenceChainTest extends TestCase
         self::assertTrue($read['readback_verified']);self::assertNull($read['result']['known_direct_cost']);
         self::assertNull($read['result']['known_costs_contribution_amount']);
     }
+
+    public function testFutureActualSourceIsRejectedBeforeSnapshotSave(): void
+    {
+        $input = $this->actual();
+        $input['items'][0]['source_date'] = '2099-01-31';
+        $before = Db::name(OperatingEvidenceSnapshotStore::TABLE)->count();
+        try {
+            $result = (new ConsumablesActualCostService())->calculate($input);
+            $store = new OperatingEvidenceSnapshotStore();
+            $scope = $store->scope(7, [80], 80, '2099-01', 'whole_hotel', 'consumables_actual');
+            $store->save($scope, ['inputs' => $result['inputs'], 'result' => $result, 'source_quality' => $result['source_quality']], 'future-source-proof', 1);
+            self::fail('A future inventory source must not be saved as actual consumption');
+        } catch (InvalidArgumentException $error) {
+            self::assertSame('consumables_source_date_in_future', $error->getMessage());
+        }
+        self::assertSame($before, Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
+
+    public function testShanghaiTodayAndExcludedFutureReferenceRemainCompatible(): void
+    {
+        $input = $this->actual();
+        $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $input['items'][0]['source_date'] = $today;
+        $input['items'][] = array_replace($input['items'][0], ['id' => 'excluded-future-reference', 'enabled' => false, 'source_date' => '2099-01-31']);
+        $result = (new ConsumablesActualCostService())->calculate($input);
+        self::assertSame('calculated', $result['status']);
+        self::assertSame(200.0, $result['actual_consumed_cost']);
+        self::assertSame(2.0, $result['actual_consumables_cost_per_room_night']);
+        self::assertSame($today, $result['items'][0]['source_date']);
+        self::assertSame('excluded', $result['items'][1]['status']);
+        self::assertSame('2099-01-31', $result['items'][1]['source_date']);
+    }
 }

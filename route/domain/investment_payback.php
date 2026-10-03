@@ -25,3 +25,8 @@ Route::group('api/investment-payback', function () {
     Route::post('/projects/:id/entries/:entryId/void', 'InvestmentPayback/voidEntry')->completeMatch(true);
     Route::post('/projects/:id/entries/:entryId/delete', 'InvestmentPayback/deleteEntry')->completeMatch(true);
 })->middleware(\app\middleware\Auth::class);
+
+// Keep the existing decision overview adjacent to the investment ledger routes.
+Route::group('api/investment-decision', function () {
+    Route::get('/overview', 'InvestmentDecision/overview');
+})->middleware(\app\middleware\Auth::class);

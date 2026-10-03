@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\BookingMonitoringService;
+use DateTimeImmutable;
+use DateTimeZone;
 use InvalidArgumentException;
 use RuntimeException;
 use think\facade\Db;
@@ -19,7 +21,7 @@ final class BookingMonitoring extends Base
             [$tenantId, $permitted] = $this->scope($ids, 'operation.view');
             $overview = (new BookingMonitoringService())->overview($tenantId, $permitted, $ids, [
                 'platform' => $this->request->param('platform', 'ctrip'),
-                'business_date' => $this->request->param('business_date', date('Y-m-d')),
+                'business_date' => $this->request->param('business_date', (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d')),
                 'fixed_time' => $this->request->param('fixed_time', '09:00'),
                 'horizon_days' => $this->request->param('horizon_days', 7),
             ]);
@@ -52,9 +54,11 @@ final class BookingMonitoring extends Base
     public function readSnapshot(): Response
     {
         try {
-            $hotelId = (int)$this->request->param('hotel_id', 0);
+            $hotelId = $this->hotelIds([$this->request->param('hotel_id', 0)])[0];
+            $snapshotId = filter_var($this->request->param('id', 0), FILTER_VALIDATE_INT);
+            if ($snapshotId === false || $snapshotId <= 0) throw new InvalidArgumentException('booking_monitor_snapshot_id_invalid');
             [$tenantId, $permitted] = $this->scope([$hotelId], 'operation.view');
-            return $this->success((new BookingMonitoringService())->readSnapshot($tenantId, $permitted, $hotelId, (int)$this->request->param('id', 0)));
+            return $this->success((new BookingMonitoringService())->readSnapshot($tenantId, $permitted, $hotelId, $snapshotId));
         } catch (Throwable $error) {
             return $this->failure($error, '预订快照回读失败');
         }

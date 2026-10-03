@@ -90,7 +90,10 @@ final class ChannelEconomicsService
         if ($sourceRefs === []) $missing[] = 'manual_source_refs_missing';
         $knownDirectCost = $hasKnownDeduction || ($coverage && $costsKnown) ? round($knownCosts, 2) : null;
         $knownContribution = $net !== null && $knownDirectCost !== null ? round($net - $knownCosts, 2) : null;
-        if (!is_finite($knownCosts) || abs($knownCosts) > 1e12 || ($knownContribution !== null && (!is_finite($knownContribution) || abs($knownContribution) > 1e12))) throw new InvalidArgumentException('channel_calculated_amount_out_of_range');
+        $settlementDifference = $orders !== null && $net !== null ? round($orders - $net, 2) : null;
+        foreach ([$knownCosts, $knownContribution, $settlementDifference] as $amount) {
+            if ($amount !== null && (!is_finite($amount) || abs($amount) > 1e12)) throw new InvalidArgumentException('channel_calculated_amount_out_of_range');
+        }
         $roas = $spend !== null && $spend > 0 && $attributed !== null && $basis !== '' ? round($attributed / $spend, 6) : null;
         if ($roas !== null && (!is_finite($roas) || abs($roas) > 1e12)) throw new InvalidArgumentException('channel_calculated_roas_out_of_range');
         $fullContribution = $coverage && $costsKnown && $net !== null && $sourceRefs !== [] ? $knownContribution : null;
@@ -119,7 +122,7 @@ final class ChannelEconomicsService
             'inputs' => $inputs, 'currency' => 'CNY', 'net_revenue' => $net, 'known_direct_cost' => $knownDirectCost,
             'channel_net_contribution_amount' => $fullContribution, 'known_costs_contribution_amount' => $knownContribution,
             'attributed_roas' => $roas,
-            'order_to_settlement_difference' => $orders !== null && $net !== null ? round($orders - $net, 2) : null,
+            'order_to_settlement_difference' => $settlementDifference,
             'missing_items' => array_values(array_unique($missing)), 'source_receipts' => $sources,
             'evidence_chain' => ['status' => $evidenceComplete && $closedPeriod ? 'ready_for_same_scope_review' : 'incomplete',
                 'period_status' => array_key_exists('period_closed', $sources) ? ($closedPeriod ? 'closed' : 'open') : 'unknown',
@@ -214,6 +217,7 @@ final class ChannelEconomicsService
     {
         if ($v === null || $v === '') return null;
         if (is_bool($v) || !is_numeric($v) || !is_finite((float)$v) || abs((float)$v) > 1e12 || (!$signed && (float)$v < 0)) throw new InvalidArgumentException('channel_number_invalid');
+        if (is_string($v) && (float)$v === 0.0 && preg_match('/[1-9]/', preg_split('/e/i', $v, 2)[0])) throw new InvalidArgumentException('channel_number_invalid');
         return (float)$v;
     }
     private function text(mixed $v, int $limit): string { if (!is_scalar($v) || is_bool($v) || mb_strlen((string)$v) > $limit) throw new InvalidArgumentException('channel_text_invalid'); return trim((string)$v); }

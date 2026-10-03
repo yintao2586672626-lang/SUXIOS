@@ -54,10 +54,10 @@ final class OperatingFinance extends Base
                 if ($replay !== null) return $this->success($replay,'既有经营证据已精确回读，未新增版本');
             }
             if ($scope['kind'] === 'consumables_actual') {
-                foreach ($input['items'] ?? [] as $item) {
-                    if (($item['enabled'] ?? false) && !empty($item['source_date']) && substr((string)$item['source_date'], 0, 7) !== $scope['period_month']) throw new InvalidArgumentException('耗材来源日期必须属于当前核算月');
-                }
                 $result = (new \app\service\ConsumablesActualCostService())->calculate($input);
+                foreach ($result['inputs']['items'] as $item) {
+                    if ($item['enabled'] && $item['source_date'] !== '' && substr($item['source_date'], 0, 7) !== $scope['period_month']) throw new InvalidArgumentException('耗材来源日期必须属于当前核算月');
+                }
             } else {
                 $sources = $this->module('channel_sources', fn(): array => (new \app\service\ChannelEconomicsService())->sourceReceipts($scope['tenant_id'], $scope['hotel_id'], $scope['platform'], $scope['period_month']));
                 $result = (new \app\service\ChannelEconomicsService())->calculate($input, $sources);
@@ -170,7 +170,12 @@ final class OperatingFinance extends Base
                 ? $this->module('investment_bridge', fn(): array => (new \app\service\InvestmentOperatingBridgeService(
                     new \app\service\InvestmentPaybackService($this->currentUser, readOnly: true)
                 ))->overview($tenantId, $permittedHotelIds, $hotelId, $periodMonth))
-                : ['status' => 'blocked', 'reason_code' => 'investment_view_permission_required', 'projects' => null, 'totals' => null];
+                : [
+                    'contract_version' => \app\service\InvestmentOperatingBridgeService::CONTRACT_VERSION,
+                    'tenant_id' => $tenantId, 'hotel_id' => $hotelId, 'period_month' => $periodMonth,
+                    'status' => 'blocked', 'reason_code' => 'investment_view_permission_required',
+                    'projects' => null, 'totals' => null,
+                ];
 
             return $this->success([
                 'contract_version' => 'operating_finance_control_center.v1',

@@ -1,0 +1,1007 @@
+{
+  "contract": "suxios.composed_delivery.v1",
+  "at": "2026-10-02T13:58:53.113Z",
+  "phase": "final",
+  "prepared_against_head": "73b696d6672845040c07e69419dabc2bf79759f0",
+  "main_thread": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
+  "target_branch": "codex/integrate-suxios-20260930",
+  "baseline_main_integrated": "51a512e6bd552c9553dca81a0d1670fc116fd327",
+  "latest_main_observed": "d3e53e176d86d74f7868297125772116f666b3e4",
+  "packages": [
+    {
+      "package": "payback",
+      "source_commit": "5386eadc610dbd469523fbfeb6ee48f1e37a90a6",
+      "source_parent": "51a512e6bd552c9553dca81a0d1670fc116fd327",
+      "received_against_head": "ea5a1cbec685dfd455d1a8e910d6fd26127c74e4",
+      "records": [
+        {
+          "path": "app/controller/InvestmentPayback.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "abb8046d2b4a4e33a45a4afbb2ef6d448bb39db39af8ceaa31032cea130cd847",
+          "target_sha256": "abb8046d2b4a4e33a45a4afbb2ef6d448bb39db39af8ceaa31032cea130cd847"
+        },
+        {
+          "path": "app/controller/InvestmentScenario.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "e016adda31e7adf6cdf46f8da3466803a340d0659bcbd49aeaaffd2650b0e108",
+          "target_sha256": "e016adda31e7adf6cdf46f8da3466803a340d0659bcbd49aeaaffd2650b0e108"
+        },
+        {
+          "path": "app/service/ConsumablesCostCalculator.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "6768d173f1668e9c4c38a622045290d81435b5b7d31ec2645e2cdbc9447f700d",
+          "target_sha256": "6768d173f1668e9c4c38a622045290d81435b5b7d31ec2645e2cdbc9447f700d"
+        },
+        {
+          "path": "app/service/InvestmentPaybackCalculator.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "82a43c181a35c0afde00be3f6818e9a3f650a7ba86a4f10eeaee486510c0d51f",
+          "target_sha256": "82a43c181a35c0afde00be3f6818e9a3f650a7ba86a4f10eeaee486510c0d51f"
+        },
+        {
+          "path": "app/service/InvestmentPaybackImportService.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "70cfe378e89297699e6ee01180be093803b755964445f0134ef9b4a28c7f55e8",
+          "target_sha256": "70cfe378e89297699e6ee01180be093803b755964445f0134ef9b4a28c7f55e8"
+        },
+        {
+          "path": "app/service/InvestmentPaybackService.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "674511541270beb2be7bcf7c84f667804a7d5c27153374e0de2997b8ca544f04",
+          "target_sha256": "674511541270beb2be7bcf7c84f667804a7d5c27153374e0de2997b8ca544f04"
+        },
+        {
+          "path": "app/service/InvestmentScenarioCalculator.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "6e62161cab781811c1c32955edfed645f7f5743cdce5eaf82934aeea6dbb22bf",
+          "target_sha256": "6e62161cab781811c1c32955edfed645f7f5743cdce5eaf82934aeea6dbb22bf"
+        },
+        {
+          "path": "app/service/InvestmentScenarioCashPlanner.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "02d489640b94f4da142380e57f945076b89c21404e028ae3cb1e7cca50ec5f29",
+          "target_sha256": "02d489640b94f4da142380e57f945076b89c21404e028ae3cb1e7cca50ec5f29"
+        },
+        {
+          "path": "app/service/InvestmentScenarioService.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "dbc97b5e37b14bf694ae460d4c970cea2ef5c6d62ee3a4612c89dd174dddc0c8",
+          "target_sha256": "dbc97b5e37b14bf694ae460d4c970cea2ef5c6d62ee3a4612c89dd174dddc0c8"
+        },
+        {
+          "path": "app/service/LocalImageOcrService.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "c98051be273b5eb1a2777e3750cfd52a0fe60725f19dfe5eb8a864b03d9c42a1",
+          "target_sha256": "c98051be273b5eb1a2777e3750cfd52a0fe60725f19dfe5eb8a864b03d9c42a1"
+        },
+        {
+          "path": "database/migration_checksums.lock.json",
+          "source_state": "M",
+          "disposition": "merge_only_added_migration_identities",
+          "source_sha256": "be879e49ceac8aa363400882446e47ecddfafa8ba43ffc2f57288664efddb45d",
+          "target_sha256": "eb4e853d12ff1caac9a67b4d6016713700adf7e7ec4f759f14be729c6593ef71"
+        },
+        {
+          "path": "database/migrations/20261001_create_investment_payback_ledger.sql",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "fd77dc4751665cefc02112ca95fcb1b4e614a1f680b0c8850e8a98a4f3f789de",
+          "target_sha256": "fd77dc4751665cefc02112ca95fcb1b4e614a1f680b0c8850e8a98a4f3f789de"
+        },
+        {
+          "path": "docs/investment-payback-github-delivery-20261002.md",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "b3d44b0622c527a343398005b2de7343cade4c075cf72e97d81a1c0ecdeaeac8",
+          "target_sha256": "ddb7df99e4e346a6c81cf64c2f18c641a522e20a764a1883c64ced8785d516c9"
+        },
+        {
+          "path": "package.json",
+          "source_state": "M",
+          "disposition": "manual_semantic_hunk",
+          "source_sha256": "9844afe67584011b1d15b0d2e1a7d4bff8187e5fb93c9dac9bfc34f4de45df13",
+          "target_sha256": "5f2624717b92ea336273eb089afdf24dcebaf62108f695807c58381036812ad7"
+        },
+        {
+          "path": "public/app-main.js",
+          "source_state": "M",
+          "disposition": "manual_semantic_hunk",
+          "source_sha256": "0c4face5f335c9e7720cd0e839498e498ee237c6192613f812a0719164534cec",
+          "target_sha256": "125231fbda4aab6ecd72394f1355082f2dfea669cf632841a9803f6f73346254"
+        },
+        {
+          "path": "public/app-main.min.js",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "02cc9c3c2341edc8532e3a1856df8112b42e3a501488aab6ee666721f88e87d5",
+          "target_sha256": "d0ad8f23a95795af2af061abf59e77244d3cb7d9481cc66bbc20c8eb162a2c7c"
+        },
+        {
+          "path": "public/app-render.min.js",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "a52bcfc7ecfe3f4fc6273dcee599a37ab07f90fd5014f729e8e206ecc7021dab",
+          "target_sha256": "6d731783e57f92752124444b4bf45234ea86aef66ba057c598d532a7b8f53f6a"
+        },
+        {
+          "path": "public/app-startup-helpers.min.js",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "34c701643a7ee5720e21a8bdad33a88c81055e3bcad687ead87a1c8260df6ddd",
+          "target_sha256": "ad428db08edc4f234342b4e846794e0e0b3b206a5ac9c88ca5f514fa27a704d9"
+        },
+        {
+          "path": "public/components/system/business-closure-loader.js",
+          "source_state": "M",
+          "disposition": "three_way_merge_preserving_target_changes",
+          "source_sha256": "b427dc8985b0f4deceaf9e471b99403aafd715152112e93be302567541d92c5f",
+          "target_sha256": "9f29f62722e23f3d395592b1234a6c284c08856dc0e92aec944bdad0f1a47698"
+        },
+        {
+          "path": "public/components/system/investment-payback-import.js",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "3ba72b80e8a81297527672f8a34ad694704ee1de7ec2d58edffd3bb1da150a93",
+          "target_sha256": "3ba72b80e8a81297527672f8a34ad694704ee1de7ec2d58edffd3bb1da150a93"
+        },
+        {
+          "path": "public/components/system/investment-payback.js",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "c231e1ca7043ab0ad88da8d3e49c929e5f925e669a08b6c1c5f0e223d0e567cb",
+          "target_sha256": "c231e1ca7043ab0ad88da8d3e49c929e5f925e669a08b6c1c5f0e223d0e567cb"
+        },
+        {
+          "path": "public/components/system/investment-payback.min.js",
+          "source_state": "A",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "745d88dbd81ef4a193a066051c1a277d6f905305797a2f1c307e3bcee303db9e",
+          "target_sha256": "08207c0f84749fd88716e10ceff60dac6e9b7efd08452d6ce602860abfbf38cb"
+        },
+        {
+          "path": "public/components/system/investment-scenario.js",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "87e4b6b688729c092af0e3df2479bd38e84c54d378a6d1d181f3a242c54c650c",
+          "target_sha256": "87e4b6b688729c092af0e3df2479bd38e84c54d378a6d1d181f3a242c54c650c"
+        },
+        {
+          "path": "public/components/system/investment-scenario.min.js",
+          "source_state": "A",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "f5b2f324617df10ae61de0f8ac32b530adcb52fd45d86959ba2712b7f2e4e84b",
+          "target_sha256": "bd86fc0366d2b2a5dbb9e17aa86fb6b45e563661d2d5fe6509722ed9cc1d078d"
+        },
+        {
+          "path": "public/index.html",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "46ed4596a2951ca690637e584b998c8e14a85f89c0915348a33c8d01b290e1c4",
+          "target_sha256": "02c8fc7e0d2b7016d52b9ccb3056ae3b5ceaf8f8009d4d4e8fcef2a2b4d30e93"
+        },
+        {
+          "path": "public/style-startup.min.css",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "81eca8d314ad511a922cc04503b2f957f972ea5556459e95e6e4e286179a9316",
+          "target_sha256": "fe7e4f669fe0c2eb4f323b2b997ae88f23d11fc873e0ce02991404fe409ae9bc"
+        },
+        {
+          "path": "public/style.css",
+          "source_state": "M",
+          "disposition": "three_way_merge_preserving_target_changes",
+          "source_sha256": "5531903e51c350f5bdf8b1e0ad6fc7fced562b17bf4b0d8868eb051d656cdbeb",
+          "target_sha256": "1546c2a7919323df7ed51f49616c97deea5d242a47f2989d9da6e02821e48d25"
+        },
+        {
+          "path": "public/style.min.css",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "792328e0a51ae9d69548375e7c8a0bd214820f8cff29422492f56c68a9aac29c",
+          "target_sha256": "7c096b408f90bf43345a82d9c9afa947cd27e64df3069a21551508809ebdf814"
+        },
+        {
+          "path": "public/system-static.js",
+          "source_state": "M",
+          "disposition": "three_way_merge_preserving_target_changes",
+          "source_sha256": "fa7f2673127810c542e8018ce9213a1fbee57b0909021049d8425e1d7d7fca0b",
+          "target_sha256": "12376367ec91adf039be2d6f7b43a165fc390a8d8a7dd9c6183d8684f238066a"
+        },
+        {
+          "path": "public/tailwind.min.css",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "8a67109d206decb7c8767f2023bc2e231f309233fb529ea6f33d6c42d886ca35",
+          "target_sha256": "a8b2ad41b1f05591a6ba1b535a140c4f75866d464120a2481fcc12a6e91db4df"
+        },
+        {
+          "path": "resources/frontend/app-template.html",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "7859fef74cdc44cdae14e134eb8fb5bcec02d2992d5f3c6f5b3a22c227e7c466",
+          "target_sha256": "73ab8301c7d09a3161ce1a9702650fd06740adff9571635af5135f313356a196"
+        },
+        {
+          "path": "resources/frontend/templates/fragments/28a-page-investment-payback.html",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "1b070d210dd34075c31e9e25e88e1053c0f8d3c82b5de962a778f577d1e97da8",
+          "target_sha256": "1b070d210dd34075c31e9e25e88e1053c0f8d3c82b5de962a778f577d1e97da8"
+        },
+        {
+          "path": "resources/frontend/templates/manifest.json",
+          "source_state": "M",
+          "disposition": "manual_conflict",
+          "source_sha256": "0ca479090c9d00f6af212defff20144768327f96cfb975201616ba69dd66e291",
+          "target_sha256": "50dd649d177caf78fc6b39dea169692f54edfea85bb56c49d1c5e45216363be9"
+        },
+        {
+          "path": "route/app.php",
+          "source_state": "M",
+          "disposition": "three_way_merge_preserving_target_changes",
+          "source_sha256": "0bfd7155b7cb4e092949fb384e33c719091c5ec35c3e725e2546ec67976bbbca",
+          "target_sha256": "71de21ae0f477ea66c015c69cd4e042b47686c24b0720a7a0a546c8dbecadfb1"
+        },
+        {
+          "path": "route/domain/investment_payback.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "680fa9b561339bcfda89ff4eebf0054d11df48bd2218ed9faf26cd6ddd533ff4",
+          "target_sha256": "c9b1648912fec5e961d41f168cb6792d19b7e2507d163063167e1a054ed65d1c"
+        },
+        {
+          "path": "rules/business-page-contract-registry.json",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "6add1e05c7423966eb1b1472b70efda49b225a7c8ea993b29a9dd71bda504db7",
+          "target_sha256": "6add1e05c7423966eb1b1472b70efda49b225a7c8ea993b29a9dd71bda504db7"
+        },
+        {
+          "path": "scripts/build_investment_payback_component.mjs",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "ad7631599087e329bc446bba44f4084feaa915a5f2b26c771f992e1f4d9babc1",
+          "target_sha256": "ad7631599087e329bc446bba44f4084feaa915a5f2b26c771f992e1f4d9babc1"
+        },
+        {
+          "path": "scripts/build_investment_scenario_component.mjs",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "1a41c54d3b6c3f3b378456ac8a0793411ce803ee78a63541f04f2769bbcfc822",
+          "target_sha256": "1a41c54d3b6c3f3b378456ac8a0793411ce803ee78a63541f04f2769bbcfc822"
+        },
+        {
+          "path": "scripts/lib/frontend_template_source.mjs",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "04a33f187e6f1bd37794fa5dceb45a3911ab7001aa5f7182bc13aa3f00bfedc6",
+          "target_sha256": "2bb1392f47f21da53d7b1ced0f39302d95fc4b7afcede90be4fe6d139664cac0"
+        },
+        {
+          "path": "scripts/recognize_payback_image.ps1",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "f0827d4c6115e3518469f283a49da0ffa858a8b0e0290e421b5e9a949cc6b684",
+          "target_sha256": "f0827d4c6115e3518469f283a49da0ffa858a8b0e0290e421b5e9a949cc6b684"
+        },
+        {
+          "path": "tests/ConsumablesCostCalculatorTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "7072b8964ad50bfe9bbc7afb3841c2de0a0679536cc99ad3100e8eb52c0ccdcf",
+          "target_sha256": "e048be7b159c4d9c30b974d0e0d65d4e79e9bd91cc87ef54a6cba0e1aa9cba21"
+        },
+        {
+          "path": "tests/InvestmentPaybackCalculatorTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "641fb909e9f44bd6faea6c7fcc7748b881af2c28c17373df3cadb0e58e37c384",
+          "target_sha256": "641fb909e9f44bd6faea6c7fcc7748b881af2c28c17373df3cadb0e58e37c384"
+        },
+        {
+          "path": "tests/InvestmentPaybackImportTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "dba4109dae164fe66f4222ca295f10f7e62cdc8177243739f6a1179e68699522",
+          "target_sha256": "dba4109dae164fe66f4222ca295f10f7e62cdc8177243739f6a1179e68699522"
+        },
+        {
+          "path": "tests/InvestmentPaybackPersistenceTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "ed8c6d865bbd0a4152007a458ed58a4e956878e8f258e9a09ff63a9e1e3f45bd",
+          "target_sha256": "ed8c6d865bbd0a4152007a458ed58a4e956878e8f258e9a09ff63a9e1e3f45bd"
+        },
+        {
+          "path": "tests/InvestmentPaybackRoutingTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "259ea19688c3b77ff2641bab5db8eab5aabd1e0ad4b07fb9fcdc19c87b201944",
+          "target_sha256": "259ea19688c3b77ff2641bab5db8eab5aabd1e0ad4b07fb9fcdc19c87b201944"
+        },
+        {
+          "path": "tests/InvestmentScenarioCalculatorTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "c652e6b2357f5025d5d317ef689d770d996fca52a37bd5a134fdc20645d549a6",
+          "target_sha256": "c652e6b2357f5025d5d317ef689d770d996fca52a37bd5a134fdc20645d549a6"
+        },
+        {
+          "path": "tests/InvestmentScenarioCashPlannerTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "ccde509afa7c4260ea1ae98096ff3e8d08e54a388615c115385d60e471b9ace6",
+          "target_sha256": "ccde509afa7c4260ea1ae98096ff3e8d08e54a388615c115385d60e471b9ace6"
+        },
+        {
+          "path": "tests/InvestmentScenarioPersistenceTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "747ed9ffd8b84f8df46f8ee29c76753ec8be8a7fc3d2b1e37cbec4b99ad10129",
+          "target_sha256": "e8620cf885dbb3492f9adc5c78cfa676423a40cc84d6d68a334b283f94b26ec9"
+        },
+        {
+          "path": "tests/InvestmentScenarioPortfolioTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "69de0fb2f2b896bd650128297f9ebfb8d2d248e8a2f94e6283b3ee8f43dba0b7",
+          "target_sha256": "69de0fb2f2b896bd650128297f9ebfb8d2d248e8a2f94e6283b3ee8f43dba0b7"
+        },
+        {
+          "path": "tests/InvestmentScenarioRoutingTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "abed407a38446110f362cefecf1af0e7a7a0c43766857f3dc0be1fa17961c5ca",
+          "target_sha256": "abed407a38446110f362cefecf1af0e7a7a0c43766857f3dc0be1fa17961c5ca"
+        },
+        {
+          "path": "tests/Support/InvestmentScenarioFixture.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "66d0333e1ac04cf341e2a9e631ad19c0e9e33dc1f23b9f77675f512e8f853525",
+          "target_sha256": "39c055c89200e4b7409a1a83edd905069fc8859592d4b060cc60d18cfed1e41b"
+        },
+        {
+          "path": "tests/Support/investment_scenario_fixture_router.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "56a1471759505a58cdc049ded2e8fce2172cb2192eecfb4ce4e5d43dfaf2514a",
+          "target_sha256": "56a1471759505a58cdc049ded2e8fce2172cb2192eecfb4ce4e5d43dfaf2514a"
+        },
+        {
+          "path": "tests/Support/payback_import_fixture_router.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "b42bb82e967c2587d01e41921e06d597c2c846cfe19a4341a9aaa754f26e8d3e",
+          "target_sha256": "b42bb82e967c2587d01e41921e06d597c2c846cfe19a4341a9aaa754f26e8d3e"
+        },
+        {
+          "path": "tests/Support/payback_import_mysql_isolation_probe.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "1ab334ae40bc71e19cb0a53a95e8841660dee0cb42b11f2f241cba6fe44f3f17",
+          "target_sha256": "1ab334ae40bc71e19cb0a53a95e8841660dee0cb42b11f2f241cba6fe44f3f17"
+        },
+        {
+          "path": "tests/automation/investment_payback_import.test.mjs",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "4386d4e6b0857b3e4f3f21319d8650d92b519e9f16b0baf74bee358c3aa73767",
+          "target_sha256": "4386d4e6b0857b3e4f3f21319d8650d92b519e9f16b0baf74bee358c3aa73767"
+        },
+        {
+          "path": "tests/automation/investment_payback_workbench.test.mjs",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "e81c212a26538e6ed9b3bccd93154bfd92128be9ed7e40657948bd98b59700d8",
+          "target_sha256": "e81c212a26538e6ed9b3bccd93154bfd92128be9ed7e40657948bd98b59700d8"
+        },
+        {
+          "path": "tests/automation/investment_scenario_workbench.test.mjs",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "517cf78e63c389bc8d1330fb83974e65b1fbf539f6dd2b344995b279f5d19532",
+          "target_sha256": "517cf78e63c389bc8d1330fb83974e65b1fbf539f6dd2b344995b279f5d19532"
+        },
+        {
+          "path": "tests/fixtures/generate_payback_ocr_image.ps1",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "ce9c0d15ffc2390590e9aabbc7b35de955ef3561b0e0e7e30aaf46c520abcb23",
+          "target_sha256": "ce9c0d15ffc2390590e9aabbc7b35de955ef3561b0e0e7e30aaf46c520abcb23"
+        }
+      ]
+    },
+    {
+      "package": "five",
+      "source_commit": "deb01ee834c6da70b4adb15c69f7da1bd9391f0b",
+      "source_parent": "30cac6f8c37c66dbe14aecc87366e9c901b36dec",
+      "received_against_head": "ea5a1cbec685dfd455d1a8e910d6fd26127c74e4",
+      "records": [
+        {
+          "path": ".gitattributes",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "5d111ec7490587d98d41626d57c5090cde95bab5f2fc99eee69ec1f7d14172be",
+          "target_sha256": "5d111ec7490587d98d41626d57c5090cde95bab5f2fc99eee69ec1f7d14172be"
+        },
+        {
+          "path": "app/controller/AiDailyReport.php",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "81b2dc5dccbae9272c183a5a43dfebcd7ff87f6ec9408453503eb67faf86f44f",
+          "target_sha256": "81b2dc5dccbae9272c183a5a43dfebcd7ff87f6ec9408453503eb67faf86f44f"
+        },
+        {
+          "path": "app/controller/BookingMonitoring.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "3c79d1f7dda93d68079b463986b939b6a114658b41fb213a8583561c7d3dcd0b",
+          "target_sha256": "3c79d1f7dda93d68079b463986b939b6a114658b41fb213a8583561c7d3dcd0b"
+        },
+        {
+          "path": "app/controller/OperatingFinance.php",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "6fd49f18783b06ea5751de9d6445e2bc0d2a2275dfab7e17f603b339746705fa",
+          "target_sha256": "6c9bea6a4d6b4fca60c9740b45c859daa90de0e5a4e810751f8775eaad4b88e0"
+        },
+        {
+          "path": "app/service/ActualConsumablesScenarioReferenceService.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "70934e48e66774a9fa848a4c379862c86682c2a3e2ccf9e46288f5add39a83d5",
+          "target_sha256": "70934e48e66774a9fa848a4c379862c86682c2a3e2ccf9e46288f5add39a83d5"
+        },
+        {
+          "path": "app/service/AiDailyReportPresentationArtifactService.php",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "92855c67fba659ddae765abf7270474dfc0e482c581279f5b0570f0b42e284cc",
+          "target_sha256": "92855c67fba659ddae765abf7270474dfc0e482c581279f5b0570f0b42e284cc"
+        },
+        {
+          "path": "app/service/AiDailyReportPresentationRendererService.php",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "4cf78c038d36f4adb06cf262cc1ce2c3be4be7a9aea4009033e4580ee209b733",
+          "target_sha256": "4cf78c038d36f4adb06cf262cc1ce2c3be4be7a9aea4009033e4580ee209b733"
+        },
+        {
+          "path": "app/service/AiDailyReportPresentationReviewService.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "07665e62de2c4838a160980f89f98d0ccae63ff0c16ed98de17d39204c89e7b5",
+          "target_sha256": "07665e62de2c4838a160980f89f98d0ccae63ff0c16ed98de17d39204c89e7b5"
+        },
+        {
+          "path": "app/service/AiDailyReportPresentationSpecService.php",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "f5d6e1c0cff98646a403dc85aff2db2fbdd42e2b4d5ae8d3c35b0e9d39bed2ba",
+          "target_sha256": "f5d6e1c0cff98646a403dc85aff2db2fbdd42e2b4d5ae8d3c35b0e9d39bed2ba"
+        },
+        {
+          "path": "app/service/BookingDemandPlanningService.php",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "a46358aa2ee4690c3cb80b08ca104b3363ed8fc578c760c1af40c9834a723774",
+          "target_sha256": "a46358aa2ee4690c3cb80b08ca104b3363ed8fc578c760c1af40c9834a723774"
+        },
+        {
+          "path": "app/service/BookingMonitoringService.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "0b5ab41ff77f36dfdcf22b1d9fd67fa99ef5635d0d038fe56bfe57bcfba5c3ee",
+          "target_sha256": "0b5ab41ff77f36dfdcf22b1d9fd67fa99ef5635d0d038fe56bfe57bcfba5c3ee"
+        },
+        {
+          "path": "app/service/ChannelEconomicsService.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "a38403f12b8b6cf99f7b566ff09398227f5962aeaaaf1d95e507193be53992bc",
+          "target_sha256": "a38403f12b8b6cf99f7b566ff09398227f5962aeaaaf1d95e507193be53992bc"
+        },
+        {
+          "path": "app/service/ConsumablesActualCostService.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "ddd26918f8b1e42c1636bf61b6f721d6a72424600b413f52d6cfb1b76cf44561",
+          "target_sha256": "ddd26918f8b1e42c1636bf61b6f721d6a72424600b413f52d6cfb1b76cf44561"
+        },
+        {
+          "path": "app/service/ConsumablesProcurementReferenceService.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "13b16ea0c2099f5567ef1b0c6718c0e4e2e0f5fb2af4025f85c8ff3bf899670a",
+          "target_sha256": "13b16ea0c2099f5567ef1b0c6718c0e4e2e0f5fb2af4025f85c8ff3bf899670a"
+        },
+        {
+          "path": "app/service/OperatingEvidenceSnapshotStore.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "b16bb06e922bbab7b8221042c812fa13c522b80b8a3f50cd0fd110dc890ce4b1",
+          "target_sha256": "b16bb06e922bbab7b8221042c812fa13c522b80b8a3f50cd0fd110dc890ce4b1"
+        },
+        {
+          "path": "app/service/SchemaVersionService.php",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "c027113b248835d9e1e7cdf48fd1428e4dd02c7278b1f9ab0fb392bfd63e1d06",
+          "target_sha256": "c027113b248835d9e1e7cdf48fd1428e4dd02c7278b1f9ab0fb392bfd63e1d06"
+        },
+        {
+          "path": "database/migration_checksums.lock.json",
+          "source_state": "M",
+          "disposition": "merge_only_added_migration_identities",
+          "source_sha256": "5147570b3c5e69e1473804ec23c33540d7148c304ec3ec09b63b1b3ad7f5ae41",
+          "target_sha256": "eb4e853d12ff1caac9a67b4d6016713700adf7e7ec4f759f14be729c6593ef71"
+        },
+        {
+          "path": "database/migrations/20261002_create_ai_report_presentation_reviews.sql",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "32dadf8990bf355050f601972e36defa0fb9da625b64f388f923b869a57edb23",
+          "target_sha256": "32dadf8990bf355050f601972e36defa0fb9da625b64f388f923b869a57edb23"
+        },
+        {
+          "path": "database/migrations/20261002_create_operating_evidence_snapshots.sql",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "87bb58c2d139b12f9abd9cdf195c8b03c4d843d193b5611a26593b6992b200f3",
+          "target_sha256": "87bb58c2d139b12f9abd9cdf195c8b03c4d843d193b5611a26593b6992b200f3"
+        },
+        {
+          "path": "database/migrations/20261002_create_room_type_on_books_snapshots.sql",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "9dc6db2d06d14655b381265abc20fb077c11ae4b4d0d6caa92ccfa79834ba779",
+          "target_sha256": "9dc6db2d06d14655b381265abc20fb077c11ae4b4d0d6caa92ccfa79834ba779"
+        },
+        {
+          "path": "docs/integration/five-enhancements-20261002.md",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "2a7d5a31ff8ea0fc3ee5167992e5f5da8fd99b2255126b80c72fc3bad69e9d22",
+          "target_sha256": "2a7d5a31ff8ea0fc3ee5167992e5f5da8fd99b2255126b80c72fc3bad69e9d22"
+        },
+        {
+          "path": "docs/integration/receipts/five-enhancements-source-20261002.json",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "e727fcfce9f8df2cec7e34696ba55d2b5cab5c3ab375c918b85a1f13d65ab36b",
+          "target_sha256": "d64411c818e4b4f788a14d545094a782735cee725798424fe11afe1267ec34f7"
+        },
+        {
+          "path": "docs/knowledge/consumables-price-list-20261001/README.md",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "4c864367955f5e0cba2fe43654a9a1340c4d7f418e253bcc7f46f13b3e16ee08",
+          "target_sha256": "4c864367955f5e0cba2fe43654a9a1340c4d7f418e253bcc7f46f13b3e16ee08"
+        },
+        {
+          "path": "docs/knowledge/consumables-price-list-20261001/catalog.json",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "d129a820408654fc79b9e9345037590dc6bfdd27ad2baff7a80c24eee1eb8053",
+          "target_sha256": "d129a820408654fc79b9e9345037590dc6bfdd27ad2baff7a80c24eee1eb8053"
+        },
+        {
+          "path": "docs/knowledge/consumables-price-list-20261001/extracted.json",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "3b33b841af2c0e1361cfd29100c37e4393155da4c09093151b43807fdf9ebd67",
+          "target_sha256": "3b33b841af2c0e1361cfd29100c37e4393155da4c09093151b43807fdf9ebd67"
+        },
+        {
+          "path": "docs/knowledge/consumables-price-list-20261001/item-corrections-v2.json",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "0a42d319057b08456514337a9b2c8deeca2c1e3fb212fca3695a0f8c93ef4ced",
+          "target_sha256": "0a42d319057b08456514337a9b2c8deeca2c1e3fb212fca3695a0f8c93ef4ced"
+        },
+        {
+          "path": "docs/knowledge/consumables-price-list-20261001/item-knowledge-pack.json",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "e24533560bc55c2cd532af807cd80117aec5f4ed46b998fd31825f09903c8347",
+          "target_sha256": "e24533560bc55c2cd532af807cd80117aec5f4ed46b998fd31825f09903c8347"
+        },
+        {
+          "path": "docs/knowledge/consumables-price-list-20261001/item-source-manifest.json",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "82c839660963a85bb99c472454186f43d16e1697ddaa37285397e7fbf144e66d",
+          "target_sha256": "82c839660963a85bb99c472454186f43d16e1697ddaa37285397e7fbf144e66d"
+        },
+        {
+          "path": "docs/knowledge/consumables-price-list-20261001/knowledge-pack.json",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "bf6ee05962c3d6684e5e9f8ade9db399b1cc1e331771760d3f5f8f40bec57178",
+          "target_sha256": "bf6ee05962c3d6684e5e9f8ade9db399b1cc1e331771760d3f5f8f40bec57178"
+        },
+        {
+          "path": "docs/knowledge/consumables-price-list-20261001/source-manifest.json",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "732ddce9174b0883e370a7d87228bb915727097c5964f08ef2eef8e921af605c",
+          "target_sha256": "732ddce9174b0883e370a7d87228bb915727097c5964f08ef2eef8e921af605c"
+        },
+        {
+          "path": "docs/knowledge/consumables-price-list-20261001/source.xlsx",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "bf8aa1e0290bcf7f6464d6ffa63bdb653c1e11745a816ea53f517e2fc3eba4f0",
+          "target_sha256": "bf8aa1e0290bcf7f6464d6ffa63bdb653c1e11745a816ea53f517e2fc3eba4f0"
+        },
+        {
+          "path": "public/app-startup-helpers.min.js",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "8d63ff91c462ba7427ce85f742f09a3b296353ab3214ef57a817276eb45993de",
+          "target_sha256": "ad428db08edc4f234342b4e846794e0e0b3b206a5ac9c88ca5f514fa27a704d9"
+        },
+        {
+          "path": "public/components/system/ai-daily-report-delivery.js",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "63af6fece1f156ef5bfc51b98834da2bd75e6d882a0b3b405805c686810b0a9c",
+          "target_sha256": "63af6fece1f156ef5bfc51b98834da2bd75e6d882a0b3b405805c686810b0a9c"
+        },
+        {
+          "path": "public/components/system/app-main-components-loader.js",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "6e4bffe6fb1403138f9f7062bc6efcfb9aece2930b513e573c5fdd425760e91f",
+          "target_sha256": "b4d48a8eb238aaa27a22bc1ab9ae11aae0c84b7b8b848ea985965566593e7571"
+        },
+        {
+          "path": "public/components/system/app-main-components.js",
+          "source_state": "M",
+          "disposition": "manual_semantic_hunk",
+          "source_sha256": "d68c451c3990d4379da871039b1cb4cecff768843b0054fd3d59a51383aa1819",
+          "target_sha256": "786d5902d62ab6180c2e9ed28009423103f7de5119aeb5fd991d9df1e39c76af"
+        },
+        {
+          "path": "public/components/system/booking-monitoring-panel.js",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "c1723e52752f1e3d02ccd961909659c653c5830db91290d78c610c711ffbe31e",
+          "target_sha256": "c1723e52752f1e3d02ccd961909659c653c5830db91290d78c610c711ffbe31e"
+        },
+        {
+          "path": "public/components/system/business-closure-loader.js",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "87f716ce1675463306baa26d6ea15c4845140a74fe2272c1e695f50ed6ac35e6",
+          "target_sha256": "9f29f62722e23f3d395592b1234a6c284c08856dc0e92aec944bdad0f1a47698"
+        },
+        {
+          "path": "public/components/system/business-closure-views.js",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "f5eadefa7d39fd535b53754c2cfbd8d54c36dc4265acac58448dac4ee4eda0fa",
+          "target_sha256": "f5eadefa7d39fd535b53754c2cfbd8d54c36dc4265acac58448dac4ee4eda0fa"
+        },
+        {
+          "path": "public/components/system/operating-economics-workbench.js",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "af1b580105b605bc115c62cc4311daf705b09ee3cace18614e12e55ee01fd192",
+          "target_sha256": "af1b580105b605bc115c62cc4311daf705b09ee3cace18614e12e55ee01fd192"
+        },
+        {
+          "path": "public/components/system/operating-economics-workbench.min.js",
+          "source_state": "A",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "bbff37786c38cd78b8c893a4362cdb847152e2e2bab8412f5ca831ec444b3446",
+          "target_sha256": "bbff37786c38cd78b8c893a4362cdb847152e2e2bab8412f5ca831ec444b3446"
+        },
+        {
+          "path": "public/components/system/operating-finance-control-center.js",
+          "source_state": "M",
+          "disposition": "manual_semantic_hunk",
+          "source_sha256": "775a141f3694c67f75eabe3713cd6a336b0a847b6a116011dd378f6ea11d9379",
+          "target_sha256": "adc20cfa54465c74b5426bd5e36ccaffaa22d3cd7824a3b08a53af0203c1083c"
+        },
+        {
+          "path": "public/components/system/operating-finance-control-center.min.js",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "5f7bafe3b3f752d62342ae935e02513fe0e368e93ada543fdec8ecbf555d6d4d",
+          "target_sha256": "d38019bcc201595e8f5f3f6436f8a3816a4cf755740977d989162f3c3b29b0bd"
+        },
+        {
+          "path": "public/index.html",
+          "source_state": "M",
+          "disposition": "exclude_generated_rebuild",
+          "source_sha256": "3a51bed96f86ec3567f8a1bb1a10557a97645bd37b75090f1d7f033279097932",
+          "target_sha256": "02c8fc7e0d2b7016d52b9ccb3056ae3b5ceaf8f8009d4d4e8fcef2a2b4d30e93"
+        },
+        {
+          "path": "resources/frontend/templates/fragments/16-page-ai-daily-report.html",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "3e1b59dada7274af73c68960439985712fdb01c55e93208cbe5011adc3008925",
+          "target_sha256": "3e1b59dada7274af73c68960439985712fdb01c55e93208cbe5011adc3008925"
+        },
+        {
+          "path": "route/domain/ai_daily_reports.php",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "a4e41b95b6e14da93239df0a02eb52576bc2345a448086092330873f83c0c7c3",
+          "target_sha256": "a4e41b95b6e14da93239df0a02eb52576bc2345a448086092330873f83c0c7c3"
+        },
+        {
+          "path": "route/domain/operations.php",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "0096ddf9fc27638fd0ce9b4ff27e298fb15886c6020cc35a5562c8f6217cb065",
+          "target_sha256": "0096ddf9fc27638fd0ce9b4ff27e298fb15886c6020cc35a5562c8f6217cb065"
+        },
+        {
+          "path": "scripts/build_operating_economics_component.mjs",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "9e5d557ed12d02970eb443302ef8941211e58caa561e91faef4b9191ffc93218",
+          "target_sha256": "9e5d557ed12d02970eb443302ef8941211e58caa561e91faef4b9191ffc93218"
+        },
+        {
+          "path": "scripts/build_operating_finance_component.mjs",
+          "source_state": "M",
+          "disposition": "manual_semantic_hunk",
+          "source_sha256": "514021a409261465c6a1cba5c524ba7a2858f5a30be5306b94f2386fe0e68a33",
+          "target_sha256": "56affdd8cce88f053e8b84d41ddbd5a50b103d3a5b6c04b144fe759bcb819102"
+        },
+        {
+          "path": "scripts/cloud_hotel_id_column_registry.php",
+          "source_state": "M",
+          "disposition": "manual_semantic_hunk",
+          "source_sha256": "ae8715f4c1c13e1755392de3cded793e03a6b9796b60863978ce9a72d2c3fc9a",
+          "target_sha256": "64641e3e1d1d4990454bac7c6de626a112464c7a0d6bac3dc90bf26de01c3609"
+        },
+        {
+          "path": "scripts/verify_five_snapshot_migrations_mariadb.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "b8bd048919d345b85f8fd1a38dc84fe60e5a694154b5071b9a55e3672c75b768",
+          "target_sha256": "b8bd048919d345b85f8fd1a38dc84fe60e5a694154b5071b9a55e3672c75b768"
+        },
+        {
+          "path": "tests/ActualConsumablesScenarioReferenceTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "43b3f4178574b5d14bc47033cfcb5e1f6a874c31e49c8845b11d85cf19252b55",
+          "target_sha256": "56d3ffd15f194bdff4482e2f19021443c878bfd22d5b04cbc1d278d7bc604f26"
+        },
+        {
+          "path": "tests/AiDailyReportPresentationReviewRoutingTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "1ea3aa717d04df7dec2c417f6283e3651880c7bee34b2f33b700ea2ecf8179f8",
+          "target_sha256": "1ea3aa717d04df7dec2c417f6283e3651880c7bee34b2f33b700ea2ecf8179f8"
+        },
+        {
+          "path": "tests/AiDailyReportPresentationReviewServiceTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "dc9adbff36026696207256d456ae7eb59f52a13877d4d48345a7b37e76caf50d",
+          "target_sha256": "dc9adbff36026696207256d456ae7eb59f52a13877d4d48345a7b37e76caf50d"
+        },
+        {
+          "path": "tests/BookingMonitoringRoutingTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "b94e1340a641cb8f75defcb942e8015905508ec3358c2965339b6e56a6a3fc61",
+          "target_sha256": "b94e1340a641cb8f75defcb942e8015905508ec3358c2965339b6e56a6a3fc61"
+        },
+        {
+          "path": "tests/BookingMonitoringServiceTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "450271d65cd6187d3f324aa55b28a54e709512780ad9c30c25b34cf59665f094",
+          "target_sha256": "450271d65cd6187d3f324aa55b28a54e709512780ad9c30c25b34cf59665f094"
+        },
+        {
+          "path": "tests/ConsumablesProcurementReferenceServiceTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "55f3df1afa0429b9433a66c1f2e9bef6c85cb2a069952dfca98045c6a09b8cdc",
+          "target_sha256": "55f3df1afa0429b9433a66c1f2e9bef6c85cb2a069952dfca98045c6a09b8cdc"
+        },
+        {
+          "path": "tests/OperatingEvidenceChainTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "3c30b49397113d671af7fd88c894c10823a8c9f319fdb66bea060dd5291a4101",
+          "target_sha256": "3c30b49397113d671af7fd88c894c10823a8c9f319fdb66bea060dd5291a4101"
+        },
+        {
+          "path": "tests/OperatingEvidenceRoutingTest.php",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "79581fd6a65cefafa10a940a60771feeca0e4ee9386b186fd0ab0b8580b8b722",
+          "target_sha256": "79581fd6a65cefafa10a940a60771feeca0e4ee9386b186fd0ab0b8580b8b722"
+        },
+        {
+          "path": "tests/SchemaVersionServiceTest.php",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "cc853c293fa69cab49f1da53ffa792e85c7a486dbcdd325e6b7f77374df56201",
+          "target_sha256": "cc853c293fa69cab49f1da53ffa792e85c7a486dbcdd325e6b7f77374df56201"
+        },
+        {
+          "path": "tests/automation/ai_daily_report_delivery_boundary.test.mjs",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "cad42a853ac5b0c49971452096e53824cac2fe1df91706b3c4536d297483c68c",
+          "target_sha256": "cad42a853ac5b0c49971452096e53824cac2fe1df91706b3c4536d297483c68c"
+        },
+        {
+          "path": "tests/automation/ai_daily_report_presentation_artifact_ui.test.mjs",
+          "source_state": "M",
+          "disposition": "apply_exact_delta_to_unchanged_base",
+          "source_sha256": "5af60828d31b0727dfb5903dbb2fa78a45fe0c8ef28494a1fd78ccce4a2704a0",
+          "target_sha256": "5af60828d31b0727dfb5903dbb2fa78a45fe0c8ef28494a1fd78ccce4a2704a0"
+        },
+        {
+          "path": "tests/automation/ai_daily_report_presentation_review_ui.test.mjs",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "058a42cc63bb3f07b10d8cff3501b9a7784668c569464ac7e496a52083f835a7",
+          "target_sha256": "058a42cc63bb3f07b10d8cff3501b9a7784668c569464ac7e496a52083f835a7"
+        },
+        {
+          "path": "tests/automation/booking_monitoring_panel.test.mjs",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "f39e29eca375fe27edc7980943fcb620afa146c3ce4e234f51899490f3726743",
+          "target_sha256": "f39e29eca375fe27edc7980943fcb620afa146c3ce4e234f51899490f3726743"
+        },
+        {
+          "path": "tests/automation/operating_economics_workbench.test.mjs",
+          "source_state": "A",
+          "disposition": "add_exact_committed_blob",
+          "source_sha256": "11e211457edccda174a703557aeb9c5bc7fff108a0c9050b50b2a00960c5c6a4",
+          "target_sha256": "11e211457edccda174a703557aeb9c5bc7fff108a0c9050b50b2a00960c5c6a4"
+        }
+      ]
+    }
+  ],
+  "changqing": {
+    "modules": 31,
+    "phases": [
+      16,
+      8,
+      7
+    ],
+    "final_source_evidence": "docs/integration/receipts/changqing-deep-hardening-source-evidence-20261002.json"
+  },
+  "bridge": {
+    "source_worktree_head": "9fa781fc92baa66b410f4e5d6e8c8c3c1ebae81b",
+    "service": "app/service/InvestmentOperatingBridgeService.php",
+    "permission": "investment.view plus existing investment.simulate ledger gate",
+    "cash_scope": "CNY/investor_cash manual_unverified; scenarios never count as actual recovery"
+  },
+  "target_repairs": [
+    "preserve owned shared files and authenticated login destination",
+    "register owner hub reverse-migration anchor",
+    "move existing InvestmentDecision route into already-loaded investment domain with original auth/order",
+    "portable PHP fixture resolution for Linux CI",
+    "isolate four missing-optional-module cases in fresh processes while retaining original failure/readback oracles",
+    "verify installed reference capabilities in the composed target",
+    "mount real Meituan stale-scope clearing helper in the navigation fixture",
+    "inventory all four direct finance ownership fixtures and register unrelated composed sibling fixtures; all original save/readback/scope/error oracles retained; demand and settlement repairs add28 unique passing cases",
+    "closed operating-component build fixture explicitly provides composed source/dependency assets and compressor options; preserves original three asset identity, idempotency and fail-before-publish oracles and adds economics/booking hash assertions",
+    "real Terser bridge-content change propagates finance bundle, parent, loader and entry identities; repeat content produces zero writes; deliberate omission of bridge fails the new independent inclusion oracle",
+    "verify independent viewer export in frozen component registry without sibling-order assumptions; preserve lazy loader and all four real Vue evidence readback, failure, retry and scope-isolation cases",
+    "remove completed full-factory script only for matching origin/path when registration is absent, so authenticated deferred loading can recover on retry; preserve broker and manifest identity"
+  ],
+  "verification": {
+    "scope": "explicit composed target files including latest main; isolated synthetic fixtures",
+    "php": {
+      "deduplicated": true,
+      "files": 54,
+      "assertions": 7692,
+      "skipped": 0,
+      "tests": 856
+    },
+    "node": {
+      "deduplicated": true,
+      "skipped": 0,
+      "tests": 322,
+      "passed": 322,
+      "files": 30,
+      "components": "prior267 + ctrip11 + monthly/onbooks8 + demand/settlement28 + operating asset build4 + viewer4; repeats not counted",
+      "runner_breakdown": {
+        "playwright": {
+          "tests": 1,
+          "files": 1
+        },
+        "node": {
+          "tests": 321,
+          "files": 29
+        },
+        "caliber": "30files322 automation tests; separate seven mounted probes; full focused runs deduplicated by file"
+      }
+    },
+    "browser_probes": {
+      "scope": "finance facade, learning, investment/import/scenario, review exact readback/export, deferred network/factory retry",
+      "passed": true,
+      "final_generated": 7
+    },
+    "frontend_build": "npm run build:frontend passed after latest main composition",
+    "public_entry": {
+      "target": 620000,
+      "startup_gzip_bytes": 619534,
+      "passed": true
+    },
+    "routes": {
+      "controllers": 69,
+      "public_actions": 787,
+      "covered": true
+    },
+    "integration_gate": "passed by mandatory exact-index pre-commit; final clean worktree gate separately verified before delivery",
+    "real_business_database_writes": false,
+    "real_account_acceptance": false,
+    "production_migration": false,
+    "deployment": false,
+    "business_chain_local": {
+      "runtime": "default CLI runtime verified in CI isolated MySQL; dedicated synthetic hotel case not configured and skipped",
+      "static_contract": "passed",
+      "ci_snapshot": {
+        "passed": 7,
+        "head": "2762661c86cfd2f619249d16e5fa59f6f35a2c0e",
+        "overall_ci": "failed on unrelated finance fixture, not a passed full run",
+        "skipped": 1,
+        "test_cases": 8
+      }
+    }
+  },
+  "github": "Current follow-up delivery is PR58 after historical PR51 merged; exact-head remote readback and full CI recorded separately",
+  "latest_remote_ota": {
+    "commit": "94f246e2beb3d640a5da254e5c7554514fb438a3",
+    "repair_commits": [
+      "58bff00a",
+      "5192e26a",
+      "a55d53c5"
+    ],
+    "scope": "OTA numeric overflow, platform canonical metrics, exact pricing readback, P0 scope and manual review; root composition retained; authenticated deferred loader protocol merged"
+  },
+  "latest_remote_test_followups": {
+    "commit": "b8c647c3c07ed036f4d11fcab868d406a73540a5",
+    "parent": "f4013310ec20c1ae38feab8194f6b25be660b9e1",
+    "scope": "Meituan report extracted-source check; monthly/on-books save ownership sibling registration",
+    "target_completion": "four composed sibling components registered only in isolated ownership fixtures; original save, readback and warning assertions retained"
+  },
+  "latest_remote_budget": {
+    "commit": "cc170219b8973dcfede93ad99934a7ae859e5b38",
+    "scope": "freeze pricing evidence concern at133lines and P0 scope helper at742lines; no business source or acceptance oracle changed"
+  },
+  "latest_main_landing": {
+    "historical_pr51": "769e30977927ed7b7407096dc4c9700626b4852c",
+    "dos_pr57": "d3e53e176d86d74f7868297125772116f666b3e4",
+    "composition_content": "main landing and latest DOS merged; DOS blob already identical; business source and accepted generated assets unchanged",
+    "current_pull_request": 58
+  },
+  "dos_introduction": {
+    "source_commit": "61554d9aa1081a39e242f95f66a9d721bc68b006",
+    "source_blob": "72aca9496737bad552726935934d19cf2a0f4b12",
+    "path": "docs/collaboration/dos-boss-introduction-20261001.md",
+    "sha256": "fdfc91c09ca5bc0160a66ef4781deed510bbeeb68b56be9433dd1d4f3c2ebb14",
+    "understanding_angles": 13,
+    "language_context_examples": 11,
+    "evidence": "source Git blob and SHA256 identical; actual DOS loading/use not verified"
+  }
+}

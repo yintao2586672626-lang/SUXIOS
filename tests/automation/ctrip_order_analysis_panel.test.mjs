@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { parseExpressionAt } from 'acorn';
 import { readRouteContractSource } from '../../scripts/lib/route_contract_source.mjs';
 import { readAppMainContractSource } from './helpers/frontend_source.mjs';
 
@@ -187,6 +188,90 @@ test('the full component bridge waits for the authenticated after-first-paint lo
 
   assert.deepEqual(deferredLoads, ['components/system/app-main-components.js']);
   assert.equal(component.name, 'OperatingLoopAuthority');
+});
+
+test('the real authenticated broker replaces a completed full script without a factory before a later component retries', async () => {
+  // Evaluate only the production public manifest and asset-loading functions;
+  // authentication, storage and account code are outside this isolated fixture.
+  const declaration = name => {
+    const marker = `const ${name} =`;
+    const start = appBootstrap.indexOf(marker);
+    assert.ok(start >= 0, `bootstrap declaration exists: ${name}`);
+    const expression = parseExpressionAt(appBootstrap, start + marker.length, { ecmaVersion: 'latest' });
+    return appBootstrap.slice(start, expression.end) + ';';
+  };
+  const constants = ['AUTH_ASSET_MANIFEST_ID', 'ASSET_PHASE_STARTUP', 'ASSET_PHASE_AFTER_FIRST_PAINT',
+    'ASSET_TYPE_SCRIPT', 'ASSET_TYPE_STYLE', 'AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS',
+    'AUTHENTICATED_FIRST_PAINT_FALLBACK_MS', 'DEFERRED_AUTHENTICATED_ASSET_LOAD_TIMEOUT_MS',
+    'DEFERRED_AUTHENTICATED_ASSET_RETRY_LIMIT', 'authenticatedAssetLoadPromises'];
+  const helpers = ['authenticatedAssets', 'assetBaseName', 'resolveAssetUrl', 'retryAuthenticatedAssetSource',
+    'loadAssetElement', 'loadScript', 'loadAuthenticatedAsset', 'createDeferredManifestTimeoutError',
+    'remainingDeferredManifestMs', 'loadDeferredAuthenticatedAssetWithRetry', 'waitForFirstAuthenticatedPaint',
+    'loadDeferredAuthenticatedManifestAsset'];
+  const manifest = indexHtml.match(/<script\b[^>]*id="suxi-authenticated-assets"[^>]*>([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(manifest, 'use the actual generated manifest and its content hash');
+  const scripts = [], appended = [], removed = [], events = [], deferredLoads = [];
+  const createScript = () => {
+    const listeners = new Map();
+    const script = {
+      dataset: {}, src: '', async: false,
+      getAttribute: name => name === 'src' ? script.src : null,
+      addEventListener: (name, handler, options) => listeners.set(name, { handler, once: options?.once }),
+      removeEventListener: (name, handler) => { if (listeners.get(name)?.handler === handler) listeners.delete(name); },
+      remove: () => { const index = scripts.indexOf(script); if (index >= 0) scripts.splice(index, 1); removed.push(script); },
+      dispatch: name => { const listener = listeners.get(name); if (listener?.once) listeners.delete(name); listener?.handler(); },
+    };
+    return script;
+  };
+  const unrelatedOrigin = createScript();
+  unrelatedOrigin.src = 'https://other.example.test/components/system/app-main-components.js?v=unrelated';
+  unrelatedOrigin.dataset.suxiAssetLoaded = '1'; scripts.push(unrelatedOrigin);
+  const unrelatedPath = createScript();
+  unrelatedPath.src = 'components/other/app-main-components.js?v=unrelated';
+  unrelatedPath.dataset.suxiAssetLoaded = '1'; scripts.push(unrelatedPath);
+  const window = {
+    setTimeout, clearTimeout,
+    requestAnimationFrame: callback => queueMicrotask(() => { events.push('paint'); callback(); }),
+  };
+  const document = {
+    baseURI: 'https://hotel.example.test/', scripts,
+    getElementById: id => id === 'suxi-authenticated-assets' ? { textContent: manifest } : null,
+    createElement: type => { assert.equal(type, 'script'); return createScript(); },
+    head: { appendChild: () => assert.fail('the bridge must retain the authenticated broker') },
+    body: { appendChild: script => {
+      events.push('append'); scripts.push(script); appended.push(script);
+      queueMicrotask(() => {
+        if (appended.length === 2) window.SUXI_APP_MAIN_COMPONENTS_FULL = {
+          create: () => ({ HotelLearningWorkbench: { name: 'HotelLearningWorkbench' } }),
+        };
+        script.dispatch('load');
+      });
+    } },
+  };
+  const context = vm.createContext({ window, document, URL, deferredLoads });
+  vm.runInContext(`(()=>{${[...constants, ...helpers].map(declaration).join('\n')}
+    window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET=asset=>{
+      deferredLoads.push(asset);return loadDeferredAuthenticatedManifestAsset(asset);
+    };})()`, context, { filename: 'app-bootstrap-public-asset-helpers.js' });
+  vm.runInContext(appMainComponentsLoader, context, { filename: 'app-main-components-loader.js' });
+  const Vue = { defineAsyncComponent: definition => typeof definition === 'function' ? { loader: definition } : definition };
+  const components = window.SUXI_APP_MAIN_COMPONENTS.create({ Vue, h: () => null });
+
+  await assert.rejects(components.AiDecisionQualityDetails.loader(), /主应用完整领域组件未完成注册/);
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].dataset.suxiAssetLoaded, '1', 'the first resource completed successfully without registering its factory');
+  assert.ok(removed.includes(appended[0]), 'discard that completed script so the real broker cannot reuse it');
+  assert.ok(scripts.includes(unrelatedOrigin) && scripts.includes(unrelatedPath), 'preserve scripts from another origin or path');
+
+  const retried = await components.HotelLearningWorkbench.loader();
+  assert.equal(retried.name, 'HotelLearningWorkbench');
+  assert.deepEqual(deferredLoads, Array(2).fill('components/system/app-main-components.js'));
+  assert.equal(appended.length, 2, 'the second independent component makes a real resource request');
+  assert.equal(appended[1].src, appended[0].src, 'both attempts retain the exact authenticated manifest hash');
+  assert.equal(appended[1].dataset.suxiAssetLoaded, '1');
+  assert.deepEqual(events, ['paint', 'paint', 'append', 'paint', 'paint', 'append']);
+  assert.equal(scripts.filter(script => new URL(script.src, document.baseURI).origin === 'https://hotel.example.test'
+    && new URL(script.src, document.baseURI).pathname === '/components/system/app-main-components.js').length, 1);
 });
 
 test('floating operating consultant loads only after the user opens it and opens on the first click', async () => {

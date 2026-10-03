@@ -25,13 +25,11 @@ final class AiDailyReportPresentationArtifactService
      * @param array<string,mixed> $storedSpec
      * @return array<string,mixed>
      */
-    public function saveAndReadback(array $storedSpec, int $userId, bool $includeBundle = true): array
+    public function saveAndReadback(array $storedSpec, int $userId, bool $includeBundle = true, string $exportMode = 'draft', string $expectedReviewFingerprint = ''): array
     {
         $this->assertStoredSpec($storedSpec);
         $spec = $storedSpec['spec'];
-        $rendered = $this->renderer->render($spec);
         $specRecordId = (int)$storedSpec['record_id'];
-        $rendererVersion = (string)$rendered['renderer_version'];
         $identity = [
             'tenant_id' => (int)$storedSpec['tenant_id'],
             'hotel_ids' => [(int)$storedSpec['hotel_id']],
@@ -42,13 +40,21 @@ final class AiDailyReportPresentationArtifactService
 
         return Db::transaction(function () use (
             $storedSpec,
-            $rendered,
+            $spec,
+            $exportMode,
+            $expectedReviewFingerprint,
             $specRecordId,
-            $rendererVersion,
             $userId,
             $includeBundle,
             $identity
         ): array {
+            Db::name('ai_report_presentation_specs')->where('id', $specRecordId)->lock(true)->find();
+            $reviews = new AiDailyReportPresentationReviewService();
+            $review = $reviews->readForSpec($storedSpec, [(int)$storedSpec['hotel_id']]);
+            if (($exportMode === 'formal' || $expectedReviewFingerprint !== '') && (!preg_match('/^[a-f0-9]{64}$/D', $expectedReviewFingerprint)
+                || !hash_equals($review['review_fingerprint'], $expectedReviewFingerprint))) throw new RuntimeException('presentation_review_stale', 409);
+            $rendered = $this->renderer->render($spec, $reviews->exportContext($review, $exportMode));
+            $rendererVersion = (string)$rendered['renderer_version'];
             $created = false;
             $id = 0;
             try {
@@ -328,7 +334,20 @@ final class AiDailyReportPresentationArtifactService
             && preg_match('/^[a-f0-9]{64}$/', $specFingerprint) === 1
             && hash_equals($specFingerprint, $calculatedSpecFingerprint)
             && hash_equals($specFingerprint, strtolower((string)($row['spec_fingerprint'] ?? '')))
-            && $embeddedSourceIdentityVerified;
+            && $embeddedSourceIdentityVerified
+            && ($manifest['source']['spec_fingerprint'] ?? '') === $specFingerprint
+            && ($manifest['source']['audience'] ?? '') === (string)$row['audience']
+            && ($manifest['renderer_version'] ?? '') === (string)$row['renderer_version']
+            && ($manifest['components']['presentation_spec']['sha256'] ?? '') === hash('sha256', $this->canonicalJson($specPayload));
+        if ($specIdentityVerified && isset($manifest['review'])) {
+            $reviews = new AiDailyReportPresentationReviewService();
+            $reviewSpec = ['record_id' => (int)$specRow['id'], 'tenant_id' => (int)$specRow['tenant_id'], 'hotel_id' => (int)$specRow['hotel_id'],
+                'report_id' => (int)$specRow['report_id'], 'audience' => (string)$specRow['audience'], 'spec_fingerprint' => $specFingerprint,
+                'spec' => $specPayload, 'readback_verified' => true];
+            $review = $reviews->readSnapshotForSpec($reviewSpec, $expectedHotelIds, isset($manifest['review']['review_id']) ? (int)$manifest['review']['review_id'] : null);
+            $expectedContext = $reviews->exportContext($review, (string)($manifest['review']['export_mode'] ?? ''));
+            $specIdentityVerified = $this->canonicalJson($expectedContext) === $this->canonicalJson($manifest['review']);
+        }
         $expectedRenderStatus = $allowPendingStatus
             ? 'rendered_pending_readback'
             : 'rendered_and_readback_verified';
@@ -376,6 +395,9 @@ final class AiDailyReportPresentationArtifactService
             'storage_status' => $created ? 'saved' : 'already_saved',
             'artifact_readback_verified' => true,
             'manifest' => $manifest,
+            'human_review_status' => $manifest['contract']['human_review_status'] ?? 'pending',
+            'export_mode' => $manifest['contract']['export_mode'] ?? 'draft',
+            'review_fingerprint' => $manifest['review']['review_fingerprint'] ?? null,
             'created_by' => (int)($row['created_by'] ?? 0),
             'created_at' => (string)($row['created_at'] ?? ''),
             'authorization' => [
@@ -399,6 +421,7 @@ final class AiDailyReportPresentationArtifactService
                 || str_contains($message, 'error 1062')
                 || str_contains($message, 'errno: 1062')
                 || str_contains($message, 'uk_ai_report_presentation_artifact_renderer')
+                || str_contains($message, 'unique constraint failed: ai_report_presentation_artifacts.presentation_spec_id, ai_report_presentation_artifacts.renderer_version')
             ) {
                 return true;
             }

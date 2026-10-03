@@ -821,3 +821,29 @@ test('Vue reactive unknown POST recovery replays the captured body and clears th
     assert.equal(ctx.saving, false); assert.equal(ctx.writeAttempt, null); assert.equal(ctx.pendingReceipt, null);
     assert.equal(ctx.receipt.snapshots[0].id, 9); assert.equal(ctx.form.rooms, '77');
 });
+
+test('changing snapshot hotel or room clears prior measurements, source and attestation', () => {
+    for (const label of ['快照酒店', '房型（0保留汇总）']) {
+        const { definition, ctx } = component();
+        ctx.selectedIds = ['80', '82']; ctx.overview = fixture().data;
+        ctx.hotelScope = {tenantId:7,hotelIds:[80,82],canExecuteByHotel:{80:true,82:true},permissionScopeKey:ctx.scopeKey,executionMetadataComplete:true};
+        ctx.correct(receipt({ ...submittedRow(), on_books_room_nights: 10 }).data.snapshots[0]);
+        ctx.form.sourceRef = 'TEST-ONLY original source'; ctx.form.attested = true;
+        const control = walk(definition.render.call(ctx)).find(node => node.type === 'select' && node.props['aria-label'] === label);
+        control.props.onChange({ target: { value: label === '快照酒店' ? '82' : '2' } });
+        assert.equal(ctx.form.rooms, ''); assert.equal(ctx.form.sourceRef, ''); assert.equal(ctx.form.attested, false);
+        assert.equal(ctx.form.correctionId, ''); assert.equal(ctx.form.correctionCapturedAt, '');
+        assert.equal(ctx.form.hotelId, label === '快照酒店' ? '82' : '80');
+        assert.equal(ctx.form.roomTypeId, label === '快照酒店' ? '0' : '2');
+    }
+});
+
+test('editing a loaded correction ID requires a fresh read before saving', async () => {
+    let calls = 0;
+    const { definition, ctx } = component(async () => { calls++; return fixture(); });
+    ctx.correct(receipt().data.snapshots[0]); ctx.form.sourceRef = 'TEST-ONLY new source';
+    const input = walk(definition.render.call(ctx)).find(node => node.type === 'input' && node.props.value === '9');
+    input.props.onInput({ target: { value: '10' } });
+    await ctx.saveForm();
+    assert.equal(calls, 0); assert.match(ctx.error, /回读.*更正/);
+});

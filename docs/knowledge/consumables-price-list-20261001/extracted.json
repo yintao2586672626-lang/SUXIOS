@@ -1,0 +1,1309 @@
+{
+  "schema_version": "procurement-workbook-extraction.v1",
+  "source_filename": "1001酒店易耗品采购价目表（各档位推荐）(1).xlsx",
+  "source_sha256": "BF8AA1E0290BCF7F6464D6FFA63BDB653C1E11745A816EA53F517E2FC3EBA4F0",
+  "source_bytes": 13207,
+  "extracted_on": "2026-10-01",
+  "quote_effective_date": null,
+  "source_kind": "user_supplied_procurement_quote_reference",
+  "formulas_executed": false,
+  "external_links_fetched": false,
+  "structure": {
+    "zip_entries": 17,
+    "uncompressed_bytes": 60316,
+    "macro_parts": [],
+    "external_link_parts": [],
+    "embedded_parts": []
+  },
+  "sheets": [
+    {
+      "name": "Sheet1",
+      "state": "visible",
+      "dimension": "A1:G41",
+      "max_row": 41,
+      "max_column": 7,
+      "merged_ranges": [
+        "A1:G1"
+      ],
+      "hidden_rows": [],
+      "hidden_columns": [],
+      "cells": [
+        {
+          "cell": "A1",
+          "value": "酒店易耗品采购推荐价目表",
+          "type": "s"
+        },
+        {
+          "cell": "A2",
+          "value": "序号",
+          "type": "s"
+        },
+        {
+          "cell": "B2",
+          "value": "易耗品品类",
+          "type": "s"
+        },
+        {
+          "cell": "C2",
+          "value": "低端酒店",
+          "type": "s"
+        },
+        {
+          "cell": "D2",
+          "value": "房价100-200",
+          "type": "s"
+        },
+        {
+          "cell": "E2",
+          "value": "房价200-400",
+          "type": "s"
+        },
+        {
+          "cell": "F2",
+          "value": "房价400-600",
+          "type": "s"
+        },
+        {
+          "cell": "G2",
+          "value": "房价600以上",
+          "type": "s"
+        },
+        {
+          "cell": "A3",
+          "value": 1,
+          "type": "n"
+        },
+        {
+          "cell": "B3",
+          "value": "牙具A",
+          "type": "s"
+        },
+        {
+          "cell": "C3",
+          "value": "0.38以下",
+          "type": "s"
+        },
+        {
+          "cell": "D3",
+          "value": "0.35-0.45",
+          "type": "s"
+        },
+        {
+          "cell": "E3",
+          "value": "0.45-0.55",
+          "type": "s"
+        },
+        {
+          "cell": "F3",
+          "value": "0.55-0.7",
+          "type": "s"
+        },
+        {
+          "cell": "G3",
+          "value": "0.7以上",
+          "type": "s"
+        },
+        {
+          "cell": "A4",
+          "value": 2,
+          "type": "n"
+        },
+        {
+          "cell": "B4",
+          "value": "牙具B",
+          "type": "s"
+        },
+        {
+          "cell": "C4",
+          "value": "0.38以下",
+          "type": "s"
+        },
+        {
+          "cell": "D4",
+          "value": "0.35-0.45",
+          "type": "s"
+        },
+        {
+          "cell": "E4",
+          "value": "0.45-0.55",
+          "type": "s"
+        },
+        {
+          "cell": "F4",
+          "value": "0.55-0.7",
+          "type": "s"
+        },
+        {
+          "cell": "G4",
+          "value": "0.7以上",
+          "type": "s"
+        },
+        {
+          "cell": "B5",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D5",
+          "value": "推荐使用软膜袋或白牛皮包装，3g牙膏",
+          "type": "s"
+        },
+        {
+          "cell": "E5",
+          "value": "推荐使用塑料袋，甘蔗纸，石头纸包装，6g牙膏",
+          "type": "s"
+        },
+        {
+          "cell": "F5",
+          "value": "推荐使用石头纸，卡盒包装，6g牙膏",
+          "type": "s"
+        },
+        {
+          "cell": "G5",
+          "value": "推荐使用甘蔗纸卡盒包装，6g以上牙膏",
+          "type": "s"
+        },
+        {
+          "cell": "A6",
+          "value": 3,
+          "type": "n"
+        },
+        {
+          "cell": "B6",
+          "value": "梳子",
+          "type": "s"
+        },
+        {
+          "cell": "C6",
+          "value": "0.24以下",
+          "type": "s"
+        },
+        {
+          "cell": "D6",
+          "value": "0.2-0.28",
+          "type": "s"
+        },
+        {
+          "cell": "E6",
+          "value": "0.28-0.35",
+          "type": "s"
+        },
+        {
+          "cell": "F6",
+          "value": "0.35-0.4",
+          "type": "s"
+        },
+        {
+          "cell": "G6",
+          "value": "0.4以上",
+          "type": "s"
+        },
+        {
+          "cell": "A7",
+          "value": 4,
+          "type": "n"
+        },
+        {
+          "cell": "B7",
+          "value": "浴帽",
+          "type": "s"
+        },
+        {
+          "cell": "C7",
+          "value": 0.18,
+          "type": "n"
+        },
+        {
+          "cell": "D7",
+          "value": "0.15-0.2",
+          "type": "s"
+        },
+        {
+          "cell": "E7",
+          "value": "0.2-0.23",
+          "type": "s"
+        },
+        {
+          "cell": "F7",
+          "value": "0.23-0.32",
+          "type": "s"
+        },
+        {
+          "cell": "G7",
+          "value": "0.32-0.35",
+          "type": "s"
+        },
+        {
+          "cell": "B8",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D8",
+          "value": "高压浴帽",
+          "type": "s"
+        },
+        {
+          "cell": "E8",
+          "value": "高压浴帽",
+          "type": "s"
+        },
+        {
+          "cell": "F8",
+          "value": "玉米淀粉浴帽，可加发绳",
+          "type": "s"
+        },
+        {
+          "cell": "G8",
+          "value": "玉米淀粉浴帽，加发绳",
+          "type": "s"
+        },
+        {
+          "cell": "A9",
+          "value": 5,
+          "type": "n"
+        },
+        {
+          "cell": "B9",
+          "value": "剃须刀",
+          "type": "s"
+        },
+        {
+          "cell": "C9",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D9",
+          "value": "0.45-0.6",
+          "type": "s"
+        },
+        {
+          "cell": "E9",
+          "value": "0.7-1.1",
+          "type": "s"
+        },
+        {
+          "cell": "F9",
+          "value": "1.3-1.8",
+          "type": "s"
+        },
+        {
+          "cell": "G9",
+          "value": "2元以上",
+          "type": "s"
+        },
+        {
+          "cell": "B10",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D10",
+          "value": "推荐注胶剃须刀，5g膏",
+          "type": "s"
+        },
+        {
+          "cell": "E10",
+          "value": "品牌类剃须刀，10g膏",
+          "type": "s"
+        },
+        {
+          "cell": "F10",
+          "value": "品牌类剃须刀，10g膏+卡盒",
+          "type": "s"
+        },
+        {
+          "cell": "G10",
+          "value": "品牌类剃须刀，10g膏+卡盒",
+          "type": "s"
+        },
+        {
+          "cell": "A11",
+          "value": 6,
+          "type": "n"
+        },
+        {
+          "cell": "B11",
+          "value": "护理包",
+          "type": "s"
+        },
+        {
+          "cell": "C11",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D11",
+          "value": "0.23-0.28",
+          "type": "s"
+        },
+        {
+          "cell": "E11",
+          "value": "0.28-0.35",
+          "type": "s"
+        },
+        {
+          "cell": "F11",
+          "value": "0.35-0.4",
+          "type": "s"
+        },
+        {
+          "cell": "G11",
+          "value": "0.4-0.45",
+          "type": "s"
+        },
+        {
+          "cell": "B12",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D12",
+          "value": "2棉片+4棉签 （塑料/木质）",
+          "type": "s"
+        },
+        {
+          "cell": "E12",
+          "value": "2棉片+4棉签 （木质/纸质）",
+          "type": "s"
+        },
+        {
+          "cell": "F12",
+          "value": "2棉片+4棉签 （纸质）+指甲锉",
+          "type": "s"
+        },
+        {
+          "cell": "G12",
+          "value": "2棉片+4棉签 （纸质）+指甲锉+牙线",
+          "type": "s"
+        },
+        {
+          "cell": "A13",
+          "value": 7,
+          "type": "n"
+        },
+        {
+          "cell": "B13",
+          "value": "香皂",
+          "type": "s"
+        },
+        {
+          "cell": "C13",
+          "value": "0.2左右",
+          "type": "s"
+        },
+        {
+          "cell": "D13",
+          "value": "0.2-0.25",
+          "type": "s"
+        },
+        {
+          "cell": "E13",
+          "value": "0.25-0.3",
+          "type": "s"
+        },
+        {
+          "cell": "F13",
+          "value": "0.3-0.4",
+          "type": "s"
+        },
+        {
+          "cell": "G13",
+          "value": "0.4以上",
+          "type": "s"
+        },
+        {
+          "cell": "B14",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D14",
+          "value": "10克香皂",
+          "type": "s"
+        },
+        {
+          "cell": "E14",
+          "value": "15克香皂",
+          "type": "s"
+        },
+        {
+          "cell": "F14",
+          "value": "15克香皂/20克香皂",
+          "type": "s"
+        },
+        {
+          "cell": "G14",
+          "value": "20克香皂",
+          "type": "s"
+        },
+        {
+          "cell": "A15",
+          "value": 8,
+          "type": "n"
+        },
+        {
+          "cell": "B15",
+          "value": "拖鞋A",
+          "type": "s"
+        },
+        {
+          "cell": "C15",
+          "value": "1.2以下",
+          "type": "s"
+        },
+        {
+          "cell": "D15",
+          "value": "1-1.5",
+          "type": "s"
+        },
+        {
+          "cell": "E15",
+          "value": "1.5-2",
+          "type": "s"
+        },
+        {
+          "cell": "F15",
+          "value": "1.8-2.5",
+          "type": "s"
+        },
+        {
+          "cell": "G15",
+          "value": "2.5以上",
+          "type": "s"
+        },
+        {
+          "cell": "A16",
+          "value": 9,
+          "type": "n"
+        },
+        {
+          "cell": "B16",
+          "value": "拖鞋B",
+          "type": "s"
+        },
+        {
+          "cell": "C16",
+          "value": "1.2以下",
+          "type": "s"
+        },
+        {
+          "cell": "D16",
+          "value": "1-1.5",
+          "type": "s"
+        },
+        {
+          "cell": "E16",
+          "value": "1.5-2",
+          "type": "s"
+        },
+        {
+          "cell": "F16",
+          "value": "1.8-2.5",
+          "type": "s"
+        },
+        {
+          "cell": "G16",
+          "value": "2.5以上",
+          "type": "s"
+        },
+        {
+          "cell": "B17",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D17",
+          "value": "不分AB款，推荐珍珠棉，网眼布，麻布等布料一把包拖鞋",
+          "type": "s"
+        },
+        {
+          "cell": "E17",
+          "value": "可分AB款，推荐细棉绒、珊瑚绒一把包，麻布镶底拖鞋",
+          "type": "s"
+        },
+        {
+          "cell": "F17",
+          "value": "分AB款，推荐珊瑚绒镶底拖鞋",
+          "type": "s"
+        },
+        {
+          "cell": "G17",
+          "value": "分AB款，推荐灯芯绒拖鞋",
+          "type": "s"
+        },
+        {
+          "cell": "A18",
+          "value": 10,
+          "type": "n"
+        },
+        {
+          "cell": "B18",
+          "value": "洗手液",
+          "type": "s"
+        },
+        {
+          "cell": "C18",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D18",
+          "value": "8-10（可添加补充液）",
+          "type": "s"
+        },
+        {
+          "cell": "E18",
+          "value": "10-15（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "F18",
+          "value": "15-20（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "G18",
+          "value": "15-20（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "A19",
+          "value": 11,
+          "type": "n"
+        },
+        {
+          "cell": "B19",
+          "value": "洗发水",
+          "type": "s"
+        },
+        {
+          "cell": "C19",
+          "value": "8左右（可添加补充液）",
+          "type": "s"
+        },
+        {
+          "cell": "D19",
+          "value": "8-10（可添加补充液）",
+          "type": "s"
+        },
+        {
+          "cell": "E19",
+          "value": "10-15（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "F19",
+          "value": "15-20（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "G19",
+          "value": "1.5-2.5（小瓶装）",
+          "type": "s"
+        },
+        {
+          "cell": "A20",
+          "value": 12,
+          "type": "n"
+        },
+        {
+          "cell": "B20",
+          "value": "沐浴露",
+          "type": "s"
+        },
+        {
+          "cell": "C20",
+          "value": "8左右（可添加补充液）",
+          "type": "s"
+        },
+        {
+          "cell": "D20",
+          "value": "8-10（可添加补充液）",
+          "type": "s"
+        },
+        {
+          "cell": "E20",
+          "value": "10-15（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "F20",
+          "value": "15-20（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "G20",
+          "value": "1.5-2.5（小瓶装）",
+          "type": "s"
+        },
+        {
+          "cell": "A21",
+          "value": 13,
+          "type": "n"
+        },
+        {
+          "cell": "B21",
+          "value": "护发素",
+          "type": "s"
+        },
+        {
+          "cell": "C21",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D21",
+          "value": "8-10（可添加补充液）",
+          "type": "s"
+        },
+        {
+          "cell": "E21",
+          "value": "10-15（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "F21",
+          "value": "15-20（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "G21",
+          "value": "1.5-2.5（小瓶装）",
+          "type": "s"
+        },
+        {
+          "cell": "A22",
+          "value": 14,
+          "type": "n"
+        },
+        {
+          "cell": "B22",
+          "value": "润肤露",
+          "type": "s"
+        },
+        {
+          "cell": "C22",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D22",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "E22",
+          "value": "10-15（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "F22",
+          "value": "15-20（锁盖大瓶）",
+          "type": "s"
+        },
+        {
+          "cell": "G22",
+          "value": "1.5-2.5（小瓶装）",
+          "type": "s"
+        },
+        {
+          "cell": "B23",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D23",
+          "value": "补充液20kg桶装150-220",
+          "type": "s"
+        },
+        {
+          "cell": "A24",
+          "value": 15,
+          "type": "n"
+        },
+        {
+          "cell": "B24",
+          "value": "马桶垫",
+          "type": "s"
+        },
+        {
+          "cell": "C24",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D24",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "E24",
+          "value": "0.25-0.35",
+          "type": "s"
+        },
+        {
+          "cell": "F24",
+          "value": "0.35-0.45",
+          "type": "s"
+        },
+        {
+          "cell": "G24",
+          "value": "0.35-0.45",
+          "type": "s"
+        },
+        {
+          "cell": "A25",
+          "value": 16,
+          "type": "n"
+        },
+        {
+          "cell": "B25",
+          "value": "浴缸套",
+          "type": "s"
+        },
+        {
+          "cell": "C25",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D25",
+          "value": "1-1.5(选配）",
+          "type": "s"
+        },
+        {
+          "cell": "E25",
+          "value": "1-1.5(选配）",
+          "type": "s"
+        },
+        {
+          "cell": "F25",
+          "value": "1-1.5(选配）",
+          "type": "s"
+        },
+        {
+          "cell": "G25",
+          "value": "1-1.5(选配）",
+          "type": "s"
+        },
+        {
+          "cell": "A26",
+          "value": 17,
+          "type": "n"
+        },
+        {
+          "cell": "B26",
+          "value": "儿童牙刷",
+          "type": "s"
+        },
+        {
+          "cell": "C26",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D26",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "E26",
+          "value": "0.6-0.8",
+          "type": "s"
+        },
+        {
+          "cell": "F26",
+          "value": "0.8-1",
+          "type": "s"
+        },
+        {
+          "cell": "G26",
+          "value": "1.5以上",
+          "type": "s"
+        },
+        {
+          "cell": "A27",
+          "value": 18,
+          "type": "n"
+        },
+        {
+          "cell": "B27",
+          "value": "儿童拖鞋",
+          "type": "s"
+        },
+        {
+          "cell": "C27",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D27",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "E27",
+          "value": "1.5-2",
+          "type": "s"
+        },
+        {
+          "cell": "F27",
+          "value": "1.8-2.5",
+          "type": "s"
+        },
+        {
+          "cell": "G27",
+          "value": "2.5以上",
+          "type": "s"
+        },
+        {
+          "cell": "A28",
+          "value": 19,
+          "type": "n"
+        },
+        {
+          "cell": "B28",
+          "value": "儿童洗沐套装",
+          "type": "s"
+        },
+        {
+          "cell": "C28",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D28",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "E28",
+          "value": "10-15（选配）",
+          "type": "s"
+        },
+        {
+          "cell": "F28",
+          "value": "10-15（选配）",
+          "type": "s"
+        },
+        {
+          "cell": "G28",
+          "value": "10-15",
+          "type": "s"
+        },
+        {
+          "cell": "A29",
+          "value": 20,
+          "type": "n"
+        },
+        {
+          "cell": "B29",
+          "value": "抽纸",
+          "type": "s"
+        },
+        {
+          "cell": "C29",
+          "value": "90-100",
+          "type": "s"
+        },
+        {
+          "cell": "D29",
+          "value": "90-100",
+          "type": "s"
+        },
+        {
+          "cell": "E29",
+          "value": "90-100",
+          "type": "s"
+        },
+        {
+          "cell": "F29",
+          "value": "100-150",
+          "type": "s"
+        },
+        {
+          "cell": "G29",
+          "value": "100-150",
+          "type": "s"
+        },
+        {
+          "cell": "B30",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "C30",
+          "value": "散抽7.5kg",
+          "type": "s"
+        },
+        {
+          "cell": "D30",
+          "value": "散抽7.5kg",
+          "type": "s"
+        },
+        {
+          "cell": "E30",
+          "value": "散抽7.5kg",
+          "type": "s"
+        },
+        {
+          "cell": "F30",
+          "value": "散抽/独立包装（心相印，维达）",
+          "type": "s"
+        },
+        {
+          "cell": "G30",
+          "value": "散抽/独立包装（心相印，维达）",
+          "type": "s"
+        },
+        {
+          "cell": "A31",
+          "value": 21,
+          "type": "n"
+        },
+        {
+          "cell": "B31",
+          "value": "卷纸",
+          "type": "s"
+        },
+        {
+          "cell": "C31",
+          "value": "50G卷纸",
+          "type": "s"
+        },
+        {
+          "cell": "D31",
+          "value": "95-100",
+          "type": "s"
+        },
+        {
+          "cell": "E31",
+          "value": "110-125",
+          "type": "s"
+        },
+        {
+          "cell": "F31",
+          "value": "120-125",
+          "type": "s"
+        },
+        {
+          "cell": "G31",
+          "value": "120-125",
+          "type": "s"
+        },
+        {
+          "cell": "B32",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D32",
+          "value": "50g卷纸",
+          "type": "s"
+        },
+        {
+          "cell": "E32",
+          "value": "70g/80g卷纸",
+          "type": "s"
+        },
+        {
+          "cell": "F32",
+          "value": "80g卷纸",
+          "type": "s"
+        },
+        {
+          "cell": "G32",
+          "value": "80g卷纸",
+          "type": "s"
+        },
+        {
+          "cell": "A33",
+          "value": 22,
+          "type": "n"
+        },
+        {
+          "cell": "B33",
+          "value": "无纺布礼品袋",
+          "type": "s"
+        },
+        {
+          "cell": "C33",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D33",
+          "value": "1.2-2（选配）",
+          "type": "s"
+        },
+        {
+          "cell": "E33",
+          "value": "1.2-2（选配）",
+          "type": "s"
+        },
+        {
+          "cell": "F33",
+          "value": "1.5-3",
+          "type": "s"
+        },
+        {
+          "cell": "G33",
+          "value": "1.5-3",
+          "type": "s"
+        },
+        {
+          "cell": "A34",
+          "value": 23,
+          "type": "n"
+        },
+        {
+          "cell": "B34",
+          "value": "洗衣袋",
+          "type": "s"
+        },
+        {
+          "cell": "C34",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D34",
+          "value": "0.6-0.8",
+          "type": "s"
+        },
+        {
+          "cell": "E34",
+          "value": "0.6-0.8",
+          "type": "s"
+        },
+        {
+          "cell": "F34",
+          "value": "0.8-1.5",
+          "type": "s"
+        },
+        {
+          "cell": "G34",
+          "value": "0.8-1.5",
+          "type": "s"
+        },
+        {
+          "cell": "B35",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D35",
+          "value": "塑料材质（选配）",
+          "type": "s"
+        },
+        {
+          "cell": "E35",
+          "value": "塑料材质（选配）",
+          "type": "s"
+        },
+        {
+          "cell": "F35",
+          "value": "无纺布材质",
+          "type": "s"
+        },
+        {
+          "cell": "G35",
+          "value": "无纺布材质",
+          "type": "s"
+        },
+        {
+          "cell": "A36",
+          "value": 24,
+          "type": "n"
+        },
+        {
+          "cell": "B36",
+          "value": "大垃圾袋",
+          "type": "s"
+        },
+        {
+          "cell": "C36",
+          "value": "根据酒店配置",
+          "type": "s"
+        },
+        {
+          "cell": "D36",
+          "value": "330-360",
+          "type": "s"
+        },
+        {
+          "cell": "E36",
+          "value": "360-390",
+          "type": "s"
+        },
+        {
+          "cell": "F36",
+          "value": "390-420",
+          "type": "s"
+        },
+        {
+          "cell": "G36",
+          "value": "420-450",
+          "type": "s"
+        },
+        {
+          "cell": "B37",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D37",
+          "value": "25g/28g",
+          "type": "s"
+        },
+        {
+          "cell": "E37",
+          "value": "28g/30g",
+          "type": "s"
+        },
+        {
+          "cell": "F37",
+          "value": "30g/35g",
+          "type": "s"
+        },
+        {
+          "cell": "G37",
+          "value": "35g/40g",
+          "type": "s"
+        },
+        {
+          "cell": "A38",
+          "value": 25,
+          "type": "n"
+        },
+        {
+          "cell": "B38",
+          "value": "小垃圾袋",
+          "type": "s"
+        },
+        {
+          "cell": "C38",
+          "value": "根据酒店配置",
+          "type": "s"
+        },
+        {
+          "cell": "D38",
+          "value": "320-350",
+          "type": "s"
+        },
+        {
+          "cell": "E38",
+          "value": "350-390",
+          "type": "s"
+        },
+        {
+          "cell": "F38",
+          "value": "380-440",
+          "type": "s"
+        },
+        {
+          "cell": "G38",
+          "value": "380-440",
+          "type": "s"
+        },
+        {
+          "cell": "B39",
+          "value": "产品建议",
+          "type": "s"
+        },
+        {
+          "cell": "D39",
+          "value": "2g/2.3g",
+          "type": "s"
+        },
+        {
+          "cell": "E39",
+          "value": "2.3g/2.7g",
+          "type": "s"
+        },
+        {
+          "cell": "F39",
+          "value": "2.5g/3g",
+          "type": "s"
+        },
+        {
+          "cell": "G39",
+          "value": "2.5g/3g",
+          "type": "s"
+        },
+        {
+          "cell": "A40",
+          "value": 26,
+          "type": "n"
+        },
+        {
+          "cell": "B40",
+          "value": "茶叶",
+          "type": "s"
+        },
+        {
+          "cell": "C40",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D40",
+          "value": "0.4-0.45",
+          "type": "s"
+        },
+        {
+          "cell": "E40",
+          "value": "0.45-0.55",
+          "type": "s"
+        },
+        {
+          "cell": "F40",
+          "value": "0.55-0.65",
+          "type": "s"
+        },
+        {
+          "cell": "G40",
+          "value": "1.5-4(小罐茶）",
+          "type": "s"
+        },
+        {
+          "cell": "A41",
+          "value": 27,
+          "type": "n"
+        },
+        {
+          "cell": "B41",
+          "value": "咖啡",
+          "type": "s"
+        },
+        {
+          "cell": "C41",
+          "value": "可不配置",
+          "type": "s"
+        },
+        {
+          "cell": "D41",
+          "value": "0.55-0.65（选配）",
+          "type": "s"
+        },
+        {
+          "cell": "E41",
+          "value": "0.55-0.65",
+          "type": "s"
+        },
+        {
+          "cell": "F41",
+          "value": "0.8-1.2",
+          "type": "s"
+        },
+        {
+          "cell": "G41",
+          "value": "2元以上（挂耳咖啡）",
+          "type": "s"
+        }
+      ]
+    }
+  ]
+}

@@ -6,6 +6,11 @@ namespace Tests;
 use app\service\ConsumablesCostCalculator;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
+use Tests\Support\InvestmentScenarioFixture as Fixture;
+
+require_once __DIR__ . '/Support/InvestmentScenarioFixture.php';
 
 final class ConsumablesCostCalculatorTest extends TestCase
 {
@@ -236,8 +241,11 @@ final class ConsumablesCostCalculatorTest extends TestCase
         }
     }
 
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testUnavailableProcurementReferenceRejectsInsteadOfBecomingAManualCost(): void
     {
+        Fixture::withoutOptionalModules();
         self::assertFalse(class_exists(\app\service\ConsumablesProcurementReferenceService::class));
         $reference = ['catalog_id' => 'synthetic-unavailable-catalog', 'source_sha256' => str_repeat('a', 64),
             'item_id' => 14, 'tier_id' => 'c', 'confirmed_for_scenario' => false];

@@ -142,6 +142,11 @@
                 if (this.writeAttempt?.status === 'preparing') { this.writeAttempt.status = 'cancelled'; this.writeAttempt = null; this.saving = false; }
                 this.form.stayDate = this.businessDate ? dateAfter(this.businessDate, 1) : ''; this.importText = ''; this.importedFileName = '';
                 this.notice = ''; this.error = ''; this.expandedHistory = ''; },
+            changeFormScope(hotelId, roomTypeId = '0') {
+                this.correctionReadSeq += 1;
+                this.form = { ...blankForm(), hotelId: String(hotelId), roomTypeId: String(roomTypeId), stayDate: this.businessDate ? dateAfter(this.businessDate, 1) : '' };
+                this.notice = ''; this.error = '';
+            },
             canWriteHotel(id) { return this.canExecute === true && this.hotelScope?.permissionScopeKey === this.scopeKey
                 && this.selectedIds.map(Number).includes(Number(id)) && this.hotelScope.canExecuteByHotel?.[Number(id)] === true; },
             canRetryWrite(attempt) { return this.canExecute === true && this.hotelScope?.permissionScopeKey === this.scopeKey
@@ -202,6 +207,7 @@
             async saveForm() {
                 try {
                     const f = this.form;
+                    if (f.correctionId && (!f.correctionCapturedAt || Number(f.correctionId) !== f.correctionRoomType?.snapshotId)) throw new Error('请先按ID回读并载入更正快照，再保存更正。');
                     if (!f.capturedAt || !f.sourceRef.trim()) throw new Error('请填写实际捕获时间和来源引用；固定观察时点不能代填采集时间。');
                     const row = { hotel_id: Number(f.hotelId), room_type_id: Number(f.roomTypeId), platform: this.platform,
                         fact_scope: ['ctrip', 'meituan'].includes(this.platform) ? 'ota_channel' : 'accommodation_room_fee',
@@ -372,7 +378,8 @@
             const h = Vue.h;
             const input = (key, label, attrs = {}) => h('label', { class: 'grid gap-1 text-xs text-slate-600' }, [label,
                 h('input', { class: 'rounded-lg border p-2 text-sm', value: this.form[key], ...attrs,
-                    onInput: event => { this.form[key] = event.target.value; } })]);
+                    onInput: event => { this.form[key] = event.target.value;
+                        if (key === 'correctionId') { this.form.correctionCapturedAt = ''; this.form.correctionRoomType = null; this.form.attested = false; } } })]);
             const option = (value, label) => h('option', { value: String(value) }, label);
             const select = (label, value, change, options) => h('label', { class: 'grid gap-1 text-xs text-slate-600' }, [label,
                 h('select', { class: 'rounded-lg border p-2 text-sm', value, onChange: change, 'aria-label': label }, options)]);
@@ -426,8 +433,8 @@
                     h('p', { class: 'mt-2 text-xs text-slate-500' }, '仅录入授权来源的实际观测；间夜和金额最多保留四位小数，未知留空。人工核对仍是人工来源。更正保留原快照，另存并回读。'),
                     h('p', { class: 'mt-2 text-xs text-slate-500', 'data-testid': 'booking-monitor-write-permission' }, this.writePermissionMessage),
                     h('form', { class: 'mt-3 grid gap-3 md:grid-cols-3', 'data-testid': 'booking-monitor-form', onSubmit: event => { event.preventDefault(); void this.saveForm(); } }, [
-                        select('快照酒店', this.form.hotelId, event => { this.form.hotelId = event.target.value; this.form.roomTypeId = '0'; this.form.correctionId = ''; }, [option('', '请选择有执行权限的酒店'), ...this.writableHotels.map(hotel => option(hotel.id, hotel.name))]),
-                        select('房型（0保留汇总）', this.form.roomTypeId, event => { this.form.roomTypeId = event.target.value; }, [option(0, '酒店汇总'), ...this.selectedRoomTypes.map(room => option(room.id, `${room.name} · ID ${room.id}`))]),
+                        select('快照酒店', this.form.hotelId, event => this.changeFormScope(event.target.value), [option('', '请选择有执行权限的酒店'), ...this.writableHotels.map(hotel => option(hotel.id, hotel.name))]),
+                        select('房型（0保留汇总）', this.form.roomTypeId, event => this.changeFormScope(this.form.hotelId, event.target.value), [option(0, '酒店汇总'), ...this.selectedRoomTypes.map(room => option(room.id, `${room.name} · ID ${room.id}`))]),
                         input('stayDate', '实际入住日', { type: 'date', required: true }), input('capturedAt', '实际捕获时间（上海）', { type: 'datetime-local', step: 1, required: true, disabled: Boolean(this.form.correctionId && this.form.correctionCapturedAt) }),
                         input('rooms', '在手间夜（必填，实际0可填写）', { inputmode: 'decimal', required: true }), input('revenue', '在手房费（未知留空）', { inputmode: 'decimal' }),
                         input('cancelled', '累计取消间夜（未知留空）', { inputmode: 'decimal' }), input('gross', '累计毛预订间夜（未知留空）', { inputmode: 'decimal' }),

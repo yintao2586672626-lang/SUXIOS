@@ -1,0 +1,146 @@
+{
+  "date": "2026-10-02",
+  "timezone": "Asia/Shanghai",
+  "objective": "deep_self_review_of_three_phase_configurable_workspace_guest_campaign",
+  "baseline_review": "output/validation/three-round-hardening-20261002/verification.json",
+  "resolved_issues": 12,
+  "branch": "codex/save-all-20260903",
+  "head": "9fa781fc92baa66b410f4e5d6e8c8c3c1ebae81b",
+  "upstream": "origin/codex/save-all-20260903",
+  "git_remote_not_refreshed_by_this_task": true,
+  "catalog_modules": 31,
+  "default_phase_counts": [
+    16,
+    8,
+    7
+  ],
+  "php": {
+    "workspace_tests": 10,
+    "workspace_assertions": 60,
+    "guest_tests": 17,
+    "campaign_tests": 22,
+    "guest_campaign_assertions": 291,
+    "total_tests": 49,
+    "total_assertions": 351,
+    "failed": 0,
+    "business_writes_use_temporary_sqlite": true
+  },
+  "node": {
+    "workspace_async": 9,
+    "workspace_controller_browser": 2,
+    "finance_bridge_entry_migration_contract": 18,
+    "guest_browser_qr": 3,
+    "campaign_browser": 4,
+    "total_tests": 36,
+    "failed": 0,
+    "skipped": 0
+  },
+  "formerly_failing_retired_module_contracts": {
+    "tests": 3,
+    "passed": 3,
+    "updated_by": "concurrent_project_slimming_task",
+    "not_changed_by_this_task": true
+  },
+  "red_green": {
+    "root_workspace_reproductions": [
+      "shared_review_actor_idempotency",
+      "noncanonical_source_hotel_id",
+      "hotel_mapping_source_draft_retention",
+      "empty_hotel_stale_record_busy"
+    ],
+    "guest_campaign_backend_issues": 8,
+    "campaign_integrity_ui_statuses": 3
+  },
+  "independent_review": {
+    "workspace_boundary_finding": "fixed_and_independently_rechecked",
+    "new_findings_after_fix": 0
+  },
+  "public_entry": {
+    "passed": true,
+    "startup_gzip_bytes": 600257,
+    "target_startup_gzip_bytes": 620000,
+    "log": "output/validation/deep-hardening-public-entry-20261002.log"
+  },
+  "guest_controller_acceptance": {
+    "synthetic_actual_controller": true,
+    "temporary_sqlite": true,
+    "writes": 11,
+    "independent_exact_reads": 12,
+    "screenshots": "output/guest-operations-acceptance-25976"
+  },
+  "campaign_browser": {
+    "synthetic_api": true,
+    "persistence_verified_separately_by_php": true,
+    "legacy_new_and_unknown_integrity_status_displayed": true,
+    "svg_download": true,
+    "webm_bytes": 107666,
+    "playback_width": 1280,
+    "playback_height": 720,
+    "actual_playback": true,
+    "responsive_320": true
+  },
+  "campaign_integrity": {
+    "new_records": "immutable_metadata_verified",
+    "legacy_records": "legacy_content_only",
+    "historical_bytes_and_digest_preserved": true,
+    "legacy_metadata_retroactive_verification": "not_possible_from_existing_content_digest",
+    "database_append_only_trigger_added": false
+  },
+  "local_account": {
+    "scope": "read_only",
+    "observed_hotel_id": 64,
+    "workspace_module_count": 31,
+    "configuration_state": "suggested_not_saved_or_applied",
+    "real_business_write_acceptance": "not_performed"
+  },
+  "health": {
+    "http": 200,
+    "status": "ok",
+    "application": "ok",
+    "database": "ok",
+    "database_schema": "ok",
+    "runtime_mode": "development_fallback",
+    "production_runtime_ready": false
+  },
+  "served_assets": {
+    "finance_component": {
+      "sha256": "d7acf115feb1d2eb9f49562d4e936ffbd68789a734628be635d54a6c9b1b3e2b",
+      "matches_local": true
+    }
+  },
+  "final_sha256": {
+    "app/service/BusinessWorkspaceService.php": "83e6e64d736dc26e96ca7ea93f3f348b346e7ad9d994a7fb41044a967e697b78",
+    "app/service/GuestOperationsService.php": "e7598f145aca23aecc221692be920ace966a394e52973df942d764f535225e4f",
+    "app/service/CampaignOperationsService.php": "f9d74173003dcc486a080e72fced4cfe772fb17ea74da69d1123cb6c1a92d61f",
+    "app/controller/GuestOperations.php": "6d37c13eebc4cc46a6b2b44ac2058fb52bd581d8422ea98da2de9bf282a99e1f",
+    "tests/Support/GuestOperationsSqliteFixture.php": "573a38afd2e5d4eb2b4c6f828f872078521d55705a4b618604f0a5fa2ab4c5ef",
+    "tests/BusinessWorkspaceServiceTest.php": "b201deb07555e45cbdd08b82769a8d07559cbd46190b32d52e5f57f9484973eb",
+    "tests/GuestOperationsServiceTest.php": "cbcb7ad143104577c52161ea991fdfc4b0ddf98a394aec9888bd0e3746fe528c",
+    "tests/CampaignOperationsServiceTest.php": "72f53f2da564d9269776ed784df15456c4164a67fcd8b5d4479bf84fb83daebd",
+    "public/components/system/business-feature-workspace.js": "87ee8cbfc4fc38d3264ab44ecfe2cf6036135ea6afdd5791cda0be5a742a6609",
+    "public/components/system/campaign-operations-panel.js": "9938ae2ac74a1b7da816cdc2d5361fbeb0af5fca5b3ad457a335adb69a147022",
+    "tests/automation/business_feature_workspace_async_state.test.mjs": "416fb6aca3f94424af0a612c2e9f9c16af1a5fb4ad70dbb247cdb40da925a5e9",
+    "tests/automation/business_feature_workspace_browser.test.mjs": "ee1d82700f3c72916dbaebde30f8a27033c0f8c7f04653b688022c4ff17c2959",
+    "tests/automation/campaign_operations_browser.test.mjs": "622228b99cc53dc74fe5adbee6cdaa5c10929a219b38bdf3d02aa23e688ac805",
+    "public/components/system/operating-finance-control-center.min.js": "d7acf115feb1d2eb9f49562d4e936ffbd68789a734628be635d54a6c9b1b3e2b",
+    "public/components/system/app-main-components.js": "7f145764cb88a5b6b41143dae621753c2d77bc5ef9cabdf635c4857a7557512e",
+    "public/components/system/app-main-components-loader.js": "1ed6d4bb3b8c3a34888a24df64cb863ffe3d76808fc55eb88075e7e5660448a3",
+    "public/app-startup-helpers.min.js": "309a1199bd2f27bb82df65a3088aeff0b4e552e5add2bcd1a9e4003e63aba0a5",
+    "public/index.html": "e7fc9a0a59d7162458d6ce0c56d877410cf716e24a55a4c10be34e3567c3f7a4"
+  },
+  "shared_database_business_writes": 0,
+  "shared_database_ddl": false,
+  "runtime_restarted": false,
+  "external_ota_pms_writes": 0,
+  "committed": false,
+  "pushed": false,
+  "deployed": false,
+  "real_financial_and_operating_effect": "not_verified",
+  "main_thread": {
+    "id": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
+    "title": "整合修复并提交 SUXIOS",
+    "delivery": "final_delta_message_sent",
+    "handoff_path": "output/handoffs/changqing-deep-hardening-20261002.md",
+    "main_thread_integration_status": "not_confirmed_complete"
+  }
+}
