@@ -88,6 +88,10 @@ final class OperatingGuardBoundaryRegressionTest extends TestCase
 
     public static function conditionProvider(): iterable
     {
+        yield 'legacy threshold below' => [['threshold' => 5], 4.0, 'within_bounds'];
+        yield 'legacy threshold equality' => [['threshold' => 5], 5.0, 'within_bounds'];
+        yield 'legacy threshold exceeded' => [['threshold' => 5], 6.0, 'breached'];
+        yield 'legacy zero threshold' => [['threshold' => 0], 0.0, 'within_bounds'];
         yield 'upper end of range breached' => [['lower_bound' => 0, 'upper_bound' => 5], 6.0, 'breached'];
         yield 'lower end of range breached' => [['bounds' => ['minimum' => 2, 'maximum' => 5]], 1.0, 'breached'];
         yield 'range zero is real' => [['lower_bound' => 0, 'upper_bound' => 5], 0.0, 'within_bounds'];
@@ -110,12 +114,28 @@ final class OperatingGuardBoundaryRegressionTest extends TestCase
         self::assertSame('indeterminate', $result['guard_results'][0]['status']);
     }
 
-    private function monitor(array $condition, float $value): array
+    public function testPersistedScalarMapKeepsThresholdOnlySemantics(): void
+    {
+        self::assertSame('within_bounds', $this->monitor(['threshold' => 5], 5, true)['guard_results'][0]['status']);
+        self::assertSame('breached', $this->monitor(['threshold' => 5], 6, true)['guard_results'][0]['status']);
+    }
+
+    public function testLegacyThresholdStopConditionStillUsesAnInclusiveTrigger(): void
+    {
+        foreach ([4.0 => 'triggered', 5.0 => 'triggered', 6.0 => 'clear'] as $value => $expected) {
+            $result = OperatingGoalInterventionMonitorService::evaluateGuardValue(['threshold' => 5], (float)$value, true);
+            self::assertSame($expected, $result['status']);
+            self::assertSame('<=', $result['operator']);
+        }
+        self::assertSame('unavailable', OperatingGoalInterventionMonitorService::evaluateGuardValue(['threshold' => INF], 5)['status']);
+    }
+
+    private function monitor(array $condition, float $value, bool $scalarMap = false): array
     {
         $goal = [
             'id' => 21, 'version_no' => 1, 'tenant_id' => 3, 'hotel_id' => 80,
             'primary_metric_key' => 'orders', 'effective_from' => '2026-08-01', 'effective_to' => '2026-08-31',
-            'guard_metrics' => [['metric_key' => 'refund_rate', ...$condition]], 'stop_conditions' => [],
+            'guard_metrics' => $scalarMap ? ['refund_rate' => $condition['threshold']] : [['metric_key' => 'refund_rate', ...$condition]], 'stop_conditions' => [],
         ];
         $goalService = new class($goal) {
             public function __construct(private array $goal) {}

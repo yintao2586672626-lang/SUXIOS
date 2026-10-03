@@ -2,6 +2,16 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__);
+require_once __DIR__ . '/../vendor/autoload.php';
+
+// A worktree can share vendor; bind app classes to this verifier's checkout.
+foreach (spl_autoload_functions() ?: [] as $autoloadFunction) {
+    $loader = is_array($autoloadFunction) ? ($autoloadFunction[0] ?? null) : null;
+    if ($loader instanceof \Composer\Autoload\ClassLoader) {
+        $loader->setPsr4('app\\', [dirname(__DIR__) . '/app']);
+    }
+}
+
 
 function read_file(string $relative): string
 {
@@ -82,9 +92,23 @@ assert_true(!preg_match('/DEEPSEEK_API_KEY|OPENAI_API_KEY|DEEPSEEK_BASE_URL|OPEN
 $checks[] = 'llm_client';
 
 $feasibility = read_file('app/service/FeasibilityReportService.php');
-assert_true(str_contains($feasibility, 'LlmClient $client'), 'FeasibilityReportService must use LlmClient');
+assert_true(str_contains($feasibility, 'LlmClient $client'), 'FeasibilityReportService must retain its historical constructor signature');
+assert_true(!str_contains($feasibility, 'new LlmClient()'), 'Retired feasibility reads must not construct an LLM');
+$feasibilityRef = new ReflectionClass(\app\service\FeasibilityReportService::class);
+assert_true(realpath((string)$feasibilityRef->getFileName()) === realpath($root . '/app/service/FeasibilityReportService.php'), 'Feasibility verifier must use this checkout');
+foreach (['generate' => [[], 3], 'regenerate' => [37, 3, false], 'archive' => [37, 3, false]] as $method => $arguments) {
+    try {
+        $feasibilityRef->newInstanceWithoutConstructor()->$method(...$arguments);
+        throw new LogicException('Retired feasibility write was accepted: ' . $method);
+    } catch (RuntimeException $exception) {
+        assert_true($exception->getCode() === 410 && $exception->getMessage() === 'retired_read_only', 'Feasibility write must reject before dependencies: ' . $method);
+    }
+}
+foreach (['detail', 'list', 'buildFeasibilityReadiness', 'buildExecutionIntentInput', 'assertExecutionHotelMatches'] as $method) {
+    assert_true($feasibilityRef->hasMethod($method), 'Historical feasibility boundary missing: ' . $method);
+}
 assert_true(!str_contains($feasibility, 'OpenAIClient'), 'FeasibilityReportService must not depend on OpenAIClient');
-$checks[] = 'feasibility_llm';
+$checks[] = 'feasibility_retired_write_and_history';
 
 assert_true(!is_file($root . '/app/controller/Ai.php'), 'Legacy simulated AI controller must stay removed');
 assert_true(!str_contains($route, "Route::group('api/ai'"), 'Legacy simulated AI route group must stay removed');

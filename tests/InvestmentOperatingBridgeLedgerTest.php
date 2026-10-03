@@ -21,7 +21,7 @@ final class InvestmentOperatingBridgeLedgerTest extends TestCase
         try {
             Fixture::connect($path);
             Fixture::schema();
-            $ledger = Fixture::ledger();
+            $ledger = Fixture::ledger(10, 7, [80, 81]);
             $saved = $ledger->saveProject(Fixture::project(['history_complete_through' => '2026-09-30']));
             $projectId = (int)$saved['project']['id'];
             $ledger->saveEntry($projectId, ['kind' => 'investment', 'amount' => '1000.01', 'date' => '2026-09-01', 'source' => 'synthetic-bank-reference#1', 'client_request_id' => 'bridge-investment-1']);

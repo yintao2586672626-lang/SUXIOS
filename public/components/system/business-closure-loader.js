@@ -1,7 +1,7 @@
 (() => {
     const registry = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
     const bodyScript = 'business-closure-views.js?v=20260803-business-closure-template-split-v1-h81815879c7';
-    const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-h0f012d00cb';
+    const aiDailyDeliveryScript = 'ai-daily-report-delivery.js?v=20260824-ai-daily-report-delivery-v1-hedbefa7c92';
     let loadPromise = null;
 
     const loadScript = (source) => new Promise((resolve, reject) => {

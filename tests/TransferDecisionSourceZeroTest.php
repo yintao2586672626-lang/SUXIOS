@@ -21,6 +21,13 @@ final class TransferDecisionSourceZeroTest extends TestCase
         yield 'legacy positive details' => [['xb_revenue' => 600, 'mt_revenue' => 400, 'xb_rooms' => 2, 'mt_rooms' => 3, 'occ' => 50], [], 0.1, 50.0, 200.0];
         yield 'canonical absent legal aliases' => [['day_revenue' => 1000, 'occupied_rooms' => 5, 'occupancy_rate' => 50], [], 0.1, 50.0, 200.0];
         yield 'missing report metrics' => [[], [], null, null, null];
+        yield 'explicit null report metrics' => [['revenue' => null, 'room_nights' => null, 'occ' => null], [], null, null, null];
+        yield 'blank report metrics' => [['revenue' => '', 'room_nights' => '', 'occ' => ''], [], null, null, null];
+        yield 'nonnumeric report strings' => [['revenue' => 'unknown', 'room_nights' => 'unknown', 'occ' => 'unknown'], [], null, null, null];
+        yield 'overflow numeric strings' => [['revenue' => '1e309', 'room_nights' => '1e309', 'occ' => '1e309'], [], null, null, null];
+        yield 'positive infinite row metrics' => [[], ['revenue' => INF, 'guest_count' => INF, 'occupancy_rate' => INF], null, null, null];
+        yield 'negative infinite row metrics' => [[], ['revenue' => -INF, 'guest_count' => -INF, 'occupancy_rate' => -INF], null, null, null];
+        yield 'NaN row metrics' => [[], ['revenue' => NAN, 'guest_count' => NAN, 'occupancy_rate' => NAN], null, null, null];
         yield 'boolean or blank is not an observed zero' => [['revenue' => false, 'room_nights' => '', 'occ' => false], [], null, null, null];
     }
 
@@ -46,6 +53,7 @@ final class TransferDecisionSourceZeroTest extends TestCase
         self::assertSame(7, $result['hotel_id']);
         self::assertSame(42, $result['tenant_id']);
         self::assertSame('2026-09-14', $result['source_date']);
+        self::assertIsString(json_encode($result, JSON_THROW_ON_ERROR));
     }
 
     public function testZeroOccupancyParticipatesInExistingDailyAverage(): void
@@ -76,6 +84,126 @@ final class TransferDecisionSourceZeroTest extends TestCase
             self::assertNull($result['pricing_input']['adr']);
             self::assertFalse($result['snapshot']['current']['adr_observed']);
         }
+    }
+
+    public static function overflowingSourceCases(): iterable
+    {
+        yield 'finite daily revenue accumulation' => [[
+            ['revenue' => 1e308, 'room_nights' => 1, 'occ' => 0],
+            ['revenue' => 1e308, 'room_nights' => 1, 'occ' => 0],
+        ]];
+        yield 'finite negative revenue accumulation' => [[
+            ['revenue' => -1e308, 'room_nights' => 1, 'occ' => 0],
+            ['revenue' => -1e308, 'room_nights' => 1, 'occ' => 0],
+        ]];
+        yield 'finite revenue detail accumulation' => [[
+            ['xb_revenue' => 1e308, 'mt_revenue' => 1e308, 'walkin_revenue' => -1e308, 'room_nights' => 1, 'occ' => 0],
+        ]];
+        yield 'finite room nights must not yield an observed zero ADR' => [[
+            ['revenue' => 1000, 'room_nights' => 1e308, 'occ' => 0],
+            ['revenue' => 1000, 'room_nights' => 1e308, 'occ' => 0],
+        ]];
+        yield 'finite room detail accumulation' => [[
+            ['revenue' => 1000, 'xb_rooms' => 1e308, 'mt_rooms' => 1e308, 'occ' => 0],
+        ]];
+        yield 'finite inputs overflow derived ADR' => [[
+            ['revenue' => 1e308, 'room_nights' => 0.0001, 'occ' => 0],
+        ]];
+        yield 'finite inputs overflow derived occupancy' => [[
+            ['revenue' => 0, 'room_nights' => 1e308, 'salable_rooms' => 1],
+        ]];
+        yield 'finite occupancy average accumulation' => [[
+            ['revenue' => 0, 'room_nights' => 1, 'occ' => 1e308],
+            ['revenue' => 0, 'room_nights' => 1, 'occ' => 1e308],
+        ]];
+        yield 'finite annual revenue overflows thirty day benchmark' => [[
+            ['revenue' => 1e307, 'room_nights' => 1, 'occ' => 0],
+        ]];
+    }
+
+    #[DataProvider('overflowingSourceCases')]
+    public function testPublicSourceRejectsOverflowInsteadOfReturningCorruptMetrics(array $reports): void
+    {
+        $rows = [];
+        foreach ($reports as $index => $data) {
+            $rows[] = $this->row($data, ['id' => $index + 1, 'report_date' => '2026-09-' . (14 - $index)]);
+        }
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('转让测算历史来源超出计算范围');
+        $this->source($rows);
+    }
+
+    public function testOverflowInAnnualWindowCannotHideBehindFiniteCurrentMetrics(): void
+    {
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('转让测算历史来源超出计算范围');
+        $this->source([
+            $this->row(['revenue' => 1000, 'room_nights' => 5, 'occ' => 50]),
+            $this->row(['revenue' => 1e308, 'room_nights' => 1, 'occ' => 0], ['id' => 2, 'report_date' => '2026-08-01']),
+            $this->row(['revenue' => 1e308, 'room_nights' => 1, 'occ' => 0], ['id' => 3, 'report_date' => '2026-07-31']),
+        ]);
+    }
+
+    public function testRawRoomNightOverflowCannotBecomeAnObservedZeroAdr(): void
+    {
+        $service = (new \ReflectionClass(TransferDecisionService::class))->newInstanceWithoutConstructor();
+        $aggregate = new \ReflectionMethod($service, 'aggregateTransferMetrics');
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('转让测算历史来源超出计算范围');
+        $aggregate->invoke($service, [
+            $this->row(['revenue' => 1000, 'room_nights' => 1e308, 'occ' => 0]),
+            $this->row(['revenue' => 1000, 'room_nights' => 1e308, 'occ' => 0], ['id' => 2, 'report_date' => '2026-09-13']),
+        ], []);
+    }
+
+    public function testControllerReportsActualSourceOverflowAsFailure(): void
+    {
+        $instance = new \ReflectionProperty(Container::class, 'instance');
+        $previous = $instance->getValue();
+        try {
+            // App is not initialized; all source reads remain on the closed memory adapter.
+            $app = new \think\App();
+            $app->instance('think\DbManager', new TransferSourceZeroMemoryDatabase([
+                $this->row(['revenue' => 1000, 'room_nights' => 1e308, 'occ' => 0]),
+                $this->row(['revenue' => 1000, 'room_nights' => 1e308, 'occ' => 0], ['id' => 2, 'report_date' => '2026-09-13']),
+            ], false));
+            $request = (new \think\Request())->withGet(['hotel_id' => 7, 'date' => '2026-09-14']);
+            $request->user = new class {
+                public int $id = 3;
+                public function getPermittedHotelIds(): array { return [7]; }
+                public function isSuperAdmin(): bool { return false; }
+            };
+            $app->instance('request', $request);
+            $service = (new \ReflectionClass(TransferDecisionService::class))->newInstanceWithoutConstructor();
+            $response = (new \app\controller\TransferDecision($app, $service))->source();
+
+            self::assertSame(400, $response->getCode());
+            self::assertSame(400, $response->getData()['code']);
+            self::assertStringContainsString('转让测算历史来源超出计算范围', $response->getData()['message']);
+            self::assertNull($response->getData()['data']);
+            self::assertIsString(json_encode($response->getData(), JSON_THROW_ON_ERROR));
+        } finally {
+            Container::setInstance($previous);
+        }
+    }
+
+    public function testOutOfScopeExtremeRowsDoNotChangeFiniteSameHotelSource(): void
+    {
+        $result = $this->source([
+            $this->row(['revenue' => 1000, 'room_nights' => 5, 'occ' => 50]),
+            $this->row(['revenue' => 1e308, 'room_nights' => 1, 'occ' => 0], ['id' => 2, 'hotel_id' => 8]),
+            $this->row(['revenue' => 1e308, 'room_nights' => 1, 'occ' => 0], ['id' => 3, 'tenant_id' => 43]),
+            $this->row(['revenue' => 1e308, 'room_nights' => 1, 'occ' => 0], ['id' => 4, 'report_date' => '2025-09-14']),
+            $this->row(['revenue' => 1e308, 'room_nights' => 1, 'occ' => 0], ['id' => 5, 'report_date' => '2026-09-15']),
+        ]);
+
+        self::assertSame(1000.0, $result['snapshot']['current']['revenue']);
+        self::assertSame(1000.0, $result['snapshot']['annual']['revenue']);
+        self::assertSame(0.1, $result['pricing_input']['monthly_revenue']);
+        self::assertSame(200.0, $result['pricing_input']['adr']);
+        self::assertSame(50.0, $result['pricing_input']['occupancy_rate']);
+        self::assertIsString(json_encode($result, JSON_THROW_ON_ERROR));
     }
 
     private function row(array $data, array $overrides = []): array

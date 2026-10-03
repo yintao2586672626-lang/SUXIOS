@@ -9,6 +9,8 @@ use app\service\RevenueFactLayerService;
 use think\App;
 use think\facade\Db;
 
+require_once __DIR__ . '/lib/business_chain_review_scope.php';
+
 if (!class_exists(\Composer\Autoload\ClassLoader::class, false)) {
     require __DIR__ . '/../vendor/autoload.php';
 }
@@ -1000,13 +1002,13 @@ function business_chain_revenue_to_ai_handoff(array $referenceScope, array $reve
     $draftStatus = (string)($aiAdviceDraft['status'] ?? '');
     $handoffReadyForReview = $p0Ready && $inputMode === 'target_date' && $targetBlockedPlatforms === []
         && $sourcePlatforms !== [] && count($sourcePlatforms) === count($targetReadyPlatforms)
-        && $draftStatus === 'ready_for_manual_review';
+        && $actionRows !== [] && $draftStatus === 'ready_for_manual_review';
     $handoffReferenceOnly = $sourcePlatforms !== [] && $draftStatus === 'draft_reference_only';
     $requiredBeforeExecution = $p0Ready
         ? ['manual_review_workflow_connected', 'approved_ai_advice', 'operation_execution_intent_created_by_human_review']
         : ['all_required_p0_platforms_ready', 'manual_review_workflow_connected', 'approved_ai_advice', 'operation_execution_intent_created_by_human_review'];
 
-    $handoff = [
+    $handoff = business_chain_review_identity($input) + [
         'status' => $handoffReadyForReview
             ? 'handoff_ready_for_manual_review'
             : ($handoffReferenceOnly ? 'handoff_reference_only' : 'handoff_blocked'),
@@ -1247,11 +1249,9 @@ function business_chain_manual_review_packet(array $handoff, array $revenueDiagn
         ];
     }
 
-    $primaryBlocker = $blockers[0] ?? [];
     $actionReason = (string)($firstAction['reason'] ?? '');
-    $status = $blockers === []
-        ? 'ready_for_manual_review'
-        : 'blocked_ready_for_manual_review';
+    [$status, $blockers] = business_chain_manual_review_scope($handoff, $revenueDiagnosis, $firstAction, $blockers, $actionReason);
+    $primaryBlocker = $blockers[0] ?? [];
     $reviewContract = business_chain_ai_decision_review_contract(
         $handoff,
         $revenueDiagnosis,
@@ -1335,8 +1335,8 @@ function business_chain_ai_decision_review_contract(
         ];
     }
 
-    $hasBlockingInputs = $requiredInputs !== [];
-    $resolutionPlan = business_chain_ai_decision_resolution_plan($requiredInputs, (string)($handoff['source_scope'] ?? ''));
+    $hasBlockingInputs = $requiredInputs !== [] || $packetStatus !== 'ready_for_manual_review';
+    $resolutionPlan = business_chain_review_resolution_plan($requiredInputs, (string)($handoff['source_scope'] ?? ''), $hasBlockingInputs);
 
     return [
         'status' => $hasBlockingInputs ? 'blocked_by_review_inputs' : 'ready_for_human_ai_decision',
@@ -2154,7 +2154,7 @@ function business_chain_downstream_reference_workflow(array $revenue, array $clo
     $hasScopedReadyScope = $p0Ready && $hasDiagnosis && $inputMode === 'target_date'
         && $targetBlockedPlatforms === [] && count($diagnosisSourceChannels) === count($targetReadyPlatforms);
     $referenceOnly = $hasDiagnosis && ($inputMode === 'historical_reference' || $skipP0 || $hasPartialTargetReadyScope);
-    $revenueDiagnosis = [
+    $revenueDiagnosis = business_chain_review_identity($revenue, 'business_date', 'hotel_id') + [
         'status' => !$hasDiagnosis ? 'blocked' : ($inputMode === 'historical_reference' || $skipP0
             ? 'reference_only'
             : ($hasPartialTargetReadyScope ? 'partial_reference_only' : (string)($revenue['data_status'] ?? 'unknown'))),

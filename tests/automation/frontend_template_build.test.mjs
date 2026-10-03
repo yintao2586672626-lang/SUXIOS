@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readRetiredFrontendFragment, retiredFrontendManifest } from './helpers/retired_frontend_source.mjs';
 import {
   buildDataConfigDialogsComponent,
   buildFrontendStartupRender,
@@ -157,12 +158,16 @@ test('business template fragments assemble byte-for-byte to the canonical templa
   assert.equal(new Set(ids).size, ids.length);
   for (const excludedId of FRONTEND_RUNTIME_EXCLUDED_FRAGMENT_IDS) {
     const registered = source.manifest.fragments.find((fragment) => fragment.id === excludedId);
-    assert.equal(registered?.runtime, false, `${excludedId} must stay registered but excluded from runtime`);
+    assert.equal(registered, undefined, `${excludedId} must stay outside the active manifest`);
     const sourceFragment = source.fragments.find((fragment) => fragment.id === excludedId);
-    assert.ok(sourceFragment?.source?.trim(), `${excludedId} must retain its frozen source`);
+    assert.equal(sourceFragment, undefined, `${excludedId} must stay outside active source definitions`);
+    const historical = retiredFrontendManifest.fragments.find(fragment => fragment.id === excludedId);
+    assert.equal(historical?.runtime, false, `${excludedId} must remain explicitly retired`);
+    assert.ok(readRetiredFrontendFragment(historical.fixture_entry).trim(), `${excludedId} must retain its historical regression fixture`);
+    assert.equal(fs.existsSync(path.join(repoRoot, 'resources/frontend/templates', historical.path)), false);
     assert.equal(source.runtimeFragments.some((fragment) => fragment.id === excludedId), false);
   }
-  assert.ok(source.runtimeFragments.length < source.fragments.length);
+  assert.equal(source.runtimeFragments.length, source.fragments.length);
   assert.doesNotMatch(source.template, /currentPage === 'ai-strategy'/);
   assert.doesNotMatch(source.template, /data-testid="home-ai-workbench"/);
   assert.doesNotMatch(source.template, /currentPage === 'investment-decision'/);
@@ -170,11 +175,10 @@ test('business template fragments assemble byte-for-byte to the canonical templa
   assert.match(source.template, /currentPage === 'ai-simulation'/);
   assert.match(source.template, /currentPage === 'opening-overview'/);
   assert.match(source.template, /currentPage === 'opening-checklist'/);
-  assert.deepEqual(ids.slice(0, 3), ['app-shell', 'page-ai-strategy', 'page-ai-simulation']);
+  assert.deepEqual(ids.slice(0, 3), ['app-shell', 'page-ai-simulation', 'page-opening-overview']);
   const homeFragmentIds = [
     'home-shell-open',
     'page-compass-summary',
-    'page-ai-workbench',
     'page-compass-detail',
     'home-shell-card-close',
     'home-shared-secondary',
@@ -189,8 +193,9 @@ test('business template fragments assemble byte-for-byte to the canonical templa
   const homeFragments = new Map(source.fragments.map((fragment) => [fragment.id, fragment.source]));
   assert.match(homeFragments.get('page-compass-summary'), /data-testid="home-executive-answer"/);
   assert.doesNotMatch(homeFragments.get('page-compass-summary'), /data-testid="home-ai-workbench"/);
-  assert.match(homeFragments.get('page-ai-workbench'), /data-testid="home-ai-workbench"/);
-  assert.doesNotMatch(homeFragments.get('page-ai-workbench'), /data-testid="home-full-detail-fold"/);
+  const retiredWorkbench = readRetiredFrontendFragment('23b-page-ai-workbench.html');
+  assert.match(retiredWorkbench, /data-testid="home-ai-workbench"/);
+  assert.doesNotMatch(retiredWorkbench, /data-testid="home-full-detail-fold"/);
   assert.match(homeFragments.get('page-compass-detail'), /data-testid="home-full-detail-fold"/);
   assert.match(homeFragments.get('home-shared-secondary'), /data-testid="home-secondary-detail-fold"/);
   assert.match(
@@ -202,9 +207,6 @@ test('business template fragments assemble byte-for-byte to the canonical templa
   assert.match(dataConfigDialogsTemplate, /<form @submit\.prevent="saveDataConfig"/);
   assert.match(dataConfigDialogsTemplate, /v-if="showDataConfigModal"/);
   for (const requiredId of [
-    'shared-expansion-history',
-    'shared-transfer-context',
-    'shared-transfer-history',
     ...homeFragmentIds,
     'page-ctrip-ebooking',
     'page-meituan-ebooking',

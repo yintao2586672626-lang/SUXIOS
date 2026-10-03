@@ -784,6 +784,10 @@ final class OperatingGoalInterventionMonitorService
         $upper = $number(['upper_bound', 'maximum', 'max_value', 'max_allowed', 'max']);
         $threshold = $number(['threshold']);
         $hasBounds = $lower !== null || $upper !== null;
+        // Persisted scalar/threshold-only contracts use an inclusive upper limit.
+        if ($operator === '' && !$hasBounds && $threshold !== null) {
+            $operator = '<=';
+        }
         $reason = '';
         if ($invalid || ($lower !== null && $upper !== null && $lower > $upper)) {
             $reason = 'condition_bounds_invalid';

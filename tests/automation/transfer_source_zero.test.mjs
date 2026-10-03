@@ -3,15 +3,27 @@ import test from 'node:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 import * as Vue from 'vue';
 import { parse, compile } from '@vue/compiler-dom';
 import { renderToString } from '@vue/server-renderer';
+import { readFrontendTestSource, retiredFrontendManifest } from './helpers/retired_frontend_source.mjs';
 
 const candidate = process.argv.find(arg => arg.startsWith('--candidate-dir='))?.slice('--candidate-dir='.length);
-const staticSource = fs.readFileSync(candidate ? path.join(candidate, 'public/simulation-static.js') : 'public/simulation-static.js', 'utf8');
+const liveStaticSource = fs.readFileSync(candidate ? path.join(candidate, 'public/simulation-static.js') : 'public/simulation-static.js', 'utf8');
+const archived = JSON.parse(fs.readFileSync(new URL('../fixtures/retired-transfer-source-20261002.json', import.meta.url), 'utf8'));
+const sha256 = source => createHash('sha256').update(source).digest('hex');
+assert.equal(archived.runtime, false, 'archived transfer oracle cannot become runtime code');
+assert.equal(archived.source_commit, 'd3e53e176d86d74f7868297125772116f666b3e4');
+assert.equal(sha256(archived.static_source), archived.static_source_sha256);
+assert.equal(sha256(archived.loader_source), archived.loader_source_sha256);
+const staticSource = archived.static_source;
 const sandbox = vm.createContext({ window: {} });
 vm.runInContext(staticSource, sandbox);
 const helper = sandbox.window.SUXI_SIMULATION_STATIC;
+const liveSandbox = vm.createContext({ window: {} });
+vm.runInContext(liveStaticSource, liveSandbox);
+const liveHelper = liveSandbox.window.SUXI_SIMULATION_STATIC;
 const snapshot = (metrics = {}) => ({ hotel_id: 7, source_counts: { daily_reports: 1 }, current: { revenue: 0, room_nights: 2, adr: 0, occupancy_rate: 0, ...metrics }, source_verified: false });
 const rows = metrics => helper.buildTransferSourceMetricRows({ snapshot: snapshot(metrics) }).filter(row => row.key.startsWith('whole_hotel'));
 
@@ -53,13 +65,19 @@ test('historical applyDefinedFields retains its default null-skip contract', () 
   assert.deepEqual(form, { revenue: 12, rating: 0 });
 });
 
-const appSource = fs.readFileSync('public/app-main.js', 'utf8');
-const from = appSource.indexOf('            const loadTransferSource = async () => {');
-const to = appSource.indexOf('            const loadTransferRecords = async () => {', from);
-assert.ok(from > 0 && to > from);
-const loaderSource = candidate ? fs.readFileSync(path.join(candidate, 'loadTransferSource.js'), 'utf8') : appSource.slice(from, to);
-const contextTemplate = fs.readFileSync('resources/frontend/templates/fragments/08-shared-transfer-context.html', 'utf8');
-const pricingTemplate = fs.readFileSync('resources/frontend/templates/fragments/09-page-asset-pricing.html', 'utf8');
+const appSource = fs.readFileSync(candidate ? path.join(candidate, 'public/app-main.js') : 'public/app-main.js', 'utf8');
+const loaderSource = archived.loader_source;
+const contextTemplate = readFrontendTestSource('resources/frontend/templates/fragments/08-shared-transfer-context.html');
+const pricingTemplate = readFrontendTestSource('resources/frontend/templates/fragments/09-page-asset-pricing.html');
+
+test('historical zero/missing oracle stays archived while live runtime has no retired transfer helpers or loaders', () => {
+  for (const key of Object.keys(liveHelper)) assert.doesNotMatch(key, /^(?:transfer|buildTransfer|createTransfer|resolveTransfer)/);
+  assert.equal(liveHelper.applyTransferSourceFields, undefined);
+  assert.doesNotMatch(appSource, /const loadTransferSource|const loadTransferRecords|request\(['"]\/transfer/);
+  for (const id of ['shared-transfer-context', 'page-asset-pricing']) {
+    assert.equal(retiredFrontendManifest.fragments.find(fragment => fragment.id === id)?.runtime, false);
+  }
+});
 function findNode(node, accept) { if (accept(node)) return node; for (const child of node.children || []) { const found = findNode(child, accept); if (found) return found; } }
 const button = findNode(parse(contextTemplate), node => node.type === 1 && node.tag === 'button' && node.props.some(prop => prop.type === 7 && prop.name === 'on' && prop.exp?.content === 'loadTransferSource'));
 const fields = findNode(parse(pricingTemplate), node => node.type === 1 && node.props.some(prop => prop.type === 7 && prop.name === 'for' && prop.exp?.content === 'field in transferPricingFields'));
@@ -68,7 +86,7 @@ const render = new Function('Vue', compile('<div>' + button.loc.source + fields.
 const flatten = value => Array.isArray(value) ? value.flatMap(flatten) : value?.__v_isVNode ? [value, ...flatten(value.children)] : [];
 
 for (const [name, input, expected] of [['zero source', { monthly_revenue: 0, occupancy_rate: 0, adr: 0 }, '0'], ['missing source', { monthly_revenue: null, occupancy_rate: null, adr: null }, '']]) {
-  test('actual source button overwrites edited values for ' + name + ' and pricing SSR agrees', async () => {
+  test('archived original source button overwrites edited values for ' + name + ' and pricing SSR agrees', async () => {
     const state = { currentPage: Vue.ref('asset-pricing'), transferSourceLoading: Vue.ref(false), transferSelectedHotelId: Vue.ref('7'), transferSourceDate: Vue.ref('2026-09-14'), transferSourceSnapshot: Vue.ref(null), transferPricingForm: Vue.ref({ ...helper.createTransferPricingForm(), monthly_revenue: 12 }), transferTimingForm: Vue.ref(helper.createTransferTimingForm()), transferPricingFields: helper.transferPricingFields };
     const requests = [];
     // Explicit fixed page/session fixture; the real loader still executes all round-32 scope/draft gates.

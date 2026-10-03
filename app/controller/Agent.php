@@ -819,26 +819,11 @@ class Agent extends Base
     /** @param array<string, mixed> $action @param array<string, mixed> $input */
     public function feasibilityReportGenerate(): Response
     {
-        $this->checkLogin();
-
-        try {
-            $data = $this->request->post();
-            $report = $this->feasibilityService()->generate($data, (int) ($this->currentUser->id ?? 0));
-            OperationLog::record('agent', 'feasibility_generate', '生成智策可行性报告', (int) ($this->currentUser->id ?? 0), null, null, [
-                'report_id' => $report['id'] ?? 0,
-                'project_name' => $report['project_name'] ?? '',
-            ]);
-
-            return $this->success(
-                $report,
-                ($report['decision_ready'] ?? false) === true ? '可行性测算已生成' : '核心输入不足，已保存为待评估'
-            );
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
-        } catch (\Throwable $e) {
-            OperationLog::error('agent', 'feasibility_generate', '生成智策可行性报告失败', $e->getMessage(), (int) ($this->currentUser->id ?? 0));
-            return $this->error('报告生成失败：' . $e->getMessage(), 500);
+        if (!$this->currentUser) {
+            return $this->error('请先登录', 401);
         }
+
+        return \app\middleware\RetiredFeatureReadOnly::response('可研报告');
     }
 
     public function feasibilityReportDetail(): Response
@@ -856,35 +841,11 @@ class Agent extends Base
 
     public function feasibilityReportRegenerate(): Response
     {
-        $this->checkLogin();
-
-        try {
-            $id = (int) $this->request->param('id', 0);
-            $report = $this->feasibilityService()->regenerate(
-                $id,
-                (int)($this->currentUser->id ?? 0),
-                $this->currentUser->isSuperAdmin(),
-                $this->request->post()
-            );
-            if (!$report) {
-                return $this->error('报告不存在', 404);
-            }
-
-            OperationLog::record('agent', 'feasibility_regenerate', '重新生成智策可行性报告', (int) ($this->currentUser->id ?? 0), null, null, [
-                'source_report_id' => $id,
-                'report_id' => $report['id'] ?? 0,
-            ]);
-
-            return $this->success(
-                $report,
-                ($report['decision_ready'] ?? false) === true ? '可行性测算已重新生成' : '核心输入不足，已重新保存为待评估'
-            );
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
-        } catch (\Throwable $e) {
-            OperationLog::error('agent', 'feasibility_regenerate', '重新生成智策可行性报告失败', $e->getMessage(), (int) ($this->currentUser->id ?? 0));
-            return $this->error('报告重新生成失败：' . $e->getMessage(), 500);
+        if (!$this->currentUser) {
+            return $this->error('请先登录', 401);
         }
+
+        return \app\middleware\RetiredFeatureReadOnly::response('可研报告');
     }
 
     public function feasibilityReportList(): Response
@@ -897,23 +858,11 @@ class Agent extends Base
 
     public function feasibilityReportArchive(): Response
     {
-        $this->checkLogin();
-
-        try {
-            $id = (int) $this->request->param('id', 0);
-            if ($id <= 0) {
-                return $this->error('报告ID无效', 422);
-            }
-
-            $archived = $this->feasibilityService()->archive($id, (int) ($this->currentUser->id ?? 0), $this->currentUser->isSuperAdmin());
-            if (!$archived) {
-                return $this->error('报告不存在或无权归档', 404);
-            }
-
-            return $this->success(['id' => $id], '报告已归档');
-        } catch (\Throwable $e) {
-            return $this->error('报告归档失败：' . $e->getMessage(), 400);
+        if (!$this->currentUser) {
+            return $this->error('请先登录', 401);
         }
+
+        return \app\middleware\RetiredFeatureReadOnly::response('可研报告');
     }
 
     // ==================== Agent配置 ====================
@@ -923,64 +872,11 @@ class Agent extends Base
      */
     public function createFeasibilityExecutionIntent(): Response
     {
-        $this->checkLogin();
-
-        $id = (int) $this->request->param('id', 0);
-        if ($id <= 0) {
-            return $this->error('feasibility report id is invalid', 422);
+        if (!$this->currentUser) {
+            return $this->error('请先登录', 401);
         }
 
-        $requestedHotelId = (int) $this->request->param('hotel_id', 0);
-        $userId = (int) ($this->currentUser->id ?? 0);
-        $isSuperAdmin = $this->currentUser->isSuperAdmin();
-        $feasibilityService = $this->feasibilityService();
-        $report = $feasibilityService->detail($id, $userId, $isSuperAdmin);
-        if (!$report) {
-            return $this->error('feasibility report not found', 404);
-        }
-
-        try { $hotelId = $feasibilityService->executionHotelId($report); } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), str_contains($e->getMessage(), 'conflict') ? 409 : 422);
-        }
-        if ($requestedHotelId > 0 && $requestedHotelId !== $hotelId) return $this->error('feasibility report hotel scope mismatch', 409);
-        $permittedHotelIds = array_values(array_map('intval', $this->currentUser->getPermittedHotelIds()));
-        if (!$permittedHotelIds || !in_array($hotelId, $permittedHotelIds, true)) return $this->error('hotel_id is not permitted', 403);
-        $denied = $this->hotelCapabilityDeniedResponse($hotelId, 'operation.execute', 'operation.execute permission is required for this hotel');
-        if ($denied !== null) return $denied;
-        try {
-            $result = Db::transaction(function () use ($feasibilityService, $report, $id, $hotelId, $permittedHotelIds, $userId, $isSuperAdmin): array {
-                $operationService = new OperationManagementService();
-                $input = $feasibilityService->buildExecutionIntentInput($report, $hotelId, [
-                    'date_start' => (string)$this->request->param('date_start', ''), 'date_end' => (string)$this->request->param('date_end', ''),
-                ]);
-                $intent = $operationService->createExecutionIntent($permittedHotelIds, $hotelId, $input, $userId, false, null, true);
-                $updatedReport = ($intent['idempotent_replay'] ?? false) === true
-                    ? $report
-                    : $feasibilityService->attachExecutionTracking($id, $userId, $isSuperAdmin, [
-                        'execution_intent_id' => (int)($intent['id'] ?? 0),
-                        'hotel_id' => $hotelId,
-                        'status' => (string)($intent['status'] ?? ''),
-                    ]);
-
-                return [
-                    'execution_intent' => $intent,
-                    'report' => $updatedReport,
-                ];
-            });
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage(), 422);
-        } catch (\Throwable $e) {
-            OperationLog::error('agent', 'feasibility_execution_intent_create', 'create feasibility execution intent failed', $e->getMessage(), $userId);
-            return $this->error($e->getMessage() ?: 'create feasibility execution intent failed', 500);
-        }
-
-        OperationLog::record('agent', 'feasibility_execution_intent_create', 'Create execution intent from feasibility report', $userId, null, null, [
-            'report_id' => $id,
-            'execution_intent_id' => (int)($result['execution_intent']['id'] ?? 0),
-            'hotel_id' => $hotelId,
-        ]);
-
-        return $this->success($result, 'execution intent created');
+        return \app\middleware\RetiredFeatureReadOnly::response('可研报告');
     }
 
     public function getConfig(): Response

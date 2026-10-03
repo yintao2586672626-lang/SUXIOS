@@ -78,7 +78,7 @@ final class InvestmentOperatingBridgeService
             return $reply;
         }
         try {
-            [$rows, $complete, $pages, $readIssues] = $this->readProjects($asOf);
+            [$rows, $complete, $pages, $readIssues] = $this->readProjects($tenantId, $hotelId, $asOf);
             $projects = []; $seen = [];
             foreach ($rows as $row) {
                 if (!is_array($row) || (int)($row['tenant_id'] ?? 0) !== $tenantId) {
@@ -97,7 +97,7 @@ final class InvestmentOperatingBridgeService
                 $id = (int)$rawId;
                 if (isset($seen[$id])) throw new RuntimeException('investment_bridge_project_identity_invalid');
                 $seen[$id] = true;
-                // Every scanned project contributes to pagination coverage, even another hotel's row.
+                // Defend against a reader that ignores the hotel filter without exposing its rows.
                 if ((int)($row['hotel_id'] ?? 0) !== $hotelId) continue;
                 $projects[] = $this->project($row, $asOf);
             }
@@ -121,12 +121,12 @@ final class InvestmentOperatingBridgeService
         }
     }
 
-    private function readProjects(string $asOf): array
+    private function readProjects(int $tenantId, int $hotelId, string $asOf): array
     {
         if ($this->projectReader === null && $this->ledger === null) throw new RuntimeException('investment_bridge_reader_missing');
         $rows = []; $expectedTotal = null;
         for ($page = 1; $page <= self::MAX_PAGES; $page++) {
-            $filters = ['as_of' => $asOf, 'include_archived' => true, 'page_size' => self::PAGE_SIZE, 'page' => $page];
+            $filters = ['tenant_id' => $tenantId, 'hotel_id' => $hotelId, 'as_of' => $asOf, 'include_archived' => true, 'page_size' => self::PAGE_SIZE, 'page' => $page];
             $result = $this->projectReader === null ? $this->ledger->projects($filters) : ($this->projectReader)($filters);
             if (!is_array($result) || !is_array($result['list'] ?? null) || !array_is_list($result['list'])
                 || !is_array($result['pagination'] ?? null) || !is_int($result['pagination']['total'] ?? null)

@@ -23,7 +23,6 @@ export const ACTION_LAZY_HELPERS = Object.freeze({
   operatingGrowthStaticVersion: 'operating-growth-static.js',
   revenueResearchStaticVersion: 'revenue-research-static.js',
   aiAnalysisStaticVersion: 'ai-analysis-static.js',
-  expansionStaticOptionsScriptVersion: 'expansion-static-options.js',
 });
 
 export function syncActionLazyHelperVersions(source, readAsset) {

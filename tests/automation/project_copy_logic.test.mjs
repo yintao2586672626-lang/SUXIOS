@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import test from 'node:test';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';
 
-const read = (path) => fs.readFileSync(path, 'utf8');
+import { readFrontendTestFileSync } from './helpers/retired_frontend_source.mjs';
+const read = (path) => readFrontendTestFileSync(path, 'utf8');
 
 test('project copy keeps the OTA evidence to action review logic explicit', () => {
   const readme = read('README.md');

@@ -60,6 +60,8 @@ final class InvestmentOperatingBridgeServiceTest extends TestCase
         self::assertSame('2026-10-02', $current['effective_as_of']);
         self::assertSame('current_month_to_date', $current['cutoff_status']);
         self::assertSame('2026-10-02', $calls[0]['as_of']);
+        self::assertSame(2, $calls[0]['tenant_id']);
+        self::assertSame(80, $calls[0]['hotel_id']);
         self::assertTrue($calls[0]['include_archived']);
         $future = $service->overview(2, [80], 80, '2026-11');
         self::assertSame('not_started', $future['status']);
