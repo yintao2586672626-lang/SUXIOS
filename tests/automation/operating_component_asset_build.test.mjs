@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
+import { buildOperatingEconomicsComponent } from '../../scripts/build_operating_economics_component.mjs';
 
 const repoRoot = process.cwd();
 const scriptPath = path.resolve(process.env.OPERATING_COMPONENT_BUILD_SOURCE || 'scripts/build_operating_finance_component.mjs');
@@ -14,12 +16,13 @@ const script = fs.readFileSync(scriptPath, 'utf8')
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const runScript = new AsyncFunction('crypto', 'fs', 'path', 'fileURLToPath', 'minify',
     'compileFrontendTemplate', 'FRONTEND_TEMPLATE_MINIFY_OPTIONS', 'updateFrontendAssetVersion',
-    '__buildScriptUrl', 'console', script);
+    'buildOperatingEconomicsComponent', '__buildScriptUrl', 'console', script);
 const names = {
     finance: 'components/system/operating-finance-control-center.js',
     artifact: 'components/system/operating-finance-control-center.min.js',
     lab: 'components/system/operating-opportunity-lab.js',
     economics: 'components/system/operating-economics-workbench.min.js',
+    economicsSource: 'components/system/operating-economics-workbench.js',
     booking: 'components/system/booking-monitoring-panel.js',
     component: 'components/system/app-main-components.js',
     bridge: 'components/system/app-main-components-loader.js',
@@ -34,6 +37,7 @@ function fixture() {
         artifact: 'compiled-finance;\n',
         lab: '// synthetic 今日事项 A\n',
         economics: '// synthetic 渠道贡献与耗材\n',
+        economicsSource: '// synthetic economics source A\n',
         booking: '// synthetic 房型监测\n',
         component: "const business = 'preserve';\n"
             + "const finance = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h0123456789';\n"
@@ -65,7 +69,10 @@ function fixture() {
         let output;
         await runScript(crypto, closedFs, path, fileURLToPath,
             async () => ({ code: 'compiled-finance;' }), () => 'return null;', {},
-            updateFrontendAssetVersion, pathToFileURL(path.join(repoRoot, 'scripts/build_operating_finance_component.mjs')).href,
+            updateFrontendAssetVersion, async () => {
+                const artifact = '// synthetic economics compiled ' + hash(get('economicsSource')) + '\n';
+                if (get('economics') !== artifact) closedFs.writeFileSync(path.join(repoRoot, 'public', names.economics), artifact);
+            }, pathToFileURL(path.join(repoRoot, 'scripts/build_operating_finance_component.mjs')).href,
             { log: value => { output = JSON.parse(value); } });
         return output;
     };
@@ -134,7 +141,8 @@ test('each new workflow asset invalidates the parent and entry and identical reb
         const f = fixture();
         await f.run();
         const previous = ['component', 'bridge', 'index'].map(key => f.get(key));
-        f.set(name, f.get(name) + '// synthetic changed saved/readback behavior\n');
+        const editedName = name === 'economics' ? 'economicsSource' : name;
+        f.set(editedName, f.get(editedName) + '// synthetic changed saved/readback behavior\n');
         const changed = await f.run();
         assertChain(f);
         assert.equal(changed[name + '_cache_identity_changed'], true);
@@ -143,5 +151,47 @@ test('each new workflow asset invalidates the parent and entry and identical reb
         const repeat = await f.run();
         assert.deepEqual(f.writes, []);
         assert.equal(repeat[name + '_cache_identity_changed'], false);
+    }
+});
+
+test('the parent build compiles changed economics source before publishing its cache identity', async () => {
+    const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'suxios-economics-build-'));
+    try {
+        const f = fixture();
+        for (const [file, bytes] of f.files) {
+            const target = path.join(temporaryRoot, path.relative(repoRoot, file));
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, bytes);
+        }
+        const sourcePath = path.join(temporaryRoot, 'public', names.economicsSource);
+        const artifactPath = path.join(temporaryRoot, 'public', names.economics);
+        const componentPath = path.join(temporaryRoot, 'public', names.component);
+        const tick = String.fromCharCode(96);
+        const source = marker => 'window.syntheticEconomics = {\n        template: ' + tick
+            + '<div v-if="available">' + marker + '</div>\n        ' + tick + ',\n};';
+        const run = () => runScript(crypto, fs, path, fileURLToPath,
+            async () => ({ code: 'compiled-finance;' }), () => 'return null;', {},
+            updateFrontendAssetVersion, buildOperatingEconomicsComponent,
+            pathToFileURL(path.join(temporaryRoot, 'scripts/build_operating_finance_component.mjs')).href,
+            { log() {} });
+        fs.writeFileSync(sourcePath, source('workflowAlphaMarker'));
+        await run();
+        const firstArtifact = fs.readFileSync(artifactPath, 'utf8');
+        const firstParent = fs.readFileSync(componentPath, 'utf8');
+        assert.ok(firstArtifact.includes('workflowAlphaMarker'));
+        fs.writeFileSync(sourcePath, source('workflowBetaMarker'));
+        await run();
+        const nextArtifact = fs.readFileSync(artifactPath, 'utf8');
+        const nextParent = fs.readFileSync(componentPath, 'utf8');
+        assert.ok(nextArtifact.includes('workflowBetaMarker'));
+        assert.notEqual(nextArtifact, firstArtifact);
+        assert.notEqual(nextParent, firstParent);
+        assert.equal(readFrontendAssetVersion(nextParent, names.economics).hash, hash(nextArtifact));
+        await run();
+        assert.equal(fs.readFileSync(componentPath, 'utf8'), nextParent);
+    } finally {
+        assert.equal(path.dirname(temporaryRoot), os.tmpdir());
+        assert.ok(path.basename(temporaryRoot).startsWith('suxios-economics-build-'));
+        fs.rmSync(temporaryRoot, { recursive: true, force: true });
     }
 });

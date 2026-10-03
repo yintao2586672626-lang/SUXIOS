@@ -26,7 +26,7 @@ final class BookingMonitoringServiceTest extends TestCase
         Config::set($config, 'database');
         Db::connect(null, true);
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL)');
-        Db::execute('CREATE TABLE room_types (id INTEGER PRIMARY KEY, hotel_id INTEGER NOT NULL, name TEXT NOT NULL)');
+        Db::execute('CREATE TABLE room_types (id INTEGER PRIMARY KEY, hotel_id INTEGER NOT NULL, name TEXT NOT NULL, is_enabled INTEGER NOT NULL DEFAULT 1)');
         $shared = 'id INTEGER PRIMARY KEY AUTOINCREMENT, contract_version TEXT NOT NULL, tenant_id INTEGER NOT NULL,
             hotel_id INTEGER NOT NULL, source_hotel_id INTEGER NOT NULL, platform TEXT NOT NULL, fact_scope TEXT NOT NULL,
             stay_date TEXT NOT NULL, captured_at TEXT NOT NULL, source_method TEXT NOT NULL, source_ref_hash TEXT NOT NULL,
@@ -81,6 +81,170 @@ final class BookingMonitoringServiceTest extends TestCase
         self::assertTrue($replay['snapshots'][0]['idempotent']);
         self::assertSame($saved['snapshots'][0]['id'], $replay['snapshots'][0]['id']);
         self::assertSame(1, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    public function testConcurrentBatchWinnerIsVerifiedOutsideFailedTransaction(): void
+    {
+        $row = $this->row('2026-10-02 09:00:00', 10);
+        $row['idempotency_key'] = 'TEST-ONLY-concurrent-winner';
+        $winner = $this->service()->saveSnapshots(7, [80], [$row], 9);
+        $attempts = 0;
+        $service = $this->service(transactionRunner: static function (callable $callback) use (&$attempts): array {
+            $attempts++;
+            throw new RuntimeException('SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry');
+        });
+        $replayed = $service->saveSnapshots(7, [80], [$row], 9);
+        self::assertSame(1, $attempts);
+        self::assertSame($winner['snapshots'][0]['id'], $replayed['snapshots'][0]['id']);
+        self::assertSame($winner['snapshots'][0]['content_digest'], $replayed['snapshots'][0]['content_digest']);
+        self::assertTrue($replayed['snapshots'][0]['idempotent']);
+        self::assertSame(1, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    public function testDeadlockWithPartialWinnerRetriesWholeBatchWithoutDuplicateOrPartialReceipt(): void
+    {
+        $first = $this->row('2026-10-01 09:00:00', 8);
+        $second = $this->row('2026-10-02 09:00:00', 10);
+        $winner = $this->service()->saveSnapshots(7, [80], [$first], 9)['snapshots'][0];
+        $attempts = 0;
+        $service = $this->service(transactionRunner: static function (callable $callback) use (&$attempts): array {
+            if (++$attempts === 1) throw new RuntimeException('Deadlock found when trying to get lock', 1213);
+            return Db::transaction($callback);
+        });
+        $saved = $service->saveSnapshots(7, [80], [$first, $second], 9);
+        self::assertSame(2, $attempts);
+        self::assertSame(2, $saved['row_count']);
+        self::assertSame($winner['id'], $saved['snapshots'][0]['id']);
+        self::assertTrue($saved['snapshots'][0]['idempotent']);
+        self::assertFalse($saved['snapshots'][1]['idempotent']);
+        self::assertSame(2, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    public function testConcurrentWinnerWithDifferentOrCorruptedContentNeverClaimsReadbackSuccess(): void
+    {
+        foreach (['different_submission', 'corrupted_winner'] as $case) {
+            $row = $this->row('2026-10-02 09:00:00', 10);
+            $row['idempotency_key'] = 'TEST-ONLY-' . $case;
+            $winner = $this->service()->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+            if ($case === 'different_submission') $row['on_books_room_nights'] = 11;
+            else Db::name(BookingMonitoringService::TABLE)->where('id', $winner['id'])->update(['on_books_room_nights' => 99]);
+            $service = $this->service(transactionRunner: static function (callable $callback): array {
+                throw new RuntimeException('SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry');
+            });
+            try {
+                $service->saveSnapshots(7, [80], [$row], 9);
+                self::fail('unverified concurrent winner cannot succeed');
+            } catch (RuntimeException $error) {
+                self::assertSame($case === 'different_submission' ? 'booking_monitor_idempotency_conflict' : 'booking_monitor_content_digest_mismatch', $error->getMessage());
+            }
+        }
+        self::assertSame(2, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    public function testWriteRecoveryBudgetAndOrdinaryFailureStayExplicitWithNoPartialSave(): void
+    {
+        foreach ([['Deadlock found when trying to get lock', 1213, 3], ['TEST-ONLY ordinary write failure', 0, 1]] as [$message, $code, $expectedAttempts]) {
+            $attempts = 0;
+            $service = $this->service(transactionRunner: static function (callable $callback) use (&$attempts, $message, $code): array {
+                $attempts++;
+                throw new RuntimeException($message, $code);
+            });
+            try {
+                $service->saveSnapshots(7, [80], [$this->row('2026-10-02 09:00:00', 10)], 9);
+                self::fail('exhausted or ordinary failure must remain failure');
+            } catch (RuntimeException $error) {
+                self::assertSame($message, $error->getMessage());
+            }
+            self::assertSame($expectedAttempts, $attempts);
+            self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+        }
+    }
+
+    public function testNewFourDecimalLegacySnapshotsRemainExactAndUnsplitInMonitor(): void
+    {
+        $planning = new BookingDemandPlanningService(static fn(): DateTimeImmutable => new DateTimeImmutable('2026-10-02 12:00:00', new DateTimeZone('Asia/Shanghai')));
+        foreach (['2026-10-01 09:00:00' => 10.1233, '2026-10-02 09:00:00' => 10.1234] as $capture => $rooms) {
+            $row = $this->row($capture, $rooms);
+            $row['source_method'] = 'manual_file_import';
+            $row['quality_status'] = 'manual_confirmed';
+            $row['idempotency_key'] = 'TEST-ONLY-legacy-precision-' . $capture;
+            $row['on_books_room_revenue'] = 1000.1234;
+            $row['cumulative_cancel_room_nights'] = 0.0001;
+            $row['gross_booking_room_nights'] = 12.1234;
+            $saved = $planning->saveOnBooksSnapshot(7, [80], 80, $row, 9);
+            self::assertSame($rooms, $saved['on_books_room_nights']);
+            self::assertSame(1000.1234, $saved['on_books_room_revenue']);
+            self::assertSame(0.0001, $saved['cumulative_cancel_room_nights']);
+            self::assertSame(12.1234, $saved['gross_booking_room_nights']);
+            self::assertSame($saved, $planning->readSnapshot(7, 80, $saved['id']) + ['idempotent' => false]);
+        }
+        $view = $this->service()->overview(7, [80], [80], $this->query());
+        self::assertSame(0.0001, $this->cell($view, 80, 0)['net_pickup_24h_room_nights']);
+        self::assertSame(10.1234, $this->cell($view, 80, 0)['current']['on_books_room_nights']);
+        self::assertSame('missing', $this->cell($view, 80, 1)['current']['status']);
+    }
+
+    public function testDisabledRoomRejectsNewFactsButKeepsHistoricalCorrectionAndDimension(): void
+    {
+        $service = $this->service();
+        $row = $this->row('2026-10-02 09:00:00', 10);
+        $original = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        Db::name('room_types')->where('id', 1)->update(['is_enabled' => 0]);
+        Db::name('room_types')->where('id', 2)->update(['is_enabled' => 0]);
+        try {
+            $service->saveSnapshots(7, [80], [$this->row('2026-10-02 10:00:00', 12)], 9);
+            self::fail('disabled room cannot accept new facts');
+        } catch (RuntimeException $error) {
+            self::assertSame('booking_monitor_room_type_outside_hotel', $error->getMessage());
+        }
+        $corrected = $service->saveSnapshots(7, [80], [array_replace($row, [
+            'supersedes_snapshot_id' => $original['id'], 'on_books_room_nights' => 11,
+        ])], 9)['snapshots'][0];
+        $view = $service->overview(7, [80], [80], $this->query());
+        self::assertSame([], $view['room_types']);
+        self::assertSame('TEST-ONLY大床（历史房型）', $this->cell($view, 80, 1)['room_type_name']);
+        self::assertSame(11.0, $this->cell($view, 80, 1)['current']['on_books_room_nights']);
+        self::assertNotContains(2, array_column($view['cells'], 'room_type_id'));
+        self::assertSame($original['room_type_name'], $corrected['room_type_name']);
+        self::assertSame($original, $service->readSnapshot(7, [80], 80, $original['id']) + ['idempotent' => false]);
+    }
+
+    public function testManualEntryAndFileImportKeepDistinctSourcesAndLegacyDefaults(): void
+    {
+        $service = $this->service();
+        $manual = $this->row('2026-10-02 09:00:00', 10) + ['source_method' => 'manual_entry'];
+        $saved = $service->saveSnapshots(7, [80], [$manual], 9)['snapshots'][0];
+        self::assertSame('manual_entry', $saved['source_method']);
+        self::assertSame($saved, $service->readSnapshot(7, [80], 80, $saved['id']) + ['idempotent' => false]);
+        $legacy = $service->saveSnapshots(7, [80], [$this->row('2026-10-02 10:00:00', 12)], 9)['snapshots'][0];
+        self::assertSame('manual_file_import', $legacy['source_method']);
+    }
+
+    public function testExcessMetricPrecisionRejectsEntireBatchInsteadOfConfirmingZero(): void
+    {
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            foreach ([0.00001, '0.00001', '1e-5', '10.12345'] as $value) {
+                try {
+                    $this->service()->saveSnapshots(7, [80], [$this->row('2026-10-01 09:00:00', 8),
+                        array_replace($this->row('2026-10-02 09:00:00', 10), [$field => $value])], 9);
+                    self::fail('overprecision cannot become a stored rounded fact');
+                } catch (InvalidArgumentException $error) {
+                    self::assertSame($field . '_precision_invalid', $error->getMessage());
+                }
+                self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+            }
+        }
+    }
+
+    public function testSelectableHotelsAreSameTenantIntersectionWithExplicitPermissions(): void
+    {
+        $view = $this->service()->overview(7, [80, 81, 82], [80], $this->query());
+        self::assertSame([80, 82], array_column($view['selectable_hotels'], 'id'));
+        self::assertSame([7, 7], array_column($view['selectable_hotels'], 'tenant_id'));
+        $limited = $this->service()->overview(7, [80, 81], [80], $this->query());
+        self::assertSame([80], array_column($limited['selectable_hotels'], 'id'));
+        $this->expectExceptionMessage('booking_monitor_hotel_tenant_scope_mismatch');
+        $this->service()->overview(7, [80, 81, 82], [80, 81], $this->query());
     }
 
     public function testExactFixed24hIgnoresMoreRecentIntraDaySnapshotsAndKeepsRoomsSeparate(): void
@@ -548,9 +712,9 @@ final class BookingMonitoringServiceTest extends TestCase
         return $controller;
     }
 
-    private function service(string $now = '2026-10-02 12:00:00'): BookingMonitoringService
+    private function service(string $now = '2026-10-02 12:00:00', ?callable $transactionRunner = null): BookingMonitoringService
     {
-        return new BookingMonitoringService(static fn(): DateTimeImmutable => new DateTimeImmutable($now, new DateTimeZone('Asia/Shanghai')));
+        return new BookingMonitoringService(static fn(): DateTimeImmutable => new DateTimeImmutable($now, new DateTimeZone('Asia/Shanghai')), $transactionRunner);
     }
 
     private function row(string $capturedAt, float $rooms, int $roomId = 1): array

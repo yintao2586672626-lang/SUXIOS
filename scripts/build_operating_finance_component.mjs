@@ -4,12 +4,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { minify } from 'terser';
 import { updateFrontendAssetVersion } from './lib/frontend_asset_version.mjs';
+import { buildOperatingEconomicsComponent } from './build_operating_economics_component.mjs';
 import {
   compileFrontendTemplate,
   FRONTEND_TEMPLATE_MINIFY_OPTIONS,
 } from './lib/frontend_template_build.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+await buildOperatingEconomicsComponent(repoRoot);
 const sourcePath = path.join(repoRoot, 'public/components/system/operating-finance-control-center.js');
 const artifactPath = path.join(repoRoot, 'public/components/system/operating-finance-control-center.min.js');
 const source = fs.readFileSync(sourcePath, 'utf8').replace(/\r\n?/g, '\n');

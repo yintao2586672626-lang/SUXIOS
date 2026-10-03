@@ -13,6 +13,7 @@ use think\route\Dispatch;
 use think\route\dispatch\Controller;
 
 require_once __DIR__ . '/InvestmentPaybackRoutingTest.php';
+require_once __DIR__ . '/Support/InvestmentScenarioFixture.php';
 
 final class BookingMonitoringRoutingTest extends TestCase
 {
@@ -69,6 +70,30 @@ final class BookingMonitoringRoutingTest extends TestCase
             } catch (RouteNotFoundException) {
                 self::assertTrue(true);
             }
+        }
+    }
+
+    public function testSelectableScopeExcludesHotelsWithoutTheRequestedOperationCapability(): void
+    {
+        $path = sys_get_temp_dir().'/investment-scenario-test-'.bin2hex(random_bytes(6)).'.sqlite';
+        \Tests\Support\InvestmentScenarioFixture::connect($path);
+        \Tests\Support\InvestmentScenarioFixture::schema();
+        try {
+            $class = new \ReflectionClass(\app\controller\BookingMonitoring::class);
+            $controller = $class->newInstanceWithoutConstructor();
+            $user = new class {
+                public function getPermittedHotelIds(): array { return [80,81,90]; }
+                public function hasHotelPermission(int $id,string $capability): bool { return $id !== 81; }
+            };
+            $class->getProperty('currentUser')->setValue($controller,$user);
+            [$tenant,$permitted] = $class->getMethod('scope')->invoke($controller,[80],'operation.view');
+            self::assertSame(10,$tenant);
+            self::assertSame([80,90],$permitted);
+            try { $class->getMethod('scope')->invoke($controller,[81],'operation.view'); self::fail('Hotel without operation.view must be rejected'); }
+            catch (\RuntimeException $error) { self::assertSame(403,$error->getCode()); }
+        } finally {
+            \think\facade\Db::connect('investment_scenario_test')->close();
+            @unlink($path);
         }
     }
 

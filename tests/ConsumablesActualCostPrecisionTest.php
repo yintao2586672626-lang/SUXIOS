@@ -25,6 +25,22 @@ final class ConsumablesActualCostPrecisionTest extends TestCase
         self::assertSame('calculated',$result['status']);
     }
 
+    public function testFutureInventoryDateCannotBecomeAttestedActualCost(): void
+    {
+        $tomorrow = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))->modify('+1 day')->format('Y-m-d');
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('consumables_source_date_in_future');
+        (new ConsumablesActualCostService())->calculate($this->input(['source_date'=>$tomorrow]));
+    }
+
+    public function testTodaysInventoryEvidenceRemainsUsable(): void
+    {
+        $today = (new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        $result = (new ConsumablesActualCostService())->calculate($this->input(['source_date'=>$today]));
+        self::assertSame('calculated', $result['status']);
+        self::assertSame('operator_attested', $result['source_quality']);
+    }
+
     public function testLargeEqualStocksDoNotEraseASeparatePurchase(): void
     {
         $result=(new ConsumablesActualCostService())->calculate($this->input(['opening_quantity'=>1e12,'purchased_quantity'=>1e-5,'closing_quantity'=>1e12,'unit_price'=>1e12]));

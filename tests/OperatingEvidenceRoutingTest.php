@@ -297,6 +297,74 @@ final class OperatingEvidenceRoutingTest extends TestCase
         self::assertNull($response->getData()['data']);
     }
 
+    public function testReplayReturnsTheOriginalVersionAfterSourceFactsChangeAndRejectsChangedInputs(): void
+    {
+        $this->database();
+        $request = $this->input(['kind'=>'channel_economics','platform'=>'ctrip','inputs'=>[
+            'net_revenue'=>1000,'advertising_spend'=>100,'attributed_order_amount'=>400,'effective_order_amount'=>1200,'refund_amount'=>50,
+            'attribution_basis'=>'synthetic-same-window','advertising_included_in_net_revenue'=>false,'advertising_in_direct_costs'=>false,
+            'cost_coverage_complete'=>true,'operator_attested'=>true,'source_refs'=>['synthetic-ledger'],'costs'=>[],
+        ]]);
+        $sources = ['settlement'=>['readback_verified'=>true,'projection_status'=>'latest_attempt','latest_attempt'=>['batch_status'=>'validated'],
+            'source'=>['source_quality_status'=>'operator_attested'],'basis_ledger'=>['components'=>['net_revenue'=>['value'=>900]]]]];
+        $result = (new \app\service\ChannelEconomicsService())->calculate($request['inputs'],$sources);
+        self::assertSame(900.0,$result['net_revenue']);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10,[80],80,'2026-09','ctrip','channel_economics');
+        $original = $store->save($scope,['inputs'=>$result['inputs'],'result'=>$result,'status'=>$result['status'],'source_quality'=>$result['source_quality']],$request['idempotency_key'],7,$request['inputs']);
+        // The current source tables do not contain that captured settlement. Recalculating would use the manual 1000 instead.
+        $response = $this->call('saveEvidence',$request,$this->user());
+        self::assertSame(200,$response->getCode(),$response->getContent());
+        self::assertSame($original['snapshot_id'],$response->getData()['data']['snapshot_id']);
+        self::assertSame($original['content_digest'],$response->getData()['data']['content_digest']);
+        self::assertSame(900,$response->getData()['data']['result']['net_revenue']);
+        self::assertTrue($response->getData()['data']['idempotent']);
+        self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+        $request['inputs']['net_revenue'] = 1001;
+        $changed = $this->call('saveEvidence',$request,$this->user());
+        self::assertSame(409,$changed->getCode());
+        self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
+
+    public function testLegacyVersionWithoutRequestDigestRetainsItsOriginalReplayContract(): void
+    {
+        $this->database();
+        $request = $this->input();
+        $result = (new \app\service\ConsumablesActualCostService())->calculate($request['inputs']);
+        $store = new OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10,[80],80,'2026-09','whole_hotel','consumables_actual');
+        $payload = ['inputs'=>$result['inputs'],'result'=>$result,'status'=>$result['status'],'source_quality'=>$result['source_quality']];
+        $original = $store->save($scope,$payload,$request['idempotency_key'],7);
+        self::assertNull($store->replayRequest($scope,$request['idempotency_key'],$request['inputs']));
+        $legacyReplay = $store->save($scope,$payload,$request['idempotency_key'],7);
+        self::assertSame($original['snapshot_id'],$legacyReplay['snapshot_id']);
+        self::assertSame($original['content_digest'],$legacyReplay['content_digest']);
+        self::assertTrue($legacyReplay['idempotent']);
+        $controllerReplay = $this->call('saveEvidence',$request,$this->user());
+        self::assertSame(200,$controllerReplay->getCode(),$controllerReplay->getContent());
+        self::assertSame($original['content_digest'],$controllerReplay->getData()['data']['content_digest']);
+        self::assertTrue($controllerReplay->getData()['data']['idempotent']);
+        self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
+
+    public function testFutureActualAccountingMonthAndInventoryDateCannotPreviewOrSave(): void
+    {
+        $this->database();
+        $today = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $futureMonth = $today->modify('first day of next month')->format('Y-m');
+        $futurePeriod = $this->input(['period_month'=>$futureMonth]);
+        $futurePeriod['inputs']['items'][0]['source_date'] = $futureMonth.'-01';
+        $futureDate = $this->input(['period_month'=>$today->format('Y-m')]);
+        $futureDate['inputs']['items'][0]['source_date'] = $today->modify('+1 day')->format('Y-m-d');
+        $before = $this->storedRows();
+        foreach ([$futurePeriod, $futureDate] as $input) foreach (['previewEvidence','saveEvidence'] as $action) {
+            $response = $this->call($action, $input, $this->user());
+            self::assertSame(422, $response->getCode(), $response->getContent());
+            self::assertNull($response->getData()['data']);
+            self::assertSame($before, $this->storedRows());
+        }
+    }
+
     private function database(): void
     {
         $this->databasePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'investment-scenario-test-' . bin2hex(random_bytes(6)) . '.sqlite';

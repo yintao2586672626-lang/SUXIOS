@@ -129,6 +129,80 @@ final class OperatingEvidenceChainTest extends TestCase
     }
     public function testIncompleteCostOnlyProducesPartialContribution(): void { $i=$this->channel(); $i['cost_coverage_complete']=false; $r=(new ChannelEconomicsService())->calculate($i); self::assertNull($r['channel_net_contribution_amount']); self::assertSame(700.0,$r['known_costs_contribution_amount']); }
     public function testAlreadyDeductedAdvertisingIsNotDeductedAgain(): void { $i=$this->channel(); $i['advertising_included_in_net_revenue']=true; self::assertSame(800.0,(new ChannelEconomicsService())->calculate($i)['channel_net_contribution_amount']); }
+    public function testAdvertisingDirectCostClaimRequiresExplicitEqualAmountEvidence(): void
+    {
+        $invalid = [[], [['label'=>'普通成本','amount'=>100,'source_ref'=>'synthetic-cost','included_in_net_revenue'=>false]],
+            [['label'=>'广告','cost_type'=>'advertising','amount'=>99,'source_ref'=>'synthetic-ad','included_in_net_revenue'=>false]],
+            [['label'=>'广告','cost_type'=>'advertising','amount'=>100.001,'source_ref'=>'synthetic-ad','included_in_net_revenue'=>false]],
+            [['label'=>'广告','cost_type'=>'advertising','amount'=>100,'source_ref'=>'','included_in_net_revenue'=>false]],
+            [['label'=>'广告','cost_type'=>'advertising','amount'=>null,'source_ref'=>'synthetic-ad','included_in_net_revenue'=>false]],
+            [['label'=>'广告','cost_type'=>'advertising','amount'=>100,'source_ref'=>'synthetic-ad','included_in_net_revenue'=>true]]];
+        foreach ($invalid as $costs) {
+            $input=$this->channel();$input['costs']=$costs;$input['advertising_in_direct_costs']=true;
+            try { (new ChannelEconomicsService())->calculate($input); self::fail('An advertising inclusion claim without complete equal-cost evidence must be rejected'); }
+            catch (InvalidArgumentException $e) { self::assertSame('channel_advertising_direct_cost_evidence_required',$e->getMessage()); }
+        }
+        $input=$this->channel();$input['advertising_in_direct_costs']=true;$input['advertising_spend']=null;
+        $input['costs']=[['label'=>'广告','cost_type'=>'advertising','amount'=>100,'source_ref'=>'synthetic-ad','included_in_net_revenue'=>false]];
+        $this->expectExceptionMessage('channel_advertising_direct_cost_evidence_required');
+        (new ChannelEconomicsService())->calculate($input);
+    }
+    public function testExplicitAdvertisingDirectCostsDeductExactlyOnceAndSurviveReadback(): void
+    {
+        $input=$this->channel();$input['advertising_in_direct_costs']=true;
+        $input['costs'][]=['label'=>'广告A','cost_type'=>'advertising','amount'=>40,'source_ref'=>'synthetic-ad-A','included_in_net_revenue'=>false];
+        $input['costs'][]=['label'=>'广告B','cost_type'=>'advertising','amount'=>60,'source_ref'=>'synthetic-ad-B','included_in_net_revenue'=>false];
+        $result=(new ChannelEconomicsService())->calculate($input);
+        self::assertSame(300.0,$result['known_direct_cost']);self::assertSame(700.0,$result['channel_net_contribution_amount']);
+        self::assertSame('direct',$result['inputs']['costs'][0]['cost_type']);
+        $store=new OperatingEvidenceSnapshotStore();$scope=$store->scope(7,[80],80,'2026-02','meituan','channel_economics');
+        $saved=$store->save($scope,['inputs'=>$result['inputs'],'result'=>$result],'explicit-advertising-direct-cost-proof',1);
+        $read=$store->read($scope,$saved['snapshot_id']);
+        self::assertTrue($read['readback_verified']);self::assertSame('advertising',$read['inputs']['costs'][2]['cost_type']);
+        self::assertSame(700.0,(float)$read['result']['channel_net_contribution_amount']);
+    }
+    public function testExplicitAdvertisingRowsCannotBeDeductedAlongsideTheSeparateAdvertisingAmount(): void
+    {
+        $input=$this->channel();$input['costs'][]=['label'=>'广告','cost_type'=>'advertising','amount'=>100,'source_ref'=>'synthetic-ad','included_in_net_revenue'=>false];
+        $this->expectExceptionMessage('channel_advertising_cost_classification_conflict');
+        (new ChannelEconomicsService())->calculate($input);
+    }
+    public function testAdvertisingEqualAmountProofAllowsOnlyFloatingPointAdditionError(): void
+    {
+        $input=$this->channel();$input['advertising_spend']=0.3;$input['advertising_in_direct_costs']=true;
+        $input['costs']=[['label'=>'广告A','cost_type'=>'advertising','amount'=>0.1,'source_ref'=>'synthetic-ad-A','included_in_net_revenue'=>false],
+            ['label'=>'广告B','cost_type'=>'advertising','amount'=>0.2,'source_ref'=>'synthetic-ad-B','included_in_net_revenue'=>false]];
+        self::assertSame(999.7,(new ChannelEconomicsService())->calculate($input)['channel_net_contribution_amount']);
+        $input['advertising_spend']=1e-20;$input['costs'][0]['amount']=0;$input['costs'][1]['amount']=0;
+        $this->expectExceptionMessage('channel_advertising_direct_cost_evidence_required');
+        (new ChannelEconomicsService())->calculate($input);
+    }
+    public function testHighVolumeSettlementReceiptSavesAsAnExactCompactSnapshot(): void
+    {
+        $line=['source_line_no'=>1,'line_fingerprint'=>str_repeat('b',64),'order_reference_hash'=>str_repeat('c',64),
+            'gross_amount'=>100.0,'net_revenue'=>90.0,'source_ref'=>'synthetic-large-month-settlement-line','quality_status'=>'available'];
+        $receipt=['contract_version'=>'ota_settlement_reconciliation.v1','batch_id'=>77,'batch_fingerprint'=>str_repeat('a',64),
+            'readback_verified'=>true,'projection_status'=>'latest_attempt','latest_attempt'=>['batch_id'=>77,'batch_status'=>'available'],
+            'scope'=>['tenant_id'=>7,'hotel_id'=>80,'platform'=>'ctrip','period_start'=>'2026-02-01','period_end'=>'2026-02-28'],
+            'source'=>['source_quality_status'=>'verified_export','source_method'=>'manual_verified_export','file_sha256'=>str_repeat('d',64)],
+            'counts'=>['line_count'=>5000,'available'=>5000,'partial'=>0,'invalid'=>0],
+            'totals'=>['net_revenue'=>['value'=>450000.0,'basis'=>'complete_source_direct']],
+            'basis_ledger'=>['components'=>['net_revenue'=>['value'=>450000.0,'basis'=>'complete_source_direct']]],
+            'lines'=>array_fill(0,5000,$line),'ranked_discrepancies'=>array_fill(0,5000,$line)];
+        self::assertGreaterThan(200000,strlen(json_encode($receipt,JSON_THROW_ON_ERROR)));
+        $result=(new ChannelEconomicsService())->calculate($this->channel(),['settlement'=>$receipt,'period_closed'=>true]);
+        $compact=$result['source_receipts']['settlement'];
+        self::assertArrayNotHasKey('lines',$compact);self::assertArrayNotHasKey('ranked_discrepancies',$compact);
+        self::assertSame(77,$compact['batch_id']);self::assertSame(str_repeat('a',64),$compact['batch_fingerprint']);
+        self::assertSame(5000,$compact['counts']['line_count']);self::assertSame($receipt['scope'],$compact['scope']);
+        self::assertSame(['ota_settlement_import_batches#77'],$compact['evidence_refs']);self::assertSame(450000.0,$result['net_revenue']);
+        $store=new OperatingEvidenceSnapshotStore();$scope=$store->scope(7,[80],80,'2026-02','ctrip','channel_economics');
+        $saved=$store->save($scope,['inputs'=>$result['inputs'],'result'=>$result],'high-volume-settlement-compact-proof',1);
+        $read=$store->read($scope,$saved['snapshot_id']);
+        self::assertTrue($read['readback_verified']);self::assertSame($saved['content_digest'],$read['content_digest']);
+        self::assertEquals($compact,$read['result']['source_receipts']['settlement']);
+        self::assertSame(449700.0,(float)$read['result']['channel_net_contribution_amount']);
+    }
     public function testUntrustedClientSourcesCannotOverrideManualInput(): void { $i=$this->channel(); $r=(new ChannelEconomicsService())->calculate($i,['settlement'=>['readback_verified'=>false,'basis_ledger'=>['components'=>['net_revenue'=>['value'=>9999]]]]]); self::assertSame(1000.0,$r['net_revenue']); }
     public function testImmutableSaveExactReadbackAndIdempotency(): void { $store=new OperatingEvidenceSnapshotStore(); $scope=$store->scope(7,[80],80,'2026-10','whole_hotel','consumables_actual'); $result=(new ConsumablesActualCostService())->calculate($this->actual()); $r=$store->save($scope,['inputs'=>$result['inputs'],'result'=>$result,'source_quality'=>'operator_attested'],'request-test-123',1); self::assertTrue($r['readback_verified']); self::assertSame(2,(int)$r['result']['actual_consumables_cost_per_room_night']); self::assertSame($r['snapshot_id'],$store->save($scope,['inputs'=>$result['inputs'],'result'=>$result,'source_quality'=>'operator_attested'],'request-test-123',1)['snapshot_id']); self::assertSame($r['content_digest'],$store->read($scope,$r['snapshot_id'])['content_digest']); }
     public function testIdempotencyDoesNotOverwriteChanges(): void { $s=new OperatingEvidenceSnapshotStore(); $scope=$s->scope(7,[80],80,'2026-10','ctrip','channel_economics'); $s->save($scope,['value'=>1],'request-conflict',1); $this->expectException(RuntimeException::class); $s->save($scope,['value'=>2],'request-conflict',1); }

@@ -42,15 +42,16 @@ try {
     Config::set(['default'=>'sqlite','connections'=>['sqlite'=>['type'=>'sqlite','database'=>$fixturePath,'prefix'=>'','fields_strict'=>false]]], 'database');
     Db::connect(null, true);
     if ($fresh) {
-        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY,tenant_id INTEGER,name TEXT)');
-        Db::execute("INSERT INTO hotels VALUES (80,7,'TEST-ONLY酒店80')");
-        Db::execute('CREATE TABLE room_types (id INTEGER PRIMARY KEY,hotel_id INTEGER,name TEXT)');
-        Db::execute("INSERT INTO room_types VALUES (1,80,'TEST-ONLY大床')");
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY,tenant_id INTEGER,name TEXT,status INTEGER NOT NULL DEFAULT 1)');
+        Db::execute("INSERT INTO hotels VALUES (80,7,'TEST-ONLY酒店80',1)");
+        Db::execute('CREATE TABLE room_types (id INTEGER PRIMARY KEY,hotel_id INTEGER,name TEXT,is_enabled INTEGER NOT NULL DEFAULT 1)');
+        Db::execute("INSERT INTO room_types VALUES (1,80,'TEST-ONLY大床',1)");
         Db::execute('CREATE TABLE hotel_operating_evidence_snapshots (id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id INTEGER,hotel_id INTEGER,source_hotel_id INTEGER,kind TEXT,period_month TEXT,platform TEXT,payload_json TEXT,content_digest TEXT,idempotency_key TEXT,created_by INTEGER,created_at TEXT,UNIQUE(tenant_id,hotel_id,kind,period_month,platform,idempotency_key))');
         $columns='id INTEGER PRIMARY KEY AUTOINCREMENT,contract_version TEXT,tenant_id INTEGER,hotel_id INTEGER,source_hotel_id INTEGER,platform TEXT,fact_scope TEXT,stay_date TEXT,captured_at TEXT,source_method TEXT,source_ref_hash TEXT,on_books_room_nights REAL,on_books_room_revenue REAL,cumulative_cancel_room_nights REAL,gross_booking_room_nights REAL,quality_status TEXT,readback_verified INTEGER,idempotency_key TEXT,content_digest TEXT,created_by INTEGER,created_at TEXT';
         Db::execute('CREATE TABLE hotel_on_books_snapshots ('.$columns.')');
         Db::execute('CREATE TABLE hotel_room_type_on_books_snapshots ('.$columns.',room_type_id INTEGER,room_type_name TEXT,supersedes_snapshot_id INTEGER,UNIQUE(tenant_id,hotel_id,idempotency_key))');
     }
+    if (!in_array('status',array_column(Db::query('PRAGMA table_info(hotels)'),'name'),true)) Db::execute('ALTER TABLE hotels ADD COLUMN status INTEGER NOT NULL DEFAULT 1');
     $clock=static fn(): DateTimeImmutable => new DateTimeImmutable('2026-10-02 12:00:00', new DateTimeZone('Asia/Shanghai'));
     $monitor=new BookingMonitoringService($clock);
     $input=$_SERVER['REQUEST_METHOD']==='POST' ? json_decode(file_get_contents('php://input'),true,32,JSON_THROW_ON_ERROR) : $_GET;
@@ -61,16 +62,31 @@ try {
             'demand_calendar'=>['status'=>'missing'],'wecom_task_receipt'=>['status'=>'missing'],
             'monthly_finance'=>['status'=>'missing'],'portfolio'=>['status'=>'missing']];
     } elseif (str_starts_with($path,'/operating-finance/evidence/')) {
-        $store=new OperatingEvidenceSnapshotStore();
-        $scope=$store->scope(7,[80],(int)($input['hotel_id']??0),(string)($input['period_month']??''),(string)($input['platform']??''),(string)($input['kind']??''));
-        $sources=['scope'=>array_diff_key($scope,['kind'=>true]),'period_closed'=>$scope['period_month']<'2026-10','marketing'=>['complete'=>false,'reason'=>'ctrip_marketing_period_requires_manual_evidence']];
-        if (str_ends_with($path,'/overview')) $data=['scope'=>$scope,'history'=>$store->history($scope),'latest'=>$store->latest($scope),'sources'=>$sources];
-        elseif (preg_match('~/snapshots/(\d+)$~',$path,$match)) $data=$store->read($scope,(int)$match[1]);
-        else {
-            $result=$scope['kind']==='channel_economics' ? (new ChannelEconomicsService())->calculate($input['inputs']??[],$sources) : (new ConsumablesActualCostService())->calculate($input['inputs']??[]);
-            $payload=['inputs'=>$result['inputs'],'result'=>$result,'status'=>$result['status'],'source_quality'=>$result['source_quality']];
-            $data=str_ends_with($path,'/snapshots') ? $store->save($scope,$payload,(string)($input['idempotency_key']??''),1) : ['scope'=>$scope]+$payload+['readback_verified'=>false];
-        }
+        // Exercise the real controller, including original-request replay and date gates.
+        $class = new ReflectionClass(\app\controller\OperatingFinance::class);
+        $controller = $class->newInstanceWithoutConstructor();
+        $request = new class($input) {
+            public function __construct(private array $values) {}
+            public function param(?string $key=null,mixed $default=null): mixed { return $key===null ? $this->values : ($this->values[$key]??$default); }
+            public function post(): array { return $this->values; }
+            public function method(): string { return $_SERVER['REQUEST_METHOD']; }
+            public function getContent(): string { return ''; }
+        };
+        $user = new class {
+            public int $id=1; public int $tenant_id=7;
+            public function getPermittedHotelIds(): array { return [80]; }
+            public function hasHotelPermission(int $hotelId,string $capability): bool { return $hotelId===80; }
+            public function isSuperAdmin(): bool { return false; }
+        };
+        $class->getProperty('request')->setValue($controller,$request);
+        $class->getProperty('currentUser')->setValue($controller,$user);
+        if (str_ends_with($path,'/overview')) $response=$controller->evidenceOverview();
+        elseif (preg_match('~/snapshots/(\d+)$~',$path,$match)) $response=$controller->readEvidence((int)$match[1]);
+        else $response=str_ends_with($path,'/snapshots') ? $controller->saveEvidence() : $controller->previewEvidence();
+        if (str_ends_with($path,'/snapshots') && $response->getCode()===200) usleep(max(0,min(5000,(int)getenv('DEEP_OPTIMIZATION_SAVE_DELAY_MS')))*1000);
+        http_response_code($response->getCode());
+        header('Content-Type: application/json; charset=utf-8');
+        echo $response->getContent(); exit;
     } elseif ($path==='/booking-monitoring/overview') {
         $data=$monitor->overview(7,[80],array_map('intval',explode(',',(string)($input['hotel_ids']??''))),$input);
     } elseif ($path==='/booking-monitoring/snapshots' && $_SERVER['REQUEST_METHOD']==='POST') $data=$monitor->saveSnapshots(7,[80],$input['rows']??[],1);

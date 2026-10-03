@@ -18,6 +18,7 @@ final class ConsumablesActualCostService
         $rows = $input['items'] ?? [];
         if (!is_array($rows) || count($rows) > 100) throw new InvalidArgumentException('consumables_items_invalid');
         $normalized = []; $missing = []; $knownCents = 0; $lossCents = 0; $knownCount = 0; $complete = true;
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         foreach ($rows as $index => $raw) {
             if (!is_array($raw) || !is_bool($raw['enabled'] ?? null)) throw new InvalidArgumentException('consumables_enabled_required');
             $item = ['id' => $this->text($raw['id'] ?? (string)$index, 100), 'name' => $this->text($raw['name'] ?? '', 160),
@@ -29,6 +30,7 @@ final class ConsumablesActualCostService
             $gaps = [];
             foreach (['opening_quantity','purchased_quantity','transfer_in_quantity','closing_quantity','transfer_out_quantity','returned_quantity','written_off_quantity'] as $key) if ($item[$key] === null) $gaps[] = $key;
             if ($item['source_ref'] === '' || !$this->validDate($item['source_date'])) $gaps[] = 'source_evidence';
+            if ($item['enabled'] && $this->validDate($item['source_date']) && $item['source_date'] > $today) throw new InvalidArgumentException('consumables_source_date_in_future');
             $quantity = $item['enabled'] && $gaps === [] ? $this->inventoryBalance($item) : null;
             if ($quantity !== null && $quantity < 0) { $gaps[] = 'inventory_balance_negative'; $quantity = null; }
             if ($item['unit_price'] === null) $gaps[] = 'unit_price';

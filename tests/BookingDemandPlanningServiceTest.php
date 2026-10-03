@@ -279,6 +279,20 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertSame(1, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
     }
 
+    public function testLegacySnapshotWriterRejectsExcessPrecisionWithoutRoundingAnyMetric(): void
+    {
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-overprecision-' . $field), [$field => 0.00001]);
+            try {
+                $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+                self::fail('a positive fifth decimal cannot become a zero legacy fact');
+            } catch (InvalidArgumentException $error) {
+                self::assertSame($field . '_precision_invalid', $error->getMessage());
+            }
+        }
+        self::assertSame(0, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+    }
+
     public function testSnapshotDeadlockRetriesTheWholeTransactionWithinTheBoundedBudget(): void
     {
         $attempts = 0;

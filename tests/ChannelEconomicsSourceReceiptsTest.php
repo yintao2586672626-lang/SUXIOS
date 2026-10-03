@@ -89,6 +89,54 @@ final class ChannelEconomicsSourceReceiptsTest extends TestCase
         self::assertFalse($result['evidence_chain']['independently_verified']);
     }
 
+    public function testMalformedKeywordFactsCannotInvalidateVerifiedAdvertisingReceipts(): void
+    {
+        $row=$this->row(1);$row['id']=100;$row['data_type']='search_keyword';$row['dimension']='search_keyword';$row['raw_data']='{}';
+        Db::name('online_daily_data')->insert($row);
+        self::assertNotSame([], (new MeituanMarketingFactProjectionService())->project(7,80,'2026-02-01')['data_quality']['rejected_reason_counts']);
+        $marketing=$this->marketing();
+        self::assertTrue($marketing['complete']);self::assertSame([],$marketing['missing_days']);
+        self::assertSame(280.0,$marketing['advertising_spend']);self::assertSame(1120.0,$marketing['attributed_order_amount']);
+        self::assertNotContains('online_daily_data#100',$marketing['evidence_refs']);
+        self::assertSame([], $marketing['day_quality']['2026-02-01']['rejected_reason_counts']);
+    }
+
+    public function testBadAdvertisingIsStillRejectedWhenMalformedKeywordIsAlsoPresent(): void
+    {
+        $keyword=$this->row(1);$keyword['id']=100;$keyword['data_type']='search_keyword';$keyword['dimension']='search_keyword';$keyword['raw_data']='{}';
+        Db::name('online_daily_data')->insert($keyword);
+        $badAd=$this->row(1,5,'basis-B','bad-campaign');$badAd['id']=101;$badAd['source_trace_id']='';
+        Db::name('online_daily_data')->insert($badAd);
+        $marketing=$this->marketing();
+        self::assertFalse($marketing['complete']);self::assertSame(['2026-02-01'],$marketing['missing_days']);
+        self::assertSame(['source_trace_missing'=>1],$marketing['day_quality']['2026-02-01']['rejected_reason_counts']);
+        self::assertSame(270.0,$marketing['known_advertising_spend']);
+        self::assertNotContains('online_daily_data#1',$marketing['evidence_refs']);
+        self::assertNotContains('online_daily_data#101',$marketing['evidence_refs']);
+    }
+
+    public function testFailedAdvertisingReadbackBesideAValidCampaignDoesNotBecomeACompleteDay(): void
+    {
+        $badAd=$this->row(1,5,'basis-B','failed-campaign');$badAd['id']=101;$badAd['validation_status']='failed';
+        Db::name('online_daily_data')->insert($badAd);
+        $marketing=$this->marketing();
+        self::assertFalse($marketing['complete']);self::assertSame(['2026-02-01'],$marketing['missing_days']);
+        self::assertSame(['strict_readback_gate_failed'=>1],$marketing['day_quality']['2026-02-01']['rejected_reason_counts']);
+        self::assertSame(270.0,$marketing['known_advertising_spend']);
+    }
+
+    public function testAdvertisingWithoutCampaignScopeCannotBeSilentlyExcludedFromACompleteDay(): void
+    {
+        $row=$this->row(1,5);$row['id']=101;
+        $row['raw_data']=json_encode(['keyword'=>'synthetic-ad-without-campaign','spend'=>5,'attributed_order_amount'=>20,'attribution_basis'=>'basis-B'],JSON_THROW_ON_ERROR);
+        Db::name('online_daily_data')->insert($row);
+        $marketing=$this->marketing();
+        self::assertFalse($marketing['complete']);self::assertSame(['2026-02-01'],$marketing['missing_days']);
+        self::assertContains('advertising_campaign_scope_required',$marketing['day_quality']['2026-02-01']['gap_codes']);
+        self::assertSame(270.0,$marketing['known_advertising_spend']);self::assertNotContains('online_daily_data#1',$marketing['evidence_refs']);
+        self::assertNotContains('online_daily_data#101',$marketing['evidence_refs']);
+    }
+
     public static function missingMonthCases(): array
     {
         return ['all facts missing' => [false], 'all facts invalid' => [true]];

@@ -98,6 +98,20 @@ test('save adopts independently reread result only after exact identity and cont
     assert.match(calls[1],/\/snapshots\/9\?/);assert.match(ctx.notice,/精确回读/);
 });
 
+test('new snapshot request digest must match independent GET while legacy missing digests remain compatible',async()=>{
+    for(const match of [true,false]) {
+        const receipt={...scopedReceipt(),request_digest:'c'.repeat(64)};
+        const {ctx}=component(async path=>({code:200,data:path.includes('/overview?')?{scope:receipt.scope,history:[]}
+            :path.includes('/snapshots/9?')?{...receipt,request_digest:match?receipt.request_digest:'d'.repeat(64)}:receipt}));
+        await ctx.calculate(true);
+        assert.equal(ctx.writeReceipt.status,match?'verified':'readback_failed');
+        if(match)assert.equal(ctx.saved.request_digest,receipt.request_digest);
+        else {assert.equal(ctx.saved,null);assert.equal(ctx.result,null);assert.match(ctx.error,/回读内容不一致/);}
+    }
+    const {ctx}=component(async path=>({code:200,data:path.includes('/overview?')?{scope:scopedReceipt().scope,history:[]}:scopedReceipt()}));
+    await ctx.calculate(true);assert.equal(ctx.writeReceipt.status,'verified');assert.equal(ctx.saved.request_digest,undefined);
+});
+
 for (const save of [false,true]) test('server normalized input replaces stale draft after '+(save?'verified save':'preview'),async()=>{
     const receipt=scopedReceipt();receipt.inputs={...receipt.inputs,net_revenue:9999,refund_amount:null,evidence_refs_by_metric:{net_revenue:['TEST-ONLY-settlement']}};receipt.result={net_revenue:9999};
     const {ctx}=component(async path=>({code:200,data:path.includes('/overview?')?{scope:receipt.scope,history:[]}:receipt}));
@@ -133,6 +147,109 @@ test('adoption retains same-hotel snapshot reference for next page',()=>{
 test('editing invalidates in-flight preview without clearing dirty input',async()=>{
     let resolve;const {ctx}=component(()=>new Promise(r=>resolve=r));const pending=ctx.calculate(false);ctx.edit();resolve({code:200,data:{result:{net_revenue:999}}});await pending;
     assert.equal(ctx.result,null);assert.equal(ctx.dirty,true);assert.equal(ctx.busy,false);
+});
+
+test('editing during save keeps the independent write pending and exact receipt without replacing the new draft',async()=>{
+    let resolvePost;const calls=[];const {ctx}=component(async(path,options)=>{
+        calls.push({path,options});
+        if(options?.method==='POST')return new Promise(resolve=>resolvePost=resolve);
+        return path.includes('/overview?')?scopedOverview(path):{code:200,data:scopedReceipt()};
+    });
+    ctx.channel.net_revenue='1000';const pending=ctx.calculate(true);
+    ctx.channel.net_revenue='2000';ctx.edit();
+    assert.equal(ctx.writePending,true);await ctx.calculate(true);
+    assert.equal(calls.filter(call=>call.options?.method==='POST').length,1,'editing cannot unlock a second save');
+    resolvePost({code:200,data:scopedReceipt()});await pending;
+    assert.ok(calls.some(call=>call.path.includes('/snapshots/9?')));
+    assert.equal(ctx.writePending,false);assert.equal(ctx.writeReceipt.status,'verified');
+    assert.equal(ctx.writeReceipt.snapshot.snapshot_id,9);assert.equal(ctx.writeReceipt.scope.hotel_id,80);
+    assert.equal(ctx.channel.net_revenue,'2000');assert.equal(ctx.dirty,true);assert.equal(ctx.saved,null);assert.equal(ctx.result,null);
+    assert.match(ctx.notice,/草稿已保留/);
+});
+
+test('scope changes before POST returns retain the old save receipt and reread its original scope only',async()=>{
+    let resolvePost;const calls=[];const {ctx,definition}=component(async(path,options)=>{
+        calls.push({path,options});if(options?.method==='POST')return new Promise(resolve=>resolvePost=resolve);
+        return path.includes('/overview?')?scopedOverview(path):{code:200,data:scopedReceipt()};
+    });
+    const pending=ctx.calculate(true);await changeScope(ctx,definition,{hotelId:81,platform:'meituan',periodMonth:'2026-11'});
+    ctx.channel.net_revenue='new-hotel-draft';ctx.edit();await ctx.calculate(true);
+    assert.equal(calls.filter(call=>call.options?.method==='POST').length,1);
+    resolvePost({code:200,data:scopedReceipt()});await pending;
+    const exact=calls.find(call=>call.path.includes('/snapshots/9?'));
+    const query=new URLSearchParams(exact.path.split('?')[1]);
+    assert.equal(query.get('hotel_id'),'80');assert.equal(query.get('platform'),'ctrip');assert.equal(query.get('period_month'),'2026-10');
+    assert.equal(ctx.writeReceipt.status,'verified');assert.equal(ctx.writeReceipt.scope.hotel_id,80);
+    assert.equal(ctx.channel.net_revenue,'new-hotel-draft');assert.equal(ctx.dirty,true);assert.equal(ctx.saved,null);assert.equal(ctx.result,null);
+    assert.equal(ctx.overview.scope.hotel_id,'81');
+});
+
+test('a failed exact GET retains the saved receipt and retries GET while preserving an edited draft',async()=>{
+    let posts=0;let reads=0;const {ctx}=component(async(path,options)=>{
+        if(options?.method==='POST'){posts++;return {code:200,data:scopedReceipt()};}
+        if(path.includes('/snapshots/9?')&&++reads===1)throw new TypeError('Failed to fetch');
+        return path.includes('/overview?')?scopedOverview(path):{code:200,data:scopedReceipt()};
+    });
+    ctx.channel.net_revenue='1000';await ctx.calculate(true);
+    assert.equal(ctx.writeReceipt.status,'readback_failed');assert.equal(ctx.writeReceipt.snapshot.snapshot_id,9);
+    ctx.channel.net_revenue='2000';ctx.edit();await ctx.calculate(true);assert.equal(posts,1);
+    await ctx.retryWrite();
+    assert.equal(posts,1);assert.equal(reads,2);assert.equal(ctx.writeReceipt.status,'verified');
+    assert.equal(ctx.channel.net_revenue,'2000');assert.equal(ctx.dirty,true);assert.equal(ctx.saved,null);
+});
+
+test('an uncertain POST retry reuses the same idempotency key and original inputs after editing',async()=>{
+    const bodies=[];const {ctx}=component(async(path,options)=>{
+        if(options?.method==='POST'){bodies.push(JSON.parse(options.body));if(bodies.length===1)throw new TypeError('Failed to fetch');return {code:200,data:scopedReceipt()};}
+        return path.includes('/overview?')?scopedOverview(path):{code:200,data:scopedReceipt()};
+    });
+    ctx.channel.net_revenue='1000';await ctx.calculate(true);assert.equal(ctx.writeReceipt.status,'unconfirmed');
+    ctx.channel.net_revenue='2000';ctx.edit();await ctx.calculate(true);assert.equal(bodies.length,1);
+    await ctx.retryWrite();assert.equal(bodies.length,2);
+    assert.equal(bodies[0].idempotency_key,bodies[1].idempotency_key);assert.deepEqual(bodies[0].inputs,bodies[1].inputs);
+    assert.equal(ctx.writeReceipt.status,'verified');assert.equal(ctx.channel.net_revenue,'2000');assert.equal(ctx.dirty,true);
+});
+
+test('an idempotency conflict remains unconfirmed while an explicit validation rejection releases a fresh save',async()=>{
+    for(const code of [409,422]) {
+        const bodies=[];const {ctx}=component(async(path,options)=>{
+            if(options?.method==='POST'){bodies.push(JSON.parse(options.body));if(bodies.length===1)return {code,message:'TEST-ONLY rejection'};return {code:200,data:scopedReceipt()};}
+            return path.includes('/overview?')?scopedOverview(path):{code:200,data:scopedReceipt()};
+        });
+        ctx.channel.net_revenue='1000';await ctx.calculate(true);ctx.channel.net_revenue='2000';ctx.edit();
+        if(code===409){assert.equal(ctx.writeReceipt.status,'unconfirmed');await ctx.calculate(true);assert.equal(bodies.length,1);await ctx.retryWrite();assert.equal(bodies[0].idempotency_key,bodies[1].idempotency_key);}
+        else {assert.equal(ctx.writeReceipt.status,'rejected');assert.equal(ctx.writeAttempt,null);await ctx.calculate(true);assert.notEqual(bodies[0].idempotency_key,bodies[1].idempotency_key);assert.equal(bodies[1].inputs.net_revenue,'2000');}
+        assert.equal(ctx.writeReceipt.status,'verified');
+    }
+});
+
+test('editing during exact GET keeps the pending write and visible receipt while refusing another POST',async()=>{
+    let resolveRead;let posts=0;const {ctx}=component(async(path,options)=>{
+        if(options?.method==='POST'){posts++;return {code:200,data:scopedReceipt()};}
+        if(path.includes('/snapshots/9?'))return new Promise(resolve=>resolveRead=resolve);
+        return scopedOverview(path);
+    });
+    const pending=ctx.calculate(true);while(!resolveRead)await Promise.resolve();
+    assert.equal(ctx.writeReceipt.status,'reading');assert.equal(ctx.writeReceipt.snapshot.snapshot_id,9);
+    ctx.channel.net_revenue='edited-during-read';ctx.edit();await ctx.calculate(true);await ctx.restore(7,true);
+    assert.equal(posts,1);assert.equal(ctx.writePending,true);
+    resolveRead({code:200,data:scopedReceipt()});await pending;
+    assert.equal(ctx.writeReceipt.status,'verified');assert.equal(ctx.channel.net_revenue,'edited-during-read');assert.equal(ctx.saved,null);assert.equal(ctx.dirty,true);
+});
+
+for(const platform of ['dingdandao_pms','manual_all_channels']) test('unsupported channel '+platform+' has an explicit disabled state while whole-hotel consumables still load',async()=>{
+    const calls=[];const {ctx,definition}=component(async(path,options)=>{
+        calls.push({path,options});return options?.method==='POST'?{code:200,data:{scope:{...ctx.scope},inputs:{...ctx.input},result:{status:'partial'}}}:scopedOverview(path);
+    });
+    ctx.platform=platform;await ctx.load();await ctx.calculate(false);await ctx.calculate(true);await ctx.restore(9,true);
+    assert.equal(calls.length,0);assert.equal(ctx.channelSupported,false);assert.equal(ctx.calculationSupported,false);assert.match(ctx.channelUnavailableMessage,/携程.*美团/);
+    const render=new Function('Vue',compile(definition.template,{mode:'function'}).code)(Vue);
+    const html=await renderToString(Vue.createSSRApp({render(){return render(ctx,[]);}}));
+    assert.match(html,/channel-economics-unavailable/);assert.doesNotMatch(html,/channel-metric-source-inputs/);
+    await changeScope(ctx,definition,{kind:'consumables_actual'});assert.equal(ctx.calculationSupported,true);
+    assert.equal(new URLSearchParams(calls[0].path.split('?')[1]).get('platform'),'whole_hotel');
+    await ctx.calculate(false);assert.equal(ctx.error,'');assert.equal(ctx.result.status,'partial');
+    assert.equal(JSON.parse(calls.at(-1).options.body).platform,'whole_hotel');
 });
 test('same-version save must have exact scoped readback',async()=>{
     const {ctx}=component(async()=>({code:200,data:{readback_verified:true,scope:{hotel_id:81},result:{}}}));await ctx.calculate(true);
@@ -220,6 +337,8 @@ test('view-only restored direct costs render every editable control disabled',as
         assert.ok(input,placeholder);assert.match(input,/\bdisabled(?:\s|>|=)/,placeholder);
     }
     assert.ok(inputs.filter(tag=>tag.includes('type="checkbox"')).every(tag=>/\bdisabled(?:\s|>|=)/.test(tag)), 'all displayed cost and scope checkboxes are disabled');
+    assert.equal(ctx.channel.costs[0].cost_type,'direct','legacy rows retain an explicit ordinary-cost classification');
+    assert.match(html,/<select[^>]*disabled[^>]*aria-label="成本类型"/);
 });
 
 test('historical restore explains standard network failures in Chinese and preserves server business errors',async()=>{

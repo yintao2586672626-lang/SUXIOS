@@ -79,6 +79,7 @@ final class BookingMonitoring extends Base
         $hotels = Db::name('hotels')->whereIn('id', $ids)->field('id,tenant_id')->select()->toArray();
         $tenants = array_values(array_unique(array_map(static fn(array $hotel): int => (int)$hotel['tenant_id'], $hotels)));
         if (count($hotels) !== count($ids) || count($tenants) !== 1 || $tenants[0] <= 0) throw new RuntimeException('booking_monitor_hotel_tenant_scope_mismatch', 403);
+        $permitted = array_values(array_filter($permitted, fn(int $hotelId): bool => $this->currentUser->hasHotelPermission($hotelId,$capability)));
         return [$tenants[0], $permitted];
     }
 

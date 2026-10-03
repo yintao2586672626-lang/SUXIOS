@@ -45,20 +45,24 @@
         return match ? `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')} ${match[4].padStart(2, '0')}:${match[5]}:${match[6] || '00'}.${(match[7] || '').padEnd(6, '0')}` : null;
     };
     const normalizedMetric = value => value === null || value === undefined || value === '' ? null
-        : ['number', 'string'].includes(typeof value) && Number.isFinite(Number(value)) && Number(value) >= 0 ? Math.round(Number(value) * 10000) / 10000 : NaN;
+        : ['number', 'string'].includes(typeof value) && /^\d+(?:\.\d{1,4})?$/.test(String(value).trim())
+            && Number.isFinite(Number(value)) ? Number(value) : NaN;
     const expectedSnapshot = async row => {
         if (!window.crypto?.subtle) throw new Error('来源指纹核对不可用，请在本机安全页面重试。');
         // This source fingerprint contract is authored by BookingDemandPlanningService; content digests are read back from the server.
         const sourceRef = String(row.source_ref ?? '').replace(/^[\x00\t\n\v\r ]+|[\x00\t\n\v\r ]+$/g, '');
         const source = new TextEncoder().encode('on-books-source-v1|' + sourceRef);
         const hash = await window.crypto.subtle.digest('SHA-256', source);
+        const metrics = Object.fromEntries(metricFields.map(field => [field, normalizedMetric(row[field])]));
+        if (Object.values(metrics).some(Number.isNaN)) throw new Error('间夜和金额须为非负数，最多四位小数；未知请留空或null。');
+        if (metrics.on_books_room_nights === null) throw new Error('请填写实际在手间夜，未知不能按0保存。');
         return { hotel_id: Number(row.hotel_id), source_hotel_id: Number(row.hotel_id), room_type_id: Number(row.room_type_id || 0),
             platform: String(row.platform ?? '').trim().toLowerCase(), fact_scope: String(row.fact_scope ?? '').trim().toLowerCase(),
-            stay_date: String(row.stay_date ?? '').trim(), captured_at: normalizedCapture(row.captured_at), source_method: 'manual_file_import',
+            stay_date: String(row.stay_date ?? '').trim(), captured_at: normalizedCapture(row.captured_at), source_method: row.source_method === 'manual_entry' ? 'manual_entry' : 'manual_file_import',
             source_ref_hash: Array.from(new Uint8Array(hash), byte => byte.toString(16).padStart(2, '0')).join(''),
             quality_status: ['true', '1', 'yes', 'on'].includes(String(row.operator_attested ?? '').trim().toLowerCase()) ? 'manual_confirmed' : 'unverified',
             supersedes_snapshot_id: Number(row.supersedes_snapshot_id || 0) || null,
-            ...Object.fromEntries(metricFields.map(field => [field, normalizedMetric(row[field])])) };
+            ...metrics };
     };
     const validSnapshot = (snapshot, expected, tenantId) => snapshot?.contract_version === 'room_type_on_books_snapshot.v1'
         && Number.isSafeInteger(Number(snapshot.id)) && Number(snapshot.id) > 0 && Number(snapshot.tenant_id) === tenantId
@@ -76,10 +80,15 @@
         props: { hotels: { type: Array, default: () => [] }, selectedHotelId: { type: [String, Number], default: '' },
             request: { type: Function, required: true }, canExecute: { type: Boolean, default: false }, workspaceSettings: { type: Object, default: () => ({}) } },
         data() { return { selectedIds: [], businessDate: today(), platform: this.workspaceSettings?.preferred_platform || 'ctrip', fixedTime: this.workspaceSettings?.booking_fixed_time || '09:00', horizonDays: String(this.workspaceSettings?.booking_horizon_days || 7),
-            overview: null, loading: false, error: '', saving: false, notice: '', receipt: null, pendingReceipt: null, seq: 0, writeSeq: 0, correctionReadSeq: 0, fileReadSeq: 0,
+            overview: null, hotelScope: null, loading: false, error: '', saving: false, notice: '', receipt: null, pendingReceipt: null, seq: 0, writeSeq: 0, correctionReadSeq: 0, fileReadSeq: 0,
             form: blankForm(), importText: '', importedFileName: '', expandedHistory: '' }; },
         computed: {
-            normalizedHotels() { return this.hotels.filter(hotel => Number(hotel?.id) > 0); },
+            normalizedHotels() {
+                const hotels = this.hotels.filter(hotel => Number.isSafeInteger(Number(hotel?.id)) && Number(hotel.id) > 0);
+                if (this.hotelScope) return hotels.filter(hotel => this.hotelScope.hotelIds.includes(Number(hotel.id)));
+                const anchor = [...this.selectedIds, this.selectedHotelId].find(id => hotels.some(hotel => String(hotel.id) === String(id))) || hotels[0]?.id;
+                return hotels.filter(hotel => String(hotel.id) === String(anchor));
+            },
             scopeKey() { return [this.selectedIds.map(Number).sort((a, b) => a - b).join(','), this.businessDate, this.platform, this.fixedTime, this.horizonDays].join('|'); },
             selectedRoomTypes() {
                 const rooms = (this.overview?.room_types || []).filter(room => Number(room.hotel_id) === Number(this.form.hotelId));
@@ -100,12 +109,14 @@
                 if (Number.isInteger(value?.booking_horizon_days) && value.booking_horizon_days >= 1 && value.booking_horizon_days <= 30) this.horizonDays = String(value.booking_horizon_days);
             } },
             selectedHotelId: { immediate: true, handler(value, previous) {
-                if (!this.normalizedHotels.some(hotel => String(hotel.id) === String(value))) return;
+                if (!this.hotels.some(hotel => String(hotel?.id) === String(value))) return;
                 if (previous !== undefined || this.selectedIds.length === 0) {
+                    this.hotelScope = null;
                     this.selectedIds = [String(value)]; this.resetDrafts(); this.form.hotelId = String(value); void this.load();
                 }
             } },
             hotels: { immediate: true, handler() {
+                if (this.hotelScope && this.normalizedHotels.length === 0) this.hotelScope = null;
                 const valid = this.selectedIds.filter(id => this.normalizedHotels.some(hotel => String(hotel.id) === String(id)));
                 if (valid.length === 0 && this.normalizedHotels.length) valid.push(String(this.normalizedHotels[0].id));
                 if (valid.join(',') !== this.selectedIds.join(',')) { this.selectedIds = valid; this.resetDrafts(); void this.load(); }
@@ -131,6 +142,7 @@
                 this.loading = true;
                 try {
                     const ids = this.selectedIds.map(Number).sort((a, b) => a - b);
+                    if (ids.length > 20) throw new Error('预订监测最多选择20家同租户酒店。');
                     const params = new URLSearchParams({ hotel_ids: ids.join(','), business_date: this.businessDate,
                         platform: this.platform, fixed_time: this.fixedTime, horizon_days: String(this.horizonDays) });
                     const response = await this.request(`/booking-monitoring/overview?${params}`, { businessContext: { hotelId: ids[0] } });
@@ -143,13 +155,27 @@
                         || Number(data.horizon_days) !== Number(this.horizonDays) || data.timezone !== 'Asia/Shanghai'
                         || data.boundaries?.external_write_count !== 0 || !Array.isArray(data.cells)) throw new Error('预订监测返回范围不匹配，请重试。');
                     if (!validOverviewCells(data, ids, this.businessDate, Number(this.horizonDays))) throw new Error('预订监测数据格式或范围不匹配，请重试。');
+                    const tenantId = Number(data.tenant_id);
+                    const choices = data.selectable_hotels;
+                    if (!Number.isSafeInteger(tenantId) || tenantId <= 0 || (choices !== undefined && (!Array.isArray(choices)
+                        || choices.some(hotel => !record(hotel) || !Number.isSafeInteger(Number(hotel.id)) || Number(hotel.id) <= 0
+                            || Number(hotel.tenant_id) !== tenantId)
+                        || ids.some(id => !choices.some(hotel => Number(hotel.id) === id))))) throw new Error('预订监测酒店租户范围不匹配，请重试。');
+                    this.hotelScope = { tenantId, hotelIds: choices === undefined ? ids : choices.map(hotel => Number(hotel.id)) };
                     this.overview = data;
                 } catch (error) { if (seq === this.seq && key === this.scopeKey) { this.overview = null; this.error = error?.message || '预订监测读取失败'; } }
                 finally { if (seq === this.seq) this.loading = false; }
             },
             toggleHotel(id, checked) {
                 const value = String(id);
+                if (checked && !this.normalizedHotels.some(hotel => String(hotel.id) === value)) {
+                    this.error = '请先读取当前酒店范围；仅可选择服务已授权的同租户酒店。'; return false;
+                }
+                if (checked && !this.selectedIds.includes(value) && this.selectedIds.length >= 20) {
+                    this.error = '预订监测最多选择20家同租户酒店。'; return false;
+                }
                 this.selectedIds = checked ? [...new Set([...this.selectedIds, value])] : this.selectedIds.filter(item => item !== value);
+                this.error = ''; return true;
             },
             async saveForm() {
                 try {
@@ -162,7 +188,7 @@
                         gross_booking_room_nights: parseNumber(f.gross), source_ref: f.sourceRef.trim(), operator_attested: f.attested,
                         supersedes_snapshot_id: f.correctionId ? Number(f.correctionId) : null };
                     if (row.on_books_room_nights === null) throw new Error('请填写实际在手间夜，未知不能按0保存。');
-                    await this.saveRows([row]);
+                    await this.saveRows([row], 'manual_entry');
                 } catch (error) { this.error = error.message; }
             },
             async saveImport() {
@@ -188,11 +214,12 @@
                 } catch (error) { if (current()) this.error = error.message; }
                 finally { if (event.target?.files?.[0] === file) event.target.value = ''; }
             },
-            async saveRows(rows) {
+            async saveRows(rows, sourceMethod = 'manual_file_import') {
                 if (!this.canExecute || this.saving) return;
                 if (this.pendingReceipt) { this.error = '已有快照待独立回读，请先重试下方快照回读；当前输入保留。'; return; }
                 const ids = this.selectedIds.map(Number);
                 if (rows.some(row => !row || !ids.includes(Number(row.hotel_id)) || row.platform !== this.platform)) throw new Error('导入酒店或平台与当前选择不一致，请先切换到对应范围。');
+                rows = rows.map(row => ({ ...row, source_method: sourceMethod === 'manual_entry' ? 'manual_entry' : 'manual_file_import' }));
                 const key = this.scopeKey;
                 const seq = ++this.writeSeq;
                 this.saving = true; this.error = ''; this.notice = ''; this.receipt = null;
@@ -312,7 +339,9 @@
                     select('未来入住日', this.horizonDays, event => { this.horizonDays = event.target.value; }, Array.from({ length: 30 }, (_, index) => option(index + 1, index === 0 ? '明天' : `未来${index + 1}天`))),
                 ]),
                 h('fieldset', { class: 'mt-3 flex flex-wrap gap-3 text-xs' }, [h('legend', { class: 'text-slate-500 mb-2' }, '选择同一租户的授权酒店（最多20家）'),
-                    ...this.normalizedHotels.map(hotel => h('label', { class: 'flex items-center gap-2' }, [h('input', { type: 'checkbox', checked: this.selectedIds.includes(String(hotel.id)), onChange: event => this.toggleHotel(hotel.id, event.target.checked) }), String(hotel.name || `酒店${hotel.id}`)]))]),
+                    ...this.normalizedHotels.map(hotel => h('label', { class: 'flex items-center gap-2' }, [h('input', { type: 'checkbox', checked: this.selectedIds.includes(String(hotel.id)), onChange: event => {
+                        if (!this.toggleHotel(hotel.id, event.target.checked)) event.target.checked = this.selectedIds.includes(String(hotel.id));
+                    } }), String(hotel.name || `酒店${hotel.id}`)]))]),
                 this.error ? h('p', { role: 'alert', class: 'mt-3 text-sm text-red-700', 'data-testid': 'booking-monitor-error' }, this.error) : null,
                 this.notice ? h('p', { role: 'status', class: 'mt-3 text-sm text-emerald-700', 'data-testid': 'booking-monitor-receipt-notice' }, this.notice) : null,
                 this.loading ? h('p', { class: 'mt-4 text-sm text-slate-500' }, '当前范围读取中，旧范围结果已清除。') : null,

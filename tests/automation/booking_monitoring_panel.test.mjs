@@ -22,7 +22,7 @@ const submittedRow = () => ({ hotel_id: 80, room_type_id: 1, platform: 'ctrip', 
     on_books_room_nights: 0, on_books_room_revenue: null, operator_attested: false, source_ref: 'TEST-ONLY-fixture' });
 const receipt = (row = submittedRow(), id = 9) => ({ code: 200, data: { contract_version: 'booking_fixed_baseline_monitor.v1', tenant_id: 7, save_status: 'saved_readback_verified',
     readback_verified: true, external_write_count: 0, row_count: 1, snapshots: [{ ...row, id, tenant_id: 7, source_hotel_id: Number(row.hotel_id), contract_version: 'room_type_on_books_snapshot.v1',
-        source_method: 'manual_file_import', source_ref_hash: createHash('sha256').update('on-books-source-v1|' + row.source_ref.trim()).digest('hex'),
+        source_method: row.source_method || 'manual_file_import', source_ref_hash: createHash('sha256').update('on-books-source-v1|' + row.source_ref.trim()).digest('hex'),
         quality_status: row.operator_attested ? 'manual_confirmed' : 'unverified', readback_verified: 1, external_write_count: 0,
         captured_at: row.captured_at.replace('T', ' ').replace(/^(\d{4}-\d{2}-\d{2} \d{2}:\d{2})$/, '$1:00').replace(/^(.*:\d{2})$/, '$1.000000'),
         room_type_name: 'TEST-ONLY大床', cumulative_cancel_room_nights: row.cumulative_cancel_room_nights ?? null,
@@ -41,6 +41,114 @@ function component(request = async () => fixture(), canExecute = true) {
     ctx.resetDrafts();
     return { definition, ctx };
 }
+
+test('hotel selection rejects the twenty-first hotel without dropping the existing twenty', () => {
+    const { ctx, definition } = component();
+    ctx.hotels = Array.from({ length: 21 }, (_, index) => ({ id: index + 80, name: `TEST-ONLY酒店${index}` }));
+    ctx.hotelScope = { tenantId: 7, hotelIds: ctx.hotels.map(hotel => hotel.id) };
+    for (const hotel of ctx.hotels.slice(1, 20)) ctx.toggleHotel(hotel.id, true);
+    const before = [...ctx.selectedIds];
+    const label = walk(definition.render.call(ctx)).find(node => node.type === 'label' && Array.isArray(node.children) && node.children.includes('TEST-ONLY酒店20'));
+    const event = { target: { checked: true } };
+    label.children[0].props.onChange(event);
+    assert.equal(event.target.checked, false, 'rejected browser checkbox is restored immediately');
+    assert.equal(ctx.selectedIds.length, 20);
+    assert.deepEqual(ctx.selectedIds, before);
+    assert.match(ctx.error, /最多.*20/);
+});
+
+test('same-tenant hotel choices come from the service permissions and unavailable scope stays single-hotel', async () => {
+    const scoped = fixture();
+    scoped.data.selectable_hotels = [{ id: 80, tenant_id: 7, name: 'TEST-ONLY酒店' }, { id: 82, tenant_id: 7, name: 'TEST-ONLY酒店82' }];
+    const { ctx } = component(async () => scoped);
+    ctx.hotels.push({ id: 81, name: 'TEST-ONLY其他租户，无前端tenant字段' });
+    assert.deepEqual(ctx.normalizedHotels.map(hotel => hotel.id), [80]);
+    ctx.toggleHotel(81, true);
+    assert.deepEqual(ctx.selectedIds, ['80']);
+    await ctx.load();
+    assert.deepEqual(ctx.normalizedHotels.map(hotel => hotel.id), [80, 82]);
+    ctx.toggleHotel(81, true);
+    assert.deepEqual(ctx.selectedIds, ['80']);
+    ctx.toggleHotel(82, true);
+    assert.deepEqual(ctx.selectedIds, ['80', '82']);
+    const failed = component(async () => ({ code: 403, message: 'TEST-ONLY tenant scope denied' })).ctx;
+    await failed.load();
+    assert.deepEqual(failed.selectedIds, ['80']);
+    assert.deepEqual(failed.normalizedHotels.map(hotel => hotel.id), [80]);
+});
+
+test('malformed tenant hotel choices cannot authorize mixed tenants or clear the selected hotel', async () => {
+    for (const choices of [[{ id: 80, tenant_id: 8 }], [{ id: 82, tenant_id: 7 }], 'malformed']) {
+        const data = fixture(); data.data.selectable_hotels = choices;
+        const { ctx } = component(async () => data);
+        await ctx.load();
+        assert.equal(ctx.overview, null);
+        assert.deepEqual(ctx.selectedIds, ['80']);
+        assert.deepEqual(ctx.normalizedHotels.map(hotel => hotel.id), [80]);
+    }
+});
+
+test('global hotel changes reset tenant choices and lost permissions fall back to one actual hotel', async () => {
+    const { ctx, definition } = component();
+    ctx.hotels.push({ id: 81, name: 'TEST-ONLY other tenant' });
+    ctx.hotelScope = { tenantId: 7, hotelIds: [80, 82] };
+    ctx.request = async () => ({ code: 403, message: 'TEST-ONLY unavailable' });
+    definition.watch.selectedHotelId.handler.call(ctx, 81, 80);
+    assert.equal(ctx.hotelScope, null);
+    assert.deepEqual(ctx.selectedIds, ['81']);
+    assert.deepEqual(ctx.normalizedHotels.map(hotel => hotel.id), [81]);
+    await Promise.resolve();
+    ctx.hotels = [{ id: 82, name: 'TEST-ONLY newly remaining hotel' }];
+    definition.watch.hotels.handler.call(ctx);
+    assert.deepEqual(ctx.selectedIds, ['82']);
+    assert.deepEqual(ctx.normalizedHotels.map(hotel => hotel.id), [82]);
+});
+
+test('a response with fifth-decimal saved content cannot validate a rounded four-decimal receipt', async () => {
+    const row = { ...submittedRow(), on_books_room_nights: 0 };
+    const saved = receipt(row); saved.data.snapshots[0].on_books_room_nights = 0.00001;
+    const { ctx } = component(async () => saved);
+    await ctx.saveRows([row]);
+    assert.equal(ctx.receipt, null);
+    assert.equal(ctx.pendingReceipt, null);
+    assert.match(ctx.error, /回读.*不匹配/);
+});
+
+test('bulk overprecision in every metric is rejected before POST and positive tiny values never become confirmed zero', async () => {
+    for (const field of ['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights']) {
+        for (const value of [0.00001, '0.00001', '10.12345']) {
+            let calls = 0;
+            const { ctx } = component(async () => { calls++; return receipt(); });
+            ctx.importText = JSON.stringify([{ ...submittedRow(), operator_attested: true, [field]: value }]);
+            await ctx.saveImport();
+            assert.equal(calls, 0, `${field}=${value}`);
+            assert.match(ctx.error, /最多四位小数/);
+            assert.equal(ctx.receipt, null);
+        }
+    }
+});
+
+test('single form submission is manual entry while a one-row file stays manual file import', async () => {
+    for (const kind of ['form', 'file']) {
+        let saved;
+        const posts = [];
+        const { ctx } = component(async (url, options) => {
+            if (options?.method === 'POST') { posts.push(JSON.parse(options.body)); saved = receipt(posts[0].rows[0]); return saved; }
+            return url.includes('/snapshots/') ? snapshotRead(saved) : fixture();
+        });
+        if (kind === 'form') {
+            Object.assign(ctx.form, { hotelId: '80', roomTypeId: '1', stayDate: '2026-10-03', capturedAt: '2026-10-02T09:00', rooms: '0', sourceRef: 'TEST-ONLY manual source' });
+            await ctx.saveForm();
+        } else {
+            ctx.importText = JSON.stringify([{ ...submittedRow(), source_method: 'authorized_api_export' }]);
+            await ctx.saveImport();
+        }
+        const sourceMethod = kind === 'form' ? 'manual_entry' : 'manual_file_import';
+        assert.equal(posts[0].rows[0].source_method, sourceMethod);
+        assert.equal(ctx.receipt.snapshots[0].source_method, sourceMethod);
+        assert.match(ctx.notice, /精确回读1条/);
+    }
+});
 
 test('runtime render exposes exact scope, true zero, missing baseline, legal import and corrections', async () => {
     const { definition, ctx } = component();
@@ -135,7 +243,7 @@ test('save reads exact receipt then reloads current data without overwriting rec
     const { ctx } = component(async (url, options) => { calls.push({ url, options }); return options?.method === 'POST' ? receipt() : url.includes('/snapshots/') ? snapshotRead(receipt()) : fixture(); });
     await ctx.saveRows([submittedRow()]);
     assert.equal(calls.length, 3);
-    assert.deepEqual(JSON.parse(calls[0].options.body).rows, [submittedRow()]);
+    assert.deepEqual(JSON.parse(calls[0].options.body).rows, [{ ...submittedRow(), source_method: 'manual_file_import' }]);
     assert.equal(ctx.receipt.snapshots[0].quality_status, 'unverified');
     assert.equal(ctx.overview.business_date, '2026-10-02');
     assert.match(ctx.notice, /精确回读1条/);

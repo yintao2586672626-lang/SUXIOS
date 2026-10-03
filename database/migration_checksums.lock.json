@@ -227,7 +227,8 @@
     "20260926_create_manager_coaching.sql": "e396d540f0dc2978b10fc819478cf18c796151ec4936b670ff412b56539a121d",
     "20260930_repair_master_perspectives_reference_current_version.sql": "b089130d278d4b05544a0b8ba106e757fdda1e87fd7587593342f1929a3798f2",
     "20261002_create_operating_evidence_snapshots.sql": "87bb58c2d139b12f9abd9cdf195c8b03c4d843d193b5611a26593b6992b200f3",
-    "20261002_create_room_type_on_books_snapshots.sql": "9dc6db2d06d14655b381265abc20fb077c11ae4b4d0d6caa92ccfa79834ba779"
+    "20261002_create_room_type_on_books_snapshots.sql": "9dc6db2d06d14655b381265abc20fb077c11ae4b4d0d6caa92ccfa79834ba779",
+    "20261003_extend_on_books_snapshot_precision.sql": "2ffc40b046e6376f806963a2a5bb8ef1d59209baa59e218fac657a1ecf26c7ec"
   },
   "frozen_sources": {
     "database/complaint_tables.sql": "0b691d925eca181aaffe7281e89855f662a2741fe92e7f673adedcbb4c630e66",

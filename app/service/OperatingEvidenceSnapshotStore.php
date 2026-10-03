@@ -28,18 +28,29 @@ final class OperatingEvidenceSnapshotStore
         }
         return ['tenant_id' => $tenant, 'hotel_id' => $hotel, 'period_month' => $month, 'platform' => $platform, 'kind' => $kind];
     }
-    public function save(array $scope, array $payload, string $key, int $actor): array
+    public function replayRequest(array $scope, string $key, array $input): ?array
     {
-        if ($actor <= 0 || !preg_match('/^[A-Za-z0-9_-]{8,100}$/', $key)) throw new InvalidArgumentException('operating_evidence_actor_or_request_invalid');
+        if (!preg_match('/^[A-Za-z0-9_-]{8,100}$/D', $key)) throw new InvalidArgumentException('operating_evidence_actor_or_request_invalid');
+        $row = Db::name(self::TABLE)->where($scope)->where('idempotency_key', $key)->find();
+        if (!$row) return null;
+        $saved = $this->decode($row);
+        // Older versions retain their original payload-digest replay contract.
+        if (!isset($saved['request_digest'])) return null;
+        if (!hash_equals((string)$saved['request_digest'], $this->requestDigest($input))) throw new RuntimeException('operating_evidence_idempotency_conflict',409);
+        return $saved + ['idempotent'=>true];
+    }
+    public function save(array $scope, array $payload, string $key, int $actor, ?array $requestInput = null): array
+    {
+        if ($actor <= 0 || !preg_match('/^[A-Za-z0-9_-]{8,100}$/D', $key)) throw new InvalidArgumentException('operating_evidence_actor_or_request_invalid');
         $payload = ['contract_version' => 'operating_evidence.v1', 'scope' => $scope] + $payload;
+        if ($requestInput !== null) $payload['request_digest'] = $this->requestDigest($requestInput);
         $json = $this->json($payload);
         if (strlen($json) > 200000) throw new InvalidArgumentException('operating_evidence_payload_too_large');
         $digest = hash('sha256', $json);
-        return Db::transaction(function () use ($scope, $payload, $json, $digest, $key, $actor): array {
+        $transaction = function () use ($scope, $payload, $json, $digest, $key, $actor): array {
             $existing = Db::name(self::TABLE)->where($scope)->where('idempotency_key', $key)->lock(true)->find();
             if ($existing) {
-                if (!hash_equals((string)$existing['content_digest'], $digest)) throw new RuntimeException('operating_evidence_idempotency_conflict', 409);
-                return $this->decode($existing) + ['idempotent' => true];
+                return $this->verifiedReplay($existing, $payload, $digest);
             }
             $id = (int)Db::name(self::TABLE)->insertGetId($scope + [
                 'source_hotel_id' => $scope['hotel_id'],
@@ -49,7 +60,12 @@ final class OperatingEvidenceSnapshotStore
             $saved = $this->read($scope, $id);
             if (!hash_equals($digest, $saved['content_digest'])) throw new RuntimeException('operating_evidence_readback_mismatch');
             return $saved + ['idempotent' => false];
-        });
+        };
+        return (new BookingDemandPlanningService())->runIdempotentWrite($transaction, function () use ($scope,$key,$payload,$digest): ?array {
+            $row = Db::name(self::TABLE)->where($scope)->where('idempotency_key',$key)->find();
+            if (!$row) return null;
+            return $this->verifiedReplay($row, $payload, $digest);
+        }, static fn(array $saved): array => $saved);
     }
     public function read(array $scope, int $id): array
     {
@@ -79,6 +95,26 @@ final class OperatingEvidenceSnapshotStore
         $currentScope['hotel_id'] = (int)$row['hotel_id'];
         return ['scope' => $currentScope, 'source_scope' => $payload['scope']] + $payload + ['snapshot_id' => (int)$row['id'], 'content_digest' => (string)$row['content_digest'],
             'created_at' => $row['created_at'], 'created_by' => (int)$row['created_by'], 'readback_verified' => true];
+    }
+    private function requestDigest(array $input): string
+    {
+        $canonical = function (mixed $value) use (&$canonical): mixed {
+            if (!is_array($value)) return $value;
+            if (!array_is_list($value)) ksort($value,SORT_STRING);
+            return array_map($canonical,$value);
+        };
+        return hash('sha256',$this->json($canonical($input)));
+    }
+    private function verifiedReplay(array $row, array $payload, string $digest): array
+    {
+        $saved = $this->decode($row);
+        if (!hash_equals((string)$row['content_digest'], $digest)) {
+            unset($payload['request_digest']);
+            if (isset($saved['request_digest']) || !hash_equals((string)$row['content_digest'], hash('sha256', $this->json($payload)))) {
+                throw new RuntimeException('operating_evidence_idempotency_conflict', 409);
+            }
+        }
+        return $saved + ['idempotent' => true];
     }
     private function json(array $value): string { return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR); }
 }

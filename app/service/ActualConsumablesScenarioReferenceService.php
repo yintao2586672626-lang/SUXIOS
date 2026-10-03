@@ -33,6 +33,8 @@ final class ActualConsumablesScenarioReferenceService
         if (!is_numeric($item['package_price'] ?? null) || !is_finite((float)$item['package_price']) || (float)$item['package_price'] !== (float)$saved['result']['actual_consumables_cost_per_room_night']) throw new RuntimeException('实际耗材采用值与保存版本不一致',409);
         $dates = array_column(array_filter($saved['result']['items'] ?? [],static fn($r):bool=>($r['enabled'] ?? false) === true),'source_date');
         sort($dates);
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
+        if ($scope['period_month'] > substr($today, 0, 7) || ($dates && end($dates) > $today)) throw new RuntimeException('未来日期的耗材证据不能作为实际成本采用',409);
         foreach ($input['consumables_cost']['items'] as &$entry) if (($entry['id'] ?? '') === 'actual-evidence-'.$id) {
             $entry['source_label'] = '人工核对月度耗材证据 #'.$id.'；'.$scope['period_month'].'；测算引用';
             $entry['as_of'] = $dates ? end($dates) : '';

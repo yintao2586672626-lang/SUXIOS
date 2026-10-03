@@ -44,6 +44,12 @@ final class OperatingFinance extends Base
             $request = $this->requestData();
             [$scope] = $this->evidenceScope($request, $save ? 'operation.execute' : 'operation.view');
             $input = is_array($request['inputs'] ?? null) ? $request['inputs'] : [];
+            $store = new \app\service\OperatingEvidenceSnapshotStore();
+            if ($scope['kind'] === 'consumables_actual' && $scope['period_month'] > (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m')) throw new InvalidArgumentException('实际耗材核算月不得晚于当前上海营业月份');
+            if ($save) {
+                $replay = $store->replayRequest($scope,(string)($request['idempotency_key'] ?? ''),$input);
+                if ($replay !== null) return $this->success($replay,'既有经营证据已精确回读，未新增版本');
+            }
             if ($scope['kind'] === 'consumables_actual') {
                 foreach ($input['items'] ?? [] as $item) {
                     if (($item['enabled'] ?? false) && !empty($item['source_date']) && substr((string)$item['source_date'], 0, 7) !== $scope['period_month']) throw new InvalidArgumentException('耗材来源日期必须属于当前核算月');
@@ -55,7 +61,7 @@ final class OperatingFinance extends Base
             }
             $payload = ['inputs' => $result['inputs'], 'result' => $result, 'status' => $result['status'], 'source_quality' => $result['source_quality']];
             if (!$save) return $this->success(['scope' => $scope] + $payload + ['readback_verified' => false]);
-            $saved = (new \app\service\OperatingEvidenceSnapshotStore())->save($scope, $payload, (string)($request['idempotency_key'] ?? ''), (int)$this->currentUser->id);
+            $saved = $store->save($scope, $payload, (string)($request['idempotency_key'] ?? ''), (int)$this->currentUser->id, $input);
             return $this->success($saved, '经营证据已保存并精确回读');
         } catch (Throwable $e) { return $this->error($this->safeMessage($e, '经营证据计算或保存失败'), $this->statusCode($e)); }
     }

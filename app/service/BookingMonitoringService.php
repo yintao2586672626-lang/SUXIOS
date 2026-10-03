@@ -24,10 +24,10 @@ final class BookingMonitoringService
     private $clock;
     private BookingDemandPlanningService $planning;
 
-    public function __construct(?callable $clock = null)
+    public function __construct(?callable $clock = null, ?callable $transactionRunner = null)
     {
         $this->clock = $clock ?? static fn(): DateTimeImmutable => new DateTimeImmutable('now', new DateTimeZone('Asia/Shanghai'));
-        $this->planning = new BookingDemandPlanningService($this->clock);
+        $this->planning = new BookingDemandPlanningService($this->clock, $transactionRunner);
     }
 
     /** User submissions remain manual/unverified; confirmation is never platform source verification. */
@@ -41,7 +41,7 @@ final class BookingMonitoringService
         foreach ($rows as $row) {
             if (!is_array($row)) throw new InvalidArgumentException('booking_monitor_row_invalid');
             $hotelId = $this->roomId($row['hotel_id'] ?? 0);
-            $row['source_method'] = 'manual_file_import';
+            $row['source_method'] = ($row['source_method'] ?? '') === 'manual_entry' ? 'manual_entry' : 'manual_file_import';
             $row['quality_status'] = filter_var($row['operator_attested'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 'manual_confirmed' : 'unverified';
             $content = $this->planning->validatedSnapshotContent($tenantId, $permittedHotelIds, $hotelId, $row);
             $roomId = $this->roomId($row['room_type_id'] ?? 0);
@@ -56,7 +56,7 @@ final class BookingMonitoringService
             }
             $roomName = '酒店汇总';
             if ($roomId > 0) {
-                $room = Db::name('room_types')->where('hotel_id', $hotelId)->where('id', $roomId)->field('id,name')->find();
+                $room = Db::name('room_types')->where('hotel_id', $hotelId)->where('id', $roomId)->where('is_enabled', 1)->field('id,name')->find();
                 if (!$room && $old === null) throw new RuntimeException('booking_monitor_room_type_outside_hotel', 403);
                 $roomName = $old !== null ? $old['room_type_name'] : (string)$room['name'];
             }
@@ -74,16 +74,14 @@ final class BookingMonitoringService
             $keys[$scopeKey] = true;
             $prepared[] = ['content' => $content, 'content_digest' => $digest, 'idempotency_key' => $key];
         }
-        $saved = Db::transaction(function () use ($prepared, $actorId): array {
+        $transaction = function () use ($prepared, $actorId): array {
             $saved = [];
             foreach ($prepared as $item) {
                 $content = $item['content'];
                 $existing = Db::name(self::TABLE)->where('tenant_id', $content['tenant_id'])->where('hotel_id', $content['hotel_id'])
                     ->where('idempotency_key', $item['idempotency_key'])->lock(true)->find();
                 if ($existing) {
-                    $receipt = $this->hydrate($existing);
-                    if (!hash_equals($receipt['content_digest'], $item['content_digest'])) throw new RuntimeException('booking_monitor_idempotency_conflict', 409);
-                    $saved[] = $receipt + ['idempotent' => true];
+                    $saved[] = $this->verifiedReplay($existing, $item['content_digest']);
                     continue;
                 }
                 $id = (int)Db::name(self::TABLE)->insertGetId($content + [
@@ -97,7 +95,9 @@ final class BookingMonitoringService
                 $saved[] = $receipt + ['idempotent' => false];
             }
             return $saved;
-        });
+        };
+        $saved = $this->planning->runIdempotentWrite($transaction,
+            fn(): ?array => $this->findBatchReplay($prepared), static fn(array $receipts): array => $receipts);
         return ['contract_version' => self::CONTRACT, 'tenant_id' => $tenantId, 'save_status' => 'saved_readback_verified',
             'readback_verified' => true, 'row_count' => count($saved), 'snapshots' => $saved, 'external_write_count' => 0];
     }
@@ -125,7 +125,7 @@ final class BookingMonitoringService
         $start = $anchor->modify('+1 day')->format('Y-m-d');
         $end = $anchor->modify('+' . $horizon . ' days')->format('Y-m-d');
         $historyStart = $anchor->modify('-27 days')->format('Y-m-d');
-        $roomTypes = Db::name('room_types')->whereIn('hotel_id', array_keys($hotels))->field('id,hotel_id,name')->order('id', 'asc')->select()->toArray();
+        $roomTypes = Db::name('room_types')->whereIn('hotel_id', array_keys($hotels))->where('is_enabled', 1)->field('id,hotel_id,name')->order('id', 'asc')->select()->toArray();
         $dimensions = [];
         foreach ($hotels as $hotelId => $hotel) $dimensions[$hotelId] = [0 => '酒店汇总（不拆分旧数据）'];
         foreach ($roomTypes as $room) $dimensions[(int)$room['hotel_id']][(int)$room['id']] = (string)$room['name'];
@@ -201,7 +201,14 @@ final class BookingMonitoringService
         }
         $readyCount = count(array_filter($cells, static fn(array $cell): bool => $cell['status'] === 'ready'));
         $completeBaselineCount = count(array_filter($cells, static fn(array $cell): bool => $cell['baseline_readiness']['status'] === 'ready'));
-        return ['contract_version' => self::CONTRACT, 'tenant_id' => $tenantId, 'hotel_ids' => array_keys($hotels), 'platform' => $platform,
+        $selectableHotels = Db::name('hotels')->where('tenant_id', $tenantId)->whereIn('id', array_map('intval', $permittedHotelIds))
+            ->field('id,tenant_id,name')->order('id', 'asc')->select()->toArray();
+        foreach ($selectableHotels as &$hotel) {
+            $hotel['id'] = (int)$hotel['id'];
+            $hotel['tenant_id'] = (int)$hotel['tenant_id'];
+        }
+        unset($hotel);
+        return ['contract_version' => self::CONTRACT, 'tenant_id' => $tenantId, 'hotel_ids' => array_keys($hotels), 'selectable_hotels' => $selectableHotels, 'platform' => $platform,
             'business_date' => $date, 'fixed_time' => $fixedTime, 'timezone' => 'Asia/Shanghai', 'horizon_days' => $horizon,
             'observation_time' => $anchor->format('Y-m-d H:i:s'), 'baseline_time' => $anchor->modify('-1 day')->format('Y-m-d H:i:s'),
             'status' => $readyCount === count($cells) ? 'ready' : ($readyCount > 0 ? 'partial' : 'blocked'),
@@ -288,6 +295,28 @@ final class BookingMonitoringService
         foreach ($rows as $row) $result[(int)$row['id']] = $row;
         ksort($result);
         return $result;
+    }
+
+    /** Recover only a complete digest-verified batch; a partial winner requires retrying the atomic batch. */
+    private function findBatchReplay(array $prepared): ?array
+    {
+        $receipts = [];
+        $complete = true;
+        foreach ($prepared as $item) {
+            $content = $item['content'];
+            $existing = Db::name(self::TABLE)->where('tenant_id', $content['tenant_id'])->where('hotel_id', $content['hotel_id'])
+                ->where('idempotency_key', $item['idempotency_key'])->find();
+            if (!$existing) { $complete = false; continue; }
+            $receipts[] = $this->verifiedReplay($existing, $item['content_digest']);
+        }
+        return $complete ? $receipts : null;
+    }
+
+    private function verifiedReplay(array $row, string $contentDigest): array
+    {
+        $receipt = $this->hydrate($row);
+        if (!hash_equals($receipt['content_digest'], $contentDigest)) throw new RuntimeException('booking_monitor_idempotency_conflict', 409);
+        return $receipt + ['idempotent' => true];
     }
 
     private function hydrate(array $row): array

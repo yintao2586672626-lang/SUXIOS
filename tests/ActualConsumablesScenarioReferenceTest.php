@@ -109,6 +109,28 @@ final class ActualConsumablesScenarioReferenceTest extends TestCase
         self::assertSame($summaryBefore, $ledger->detail($id)['summary']);
     }
 
+    public function testLegacyFutureEvidenceCannotBeAdoptedIntoAnInvestmentScenario(): void
+    {
+        $projectId = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
+        $today = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
+        $futureMonth = $today->modify('first day of next month')->format('Y-m');
+        $base = (new ConsumablesActualCostService())->calculate($this->actualInput());
+        foreach (['period','item_date'] as $variant) {
+            $result = $base;
+            if ($variant === 'item_date') {
+                $result['items'][0]['source_date'] = $today->modify('+1 day')->format('Y-m-d');
+                $result['inputs']['items'][0]['source_date'] = $result['items'][0]['source_date'];
+            }
+            $store = new OperatingEvidenceSnapshotStore();
+            $scope = $store->scope(10,[80],80,$variant === 'period' ? $futureMonth : $today->format('Y-m'),'whole_hotel','consumables_actual');
+            $snapshot = $store->save($scope,['inputs'=>$result['inputs'],'result'=>$result,'source_quality'=>'operator_attested'],'synthetic-legacy-future-'.$variant,7);
+            $before = Db::name('investment_payback_events')->count();
+            try { Fixture::scenarios()->preview($projectId,['scenario'=>$this->scenario($snapshot)]); self::fail('Future actual evidence must not be adopted'); }
+            catch (RuntimeException $error) { self::assertSame(409,$error->getCode()); self::assertStringContainsString('未来日期',$error->getMessage()); }
+            self::assertSame($before,Db::name('investment_payback_events')->count());
+        }
+    }
+
     public static function invalidReferences(): array
     {
         return ['cross hotel' => ['hotel', 404], 'cross tenant' => ['tenant', 404], 'wrong digest' => ['digest', 409],

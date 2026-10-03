@@ -632,8 +632,9 @@ final class BookingDemandPlanningService
      * @param callable():?array<string,mixed> $findExisting
      * @param callable(array<string,mixed>):array<string,mixed> $replayExisting
      * @return array<string,mixed>
+     * @internal Shared by the room-type monitoring writer to preserve identical recovery semantics.
      */
-    private function runIdempotentWrite(
+    public function runIdempotentWrite(
         callable $transactionCallback,
         callable $findExisting,
         callable $replayExisting
@@ -1003,6 +1004,12 @@ final class BookingDemandPlanningService
         $number = (float)$value;
         if (!is_finite($number) || $number < 0) {
             throw new InvalidArgumentException($field . '_invalid');
+        }
+        $parts = preg_split('/[eE]/', trim((string)$value));
+        $fraction = explode('.', $parts[0], 2)[1] ?? '';
+        $exponent = isset($parts[1]) ? (int)$parts[1] : 0;
+        if (strlen($fraction) - $exponent > 4) {
+            throw new InvalidArgumentException($field . '_precision_invalid');
         }
         return round($number, 4);
     }
