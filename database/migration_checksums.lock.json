@@ -232,7 +232,8 @@
     "20261002_z_create_guest_operations.sql": "55f3c81977025ebd84ac010cf7596a10afecf70936fe0805b684ed5bed9f76e8",
     "20261002_create_operating_evidence_snapshots.sql": "87bb58c2d139b12f9abd9cdf195c8b03c4d843d193b5611a26593b6992b200f3",
     "20261002_create_room_type_on_books_snapshots.sql": "9dc6db2d06d14655b381265abc20fb077c11ae4b4d0d6caa92ccfa79834ba779",
-    "20261002_create_ai_report_presentation_reviews.sql": "32dadf8990bf355050f601972e36defa0fb9da625b64f388f923b869a57edb23"
+    "20261002_create_ai_report_presentation_reviews.sql": "32dadf8990bf355050f601972e36defa0fb9da625b64f388f923b869a57edb23",
+    "20261003_extend_on_books_snapshot_precision.sql": "2ffc40b046e6376f806963a2a5bb8ef1d59209baa59e218fac657a1ecf26c7ec"
   },
   "frozen_sources": {
     "database/complaint_tables.sql": "0b691d925eca181aaffe7281e89855f662a2741fe92e7f673adedcbb4c630e66",

@@ -44,6 +44,15 @@ final class OperatingFinance extends Base
             $request = $this->requestData();
             [$scope] = $this->evidenceScope($request, $save ? 'operation.execute' : 'operation.view');
             $input = is_array($request['inputs'] ?? null) ? $request['inputs'] : [];
+            $store = new \app\service\OperatingEvidenceSnapshotStore();
+            if ($scope['period_month'] > (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m')) {
+                $label = $scope['kind'] === 'consumables_actual' ? '实际耗材' : '实际渠道';
+                throw new InvalidArgumentException($label . '核算月不得晚于当前上海营业月份');
+            }
+            if ($save) {
+                $replay = $store->replayRequest($scope,(string)($request['idempotency_key'] ?? ''),$input);
+                if ($replay !== null) return $this->success($replay,'既有经营证据已精确回读，未新增版本');
+            }
             if ($scope['kind'] === 'consumables_actual') {
                 $result = (new \app\service\ConsumablesActualCostService())->calculate($input);
                 foreach ($result['inputs']['items'] as $item) {
@@ -55,16 +64,20 @@ final class OperatingFinance extends Base
             }
             $payload = ['inputs' => $result['inputs'], 'result' => $result, 'status' => $result['status'], 'source_quality' => $result['source_quality']];
             if (!$save) return $this->success(['scope' => $scope] + $payload + ['readback_verified' => false]);
-            $saved = (new \app\service\OperatingEvidenceSnapshotStore())->save($scope, $payload, (string)($request['idempotency_key'] ?? ''), (int)$this->currentUser->id);
+            $saved = $store->save($scope, $payload, (string)($request['idempotency_key'] ?? ''), (int)$this->currentUser->id, $input);
             return $this->success($saved, '经营证据已保存并精确回读');
         } catch (Throwable $e) { return $this->error($this->safeMessage($e, '经营证据计算或保存失败'), $this->statusCode($e)); }
     }
     private function evidenceScope(array $input, string $capability): array
     {
-        $hotelValue = $input['hotel_id'] ?? null;
-        $hotelId = filter_var($hotelValue, FILTER_VALIDATE_INT);
-        if ((!is_int($hotelValue) && !is_string($hotelValue)) || $hotelId === false || $hotelId <= 0) {
-            throw new InvalidArgumentException('经营证据酒店编号必须为正整数');
+        if (!$this->currentUser) {
+            throw new RuntimeException('未登录', 401);
+        }
+        $identity = $input['hotel_id'] ?? null;
+        $hotelId = is_int($identity) || is_string($identity)
+            ? filter_var($identity, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) : false;
+        if ($hotelId === false) {
+            throw new InvalidArgumentException('酒店ID必须为正整数');
         }
         [$tenantId, , $permitted] = $this->resolveHotelScope($hotelId, $capability);
         if ($tenantId <= 0 || (!$this->currentUser->isSuperAdmin()
@@ -179,8 +192,8 @@ final class OperatingFinance extends Base
                 'booking_demand_plan' => $demandPlan,
                 'demand_calendar' => $demand,
                 'wecom_task_receipt' => $wecomReceipt,
-                'monthly_finance' => $monthly,
                 'investment_bridge' => $investmentBridge,
+                'monthly_finance' => $monthly,
                 'portfolio' => $portfolio,
                 'boundaries' => [
                     'automatic_approval' => false,

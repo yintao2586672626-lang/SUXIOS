@@ -4,12 +4,14 @@ namespace app\service;
 
 use DateTimeImmutable;
 use InvalidArgumentException;
+use think\facade\Db;
 
 /** Same-month channel economics; attributed sales do not establish incremental effects. */
 final class ChannelEconomicsService
 {
     public function calculate(array $input, array $sources = []): array
     {
+        if (is_array($sources['settlement'] ?? null)) $sources['settlement'] = $this->compactSettlementReceipt($sources['settlement']);
         $net = $this->number($input['net_revenue'] ?? null, true);
         $spend = $this->number($input['advertising_spend'] ?? null);
         $attributed = $this->number($input['attributed_order_amount'] ?? null);
@@ -50,8 +52,10 @@ final class ChannelEconomicsService
         $rows = []; $knownCosts = 0.0; $missing = []; $costsKnown = true; $hasKnownDeduction = false;
         foreach ($costs as $raw) {
             if (!is_array($raw) || !is_bool($raw['included_in_net_revenue'] ?? null)) throw new InvalidArgumentException('channel_cost_inclusion_required');
+            $costType = $raw['cost_type'] ?? 'direct';
+            if (!in_array($costType, ['direct', 'advertising'], true)) throw new InvalidArgumentException('channel_cost_type_invalid');
             $row = ['label' => $this->text($raw['label'] ?? '', 160), 'amount' => $this->number($raw['amount'] ?? null),
-                'included_in_net_revenue' => $raw['included_in_net_revenue'], 'source_ref' => $this->text($raw['source_ref'] ?? '', 500)];
+                'cost_type' => $costType, 'included_in_net_revenue' => $raw['included_in_net_revenue'], 'source_ref' => $this->text($raw['source_ref'] ?? '', 500)];
             if (!$row['included_in_net_revenue']) {
                 if ($row['amount'] === null || $row['source_ref'] === '') { $costsKnown = false; $missing[] = 'cost:' . $row['label']; }
                 else { $knownCosts += $row['amount']; $hasKnownDeduction = true; }
@@ -62,6 +66,18 @@ final class ChannelEconomicsService
         $adIncluded = $input['advertising_included_in_net_revenue'] ?? null;
         $adInCosts = $input['advertising_in_direct_costs'] ?? null;
         if (!is_bool($adIncluded) || !is_bool($adInCosts) || ($adIncluded && $adInCosts)) throw new InvalidArgumentException('channel_advertising_deduction_basis_required');
+        $advertisingRows = array_values(array_filter($rows, static fn(array $row): bool => $row['cost_type'] === 'advertising'));
+        if ($adInCosts) {
+            $advertisingCost = array_sum(array_column($advertisingRows, 'amount'));
+            $roundingError = $spend === null ? 0.0 : PHP_FLOAT_EPSILON * max(abs($advertisingCost), abs($spend)) * max(1, count($advertisingRows));
+            if ($spend === null || $advertisingRows === []
+                || count(array_filter($advertisingRows, static fn(array $row): bool => $row['amount'] === null || $row['source_ref'] === '' || $row['included_in_net_revenue'])) > 0
+                || abs($advertisingCost - $spend) > $roundingError) {
+                throw new InvalidArgumentException('channel_advertising_direct_cost_evidence_required');
+            }
+        } elseif ($advertisingRows !== [] && (!$adIncluded || count(array_filter($advertisingRows, static fn(array $row): bool => !$row['included_in_net_revenue'])) > 0)) {
+            throw new InvalidArgumentException('channel_advertising_cost_classification_conflict');
+        }
         if (!$adIncluded && !$adInCosts) {
             if ($spend === null) { $costsKnown = false; $missing[] = 'advertising_spend_missing'; }
             else { $knownCosts += $spend; $hasKnownDeduction = true; }
@@ -121,20 +137,28 @@ final class ChannelEconomicsService
     public function sourceReceipts(int $tenant, int $hotel, string $platform, string $month): array
     {
         $start = new DateTimeImmutable($month . '-01', new \DateTimeZone('Asia/Shanghai'));
-        $settlement = (new OtaSettlementReconciliationService())->latestForScope($tenant, $hotel, $platform, $start->format('Y-m-d'), $start->format('Y-m-t'));
+        $settlement = $this->compactSettlementReceipt((new OtaSettlementReconciliationService())->latestForScope($tenant, $hotel, $platform, $start->format('Y-m-d'), $start->format('Y-m-t')));
         $marketing = ['complete' => false, 'covered_days' => [], 'missing_days' => [], 'advertising_spend' => null, 'attributed_order_amount' => null, 'evidence_refs' => []];
         if ($platform === 'meituan') {
             $spent = 0.0; $amount = 0.0; $basis = null;
+            // Restrict the projection before its quality gates: keyword failures are
+            // outside monetary advertising evidence; failed advertising stays visible.
+            $advertisingProjection = new MeituanMarketingFactProjectionService(static fn(int $tenantId, int $hotelId, string $day): array => Db::name('online_daily_data')
+                ->where('tenant_id', $tenantId)->where('system_hotel_id', $hotelId)->where('data_date', $day)
+                ->where('data_type', 'advertising')->order('id', 'asc')->select()->toArray());
+            $marketing['day_quality'] = [];
             for ($date = $start; $date <= $start->modify('last day of this month'); $date = $date->modify('+1 day')) {
-                $day = $date->format('Y-m-d'); $projection = (new MeituanMarketingFactProjectionService())->project($tenant, $hotel, $day);
+                $day = $date->format('Y-m-d'); $projection = $advertisingProjection->project($tenant, $hotel, $day);
                 $projections = $projection['projections'] ?? [];
                 $ads = array_values(array_filter($projections, static fn(array $r): bool => ($r['fact_type'] ?? '') === 'advertising' && ($r['scope']['object_type'] ?? '') === 'campaign'));
+                if (count($ads) !== count($projections)) $projection['data_quality']['gap_codes'][] = 'advertising_campaign_scope_required';
+                $marketing['day_quality'][$day] = $projection['data_quality'];
                 // A verified zero amount can cover a day even though its ROAS is undefined.
                 $valid = $ads !== [] && in_array($projection['status'] ?? '', ['ready', 'partial'], true)
                     && $this->marketingScopeMatches($projection['scope'] ?? [], $tenant, $hotel, $day)
                     && ($projection['data_quality']['rejected_reason_counts'] ?? []) === []
                     && array_diff($projection['data_quality']['gap_codes'] ?? [], ['spend_not_positive']) === []
-                    && count(array_filter($projections, static fn(array $row): bool => ($row['quality_status'] ?? '') !== 'verified')) === 0;
+                    && count(array_filter($ads, static fn(array $row): bool => ($row['quality_status'] ?? '') !== 'verified')) === 0;
                 $daySpent = 0.0; $dayAmount = 0.0; $dayBasis = null; $dayRefs = [];
                 foreach ($valid ? $ads : [] as $row) {
                     $m = $row['metrics'];
@@ -172,6 +196,18 @@ final class ChannelEconomicsService
     {
         return ($scope['tenant_id'] ?? null) === $tenant && ($scope['hotel_id'] ?? null) === $hotel
             && ($scope['platform'] ?? '') === 'meituan' && ($scope['business_date'] ?? '') === $day;
+    }
+    private function compactSettlementReceipt(array $receipt): array
+    {
+        // The batch fingerprint already binds its immutable lines. A monthly
+        // economics snapshot needs that receipt, not a second copy of every line.
+        $compact = array_intersect_key($receipt, array_flip(['contract_version', 'batch_id', 'supersedes_batch_id', 'supersession_reason',
+            'batch_fingerprint', 'batch_status', 'read_status', 'readback_verified', 'scope', 'source', 'counts', 'totals',
+            'basis_ledger', 'projection_status', 'latest_attempt', 'authorization']));
+        $batchId = $receipt['batch_id'] ?? null;
+        $compact['evidence_refs'] = is_int($batchId) && $batchId > 0 ? ['ota_settlement_import_batches#' . $batchId] : [];
+        $compact['receipt_format'] = 'settlement_batch_summary.v1';
+        return $compact;
     }
     private function marketingAmountValid(mixed $value): bool
     {

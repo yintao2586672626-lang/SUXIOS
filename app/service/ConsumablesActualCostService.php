@@ -17,8 +17,8 @@ final class ConsumablesActualCostService
         $attested = ($input['operator_attested'] ?? false) === true;
         $rows = $input['items'] ?? [];
         if (!is_array($rows) || count($rows) > 100) throw new InvalidArgumentException('consumables_items_invalid');
-        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         $normalized = []; $missing = []; $knownCents = 0; $lossCents = 0; $knownCount = 0; $complete = true;
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         foreach ($rows as $index => $raw) {
             if (!is_array($raw) || !is_bool($raw['enabled'] ?? null)) throw new InvalidArgumentException('consumables_enabled_required');
             $item = ['id' => $this->text($raw['id'] ?? (string)$index, 100), 'name' => $this->text($raw['name'] ?? '', 160),
@@ -30,13 +30,8 @@ final class ConsumablesActualCostService
             $gaps = [];
             foreach (['opening_quantity','purchased_quantity','transfer_in_quantity','closing_quantity','transfer_out_quantity','returned_quantity','written_off_quantity'] as $key) if ($item[$key] === null) $gaps[] = $key;
             if ($item['source_ref'] === '' || !$this->validDate($item['source_date'])) $gaps[] = 'source_evidence';
-            if ($item['enabled'] && $this->validDate($item['source_date']) && $item['source_date'] > $today) {
-                throw new InvalidArgumentException('consumables_actual_source_date_in_future');
-            }
-            $quantity = $item['enabled'] && $gaps === [] ? $this->inventoryQuantity([
-                $item['opening_quantity'], $item['purchased_quantity'], $item['transfer_in_quantity'],
-                -$item['closing_quantity'], -$item['transfer_out_quantity'], -$item['returned_quantity'], -$item['written_off_quantity'],
-            ], $item['unit_price']) : null;
+            if ($item['enabled'] && $this->validDate($item['source_date']) && $item['source_date'] > $today) throw new InvalidArgumentException('consumables_source_date_in_future');
+            $quantity = $item['enabled'] && $gaps === [] ? $this->inventoryBalance($item) : null;
             if ($quantity !== null && $quantity < 0) { $gaps[] = 'inventory_balance_negative'; $quantity = null; }
             if ($item['unit_price'] === null) $gaps[] = 'unit_price';
             $cost = $quantity !== null && $item['unit_price'] !== null ? $this->valuedAmount($quantity, $item['unit_price']) : null;
@@ -80,29 +75,52 @@ final class ConsumablesActualCostService
             'boundaries' => ['source_independently_verified' => false, 'procurement_is_not_consumption' => true,
                 'automatic_scenario_adoption' => false, 'automatic_purchase_or_writeoff' => false, 'staff_waste_causality_established' => false]];
     }
-    private function number(mixed $value): ?float
+    /** Compensated addition preserves small movements beside large opening/closing counts. */
+    private function inventoryBalance(array $item): float
     {
-        if ($value === null || is_string($value) && trim($value) === '') return null;
-        if (is_bool($value) || !is_numeric($value) || !is_finite((float)$value) || (float)$value < 0 || (float)$value > 1e12) throw new InvalidArgumentException('consumables_number_invalid');
-        if (is_string($value) && (float)$value === 0.0 && preg_match('/[1-9]/', preg_split('/e/i', $value, 2)[0])) throw new InvalidArgumentException('consumables_number_invalid');
-        return (float)$value;
-    }
-    private function inventoryQuantity(array $terms, ?float $price): float
-    {
-        $sum = 0.0; $correction = 0.0; $unmatched = [];
+        $terms = [$item['opening_quantity'], $item['purchased_quantity'], $item['transfer_in_quantity'],
+            -$item['closing_quantity'], -$item['transfer_out_quantity'], -$item['returned_quantity'], -$item['written_off_quantity']];
+        $sum = 0.0; $correction = 0.0;
         foreach ($terms as $term) {
             $next = $sum + $term;
             $correction += abs($sum) >= abs($term) ? ($sum - $next) + $term : ($term - $next) + $sum;
             $sum = $next;
-            $opposite = array_search(-$term, $unmatched, true);
-            if ($opposite === false) $unmatched[] = $term;
-            else unset($unmatched[$opposite]);
         }
-        $quantity = $sum + $correction;
-        // Exact opposite stocks add no uncertainty to a separate small flow.
-        $noise = PHP_FLOAT_EPSILON * array_sum(array_map('abs', $unmatched)) * max(1, count($unmatched));
-        if ($quantity < 0 && abs($quantity) <= $noise && ($price === null || round(abs($quantity) * $price, 2) === 0.0)) return 0.0;
-        return $quantity == 0.0 ? 0.0 : $quantity;
+        $balance = $sum + $correction;
+        // Noise is zero only if the normalized decimal inputs cancel exactly; a tolerance cannot erase a real deficit.
+        $noise = PHP_FLOAT_EPSILON * array_sum(array_map('abs', $terms)) * count($terms);
+        return $balance !== 0.0 && abs($balance) <= $noise && $this->decimalBalanceIsZero($terms) ? 0.0 : $balance;
+    }
+    private function decimalBalanceIsZero(array $terms): bool
+    {
+        $columns = [];
+        foreach ($terms as $term) {
+            if ($term == 0.0) continue;
+            preg_match('/^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/D',
+                json_encode($term, JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION), $parts);
+            $fraction = $parts[3] ?? '';
+            $digits = $parts[2] . $fraction;
+            $power = (int)($parts[4] ?? 0) - strlen($fraction);
+            $sign = $parts[1] === '-' ? -1 : 1;
+            for ($index = strlen($digits) - 1; $index >= 0; --$index, ++$power) {
+                $columns[$power] = ($columns[$power] ?? 0) + $sign * (int)$digits[$index];
+            }
+        }
+        if ($columns === []) return true;
+        $carry = 0;
+        for ($power = min(array_keys($columns)), $last = max(array_keys($columns)); $power <= $last; ++$power) {
+            $value = ($columns[$power] ?? 0) + $carry;
+            $carry = (int)floor($value / 10);
+            if ($value - $carry * 10 !== 0) return false;
+        }
+        return $carry === 0;
+    }
+    private function number(mixed $value): ?float
+    {
+        if ($value === null || is_string($value) && trim($value) === '') return null;
+        if (is_bool($value) || !is_numeric($value) || !is_finite((float)$value) || (float)$value < 0 || (float)$value > 1e12) throw new InvalidArgumentException('consumables_number_invalid');
+        if (is_string($value) && (float)$value === 0.0 && strpbrk(preg_split('/[eE]/', trim($value))[0], '123456789') !== false) throw new InvalidArgumentException('consumables_number_invalid');
+        return (float)$value;
     }
     private function valuedAmount(float $quantity, float $price): float
     {

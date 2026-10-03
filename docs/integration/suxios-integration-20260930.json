@@ -2141,8 +2141,8 @@
     {
       "path": "app/controller/BookingMonitoring.php",
       "state": "added",
-      "bytes": 6786,
-      "sha256": "aa6870506ba6ae3c02e5001fce6754832fb63eada029aacd4242fc6cebcb7dbc"
+      "bytes": 9643,
+      "sha256": "09d73962b2eb727f108116d1febe2a83547edc6fa6e1e77abcdbd7ed6ddf73dd"
     },
     {
       "path": "app/controller/BusinessWorkspace.php",
@@ -2219,8 +2219,8 @@
     {
       "path": "app/controller/OperatingFinance.php",
       "state": "modified",
-      "bytes": 35859,
-      "sha256": "b5998b43b37d30633a12b6e80321f0ce04c00ccb1982cd864fc70691ad03869d"
+      "bytes": 36628,
+      "sha256": "1e29153abd1ba6920ed197181cfd07413b453f122cf654d6332ce66c7325190c"
     },
     {
       "path": "app/controller/OperatingOpportunity.php",
@@ -2507,14 +2507,14 @@
     {
       "path": "app/service/BookingDemandPlanningService.php",
       "state": "modified",
-      "bytes": 48849,
-      "sha256": "a46358aa2ee4690c3cb80b08ca104b3363ed8fc578c760c1af40c9834a723774"
+      "bytes": 51584,
+      "sha256": "fb06bf4b933fab1db5cf29eb492fad776e7cc8a28e72f519535de0690d11953b"
     },
     {
       "path": "app/service/BookingMonitoringService.php",
       "state": "added",
-      "bytes": 22501,
-      "sha256": "fea4f9696b44e1d61e2f6e8edec0936c12b420bbc7da0dd03f2a8e7e02850774"
+      "bytes": 29604,
+      "sha256": "5dad30295c6b8d586fb75c473a916692bfe48825d8f7b5575c6b6fea98fe391c"
     },
     {
       "path": "app/service/BusinessFeatureCatalog.php",
@@ -2537,8 +2537,8 @@
     {
       "path": "app/service/ChannelEconomicsService.php",
       "state": "added",
-      "bytes": 16598,
-      "sha256": "6288672837a926e12e0c4b87704329396f0c0d488fb4f0036e3d316147bad404"
+      "bytes": 19745,
+      "sha256": "caa2a71b5d3d5802b015fbe803c7582fe822638609801f61986bff32a5dde8e3"
     },
     {
       "path": "app/service/CloudBrowserReceiptChainVerifier.php",
@@ -2561,8 +2561,8 @@
     {
       "path": "app/service/ConsumablesActualCostService.php",
       "state": "added",
-      "bytes": 10411,
-      "sha256": "6686236cfb430767464e2db16d4164e14ce7e76018b1101bf700eb447d707e52"
+      "bytes": 11310,
+      "sha256": "7862db4caa40f0b9f5c98aa784790408a20b83c66f13f24f4cebce37353a5cea"
     },
     {
       "path": "app/service/ConsumablesCostCalculator.php",
@@ -2909,8 +2909,8 @@
     {
       "path": "app/service/OperatingEvidenceSnapshotStore.php",
       "state": "added",
-      "bytes": 5318,
-      "sha256": "3f9522e8a352438999c100dc1a1450f66e617f061bb156210e7d308e4c5633f4"
+      "bytes": 16706,
+      "sha256": "849a8515aec1f6dfe441f57fd30645e53265cfbe38f62e2d884a3f86a92de16a"
     },
     {
       "path": "app/service/OperatingGoalInterventionMonitorService.php",
@@ -3355,8 +3355,8 @@
     {
       "path": "database/migration_checksums.lock.json",
       "state": "modified",
-      "bytes": 29465,
-      "sha256": "d38f7e11164d3a9b3d7e71ce4d1d8901c96910dde9321361e974233d981f3fed"
+      "bytes": 29588,
+      "sha256": "2df052dea5db922f83a49eb68ce420a756f54ce7c9512376197297431f6f7df3"
     },
     {
       "path": "database/migrations/20260820_b_absorb_master_perspectives_multi_lens_knowledge.sql",
@@ -3417,6 +3417,12 @@
       "state": "added",
       "bytes": 4353,
       "sha256": "55f3c81977025ebd84ac010cf7596a10afecf70936fe0805b684ed5bed9f76e8"
+    },
+    {
+      "path": "database/migrations/20261003_extend_on_books_snapshot_precision.sql",
+      "state": "integration_followup",
+      "bytes": 478,
+      "sha256": "2ffc40b046e6376f806963a2a5bb8ef1d59209baa59e218fac657a1ecf26c7ec"
     },
     {
       "path": "docs/business-chain-review-20260905.md",
@@ -3625,8 +3631,8 @@
     {
       "path": "docs/integration/suxios-prior-three-reviews-20261003.md",
       "state": "integration_followup",
-      "bytes": 6879,
-      "sha256": "91c29e76ffcc7d76289fff2ce1da290215fd6572fb7f667ee7ea850b7b5a3d4b"
+      "bytes": 7657,
+      "sha256": "5b820292c2855dd53c62dd32ebdab9dac2a2861201621580ded6f86e3de906ac"
     },
     {
       "path": "docs/investment-payback-github-delivery-20261002.md",
@@ -4230,7 +4236,7 @@
       "path": "public/app-startup-helpers.min.js",
       "state": "modified",
       "bytes": 270269,
-      "sha256": "9201e5d41ea1f533601c5d54e8d016ac5bd2eaf0b145d69b47e82cd949d74626"
+      "sha256": "0ec335884688467a0b886c4db50e0c7397d0cab37ab71bcf598fe4c83269cb39"
     },
     {
       "path": "public/app-startup-render.min.js",
@@ -4290,19 +4296,19 @@
       "path": "public/components/system/app-main-components-loader.js",
       "state": "modified",
       "bytes": 12152,
-      "sha256": "86c8d8e9507378d7a86ed6978788606d82f722c3e234833f59ea7f11e9c6f191"
+      "sha256": "fb5902717dbf3b4ad2f414b36ae7d757c1bd5c015ed3e2625eadbfc18cc03388"
     },
     {
       "path": "public/components/system/app-main-components.js",
       "state": "modified",
       "bytes": 223083,
-      "sha256": "253b866d8429323c91a524cdb7df8ce77aef6bc637d6fa5c97a584bb698841f6"
+      "sha256": "c80a2c3a080aae0d537e98a6eba4eff79245ec1b0032df263317aea899df93fa"
     },
     {
       "path": "public/components/system/booking-monitoring-panel.js",
       "state": "added",
-      "bytes": 34913,
-      "sha256": "63a380bb7c6e24e75cd6b8a6f7fea7c6485aac232e043f5b5fa8a3c5963c37b7"
+      "bytes": 51704,
+      "sha256": "80f9b3aa1e9521673fb1530a9f0f5d297ba8f95ade93e52a1853492f0064fa27"
     },
     {
       "path": "public/components/system/business-closure-loader.js",
@@ -4415,14 +4421,14 @@
     {
       "path": "public/components/system/operating-economics-workbench.js",
       "state": "added",
-      "bytes": 22183,
-      "sha256": "29e7f115963f5ed298d1adda83a1f4b9d5650000a4b1c09daedf74d4dc6a973b"
+      "bytes": 33023,
+      "sha256": "ce0d8da14ef6d63124d46255f118684b316eda77ba610c5964783fb02e351430"
     },
     {
       "path": "public/components/system/operating-economics-workbench.min.js",
       "state": "added",
-      "bytes": 20822,
-      "sha256": "9f3cdd4dd58e6fce41d7c5357d007dcf62a98a3472cf1f8882aabf6635990dbe"
+      "bytes": 29574,
+      "sha256": "12db89f965fef2df59064d4da9a3cd347564501644fdb231bb79394d0a29e75e"
     },
     {
       "path": "public/components/system/operating-evidence-navigation.js",
@@ -4433,14 +4439,14 @@
     {
       "path": "public/components/system/operating-finance-control-center.js",
       "state": "modified",
-      "bytes": 106307,
-      "sha256": "5d5828d3f7dc5b428af0455d04e9cad116c4f0da0882e7eea8d4cb84af9ed35e"
+      "bytes": 106315,
+      "sha256": "3d713a20d254cfd0a230086e3deaa63c89a49061ad5669749fab2c47fe529f77"
     },
     {
       "path": "public/components/system/operating-finance-control-center.min.js",
       "state": "modified",
-      "bytes": 146407,
-      "sha256": "c04fb82c0197931af8147083cc008b0533fbf63ad37d08a31fa1beab949399ae"
+      "bytes": 146409,
+      "sha256": "418c853722d1bb036a15c085cbac8b764f6852eb838fca9d63838bf0c488e631"
     },
     {
       "path": "public/components/system/operating-intelligence-components.js",
@@ -4510,7 +4516,7 @@
       "path": "public/index.html",
       "state": "modified",
       "bytes": 8585,
-      "sha256": "60b77afce68f56774efdaadf815a939397debd8674f2b8eb80675bb6f34ee47e"
+      "sha256": "534e049208b72f02009abe1d98759d66f949c53dead6cbe011d51778a6f07931"
     },
     {
       "path": "public/meituan-static.js",
@@ -4871,8 +4877,8 @@
     {
       "path": "rules/business-page-contract-registry.json",
       "state": "modified",
-      "bytes": 34058,
-      "sha256": "6add1e05c7423966eb1b1472b70efda49b225a7c8ea993b29a9dd71bda504db7"
+      "bytes": 35250,
+      "sha256": "15261821394dc39fe22e7c9bd984e1fda215fee62c4a1764e3a8894c12430c17"
     },
     {
       "path": "rules/business-page-contract.md",
@@ -4961,14 +4967,14 @@
     {
       "path": "scripts/build_operating_economics_component.mjs",
       "state": "added",
-      "bytes": 1285,
-      "sha256": "9e5d557ed12d02970eb443302ef8941211e58caa561e91faef4b9191ffc93218"
+      "bytes": 1682,
+      "sha256": "bf88e1f2e2a5b6ecc311201503695db5569d8d810e4b3b21fc5bcb0b8511a73b"
     },
     {
       "path": "scripts/build_operating_finance_component.mjs",
       "state": "modified",
-      "bytes": 6186,
-      "sha256": "56affdd8cce88f053e8b84d41ddbd5a50b103d3a5b6c04b144fe759bcb819102"
+      "bytes": 6287,
+      "sha256": "e3a1b3539a3c82030dc786f0ba856ae9c59afbfbfd94b169c965f68c6b232d7a"
     },
     {
       "path": "scripts/clean_project_local_artifacts.ps1",
@@ -5403,8 +5409,8 @@
     {
       "path": "tests/ActualConsumablesScenarioReferenceTest.php",
       "state": "added",
-      "bytes": 17254,
-      "sha256": "55e036e74a250c758fa5881576f4b8e8dcfdd3982cd9f52976b80a019bce4f33"
+      "bytes": 26770,
+      "sha256": "7df04cfa934341efbb5a8b47aaf1e03a8ea2763e5734af59cb646b95d68f6d21"
     },
     {
       "path": "tests/AgentOtaDiagnosisRevenueCoverageTest.php",
@@ -5557,16 +5563,22 @@
       "sha256": "308c1934aa6b97a40c01e5709b79126f5bc0f05bc8c3d1d6887fe2d1ca93bd9c"
     },
     {
+      "path": "tests/BookingDemandPlanningServiceTest.php",
+      "state": "integration_followup",
+      "bytes": 42263,
+      "sha256": "76c27581db377a9ee1c588bfff9c2cd49864302f10a5c2a30650d31bee50d75a"
+    },
+    {
       "path": "tests/BookingMonitoringRoutingTest.php",
       "state": "added",
-      "bytes": 3464,
-      "sha256": "b94e1340a641cb8f75defcb942e8015905508ec3358c2965339b6e56a6a3fc61"
+      "bytes": 22477,
+      "sha256": "67d4cf0e6710853bfa6242cc33788110d87d092ad54173487ed91e2a2cd760f3"
     },
     {
       "path": "tests/BookingMonitoringServiceTest.php",
       "state": "added",
-      "bytes": 24434,
-      "sha256": "1960e91d8c186a6042a95b17233c3d9a886c556098ee9db467d3f3f8381fc803"
+      "bytes": 83557,
+      "sha256": "dafd20d0a8932ae1d6823d90d0366eaa0175c901468402f7014523e51f1ec8dc"
     },
     {
       "path": "tests/BusinessChainDownstreamQualityScopeTest.php",
@@ -5625,8 +5637,8 @@
     {
       "path": "tests/ChannelEconomicsSourceReceiptsTest.php",
       "state": "integration_followup",
-      "bytes": 11673,
-      "sha256": "b3935c0874fe95e157339dc2dfd5e246092928997a9bf35c9be430ee78d6f75d"
+      "bytes": 15088,
+      "sha256": "b95f24ae967e309c1aa9f52ee4b0e96284f1ca32996261f2e2274890a795a59f"
     },
     {
       "path": "tests/ChannelOrderImportPreviewTest.php",
@@ -5655,8 +5667,8 @@
     {
       "path": "tests/ConsumablesActualCostPrecisionTest.php",
       "state": "added",
-      "bytes": 7590,
-      "sha256": "51337703d832c414cb7b43dad69b45c3ac758aea3186e527e3c9b3daad7cb464"
+      "bytes": 8469,
+      "sha256": "7a7eb063a673cd2d5b6e4fe4143d74364a67ec07a615d0f1254c3589623c779c"
     },
     {
       "path": "tests/ConsumablesCostCalculatorPrecisionTest.php",
@@ -6411,14 +6423,14 @@
     {
       "path": "tests/OperatingEvidenceChainTest.php",
       "state": "added",
-      "bytes": 15803,
-      "sha256": "0a2cb9bc3bdae1854e36097bfed508332ff904120bc80b8d6b0e8bb25a1dbaeb"
+      "bytes": 47124,
+      "sha256": "e5542ec29a30a820558c777fd11ec2dc7187c2f20bffc55fcb083676330c803a"
     },
     {
       "path": "tests/OperatingEvidenceRoutingTest.php",
       "state": "added",
-      "bytes": 19550,
-      "sha256": "8710563675d9cd048f285c9c13818d813361b75aed673863174d92f440e64cfd"
+      "bytes": 34379,
+      "sha256": "79cda1b6932c44b43daf928ab4acb5a5856e0d2c6147ca138688b839cf088deb"
     },
     {
       "path": "tests/OperatingGoalInterventionContractTest.php",
@@ -7015,6 +7027,12 @@
       "sha256": "5b92743784f3d1829b82973a0534361e6f43fcb42ab36cfe930b7d09360c5f13"
     },
     {
+      "path": "tests/Support/deep_optimization_fixture_router.php",
+      "state": "integration_followup",
+      "bytes": 9134,
+      "sha256": "72f2a2cd76669459a8ae69a38bdee33697a61d003bbdd8a68fe48b263fb57ffc"
+    },
+    {
       "path": "tests/Support/investment_scenario_fixture_router.php",
       "state": "added",
       "bytes": 6706,
@@ -7263,14 +7281,14 @@
     {
       "path": "tests/automation/booking_monitoring_async_browser.test.mjs",
       "state": "added",
-      "bytes": 7201,
-      "sha256": "fc3224c15fab84c5808eac8b7ea25b679815417045130e88cb9de2aa30b9bc52"
+      "bytes": 11774,
+      "sha256": "cdab4068a457924d0e95b18888875678328347d244f6629281a4b711e2cc392b"
     },
     {
       "path": "tests/automation/booking_monitoring_panel.test.mjs",
       "state": "added",
-      "bytes": 24959,
-      "sha256": "2f4541834561974d5009586b26b8277661c80984475e0c4e6c5151a52b8c4a0f"
+      "bytes": 57518,
+      "sha256": "6923aa580c3c73c72b3b301a4809b14dd44b70f9217750388015a19cdcffc842"
     },
     {
       "path": "tests/automation/browser_assist_import_receipt.test.mjs",
@@ -7755,8 +7773,8 @@
     {
       "path": "tests/automation/demand_event_save_ownership.test.mjs",
       "state": "added",
-      "bytes": 20400,
-      "sha256": "269d1a28132130360257286d26391c5722e719e9cfc8240bffffed7783b38252"
+      "bytes": 20696,
+      "sha256": "9565c99d272f9db632a89b31952bc2d376e446f1538e06c8fd7067ae1db789dc"
     },
     {
       "path": "tests/automation/demand_forecast_read_state.test.mjs",
@@ -8631,8 +8649,8 @@
     {
       "path": "tests/automation/monthly_finance_save_ownership.test.mjs",
       "state": "added",
-      "bytes": 25570,
-      "sha256": "2d6fb06f7d1b8fe562db61f81229a473ee7d27c26df7288586980ca5ffebe40b"
+      "bytes": 25779,
+      "sha256": "db3caada1b83ccb447d84d04f09d128d253bd00471b4e821e850724683e81f69"
     },
     {
       "path": "tests/automation/node_test_runner_contract.test.mjs",
@@ -8649,8 +8667,8 @@
     {
       "path": "tests/automation/onbooks_snapshot_save_ownership.test.mjs",
       "state": "added",
-      "bytes": 27942,
-      "sha256": "cc257eb9ab6ee7fd59a3756f8e7a39a59d9894254a385af6cdb4ec48661804a7"
+      "bytes": 28151,
+      "sha256": "fb5a262e2e057fe695c2c4be14d8783b6a1364d03b77b19636c3808697f1c693"
     },
     {
       "path": "tests/automation/online_analysis_cache_runtime.test.mjs",
@@ -8763,8 +8781,8 @@
     {
       "path": "tests/automation/operating_component_asset_build.test.mjs",
       "state": "added",
-      "bytes": 9250,
-      "sha256": "3db4a0110c7025447d5c39973389152f72e9e21507f5d6bf66270e7df245640a"
+      "bytes": 14225,
+      "sha256": "ecb0d45fee2116da834365c7a7d8a4f0061886ff601d308d452ddaa29a5377a9"
     },
     {
       "path": "tests/automation/operating_consultant_dependency_order.test.mjs",
@@ -8781,8 +8799,8 @@
     {
       "path": "tests/automation/operating_economics_workbench.test.mjs",
       "state": "added",
-      "bytes": 21377,
-      "sha256": "38a6f9708f018e0d0b8d519be46092aae0fdc0d24d0406bab3e38beadd9ce4c2"
+      "bytes": 35272,
+      "sha256": "411929000fc3cfa196fdeeed77899c8fe537868a583de38104ab6aa86cfb3ab3"
     },
     {
       "path": "tests/automation/operating_finance_control_center.spec.js",
@@ -9597,8 +9615,8 @@
     {
       "path": "tests/automation/settlement_import_save_ownership.test.mjs",
       "state": "added",
-      "bytes": 22255,
-      "sha256": "10cdc8ed8f2f63af14936bbb2998f979c53c1a23e82ff37d112d25f32a9df5eb"
+      "bytes": 22464,
+      "sha256": "079482776bfa07cfa19772bd68cfe7fa0b11ce936d26a18e6cc0076999cd5a6d"
     },
     {
       "path": "tests/automation/simulation_archive_pending_scope.test.mjs",
@@ -9993,23 +10011,23 @@
   "prior_three_round_followup": {
     "receipt": "docs/integration/suxios-prior-three-reviews-20261003.json",
     "cutoff": "2026-10-03T00:00:00+08:00",
-    "observed_at": "2026-10-03T10:32:35.063Z",
+    "observed_at": "2026-10-03T10:58:58.934Z",
     "verification": {
       "php": {
-        "tests": 8835,
-        "assertions": 85618,
+        "tests": 8986,
+        "assertions": 87853,
         "skipped": 13,
         "failed": 0,
         "environment": "isolated test fixtures; no shared business database mutation"
       },
       "node": {
         "files": 665,
-        "tests": 7232,
-        "pass": 7231,
+        "tests": 7281,
+        "pass": 7280,
         "fail": 0,
         "skipped": 1,
         "portable_authority_cases": "Two workstation-specific authority cases are excluded by the committed portable runner; separately reported skips are not counted as passed.",
-        "evidence_reuse": "After the startup-only return repair, 120 affected frontend test files / 1511 tests were reverified; unchanged full-suite evidence is reused."
+        "evidence_reuse": "Full discovered Node suite rerun after accepted PR61 main composition; earlier startup-only and historical review evidence is retained separately."
       },
       "startup_followup": {
         "previous_candidate": "9f63f69224eeff8367c714fc26caf07907f23745",
@@ -10036,7 +10054,7 @@
         "github_latest_candidate": "Current PR64 head verification is recorded separately; do not reuse earlier head checks."
       },
       "pipeline": {
-        "observed_at": "2026-10-03T09:54:58.911Z",
+        "observed_at": "2026-10-03T10:47:11.792Z",
         "steps": [
           {
             "name": "template_snapshot",
@@ -10052,42 +10070,136 @@
             "name": "integration_gate",
             "exit_code": 0,
             "log": "final-integration_gate.log"
-          },
-          {
-            "name": "lazy_frontend_entry",
-            "exit_code": 0,
-            "log": "final-lazy_frontend_entry.log"
-          },
-          {
-            "name": "lazy_startup_helpers",
-            "exit_code": 0,
-            "log": "final-lazy_startup_helpers.log"
-          },
-          {
-            "name": "integration_gate_followup",
-            "exit_code": 0,
-            "log": "final-integration_gate_followup.log"
-          },
-          {
-            "name": "lazy_frontend_entry",
-            "exit_code": 0,
-            "log": "final-lazy_frontend_entry.log"
-          },
-          {
-            "name": "lazy_startup_helpers",
-            "exit_code": 0,
-            "log": "final-lazy_startup_helpers.log"
-          },
-          {
-            "name": "integration_gate_followup",
-            "exit_code": 0,
-            "log": "final-integration_gate_followup.log"
           }
         ],
-        "complete": true
+        "complete": true,
+        "prior_attempts": [
+          {
+            "name": "integration_gate",
+            "exit_code": 1,
+            "log": "final-integration_gate.log",
+            "reason": "Merge paths were not yet marked resolved in the index; source and generated assets were already composed."
+          }
+        ]
       },
       "entry_budget": {
-        "startup_gzip_bytes": 614158,
+        "metrics": {
+          "index_bytes": 8585,
+          "public_shell_gzip_bytes": 18047,
+          "startup_gzip_bytes": 614158,
+          "full_authenticated_gzip_bytes": 1179338,
+          "deferred_authenticated_gzip_bytes": 565180,
+          "inline_script_bytes": 7957,
+          "blocking_script_count": 0,
+          "startup_asset_gzip_bytes": [
+            {
+              "asset": "app-main.min.js",
+              "gzip_bytes": 405284
+            },
+            {
+              "asset": "app-startup-helpers.min.js",
+              "gzip_bytes": 87563
+            },
+            {
+              "asset": "vue.runtime.global.prod.js",
+              "gzip_bytes": 39853
+            },
+            {
+              "asset": "style-startup.min.css",
+              "gzip_bytes": 24929
+            },
+            {
+              "asset": "app-startup-render.min.js",
+              "gzip_bytes": 21635
+            },
+            {
+              "asset": "tailwind.min.css",
+              "gzip_bytes": 9175
+            },
+            {
+              "asset": "app-bootstrap.min.js",
+              "gzip_bytes": 8948
+            },
+            {
+              "asset": "login-critical.css",
+              "gzip_bytes": 6562
+            },
+            {
+              "asset": "compass-authority-polish.css",
+              "gzip_bytes": 6201
+            },
+            {
+              "asset": "index.html",
+              "gzip_bytes": 2537
+            },
+            {
+              "asset": "components/system/business-closure-loader.js",
+              "gzip_bytes": 1471
+            }
+          ],
+          "public_shell_asset_count": 2,
+          "public_shell_assets": [
+            "login-critical.css",
+            "app-bootstrap.min.js"
+          ],
+          "authenticated_asset_count": 18,
+          "authenticated_assets": [
+            "tailwind.min.css",
+            "style-startup.min.css",
+            "style.min.css",
+            "ai-custom.css",
+            "compass-authority-polish.css",
+            "vue.runtime.global.prod.js",
+            "app-startup-helpers.min.js",
+            "components/system/business-closure-loader.js",
+            "components/online-data/ctrip-order-analysis-loader.js",
+            "ctrip-search-opportunity-static.js",
+            "user-admin-static.js",
+            "app-deferred-helpers.min.js",
+            "components/system/palette-acceptance-gallery.js",
+            "components/system/app-main-components.js",
+            "browser-capture-task-static.js",
+            "app-startup-render.min.js",
+            "app-render.min.js",
+            "app-main.min.js"
+          ],
+          "deferred_authenticated_asset_count": 10,
+          "deferred_authenticated_assets": [
+            "style.min.css",
+            "ai-custom.css",
+            "components/online-data/ctrip-order-analysis-loader.js",
+            "ctrip-search-opportunity-static.js",
+            "user-admin-static.js",
+            "app-deferred-helpers.min.js",
+            "components/system/palette-acceptance-gallery.js",
+            "components/system/app-main-components.js",
+            "browser-capture-task-static.js",
+            "app-render.min.js"
+          ],
+          "startup_asset_count": 10,
+          "startup_assets": [
+            "login-critical.css",
+            "app-bootstrap.min.js",
+            "tailwind.min.css",
+            "style-startup.min.css",
+            "compass-authority-polish.css",
+            "vue.runtime.global.prod.js",
+            "app-startup-helpers.min.js",
+            "components/system/business-closure-loader.js",
+            "app-startup-render.min.js",
+            "app-main.min.js"
+          ]
+        },
+        "budget": {
+          "max_index_bytes": 2000000,
+          "max_public_shell_gzip_bytes": 180000,
+          "target_startup_gzip_bytes": 620000,
+          "enforce_startup_target": true,
+          "warning_startup_gzip_bytes": 625000,
+          "max_startup_gzip_bytes": 650000,
+          "max_inline_script_bytes": 20000,
+          "max_blocking_script_count": 0
+        },
         "startup_budget": {
           "metric": "startup_gzip_bytes",
           "status": "within_target",
@@ -10107,7 +10219,7 @@
       "deployment": false,
       "operating_effect": false
     },
-    "candidate_base": "9f63f69224eeff8367c714fc26caf07907f23745",
+    "candidate_base": "72d74964249399b447756bbfc49b10559acae9df",
     "source_commit": "fef961e8f826ac9193b200735bc2357971199181",
     "origin_main": "81308aad3d74f9db9b94958661beaba128ff568f"
   }
