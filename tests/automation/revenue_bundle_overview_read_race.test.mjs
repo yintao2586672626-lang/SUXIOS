@@ -13,7 +13,7 @@ const take = name => {
   assert.ok(start > 0 && end, `actual declaration: ${name}`);
   return main.slice(start, start + 1 + end.index);
 };
-const production = ['captureAuthSession', 'isAuthSessionCurrent', 'captureAgentRevenueRequestContext',
+const production = ['resolveDemandForecastListPayload','resolvePriceSuggestionListPayload','captureAuthSession', 'isAuthSessionCurrent', 'captureAgentRevenueRequestContext',
   'isAgentRevenueRequestCurrent', 'captureRevenueForecastRange', 'isRevenueForecastRangeCurrent',
   'canUseRevenueAi', 'isCompassDataPage', 'revenueAiBusinessDate', 'currentPageReadPolicy', 'buildPageLoadScopeToken',
   'createPriceSuggestionPagination', 'createRevenueLoadState', 'createEmptyRevenueAnalysisData',
@@ -29,7 +29,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const overviewFixture = (marker, date = '2026-09-12', hotelId = '81') => ({
   as_of_date_contract_version: 'revenue_overview_as_of_date.v1', as_of_date: date,
-  business_date: date, hotel_id: Number(hotelId), marker, metrics: { revenue: 0, orders: 0 }, gaps: [],
+  business_date: date, hotel_id: hotelId === '' ? null : Number(hotelId), marker, metrics: { revenue: 0, orders: 0 }, gaps: [],
 });
 
 // Actual two readers, Vue refs/computed, policy/scope key, authorization gate,
@@ -53,7 +53,7 @@ function harness() {
   for (const [key, value] of Object.entries(initial)) refs[key] = Vue.ref(value);
   const context = vm.createContext({ ...refs, window: {}, computed: Vue.computed, URLSearchParams, console: { error() {} },
     authSessionEpoch: 1, agentRevenueStateEpoch: 1, pageRequestGeneration: 1,
-    revenueAnalysisBundleRequestSeq: 0, priceSuggestionRequestSeq: 0, revenueAiOverviewRequestSeq: 0,
+    revenueAnalysisBundleRequestSeq: 0, priceSuggestionRequestSeq: 0, roomTypesRequestSequence:0,demandForecastsRequestSequence:0,revenueAiOverviewRequestSeq: 0,
     revenueAiOverviewRequestPromises: new Map(),
     currentBusinessRequestContext: () => ({ tenant_id: 7 }),
     userHasPermission: () => false, userHasCapability: () => false, normalizeCanonicalPage: value => String(value || ''),
@@ -84,7 +84,7 @@ function harness() {
     if (outcome === 'throw') return row.reject(new Error(`synthetic ${marker} exception`));
     if (outcome === 'failed') return row.resolve({ code: 503, message: `synthetic ${marker} failure` });
     const overview = outcome === 'empty' ? null : overviewFixture(
-      marker, row.params.get('business_date') || '2026-09-12', row.params.get('hotel_id') || '81');
+      marker, row.params.get('business_date') || '2026-09-12', row.params.get('hotel_id') || '');
     if (overview) Object.assign(overview, scopeOverride);
     row.resolve({ code: 200, data: row.path === '/revenue-ai/overview' ? overview : {
       overview, analysis: { statistics: { marker } }, dashboard: { today_suggestions: [{ marker }] },
@@ -236,6 +236,7 @@ for (const scope of ['hotel', 'page', 'date', 'session', 'token']) {
       finish === 'resolve' ? gate.resolve() : gate.reject(new Error('obsolete scope helper failure')); await flush();
       for (const row of h.requests) h.reply(row, 'success', 'wrong-scope');
       await old.pending;
+      if (['hotel', 'page', 'date'].includes(scope)) expected.busy = false;
       assert.equal(h.requests.length, 0); assert.deepEqual(h.snapshot(), expected);
     });
   }
@@ -243,7 +244,9 @@ for (const scope of ['hotel', 'page', 'date', 'session', 'token']) {
   test(`single transport success/error/throw stay isolated after ${scope} change`, async () => {
     for (const outcome of ['success', 'failed', 'throw']) {
       const h = harness(), old = await begin(h); h.changeScope(scope); const expected = h.snapshot();
-      h.reply(old.row, outcome, 'old-scope'); await old.pending; assert.deepEqual(h.snapshot(), expected);
+      h.reply(old.row, outcome, 'old-scope'); await old.pending;
+      if (['hotel', 'page', 'date'].includes(scope)) expected.busy = false;
+      assert.deepEqual(h.snapshot(), expected);
     }
   });
 }

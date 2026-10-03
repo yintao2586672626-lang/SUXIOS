@@ -1324,6 +1324,11 @@ trait MeituanCapturedDataConcern
 
     private function saveMeituanCapturedDailyRows(array $rows): int
     {
+        return Db::transaction(fn(): int => $this->persistMeituanCapturedDailyRows($rows));
+    }
+
+    private function persistMeituanCapturedDailyRows(array $rows): int
+    {
         $columns = $this->getOnlineDailyDataColumns();
         $savedCount = 0;
         $now = date('Y-m-d H:i:s');
@@ -1362,7 +1367,10 @@ trait MeituanCapturedDataConcern
                 $query->whereNull('system_hotel_id');
             }
 
-            $exists = $query->find();
+            $exists = $query->lock(true)->find();
+            if (is_array($exists)) {
+                $this->assertMeituanHistoricalBusinessReplacement($exists, $row);
+            }
             if (!$exists && isset($columns['create_time'])) {
                 $row['create_time'] = $now;
             }
@@ -1378,13 +1386,44 @@ trait MeituanCapturedDataConcern
             $readbackRow = $rowId > 0
                 ? $this->verifiedMeituanCapturedDailyRowReadback($rowId, $data)
                 : null;
-            if (is_array($readbackRow)
-                && OnlineDailyDataPersistenceService::markRowsReadbackVerified([$readbackRow], $columns)) {
-                $savedCount++;
+            if (!is_array($readbackRow)
+                || !OnlineDailyDataPersistenceService::markRowsReadbackVerified([$readbackRow], $columns)) {
+                throw new \RuntimeException('meituan_capture_readback_failed', 500);
             }
+            $savedCount++;
         }
 
         return $savedCount;
+    }
+
+    private function assertMeituanHistoricalBusinessReplacement(array $existing, array $incoming): void
+    {
+        if (($incoming['data_type'] ?? '') !== 'business'
+            || ($incoming['dimension'] ?? '') !== 'business:temporal_summary'
+            || OnlineDailyDataPersistenceService::normalizePeriod($incoming['data_period'] ?? '') !== 'historical_daily') {
+            return;
+        }
+
+        // These columns and raw-only lead price form one capture snapshot. Do not
+        // merge old facts under a newer capture time or mint proof for missing data.
+        $missing = [];
+        foreach (['amount' => '收入', 'quantity' => '间夜', 'data_value' => 'ADR',
+            'book_order_num' => '订单数', 'list_exposure' => '曝光', 'detail_exposure' => '访客',
+            'flow_rate' => '转化率', 'order_submit_num' => '支付订单数'] as $field => $label) {
+            if (is_numeric($existing[$field] ?? null) && !is_numeric($incoming[$field] ?? null)) {
+                $missing[] = $label;
+            }
+        }
+        $oldRaw = json_decode((string)($existing['raw_data'] ?? ''), true);
+        $newRaw = json_decode((string)($incoming['raw_data'] ?? ''), true);
+        $leadPriceKeys = ['lead_price', 'leadPrice', 'startingPrice', 'realtimeStartingPrice', 'minPrice', 'DAY_ROOM_LOWEST_PRICE_AVG'];
+        if ($this->nullableNumberFromKeys(is_array($oldRaw) ? $oldRaw : [], $leadPriceKeys) !== null
+            && $this->nullableNumberFromKeys(is_array($newRaw) ? $newRaw : [], $leadPriceKeys) === null) {
+            $missing[] = '起价';
+        }
+        if ($missing !== []) {
+            throw new \app\exception\MeituanHistoricalCaptureRejectedException($missing);
+        }
     }
 
     /** @return array<int,array<string,mixed>> */

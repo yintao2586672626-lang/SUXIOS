@@ -141,7 +141,7 @@
                                     <section data-testid="ctrip-channel-order-upload" class="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-sm">
                                         <b>门店渠道订单</b> · 自动绑定 {{ platformHotelSelectedName || '当前酒店' }} <button type="button" @click="ctripChannelOrderUploadOpen = !ctripChannelOrderUploadOpen" class="ml-2 rounded-lg bg-[#65502f] px-4 py-2 font-semibold text-white">{{ ctripChannelOrderUploadOpen ? '收起上传' : '上传渠道订单' }}</button>
                                         <div v-if="ctripChannelOrderUploadOpen" class="mt-3 border-t border-emerald-100 pt-3">
-                                            <input ref="ctripChannelOrderUploadFileInput" type="file" accept=".xls,.xlsx,.csv,.json" multiple :disabled="ctripChannelOrderUploading || ctripChannelOrderUploadPartialReceipt" @change="handleCtripChannelOrderFileChange" class="block w-full rounded-lg border bg-white p-2 disabled:bg-gray-100">
+                                            <input :key="ctripChannelOrderUploadInputKey" ref="ctripChannelOrderUploadFileInput" type="file" accept=".xls,.xlsx,.csv,.json" multiple :disabled="ctripChannelOrderUploading || ctripChannelOrderUploadPartialReceipt" @change="handleCtripChannelOrderFileChange" class="block w-full rounded-lg border bg-white p-2 disabled:bg-gray-100">
                                             <p class="mt-2 text-xs text-gray-500">支持同门店多份携程旧版 XLS 先合并去重；单文件也支持 XLSX、CSV、JSON。参考底价不是确认收入。</p>
                                             <p v-if="ctripChannelOrderUploadFile" class="mt-2 text-xs font-medium text-emerald-800">已选择 {{ ctripChannelOrderUploadFile.length }} 份文件；请确认顶部酒店与文件内门店一致。</p>
                                             <p v-if="ctripChannelOrderUploadFileScopeMismatch" role="status" class="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
@@ -550,7 +550,7 @@
 
                                     <!-- 详细数据表格 -->
                                     <div v-if="ctripRankingDisplayActivated &amp;&amp; ctripHotelsList &amp;&amp; ctripHotelsList.length &gt; 0" class="mt-4" data-download-target="ctrip-business">
-                                        <div v-if="!ctripCompetitionReportSourceReady" data-testid="ctrip-unverified-derivation-notice" role="status" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">当前来源尚未核验：保留已存字段供审计，暂不显示汇总判断或渠道订单推算。请补齐同门店、同业务日期的来源与回读证据。</div>
+                                        <div v-if="!ctripCompetitionReportSourceReady" data-testid="ctrip-unverified-derivation-notice" role="status" class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">当前显示平台返回的竞争圈字段，仅供参考；来源尚未核验，暂不显示汇总判断或渠道订单推算。请补齐同门店、同业务日期的来源与回读证据。</div>
                                         <!-- backend display summary -->
                                         <div v-if="ctripCompetitionReportSourceReady" class="mb-4">
                                             <div class="ctrip-summary-card-toolbar">

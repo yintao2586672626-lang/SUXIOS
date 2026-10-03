@@ -226,6 +226,7 @@
     "20260820_b_absorb_master_perspectives_multi_lens_knowledge.sql": "e88440daa037a93a9cd11114a5b6f79b08e7dfe8348ce0d1b81a2159313270d4",
     "20260926_create_manager_coaching.sql": "e396d540f0dc2978b10fc819478cf18c796151ec4936b670ff412b56539a121d",
     "20260930_repair_master_perspectives_reference_current_version.sql": "b089130d278d4b05544a0b8ba106e757fdda1e87fd7587593342f1929a3798f2",
+    "20261001_create_investment_payback_ledger.sql": "fd77dc4751665cefc02112ca95fcb1b4e614a1f680b0c8850e8a98a4f3f789de",
     "20261002_create_campaign_operation_versions.sql": "14b8b42a053aa0dd5727f4179d08f5e36fdad4b4045358255bc700365b2dd4a7",
     "20261002_z_create_business_workspace.sql": "ac3790578902ebaee967679297a70b71a2fde42fc8c08d109ead6e80dc892bd5",
     "20261002_z_create_guest_operations.sql": "55f3c81977025ebd84ac010cf7596a10afecf70936fe0805b684ed5bed9f76e8",

@@ -1181,10 +1181,7 @@ class OperationManagementService
             throw new \InvalidArgumentException('terminal execution task cannot transition');
         }
 
-        $status = trim((string)($input['status'] ?? 'executed'));
-        if (!in_array($status, ['executing', 'blocked', 'executed', 'failed'], true)) {
-            throw new \InvalidArgumentException('execution status is not supported');
-        }
+        $status = $this->normalizeExecutionTaskStatus($input);
 
         $evidence = $this->arrayValue($input['evidence'] ?? []);
         $evidenceType = strtolower(trim((string)($input['evidence_type'] ?? $evidence['evidence_type'] ?? 'manual')));
@@ -1203,6 +1200,7 @@ class OperationManagementService
         }
         $terminalEvidenceIsMeaningful = $evidence !== []
             && self::isMeaningfulExecutionReceipt($normalizedEvidenceContent, $operatorId);
+        self::assertExecutionTaskStatusAndReceipt($status, $normalizedEvidenceContent);
         $isTemporalForecast = in_array(
             strtolower(trim((string)($intent['source_module'] ?? ''))),
             [
@@ -2100,14 +2098,8 @@ class OperationManagementService
                     ->where('hotel_id', (int)$intent['hotel_id'])
                     ->whereNull('deleted_at')
                     ->count();
-                if (!is_array($taskReadback)
-                    || $taskCount !== 1
-                    || (string)($taskReadback['execution_mode'] ?? '') !== 'manual'
-                    || (string)($taskReadback['status'] ?? '') !== 'pending_execute'
-                    || !hash_equals($targetValueJson, (string)($taskReadback['target_value_json'] ?? ''))
-                ) {
-                    throw new \RuntimeException('human approval task save/readback cardinality check failed');
-                }
+                $this->assertHumanApprovalTaskReadback($taskReadback, $taskCount, $intent,
+                    $targetValueJson, (int)($authorization['hotel']['tenant_id'] ?? 0));
             }
             if ($managedAction) {
                 $eventIntent = $this->executionIntentDetail($id, $hotelIds);
@@ -2827,7 +2819,7 @@ class OperationManagementService
         ], true)) {
             return;
         }
-        $status = strtolower(trim((string)($input['status'] ?? '')));
+        $status = strtolower($this->normalizeExecutionTaskStatus($input));
         if (!in_array($status, ['executed', 'failed'], true)) {
             return;
         }
@@ -3013,7 +3005,7 @@ class OperationManagementService
         $dailyContract = (new OperationActionLifecycleService())->isDailyOneThingIntent($normalizedIntent);
         if ($dailyContract) {
             $currentTaskStatus = strtolower(trim((string)($task['status'] ?? '')));
-            $requestedTaskStatus = strtolower(trim((string)($input['status'] ?? 'executed')));
+            $requestedTaskStatus = strtolower($this->normalizeExecutionTaskStatus($input));
             $allowedDailyTaskTransitions = [
                 'pending_execute' => ['executing', 'blocked'],
                 'executing' => ['executed', 'failed', 'blocked'],

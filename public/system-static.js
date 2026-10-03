@@ -265,6 +265,7 @@ window.SUXI_SYSTEM_STATIC = (() => {
                 { name: '经营机会', path: 'operating-opportunities', icon: 'fas fa-bullseye', testid: 'nav-operating-opportunities', permissions: [] },
                 { name: '净收与恢复', path: 'operating-finance', icon: 'fas fa-file-invoice-dollar', testid: 'nav-operating-finance', permissions: ['operation.view'] },
                 { name: '智算·量化模拟', path: 'ai-simulation', icon: 'fas fa-calculator', testid: 'nav-ai-simulation', permissions: [] },
+                { name: '投资回本', path: 'investment-payback', icon: 'fas fa-coins', testid: 'nav-investment-payback', permissions: ['investment.view'] },
                 { name: '目标与事实', path: 'operating-targets', icon: 'fas fa-bullseye' },
                 { name: 'AI经营日报', path: 'ai-daily-report', icon: 'fas fa-file-alt' },
             ],

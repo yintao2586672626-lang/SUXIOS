@@ -161,7 +161,10 @@ final class AiDailyReportPresentationReviewService
         $payload = is_array($row['review_json']) ? $row['review_json'] : json_decode((string)$row['review_json'], true);
         if (!is_array($payload) || !hash_equals((string)$row['review_fingerprint'], $this->hash($payload))) throw new RuntimeException('presentation_review_content_digest_mismatch');
         foreach (['tenant_id', 'hotel_id', 'report_id', 'presentation_spec_id', 'spec_fingerprint', 'required_items_fingerprint', 'source_evidence_fingerprint', 'audience'] as $field) {
-            if (($payload[$field] ?? null) !== $pending[$field]) throw new RuntimeException('presentation_review_scope_or_source_mismatch');
+            if (($payload[$field] ?? null) !== $pending[$field]) {
+                throw new RuntimeException('presentation_review_scope_or_source_mismatch'
+                    . ($field === 'hotel_id' ? ': hotel_identity_mapping_unverified_rebuild_current_spec' : ''), 409);
+            }
         }
         $items = $payload['items'] ?? [];
         if (!is_array($items) || !array_is_list($items)) throw new RuntimeException('presentation_review_items_mismatch');
@@ -200,6 +203,16 @@ final class AiDailyReportPresentationReviewService
         $without = $spec; unset($without['spec_fingerprint']);
         if ($this->json($raw) !== $this->json($spec) || !hash_equals((string)$stored['spec_fingerprint'], $this->hash($without))
             || ($spec['deck']['audience'] ?? '') !== $stored['audience']) throw new RuntimeException('presentation_review_spec_fingerprint_mismatch');
+        // A relational renumber does not authenticate the immutable source hotel
+        // as an alias. Keep old evidence and require a new current-scope spec.
+        if ($stored['audience'] !== 'training') {
+            $source = $spec['source_report'] ?? [];
+            if ((int)($source['tenant_id'] ?? 0) !== (int)$stored['tenant_id']
+                || (int)($source['report_id'] ?? 0) !== (int)$stored['report_id']) throw new RuntimeException('presentation_review_scope_or_source_mismatch');
+            if ((int)($source['hotel_id'] ?? 0) !== (int)$stored['hotel_id']) {
+                throw new RuntimeException('presentation_review_hotel_identity_mapping_unverified_rebuild_current_spec', 409);
+            }
+        }
     }
 
     private function hash(mixed $value): string { return hash('sha256', $this->json($value)); }

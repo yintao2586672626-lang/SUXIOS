@@ -17,12 +17,12 @@ test('failed current overview never presents a previous successful amount or dem
  assert.equal(cards.find(card=>card.key==='ota_room_revenue').display,'--');
  const signals=helpers.buildRevenueAiSignalRows({overview:prior,overviewError:'本次读取失败'});
  assert.equal(signals.find(row=>row.key==='demand_7d').value,'--');
- assert.match(main,/revenueAiBuildSignalRows\(\{ overview: revenueAiOverview\.value, overviewError: revenueAiOverviewError\.value \}\)/);
+ assert.match(main,/revenueAiBuildSignalRows\(\{\s*overview: revenueAiOverview\.value,\s*overviewError: revenueAiOverviewError\.value,\s*overviewLoading:/);
  assert.match(main,/revenueAiOverviewError\.value \? null : revenueAiOverview\.value/);
  assert.match(template,/revenueAiOverviewError \? '读取失败'/);
  assert.match(template,/v-if="!revenueAiOverviewError &amp;&amp; revenueAiOverview\?\.manual_order_imports/);
 });
 test('a real zero signal remains visible on a successful overview',()=>{
  const signals=helpers.buildRevenueAiSignalRows({overview:{signals:{demand_7d:{value:0,status:'verified'}}}});
- assert.equal(signals.find(row=>row.key==='demand_7d').value,'0');
+ assert.equal(signals.find(row=>row.key==='demand_7d').value,0);
 });

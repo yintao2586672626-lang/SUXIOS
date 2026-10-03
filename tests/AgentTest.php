@@ -2913,6 +2913,34 @@ final class AgentTest extends TestCase
         ]]);
     }
 
+    public function testRoomTypePricingUpdatePreservesOmittedFacilities(): void
+    {
+        $data = ['hotel_id' => 64, 'name' => 'Deluxe', 'base_price' => 320, 'min_price' => 260, 'max_price' => 420];
+        $create = $this->invokeNonPublic($this->controller(), 'normalizeRoomTypePayload', [$data]);
+        self::assertSame([], $create['facilities']);
+        $update = $this->invokeNonPublic($this->controller(), 'normalizeRoomTypePayload', [$data + ['id' => 100]]);
+        self::assertArrayNotHasKey('facilities', $update);
+    }
+
+    public function testRoomTypeExplicitFacilitiesStillSupportReplacementAndClear(): void
+    {
+        $data = ['id' => 100, 'hotel_id' => 64, 'name' => 'Deluxe', 'base_price' => 320, 'min_price' => 260, 'max_price' => 420];
+        foreach ([[2 => 'wifi', 5 => 'desk'], []] as $facilities) {
+            $payload = $this->invokeNonPublic($this->controller(), 'normalizeRoomTypePayload', [$data + ['facilities' => $facilities]]);
+            self::assertSame(array_values($facilities), $payload['facilities']);
+        }
+    }
+
+    public function testRoomTypeMalformedFacilitiesCannotBecomeAnEmptySuccess(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('facilities must be an array');
+        $this->invokeNonPublic($this->controller(), 'normalizeRoomTypePayload', [[
+            'id' => 100, 'hotel_id' => 64, 'name' => 'Deluxe',
+            'base_price' => 320, 'min_price' => 260, 'max_price' => 420, 'facilities' => null,
+        ]]);
+    }
+
     public function testDemandForecastPayloadKeepsManualCtripPreflightBoundary(): void
     {
         $controller = $this->controller();

@@ -50,6 +50,30 @@ const compressibleStaticExtensions = new Set([
   '.css', '.html', '.js', '.json', '.map', '.svg', '.txt',
 ]);
 const healthFailureThreshold = 2;
+const healthDiagnosticMaximumBytes = 16 * 1024;
+const healthDiagnosticCheckNames = [
+  'application', 'database', 'local_state', 'cache', 'lock',
+  'database_schema', 'competitor_report_idempotency',
+];
+const healthDiagnosticStates = new Set(['ok', 'unavailable', 'upgrade_required', 'development_fallback', 'not_enforced']);
+
+function sanitizeHealthDiagnostic(body) {
+  try {
+    const payload = JSON.parse(body);
+    if (payload?.status !== 'unavailable' || !payload.checks || typeof payload.checks !== 'object' || Array.isArray(payload.checks)) return null;
+    const checks = Object.fromEntries(healthDiagnosticCheckNames
+      .map((name) => [name, payload.checks[name]])
+      .filter(([, value]) => healthDiagnosticStates.has(value)));
+    if (Object.keys(checks).length === 0) return null;
+    return {
+      status: 'unavailable', production_runtime_ready: false,
+      ...(payload.runtime_mode === 'development_fallback' ? { runtime_mode: payload.runtime_mode } : {}),
+      checks,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function parseInteger(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
@@ -141,12 +165,14 @@ function createBackendPool(backends, {
     healthy: false,
     consecutiveHealthFailures: 0,
     activeProxyRequests: 0,
+    healthDiagnostic: null,
     checking: null,
     agent: new http.Agent({ keepAlive: true, maxSockets: 32 }),
   }));
   let cursor = 0;
 
-  const recordHealthResult = (worker, healthy) => {
+  const recordHealthResult = (worker, healthy, diagnostic = null) => {
+    worker.healthDiagnostic = diagnostic;
     if (healthy) {
       worker.healthy = true;
       worker.consecutiveHealthFailures = 0;
@@ -168,6 +194,12 @@ function createBackendPool(backends, {
   const checkWorker = (worker) => {
     if (worker.checking) return worker.checking;
     worker.checking = new Promise((resolve) => {
+      let settled = false;
+      const finish = (healthy, diagnostic = null) => {
+        if (settled) return;
+        settled = true;
+        resolve(recordHealthResult(worker, healthy, diagnostic));
+      };
       const probe = http.request({
         protocol: worker.backend.protocol,
         hostname: worker.backend.hostname,
@@ -177,14 +209,35 @@ function createBackendPool(backends, {
         agent: worker.agent,
         headers: { Connection: 'keep-alive' },
       }, (probeResponse) => {
-        probeResponse.resume();
+        const captureDiagnostic = probeResponse.statusCode === 503
+          && /^application\/json(?:\s*;|$)/i.test(String(probeResponse.headers['content-type'] || ''));
+        const chunks = [];
+        let bytes = 0;
+        if (captureDiagnostic) {
+          probeResponse.on('data', (chunk) => {
+            if (settled) return;
+            bytes += chunk.length;
+            if (bytes > healthDiagnosticMaximumBytes) {
+              finish(false);
+              probeResponse.destroy();
+              probe.destroy();
+              return;
+            }
+            chunks.push(chunk);
+          });
+        } else {
+          probeResponse.resume();
+        }
+        probeResponse.once('aborted', () => finish(false));
+        probeResponse.once('error', () => finish(false));
         probeResponse.once('end', () => {
-          resolve(recordHealthResult(worker, probeResponse.statusCode === 200));
+          finish(probeResponse.statusCode === 200, captureDiagnostic
+            ? sanitizeHealthDiagnostic(Buffer.concat(chunks).toString('utf8')) : null);
         });
       });
       probe.setTimeout(healthCheckTimeoutMs, () => probe.destroy(new Error('health check timeout')));
       probe.once('error', () => {
-        resolve(recordHealthResult(worker, false));
+        finish(false);
       });
       probe.end();
     }).finally(() => {
@@ -217,7 +270,11 @@ function createBackendPool(backends, {
     },
     markUnhealthy(worker) {
       worker.healthy = false;
+      worker.healthDiagnostic = null;
       worker.consecutiveHealthFailures = healthFailureThreshold;
+    },
+    healthFailureDiagnostic() {
+      return workers.find((worker) => worker.healthDiagnostic)?.healthDiagnostic || null;
     },
     close() {
       clearInterval(interval);
@@ -500,7 +557,7 @@ function proxyToBackend(request, response, worker, backendPool, retriesRemaining
   }
 }
 
-function respondNoHealthyBackend(request, response) {
+function respondNoHealthyBackend(request, response, healthDiagnostic = null) {
   const isApiRequest = requestPathname(request.url).startsWith('/api/');
   response.writeHead(503, {
     'Content-Type': isApiRequest
@@ -509,7 +566,9 @@ function respondNoHealthyBackend(request, response) {
     'Cache-Control': 'no-store',
   });
   response.end(isApiRequest
-    ? JSON.stringify({ code: 503, message: '没有可用的本机 PHP worker' })
+    ? JSON.stringify(healthDiagnostic
+      ? { code: 503, message: '本机 PHP worker 的依赖健康检查未就绪', ...healthDiagnostic }
+      : { code: 503, message: '没有可用的本机 PHP worker' })
     : 'No healthy local PHP worker is available');
 }
 
@@ -533,7 +592,9 @@ export function createLocalOriginServer({
   const proxyRequest = async (request, response) => {
     const worker = await backendPool.nextHealthy();
     if (!worker) {
-      respondNoHealthyBackend(request, response);
+      const isHealthRead = canRetryReadRequest(request)
+        && requestPathname(request.url) === requestPathname(healthPath);
+      respondNoHealthyBackend(request, response, isHealthRead ? backendPool.healthFailureDiagnostic() : null);
       return;
     }
     proxyToBackend(request, response, worker, backendPool);

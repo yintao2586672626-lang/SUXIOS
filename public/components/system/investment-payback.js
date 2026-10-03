@@ -580,8 +580,8 @@
                         : key === 'hotel_id' ? value === null ? project[key] === null : Number(project[key]) === value : project[key] === value));
             };
             const saveProjectReadback = async (input, previous, cutoff) => {
-                let readback = await api('/projects', input, previous);
-                if (!matchesProjectWrite(readback, input, previous)) readback = await api(`/projects/${readback.project.id}?as_of=${cutoff}`, undefined, { ...previous, ...input });
+                const written = await api('/projects', input, previous);
+                const readback = await api(`/projects/${written.project.id}?as_of=${cutoff}`, undefined, { ...written.project, ...previous, ...input, id: written.project.id });
                 if (!matchesProjectWrite(readback, input, previous)) throw new Error('项目或测算假设保存后的精确回读未通过，请保留当前内容并用同一记录重试或重新读取核对。');
                 return readback;
             };
@@ -643,9 +643,9 @@
                 try {
                     const project = { ...detail.value.project }, cutoff = asOf.value;
                     const input = { ...entryForm.value, confirmed_zero: entryForm.value.kind === 'recovery' && entryForm.value.amount !== '' && Number(entryForm.value.amount) === 0 && entryForm.value.confirmed_zero, original_entry_id: entryForm.value.kind === 'refund' ? (entryForm.value.original_entry_id || null) : null };
-                    let readback = await api(`/projects/${project.id}/entries`, input, project);
-                    // A partial write reply is uncertain; one scoped read can establish the record without another write.
-                    if (!savedEntry(readback, input)) readback = await api(`/projects/${project.id}?as_of=${cutoff}`, undefined, project);
+                    await api(`/projects/${project.id}/entries`, input, project);
+                    // A write reply alone cannot establish persistence, even when all submitted fields are present.
+                    const readback = await api(`/projects/${project.id}?as_of=${cutoff}`, undefined, project);
                     verifyEntryReadback(readback, input, project);
                     detail.value = readback;
                     entryForm.value = null;

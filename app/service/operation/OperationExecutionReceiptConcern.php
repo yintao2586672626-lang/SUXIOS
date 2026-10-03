@@ -1,10 +1,39 @@
 <?php
 declare(strict_types=1);
-
 namespace app\service\operation;
-
 trait OperationExecutionReceiptConcern
 {
+    /** Keep legacy omitted-status behavior identical at every execution gate. */
+    private function normalizeExecutionTaskStatus(array $input): string
+    {
+        return trim((string)($input['status'] ?? 'executed'));
+    }
+    private static function assertExecutionTaskStatusAndReceipt(string $status, array $evidence): void
+    {
+        if (!in_array($status, ['executing', 'blocked', 'executed', 'failed'], true)) {
+            throw new \InvalidArgumentException('execution status is not supported');
+        }
+        $response = self::executionReceiptArray($evidence['platform_response'] ?? []);
+        if ($status === 'executed' && self::executionPlatformResponseReportsFailure($response)) {
+            throw new \InvalidArgumentException('执行回执明确失败或已停止，不能标记为已执行');
+        }
+    }
+    /** A meaningful failure receipt is evidence, but cannot prove completion. */
+    private static function executionPlatformResponseReportsFailure(array $response): bool
+    {
+        foreach (['execution_failed', 'stop_condition_triggered'] as $field) {
+            if (filter_var($response[$field] ?? false, FILTER_VALIDATE_BOOLEAN)) return true;
+        }
+        foreach (['status', 'execution_status'] as $field) {
+            if (in_array(strtolower(trim((string)($response[$field] ?? ''))),
+                ['failed', 'error', 'rejected', 'stopped', 'rolled_back'], true)) return true;
+        }
+        foreach (['operator_execution_evidence', 'execution_receipt', 'platform_receipt', 'action_receipt', 'receipt'] as $field) {
+            $nested = self::executionReceiptArray($response[$field] ?? []);
+            if ($nested !== [] && self::executionPlatformResponseReportsFailure($nested)) return true;
+        }
+        return false;
+    }
     /**
      * One authoritative minimum contract for a real execution receipt.
      *
@@ -27,7 +56,6 @@ trait OperationExecutionReceiptConcern
         ], true)) {
             return false;
         }
-
         $createdBy = array_key_exists('created_by', $evidence)
             ? (int)$evidence['created_by']
             : null;
@@ -39,7 +67,6 @@ trait OperationExecutionReceiptConcern
         if ($createdBy !== null && $createdBy <= 0) {
             return false;
         }
-
         $before = self::executionReceiptArray($evidence['before'] ?? $evidence['before_json'] ?? []);
         $after = self::executionReceiptArray($evidence['after'] ?? $evidence['after_json'] ?? []);
         if (self::executionReceiptContainsAuditableStateChange($before, $after)) {

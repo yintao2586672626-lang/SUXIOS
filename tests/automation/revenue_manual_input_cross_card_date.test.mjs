@@ -29,6 +29,7 @@ const requestSource = [
   part('            const request = async (', '            const apiRequest = request;'),
 ].join('\n');
 const names = [
+  'resolveDemandForecastListPayload', 'demandForecastReadState', 'competitorPriceSampleMatches', 'verifyCompetitorPriceSaveReadback',
   ...['captureRevenueForecastRange', 'isRevenueForecastRangeCurrent'].filter(name => main.includes('            const ' + name + ' =')),
   ...(main.includes('            const applyDemandForecastReadback =') ? ['applyDemandForecastReadback'] : []),
   'manualCtripPricingInputMeta', 'firstEnabledRoomTypeId', 'emptyCompetitorAnalysis', 'createCompetitorPriceForm',
@@ -83,9 +84,11 @@ async function harness() {
   }).map(([key, value]) => [key, Vue.ref(value)]));
   const requests = [], notices = [];
   let workbenchReads = 0;
+  state.competitorPriceSaveReadback = Vue.ref(null);
   const sandbox = {
     ...state, computed: Vue.computed, window: {}, URL, URLSearchParams, Headers, AbortController, DOMException, Date, Intl,
     setTimeout, clearTimeout, console: { error() {}, warn() {} }, API_BASE: 'https://synthetic.invalid/api',
+    demandForecastsRequestSequence: 0,
     authSessionEpoch: 1, pageRequestGeneration: 0, agentRevenueStateEpoch: 1, competitorAnalysisRequestSeq: 0,
     user: Vue.ref({ id: 11, tenant_id: 7 }), token: Vue.ref(''),
     authContext: Vue.ref({ tenantId: 7, hotelId: 80, permissionStatus: 'allowed', platform: 'all' }),
@@ -260,6 +263,7 @@ async function save(h,kind,expectedOther) {
   if(kind==='sample') {
     const read=response([saved]);read.date=sampleDraft.analysis_date;read.query_scope.date=sampleDraft.analysis_date;
     assert.equal(h.state.competitorFilter.value.date,sampleDraft.analysis_date);
+    h.reply(h.latest('GET'), {code:200,data:read}); await tick();
     h.settleReads(read);
   } else {
     const get=h.latest('GET'),url=new URL(get.url);
@@ -290,7 +294,7 @@ for(const first of ['sample','forecast']) test(`${first} save preserves the othe
   await save(h,first==='sample'?'forecast':'sample',firstReset);
   assert.equal(h.state.priceSuggestionFilter.value.date,'2026-09-15','A save never implies an explicit global date change');
   assert.equal(h.requests.filter(r=>r.options.method==='POST').length,2,'Only the two native save clicks write');
-  assert.equal(h.requests.filter(r=>(r.options.method||'GET')==='GET').length,4);
+  assert.equal(h.requests.filter(r=>(r.options.method||'GET')==='GET').length,5);
   assert.equal(h.requests.filter(r=>(r.options.method||'GET')==='GET'
     && new URL(r.url).pathname==='/api/agent/demand-forecasts').length,2,
     'Each cross-range save refreshes the forecast for its own resulting range');

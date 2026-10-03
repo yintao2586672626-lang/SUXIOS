@@ -1308,7 +1308,23 @@ final class OperationEffectReviewService
         if (is_nan($number) || is_infinite($number) || abs($number) >= 100000000000000.0) {
             throw new InvalidArgumentException($label . '超出允许范围');
         }
-        return number_format($number, 6, '.', '');
+        $normalized = number_format($number, 6, '.', '');
+        if (is_string($value)
+            && preg_match('/^([+-]?)(\d*)(?:\.(\d*))?$/D', trim($value), $parts) === 1
+        ) {
+            $fraction = rtrim($parts[3] ?? '', '0');
+            if (strlen($fraction) <= 6) {
+                $whole = ltrim($parts[2], '0');
+                $whole = $whole === '' ? '0' : $whole;
+                $fraction = str_pad($fraction, 6, '0');
+                $negative = $parts[1] === '-' && ($whole !== '0' || $fraction !== '000000');
+                $declared = ($negative ? '-' : '') . $whole . '.' . $fraction;
+                if ($declared !== $normalized) {
+                    throw new InvalidArgumentException($label . '无法按六位小数精确回读；原始数值已保留，请核对来源精度');
+                }
+            }
+        }
+        return $normalized;
     }
 
     private function optionalDecimal(mixed $value, string $label): ?string

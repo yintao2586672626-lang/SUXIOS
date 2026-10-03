@@ -4,12 +4,14 @@ declare(strict_types=1);
 namespace Tests;
 
 use app\controller\AiGovernance;
+use app\controller\Base;
 use app\model\AiModelCallLog;
 use app\service\LlmClient;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
 use think\App;
+use think\Request;
 use think\facade\Config;
 use think\facade\Db;
 
@@ -133,6 +135,125 @@ final class LlmUsagePersistenceTest extends TestCase
         $row = AiModelCallLog::order('id')->find()->toArray();
         self::assertSame('failed', $row['status']);
         self::assertSame(12, $row['governance_json']['usage_observation']['total_tokens']);
+    }
+
+    public function testLogApiFiltersHotelsExactlyAndReturnsTheSavedHotelInListAndDetail(): void
+    {
+        $hotel17 = $this->seedUsageLog(17, 12);
+        $hotel18 = $this->seedUsageLog(18, 24);
+        $this->seedUsageLog(0, null);
+
+        foreach ([[17, $hotel17, 12], ['18', $hotel18, 24]] as [$filter, $id, $tokens]) {
+            $controller = $this->logController(['hotel_id' => $filter]);
+            $response = $controller->logs();
+            self::assertSame(200, $response->getCode());
+            $payload = $response->getData();
+            self::assertSame(1, $payload['data']['total']);
+            self::assertCount(1, $payload['data']['list']);
+            $row = $payload['data']['list'][0];
+            self::assertSame($id, $row['id']);
+            self::assertSame((int)$filter, $row['hotel_id']);
+            self::assertSame('recorded', $row['hotel_scope_status']);
+            self::assertSame($tokens, $row['usage_observation']['total_tokens']);
+
+            $detail = $controller->logDetail($id)->getData()['data'];
+            self::assertSame($row['hotel_id'], $detail['hotel_id']);
+            self::assertSame($row['hotel_scope_status'], $detail['hotel_scope_status']);
+            self::assertSame($row['usage_observation'], $detail['usage_observation']);
+        }
+
+        $missing = $this->logController(['hotel_id' => '19'])->logs()->getData()['data'];
+        self::assertSame(0, $missing['total']);
+        self::assertSame([], $missing['list']);
+    }
+
+    public function testUnfilteredLogApiKeepsGlobalRowsAndMarksUnrecordedHotelsUnknown(): void
+    {
+        $hotel17 = $this->seedUsageLog(17, 12);
+        $hotel18 = $this->seedUsageLog(18, 24);
+        $zeroHotel = $this->seedUsageLog(0, null);
+        $missingHotel = $this->seedUsageLog(null, null);
+        $controller = $this->logController();
+        $payload = $controller->logs()->getData()['data'];
+        self::assertSame(4, $payload['total']);
+        self::assertSame([$missingHotel, $zeroHotel, $hotel18, $hotel17], array_column($payload['list'], 'id'));
+
+        foreach ([$zeroHotel, $missingHotel] as $id) {
+            $row = array_values(array_filter($payload['list'], static fn(array $row): bool => $row['id'] === $id))[0];
+            self::assertArrayHasKey('hotel_id', $row);
+            self::assertNull($row['hotel_id']);
+            self::assertSame('unknown', $row['hotel_scope_status']);
+            self::assertSame('legacy_unknown', $row['usage_observation']['status']);
+            $detail = $controller->logDetail($id)->getData()['data'];
+            self::assertNull($detail['hotel_id']);
+            self::assertSame('unknown', $detail['hotel_scope_status']);
+        }
+
+        $format = new ReflectionMethod(AiGovernance::class, 'formatLogRow');
+        $oldRow = $format->invoke($controller, ['id' => 99], false);
+        self::assertNull($oldRow['hotel_id']);
+        self::assertSame('unknown', $oldRow['hotel_scope_status']);
+    }
+
+    public function testLogApiRejectsInvalidHotelFiltersInsteadOfReturningGlobalRows(): void
+    {
+        $this->seedUsageLog(17, 12);
+        foreach (['', '0', 0, '-17', -17, '17.5', 17.5, '1e1', '+17', '017', ' 17 ', '17x',
+            (string)PHP_INT_MAX . '0', [], ['17'], true, false, null] as $invalid) {
+            $response = $this->logController(['hotel_id' => $invalid])->logs();
+            self::assertSame(422, $response->getCode(), 'Invalid filter: ' . json_encode($invalid));
+            $payload = $response->getData();
+            self::assertSame(422, $payload['code']);
+            self::assertNull($payload['data']);
+        }
+    }
+
+    public function testSecondPageReadsTheOlderSavedHotelLogWithExactTotalAndUsage(): void
+    {
+        $oldest = $this->seedUsageLog(17, 1);
+        for ($tokens = 2; $tokens <= 31; $tokens++) {
+            $this->seedUsageLog(17, $tokens);
+        }
+        $this->seedUsageLog(18, 99);
+        $controller = $this->logController(['hotel_id' => '17', 'page' => 2, 'page_size' => 30]);
+        $page = $controller->logs()->getData()['data'];
+        self::assertSame(31, $page['total']);
+        self::assertSame(2, $page['page']);
+        self::assertSame(30, $page['page_size']);
+        self::assertCount(1, $page['list']);
+        self::assertSame($oldest, $page['list'][0]['id']);
+        self::assertSame(17, $page['list'][0]['hotel_id']);
+        self::assertSame(1, $page['list'][0]['usage_observation']['total_tokens']);
+        self::assertSame($page['list'][0]['usage_observation'], $controller->logDetail($oldest)->getData()['data']['usage_observation']);
+        $first = $this->logController(['hotel_id' => '17', 'page' => 1, 'page_size' => 30])->logs()->getData()['data'];
+        self::assertCount(30, $first['list']);
+        self::assertSame([17], array_values(array_unique(array_column($first['list'], 'hotel_id'))));
+        self::assertSame(31, $first['total']);
+    }
+
+    private function seedUsageLog(?int $hotelId, ?int $tokens): int
+    {
+        self::assertSame('sqlite', Config::get('database.default'));
+        $governance = $tokens === null ? [] : ['usage_observation' => \app\service\LlmUsageObservation::summarize([
+            \app\service\LlmUsageObservation::receipt(json_encode(['usage' => [
+                'prompt_tokens' => $tokens, 'completion_tokens' => 0, 'total_tokens' => $tokens,
+            ]])),
+        ])];
+        return (int)Db::name('ai_model_call_logs')->insertGetId([
+            'hotel_id' => $hotelId, 'status' => 'success', 'governance_json' => json_encode($governance),
+            'created_at' => '2026-09-30 10:00:00',
+        ]);
+    }
+
+    private function logController(array $filters = []): AiGovernance
+    {
+        $controller = (new ReflectionClass(AiGovernance::class))->newInstanceWithoutConstructor();
+        $base = new ReflectionClass(Base::class);
+        $base->getProperty('request')->setValue($controller, (new Request())->withGet($filters));
+        $base->getProperty('currentUser')->setValue($controller, new class {
+            public function isSuperAdmin(): bool { return true; }
+        });
+        return $controller;
     }
 
     private static function reply(int $status = 200): array

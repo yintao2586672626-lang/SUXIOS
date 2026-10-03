@@ -73,6 +73,7 @@ final class OtaLocalCollectorRealImportFixture
         $this->createSchema();
         $this->seedActor();
         $evidenceStore = new OtaLocalCollectorEvidenceStore($this->root . '/evidence');
+        // Consumer proof uses the same original evidence as the real import; no success is stubbed.
         $app->bind(OtaLocalCollectorReadbackProofService::class, fn() => new OtaLocalCollectorReadbackProofService($evidenceStore));
         $this->service = new OtaLocalCollectorService(
             collectionImporter: null,
@@ -132,6 +133,7 @@ final class OtaLocalCollectorRealImportFixture
         if ($includeTraffic) {
             $rows[] = $common + [
                 'data_type' => 'traffic', 'list_exposure' => 120, 'detail_exposure' => 40,
+                // Explicit percent input exercises production normalization without assuming a numeric fraction.
                 'flow_rate' => '25%', 'source_trace_id' => 'synthetic-traffic-row',
                 '_source_path' => '$.synthetic.traffic', 'source_url_hash' => hash('sha256', 'https://synthetic.invalid/traffic'),
             ];

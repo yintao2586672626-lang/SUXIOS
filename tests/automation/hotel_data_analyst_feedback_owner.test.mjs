@@ -137,6 +137,11 @@ test('both original consumers pass a live session getter and current state to fe
   const captured = [], live = { epoch: 4, value: {} };
   const runtime = { ref: value => ({ value }), computed: read => ({ get value() { return read(); } }), inject: () => ({ state: live, sessionEpoch: () => live.epoch }), h: () => null, nextTick: async () => {}, onMounted: () => {}, onUnmounted: () => {} };
   const sandbox = { window: { Vue: { watch: () => {} }, SUXI_HOTEL_DATA_ANALYST_COMPONENTS: { create: () => ({ suggestions: [], createFeedbackUi: options => { captured.push(options); return {}; }, renderQualityReceipt: () => null, hotelDataAnalystProfile: {} }) } }, console };
+  // Use the actual analyst renderer helpers while spying only on feedback ownership.
+  const actual = { window: {}, console };
+  vm.runInNewContext(source, actual);
+  const analyst = actual.window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS.create(runtime);
+  sandbox.window.SUXI_HOTEL_DATA_ANALYST_COMPONENTS.create = () => ({ ...analyst, createFeedbackUi: options => { captured.push(options); return {}; } });
   vm.runInNewContext(fs.readFileSync('public/components/system/operating-evidence-navigation.js', 'utf8'), sandbox);
   vm.runInNewContext(fs.readFileSync('public/components/system/operating-intelligence-loader.js', 'utf8'), sandbox);
   vm.runInNewContext(fs.readFileSync('public/components/system/operating-intelligence-components.js', 'utf8'), sandbox);

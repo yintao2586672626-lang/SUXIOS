@@ -16,8 +16,24 @@ final class StoredOtaHistoryLocatorTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
-        (new App(dirname(__DIR__)))->initialize();
-        self::$originalConfig = Config::get('database');
+        $emptyRoot = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'stored-history-root-' . bin2hex(random_bytes(6));
+        mkdir($emptyRoot, 0700, true);
+        $app = new App($emptyRoot);
+        $app->config->set([
+            'default' => 'file',
+            'stores' => ['file' => ['type' => 'File', 'path' => $emptyRoot . '/cache/', 'prefix' => 'synthetic_', 'expire' => 0]],
+        ], 'cache');
+        $app->config->set([
+            'default' => 'file',
+            'channels' => ['file' => ['type' => 'File', 'path' => $emptyRoot . '/log/']],
+        ], 'log');
+        try {
+            $app->initialize();
+        } finally {
+            restore_error_handler();
+            restore_exception_handler();
+        }
+        self::$originalConfig = Config::get('database', []);
         $connection = 'stored_history_test_' . bin2hex(random_bytes(6));
         self::$databasePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $connection . '.sqlite';
         $config = self::$originalConfig;

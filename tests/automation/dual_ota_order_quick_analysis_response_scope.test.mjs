@@ -53,9 +53,10 @@ test('dual-OTA quick read rejects wrong hotel, metric scope, platform identity a
   assert.equal(h.instance.quickAnalysis.status, 'data_missing');
   assert.equal(h.instance.quickError, '');
   assert.equal(h.instance.quickStale, false);
+  const previous = h.instance.quickAnalysis;
   await h.respond(valid({ hotel: { id: 81 } }));
-  assert.equal(h.instance.quickAnalysis, null, 'a mismatched later response must remove the prior card');
-  assert.equal(h.instance.quickStale, false);
+  assert.equal(h.instance.quickAnalysis, previous, 'a foreign receipt cannot replace the retained same-scope result');
+  assert.equal(h.instance.quickStale, true, 'the retained result must be marked as previous rather than current');
   await h.respond(valid());
   assert.equal(h.instance.quickAnalysis.status, 'data_missing');
 });
@@ -65,7 +66,9 @@ test('latest saved range accepts a null requested range but rejects an unexpecte
   const latest = valid({ date_range: { from: '2026-09-01', to: '2026-09-30', requested_from: null, requested_to: null } });
   await h.respond(latest);
   assert.equal(h.instance.quickAnalysis.status, 'data_missing');
+  const previous = h.instance.quickAnalysis;
   await h.respond(valid());
-  assert.equal(h.instance.quickAnalysis, null);
+  assert.equal(h.instance.quickAnalysis, previous);
+  assert.equal(h.instance.quickStale, true);
   assert.match(h.instance.quickError, /日期范围.*不一致/);
 });

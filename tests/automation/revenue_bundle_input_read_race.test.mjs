@@ -13,7 +13,7 @@ const declaration = name => {
   assert.ok(start >= 0 && end, `actual declaration: ${name}`);
   return main.slice(start, start + 1 + end.index);
 };
-const production = ['captureAuthSession', 'isAuthSessionCurrent',
+const production = ['resolveDemandForecastListPayload','resolvePriceSuggestionListPayload','captureAuthSession', 'isAuthSessionCurrent',
   ...['applyRevenueAiOverviewReadback', 'captureRevenueForecastRange', 'isRevenueForecastRangeCurrent'].filter(name => main.includes('            const ' + name + ' =')),
   ...['applyRevenueDashboardReadback', 'applyRevenueAnalysisReadback'].filter(name => main.includes('            const ' + name + ' =')),
   ...(main.includes('            const applyRoomTypeReadback =') ? ['applyRoomTypeReadback'] : []),
@@ -21,7 +21,7 @@ const production = ['captureAuthSession', 'isAuthSessionCurrent',
   'captureAgentRevenueRequestContext', 'isAgentRevenueRequestCurrent',
   'createRoomTypeConfigForm', 'firstEnabledRoomTypeId', 'createPriceSuggestionPagination',
   'createRevenueLoadState', 'createEmptyRevenueAnalysisData', 'createEmptyRevenueDashboard',
-  'setRevenueLoadState', 'loadRoomTypes', 'loadDemandForecasts', 'loadRevenueAnalysisBundle',
+  'setRevenueLoadState', 'resetRoomTypeConfigForm', 'loadRoomTypes', 'loadDemandForecasts', 'loadRevenueAnalysisBundle',
 ].map(declaration).join('\n');
 const copy = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -49,7 +49,7 @@ function harness() {
   const context = vm.createContext({ ...refs, URLSearchParams, console: { error() {} },
     authSessionEpoch: 1, agentRevenueStateEpoch: 1,
     priceSuggestionRequestSeq: 0, revenueAnalysisBundleRequestSeq: 0,
-    revenueAiOverviewRequestSeq: 0, revenueAiOverviewRequestPromises: new Map(),
+    roomTypesRequestSequence:0,demandForecastsRequestSequence:0,revenueAiOverviewRequestSeq: 0, revenueAiOverviewRequestPromises: new Map(),
     ensureRevenueAiStaticReady: async () => true, loadRevenueAiOverview: async () => null,
     resetCompetitorAnalysisView() {}, formatDate: () => '2026-09-12',
     revenueAiResolveOverviewResponse: ({ response }) => ({ overview: response.data, errorMessage: '' }),
@@ -79,7 +79,7 @@ function harness() {
     const empty = outcome === 'empty';
     const rooms = { list: empty ? [] : [{ id: 100 + index, marker, name: marker, is_enabled: 1, min_price: 0 }],
       input_scope: 'hotel_room_type', evidence_status: 'synthetic', next_action: marker };
-    const forecasts = { forecasts: empty ? [] : [{ marker, predicted_demand: 0 }],
+    const forecasts = { forecasts: empty ? [] : [{ marker, predicted_demand: 0, forecast_date: new URL(row.url, 'https://synthetic.invalid').searchParams.get('start_date') }],
       accuracy: empty ? {} : { marker, mae: 0 }, high_demand_dates: empty ? [] : [{ marker }] };
     const data = row.url.startsWith('/agent/revenue-bundle?') ? {
       overview: { marker }, analysis: { statistics: { marker } }, dashboard: { today_suggestions: [{ marker }] },
@@ -214,7 +214,7 @@ for (const { kind, key } of inputs) {
     h.refs.filterReportHotel.value = '';
     const noHotel = await begin(h, kind); await noHotel.pending;
     assert.equal(noHotel.index, -1);
-    assert.equal(h.state(key).status, 'empty');
+    assert.equal(h.state(key).status, key === 'roomTypes' ? 'not_loaded' : 'empty');
     const expected = h.snapshot(key);
     h.settle(old.index, 'success', 'old-hotel'); await old.pending;
     assert.deepEqual(h.snapshot(key), expected);
@@ -284,7 +284,7 @@ test('a no-hotel bundle makes both inputs empty without issuing transport reques
   assert.equal(current.index, -1);
   assert.equal(h.requests.length, 0);
   for (const { key } of inputs) {
-    assert.equal(h.state(key).status, 'empty');
+    assert.equal(h.state(key).status, 'not_loaded');
     assert.deepEqual(h.snapshot(key).list, []);
   }
   assert.equal(h.refs.revenueAiOverviewLoading.value, false);

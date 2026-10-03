@@ -7,7 +7,7 @@ import { readSourceAggregate } from './lib/source_aggregate.mjs';
 const root = process.cwd();
 const read = (file) => file === 'route/app.php'
   ? readRouteContractSource(root)
-  : file === 'app/service/OperationManagementService.php'
+  : ['app/service/OperationManagementService.php', 'app/service/RevenueAiOverviewService.php'].includes(file)
     ? readSourceAggregate(file, { repoRoot: root })
   : fs.readFileSync(path.join(root, file), 'utf8');
 const readContractSource = (file) => file === 'public/index.html'

@@ -27,7 +27,7 @@ const requestSource = [
   part('            const COORDINATED_GET_MAX_CONCURRENCY =', '            // API 请求'),
   part('            const request = async (', '            const apiRequest = request;'),
 ].join('\n');
-const names = [...(main.includes('            const applyRoomTypeReadback =') ? ['applyRoomTypeReadback'] : []), 'createRoomTypeConfigForm', 'firstEnabledRoomTypeId', 'captureAgentRevenueRequestContext', 'isAgentRevenueRequestCurrent', 'setRevenueLoadState', 'loadRoomTypes'];
+const names = ['roomTypeConfigReadState','roomTypeConfigSavedRowMatches','verifyRoomTypeConfigSaveReadback',...(main.includes('            const applyRoomTypeReadback =') ? ['applyRoomTypeReadback'] : []), 'createRoomTypeConfigForm', 'firstEnabledRoomTypeId', 'captureAgentRevenueRequestContext', 'isAgentRevenueRequestCurrent', 'setRevenueLoadState', 'loadRoomTypes'];
 let card, tab;
 const walkAst = (node, ancestors = []) => {
   if (node.type === 1 && node.props.some(p => p.name === 'data-testid' && p.value?.content === 'agent-room-type-pricing-guard')) card = node;
@@ -57,7 +57,7 @@ async function harness() {
   const sandbox = {
     ...state, window: {}, URL, URLSearchParams, Headers, AbortController, DOMException, Date, Intl,
     setTimeout, clearTimeout, console: { error() {}, warn() {} }, API_BASE: 'https://synthetic.invalid/api',
-    authSessionEpoch: 1, pageRequestGeneration: 0, agentRevenueStateEpoch: 1,
+    roomTypesRequestSequence:0, authSessionEpoch: 1, pageRequestGeneration: 0, agentRevenueStateEpoch: 1,
     user: Vue.ref({ id: 11, tenant_id: 7 }), token: Vue.ref(''),
     authContext: Vue.ref({ tenantId: 7, hotelId: 80, permissionStatus: 'allowed', platform: 'all' }),
     revenueAiBusinessDate: Vue.ref('2026-09-15'), coreOperationsTargetDate: Vue.ref('2026-09-15'),
@@ -74,7 +74,7 @@ async function harness() {
       requests.push({ url, options, resolve, reject, settled: false });
     }),
   };
-  vm.createContext(sandbox); vm.runInContext(system, sandbox);
+  state.roomTypeConfigSaveReadback=Vue.ref(null); sandbox.roomTypeConfigSaveReadback=state.roomTypeConfigSaveReadback; sandbox.computed=Vue.computed; vm.createContext(sandbox); vm.runInContext(system, sandbox);
   sandbox.appSystemStatic = sandbox.window.SUXI_SYSTEM_STATIC;
   sandbox.requireAppSystemStatic = key => sandbox.appSystemStatic[key];
   vm.runInContext(requestSource + '\n' + names.map(declaration).join('\n') + '\nglobalThis.methods={' + names.join(',') + '};', sandbox);

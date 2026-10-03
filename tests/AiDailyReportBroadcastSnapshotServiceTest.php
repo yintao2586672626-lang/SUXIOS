@@ -465,6 +465,7 @@ final class AiDailyReportBroadcastSnapshotServiceTest extends TestCase
         self::assertStringContainsString('美团曝光人数事实缺失', $draft['final_text']);
     }
 
+    /** @param array<string,mixed> $closure */
     private function service(
         array $closure,
         string $now = '2026-08-25 09:00:00'

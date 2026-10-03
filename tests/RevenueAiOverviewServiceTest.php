@@ -524,11 +524,19 @@ final class RevenueAiOverviewServiceTest extends TestCase
         self::assertSame(1200.0, $overview['metrics']['ota_room_revenue']['value']);
         self::assertNotSame('ready', $overview['channel_metric_statuses']['ctrip']['metrics']['competitor_price']['status']);
         self::assertSame('unverified', $overview['signals']['competitor_price_warning']['status']);
-        self::assertSame('competitor_price_source_unverified', $overview['signals']['competitor_price_warning']['reason']);
+        self::assertSame('metric_truth_unverified', $overview['signals']['competitor_price_warning']['reason']);
         self::assertSame('--', $overview['signals']['competitor_price_warning']['value']);
+        self::assertSame('unverified', $overview['signals']['competitor_price_warning']['truth']['status']);
+        self::assertSame(1, $overview['signals']['competitor_price_warning']['truth']['persistence']['record_count']);
+        self::assertSame(0, $overview['signals']['competitor_price_warning']['truth']['persistence']['readback_verified_count']);
+        self::assertSame('online-data', $overview['signals']['competitor_price_warning']['target_page']);
+        self::assertSame('data-health', $overview['signals']['competitor_price_warning']['target_tab']);
+        self::assertStringContainsString('精确回读', $overview['signals']['competitor_price_warning']['next_action']);
         $pricingGates = array_column($overview['pricing_readiness']['gates'], null, 'key');
         self::assertSame('blocked', $pricingGates['competitor_price']['status']);
-        self::assertSame('competitor_price_source_unverified', $pricingGates['competitor_price']['reason']);
+        self::assertSame('metric_truth_unverified', $pricingGates['competitor_price']['reason']);
+        self::assertSame('online-data', $pricingGates['competitor_price']['target_page']);
+        self::assertSame('data-health', $pricingGates['competitor_price']['target_tab']);
 
         $price['source_trace']['readback_verified'] = true;
         $price['source_trace']['saved_success'] = true;
@@ -557,9 +565,9 @@ final class RevenueAiOverviewServiceTest extends TestCase
             ['business_date' => '2026-06-25', 'hotel_id' => 7, 'enabled_channels' => ['ctrip']]
         );
         self::assertSame('partial', $partialOverview['signals']['competitor_price_warning']['status']);
-        self::assertSame('competitor_price_source_partial', $partialOverview['signals']['competitor_price_warning']['reason']);
+        self::assertSame('metric_truth_partial', $partialOverview['signals']['competitor_price_warning']['reason']);
         self::assertSame('--', $partialOverview['signals']['competitor_price_warning']['value']);
-        self::assertStringContainsString('部分来源', $partialOverview['signals']['competitor_price_warning']['detail']);
+        self::assertStringContainsString('部分事实', $partialOverview['signals']['competitor_price_warning']['detail']);
 
         $failedPrice = $price;
         $failedPrice['source_trace']['readback_verified'] = false;
@@ -572,8 +580,8 @@ final class RevenueAiOverviewServiceTest extends TestCase
             ['ctrip' => ['status' => 'ready', 'last_sync_status' => 'success']],
             ['business_date' => '2026-06-25', 'hotel_id' => 7, 'enabled_channels' => ['ctrip']]
         );
-        self::assertSame('failed', $failedOverview['signals']['competitor_price_warning']['status']);
-        self::assertSame('competitor_price_source_collection_failed', $failedOverview['signals']['competitor_price_warning']['reason']);
+        self::assertSame('collection_failed', $failedOverview['signals']['competitor_price_warning']['status']);
+        self::assertSame('metric_truth_collection_failed', $failedOverview['signals']['competitor_price_warning']['reason']);
         self::assertStringContainsString('采集失败', $failedOverview['signals']['competitor_price_warning']['detail']);
 
         $price['our_price'] = 240.0;
@@ -667,8 +675,14 @@ final class RevenueAiOverviewServiceTest extends TestCase
 
         self::assertSame(2, $overview['metric_summary']['booking_window_adr']['aligned_row_count']);
         self::assertSame('partial', $overview['signals']['booking_window_adr']['status']);
-        self::assertSame('booking_window_adr_source_partial', $overview['signals']['booking_window_adr']['reason']);
+        self::assertSame('metric_truth_partial', $overview['signals']['booking_window_adr']['reason']);
         self::assertSame('--', $overview['signals']['booking_window_adr']['value']);
+        self::assertSame('partial', $overview['signals']['booking_window_adr']['truth']['status']);
+        self::assertSame(2, $overview['signals']['booking_window_adr']['truth']['persistence']['record_count']);
+        self::assertSame(1, $overview['signals']['booking_window_adr']['truth']['persistence']['readback_verified_count']);
+        self::assertSame('online-data', $overview['signals']['booking_window_adr']['target_page']);
+        self::assertSame('data-health', $overview['signals']['booking_window_adr']['target_tab']);
+        self::assertStringContainsString('精确回读', $overview['signals']['booking_window_adr']['next_action']);
 
         $overviewFor = function (array $facts): array {
             $scoped = $this->dataset($facts);
@@ -710,8 +724,8 @@ final class RevenueAiOverviewServiceTest extends TestCase
         $failed['source_trace']['saved_success'] = false;
         $failed['source_trace']['failure_reasons'] = ['collection_failed'];
         $failedOverview = $overviewFor([$sameDay, $failed]);
-        self::assertSame('failed', $failedOverview['signals']['booking_window_adr']['status']);
-        self::assertSame('booking_window_adr_source_collection_failed', $failedOverview['signals']['booking_window_adr']['reason']);
+        self::assertSame('collection_failed', $failedOverview['signals']['booking_window_adr']['status']);
+        self::assertSame('metric_truth_collection_failed', $failedOverview['signals']['booking_window_adr']['reason']);
 
         $unverified = $sameDay;
         $unverified['source_trace']['readback_verified'] = false;
@@ -752,8 +766,14 @@ final class RevenueAiOverviewServiceTest extends TestCase
         $partial = $overviewFor([$july, $unverifiedAugust]);
         self::assertSame(2, $partial['metric_summary']['channel_booking_window_month']['supported_cell_count']);
         self::assertSame('partial', $partial['signals']['channel_booking_window_month']['status']);
-        self::assertSame('channel_booking_window_month_source_partial', $partial['signals']['channel_booking_window_month']['reason']);
+        self::assertSame('metric_truth_partial', $partial['signals']['channel_booking_window_month']['reason']);
         self::assertSame('--', $partial['signals']['channel_booking_window_month']['value']);
+        self::assertSame('partial', $partial['signals']['channel_booking_window_month']['truth']['status']);
+        self::assertSame(2, $partial['signals']['channel_booking_window_month']['truth']['persistence']['record_count']);
+        self::assertSame(1, $partial['signals']['channel_booking_window_month']['truth']['persistence']['readback_verified_count']);
+        self::assertSame('online-data', $partial['signals']['channel_booking_window_month']['target_page']);
+        self::assertSame('data-health', $partial['signals']['channel_booking_window_month']['target_tab']);
+        self::assertStringContainsString('精确回读', $partial['signals']['channel_booking_window_month']['next_action']);
 
         $verified = $overviewFor([$july, $august]);
         self::assertSame('ok', $verified['signals']['channel_booking_window_month']['status']);
@@ -787,8 +807,8 @@ final class RevenueAiOverviewServiceTest extends TestCase
         $failedAugust = $unverifiedAugust;
         $failedAugust['source_trace']['failure_reasons'] = ['collection_failed'];
         $failed = $overviewFor([$july, $failedAugust]);
-        self::assertSame('failed', $failed['signals']['channel_booking_window_month']['status']);
-        self::assertSame('channel_booking_window_month_source_collection_failed', $failed['signals']['channel_booking_window_month']['reason']);
+        self::assertSame('collection_failed', $failed['signals']['channel_booking_window_month']['status']);
+        self::assertSame('metric_truth_collection_failed', $failed['signals']['channel_booking_window_month']['reason']);
 
         $missing = $overviewFor([$this->dailyFact('ctrip', 300, 1, null, [
             'lead_time_days' => null, 'checkin_date' => '2026-07-01', 'order_count' => 12,

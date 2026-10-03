@@ -5,24 +5,23 @@ use app\service\ChannelEconomicsService;
 use app\service\MeituanMarketingFactProjectionService;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
-use think\App;
 use think\facade\Config;
 use think\facade\Db;
 
 final class ChannelEconomicsSourceReceiptsTest extends TestCase
 {
     private static array $config;
-    private static string $path;
 
     public static function setUpBeforeClass(): void
     {
-        (new App())->initialize();
-        self::$config = Config::get('database');
-        self::$path = sys_get_temp_dir() . '/channel-marketing-source-' . bin2hex(random_bytes(5)) . '.sqlite';
-        $config = self::$config;
-        $config['default'] = 'sqlite';
-        $config['connections']['sqlite'] = ['type' => 'sqlite', 'database' => self::$path, 'prefix' => '', 'fields_strict' => false];
-        Config::set($config, 'database');
+        self::$config = [];
+        foreach (['database', 'cache', 'log'] as $key) self::$config[$key] = Config::get($key, []);
+        $fixturePath = getenv('SUXIOS_CACHE_PATH') ?: sys_get_temp_dir() . '/channel-marketing-source-' . getmypid();
+        Config::set(['default' => 'file', 'stores' => ['file' => ['type' => 'File', 'path' => $fixturePath . '/cache/']]], 'cache');
+        Config::set(['default' => 'file', 'channels' => ['file' => ['type' => 'File', 'path' => $fixturePath . '/log/', 'close' => true]]], 'log');
+        Config::set(['default' => 'marketing_fixture', 'connections' => ['marketing_fixture' => [
+            'type' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'fields_strict' => false,
+        ]]], 'database');
         Db::connect(null, true);
         Db::execute('CREATE TABLE ota_settlement_import_batches (id INTEGER PRIMARY KEY, tenant_id INTEGER, hotel_id INTEGER, platform TEXT, period_start TEXT, period_end TEXT, imported_at TEXT)');
         Db::execute('CREATE TABLE online_daily_data (id INTEGER PRIMARY KEY, tenant_id INTEGER, system_hotel_id INTEGER, hotel_id TEXT, data_date TEXT, source TEXT, platform TEXT, data_type TEXT, dimension TEXT, amount REAL, list_exposure INTEGER, detail_exposure INTEGER, raw_data TEXT, history_status TEXT, validation_status TEXT, readback_verified INTEGER, source_trace_id TEXT, snapshot_time TEXT, data_period TEXT, ingestion_method TEXT)');
@@ -31,9 +30,7 @@ final class ChannelEconomicsSourceReceiptsTest extends TestCase
     public static function tearDownAfterClass(): void
     {
         Db::connect()->close();
-        Config::set(self::$config, 'database');
-        Db::connect(null, true);
-        if (is_file(self::$path)) unlink(self::$path);
+        foreach (self::$config as $key => $value) Config::set($value, $key);
     }
 
     protected function setUp(): void

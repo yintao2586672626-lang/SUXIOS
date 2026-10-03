@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-h921d0307c5';
+    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-hc80a2c3a08';
     const fullScriptAsset = fullScript.split('?', 1)[0];
     let fullScriptPromise = null;
 
@@ -224,7 +224,7 @@
             CtripOrderAnalysisPanel: systemComponents.CtripOrderAnalysisPanel || lazyFullComponent('CtripOrderAnalysisPanel'),
             requireSystemComponent,
             platformAutoPanelsScript: 'components/online-data/platform-auto-settings-panels.js?v=20260908-status-recovery-h1abce191b5',
-            ctripProfileFieldConfigPanelScript: 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split',
+            ctripProfileFieldConfigPanelScript: 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split-h0a5e1d8205',
             competitorDeviceManagementScript: 'components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3',
             dataConfigDialogsScript: 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1',
             automationCollectionContractScript: 'components/operations/automation-collection-contract.js?v=20260811-h80-binding-onboarding-v1',

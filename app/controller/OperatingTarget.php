@@ -43,7 +43,8 @@ final class OperatingTarget extends Base
                         ->history($tenantId, $hotelId, $targetDate, 20),
                     MeituanCloudPmsCaptureService::PROVIDER => $meituanCloudCaptures
                         ->history($tenantId, $hotelId, $targetDate, 20),
-                ]
+                ],
+                $tenantId
             );
             return $this->success($current);
         } catch (\InvalidArgumentException) {

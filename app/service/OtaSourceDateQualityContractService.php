@@ -19,11 +19,25 @@ final class OtaSourceDateQualityContractService
      */
     public function build(array $context, array $platformRow): array
     {
-        $source = strtolower(trim((string)($platformRow['platform'] ?? $context['source'] ?? '')));
+        // An omitted legacy field can inherit scope; an explicit empty/null value cannot.
+        $requestedSource = strtolower(trim((string)(array_key_exists('source', $context)
+            ? $context['source'] : ($platformRow['platform'] ?? ''))));
+        $observedSource = strtolower(trim((string)(array_key_exists('platform', $platformRow)
+            ? $platformRow['platform'] : $requestedSource)));
+        $source = $requestedSource;
+        $sourceIdentityValid = in_array($requestedSource, ['ctrip', 'meituan'], true)
+            && in_array($observedSource, ['ctrip', 'meituan'], true);
+        $sourceIdentityReady = $sourceIdentityValid && $requestedSource === $observedSource;
         $systemHotelId = max(0, (int)($context['system_hotel_id'] ?? $context['hotelId'] ?? 0));
         $systemHotelName = trim((string)($context['system_hotel_name'] ?? $context['currentHotelName'] ?? ''));
         $expectedHotelName = trim((string)($context['expected_hotel_name'] ?? $context['expectedHotelName'] ?? ''));
-        $targetDate = trim((string)($platformRow['targetDate'] ?? $context['target_date'] ?? $context['targetDate'] ?? ''));
+        $targetDate = trim((string)(array_key_exists('target_date', $context)
+            ? $context['target_date'] : (array_key_exists('targetDate', $context)
+                ? $context['targetDate'] : ($platformRow['targetDate'] ?? ''))));
+        $observedTargetDate = trim((string)(array_key_exists('targetDate', $platformRow)
+            ? $platformRow['targetDate'] : $targetDate));
+        $dateIdentityValid = $this->validBusinessDate($targetDate) && $this->validBusinessDate($observedTargetDate);
+        $dateIdentityReady = $dateIdentityValid && $targetDate === $observedTargetDate;
 
         $profile = is_array($platformRow['profile'] ?? null) ? $platformRow['profile'] : [];
         $sourceSummary = is_array($platformRow['sourceSummary'] ?? null) ? $platformRow['sourceSummary'] : [];
@@ -77,6 +91,14 @@ final class OtaSourceDateQualityContractService
                     'expected_hotel_name' => $expectedHotelName !== '' ? $expectedHotelName : null,
                 ]
             ),
+            'source_identity' => $this->stage(
+                $sourceIdentityReady,
+                $sourceIdentityValid ? 'source_identity_mismatch' : 'source_identity_invalid',
+                [
+                    'requested_source' => $requestedSource,
+                    'observed_source' => $observedSource,
+                ]
+            ),
             'platform_identity' => $this->stage(
                 $sourceReady && $platformIdentityConfigured,
                 !$sourceReady ? 'browser_profile_data_source_missing' : 'platform_hotel_or_poi_id_missing',
@@ -102,6 +124,14 @@ final class OtaSourceDateQualityContractService
                     'current_session_proof_required' => $currentSessionRequired,
                     'current_session_verified' => $currentSessionVerified,
                     'current_session_same_source' => $currentSessionSameSource,
+                ]
+            ),
+            'business_date_identity' => $this->stage(
+                $dateIdentityReady,
+                $dateIdentityValid ? 'business_date_identity_mismatch' : 'business_date_identity_invalid',
+                [
+                    'requested_target_date' => $targetDate,
+                    'observed_target_date' => $observedTargetDate,
                 ]
             ),
             'target_date_capture' => $this->stage(
@@ -143,6 +173,8 @@ final class OtaSourceDateQualityContractService
         );
         $hardIdentityOrBindingBlock = !$hotelIdentityReady
             || !$hotelNameMatches
+            || !$sourceIdentityReady
+            || !$dateIdentityReady
             || !$sourceReady
             || !$platformIdentityConfigured
             || !$bindingReady
@@ -150,7 +182,7 @@ final class OtaSourceDateQualityContractService
         $overallStatus = $requiredStagesReady
             ? 'ready'
             : ($hardIdentityOrBindingBlock || $targetRows <= 0 ? 'blocked' : 'partial');
-        $qualityStatus = $this->qualityStatus(
+        $qualityStatus = !$sourceIdentityReady || !$dateIdentityReady ? 'unverified' : $this->qualityStatus(
             $requiredStagesReady,
             $hotelIdentityReady && $hotelNameMatches,
             $sourceReady && $platformIdentityConfigured && $bindingReady && $profileExists,
@@ -284,6 +316,8 @@ final class OtaSourceDateQualityContractService
         $source = in_array($source, ['ctrip', 'meituan'], true) ? $source : 'ota';
         $actions = [
             'system_hotel_identity' => 'register_exact_system_hotel_identity',
+            'source_identity' => 'verify_requested_ota_source',
+            'business_date_identity' => 'verify_requested_business_date',
             'platform_identity' => 'configure_' . $source . '_browser_profile_source',
             'hotel_profile_binding' => 'bind_profile_to_exact_system_hotel',
             'authorization_session' => 'complete_authorized_' . $source . '_login',
@@ -297,9 +331,11 @@ final class OtaSourceDateQualityContractService
                     'code' => $action,
                     'requires_user_action' => in_array($stageKey, [
                         'system_hotel_identity',
+                        'source_identity',
                         'platform_identity',
                         'hotel_profile_binding',
                         'authorization_session',
+                        'business_date_identity',
                     ], true),
                 ];
             }
@@ -326,5 +362,13 @@ final class OtaSourceDateQualityContractService
     {
         $value = mb_strtolower(trim($value), 'UTF-8');
         return (string)preg_replace('/\s+/u', '', $value);
+    }
+
+    private function validBusinessDate(string $value): bool
+    {
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $value, $parts) !== 1) {
+            return false;
+        }
+        return checkdate((int)$parts[2], (int)$parts[3], (int)$parts[1]);
     }
 }

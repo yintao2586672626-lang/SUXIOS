@@ -5,6 +5,22 @@ namespace app\controller\concern;
 
 trait AgentOtaDiagnosisSummaryGuardConcern
 {
+    private function guardOtaDiagnosisRevenueDateCoverage(array $summary, string $startDate, string $endDate): array
+    {
+        // A known subtotal cannot stand in for a requested period with missing daily inputs.
+        // Keep daily evidence and independent complete fields, including observed zero, intact.
+        foreach (['amount', 'quantity', 'book_order_num'] as $field) {
+            $knownDates = array_column(array_filter(
+                $summary['daily'],
+                static fn(array $day): bool => isset($day[$field]) && is_numeric($day[$field])
+            ), 'date');
+            if ($this->missingDates($startDate, $endDate, $knownDates) !== []) {
+                $summary['totals'][$field] = null;
+            }
+        }
+        return $summary;
+    }
+
     private function otaDiagnosisPlatformLabel(mixed $platform): string
     {
         return match (strtolower((string)$platform)) {

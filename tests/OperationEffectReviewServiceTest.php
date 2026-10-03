@@ -9,31 +9,29 @@ use app\service\operation\OperationEffectReviewService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
-use think\App;
 use think\facade\Config;
 use think\facade\Db;
 
 final class OperationEffectReviewServiceTest extends TestCase
 {
     private static array $originalDatabaseConfig = [];
-    private static string $sqlitePath = '';
+    private static array $originalCacheConfig = [];
+    private static array $originalLogConfig = [];
 
     public static function setUpBeforeClass(): void
     {
-        (new App())->initialize();
-        self::$originalDatabaseConfig = Config::get('database');
-        self::$sqlitePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR
-            . 'operation_effect_review_' . getmypid() . '.sqlite';
-        @unlink(self::$sqlitePath);
-
-        $config = self::$originalDatabaseConfig;
-        $config['default'] = 'sqlite';
-        $config['connections']['sqlite'] = [
+        self::$originalDatabaseConfig = Config::get('database', []);
+        self::$originalCacheConfig = Config::get('cache', []);
+        self::$originalLogConfig = Config::get('log', []);
+        $fixturePath = getenv('SUXIOS_CACHE_PATH') ?: sys_get_temp_dir() . '/operation-effect-' . getmypid();
+        Config::set(['default' => 'file', 'stores' => ['file' => ['type' => 'File', 'path' => $fixturePath . '/cache/']]], 'cache');
+        Config::set(['default' => 'file', 'channels' => ['file' => ['type' => 'File', 'path' => $fixturePath . '/log/', 'close' => true]]], 'log');
+        $config = ['default' => 'effect_fixture', 'connections' => ['effect_fixture' => [
             'type' => 'sqlite',
-            'database' => self::$sqlitePath,
+            'database' => ':memory:',
             'prefix' => '',
             'fields_strict' => false,
-        ];
+        ]]];
         Config::set($config, 'database');
         Db::connect(null, true);
         self::createSchema();
@@ -43,10 +41,8 @@ final class OperationEffectReviewServiceTest extends TestCase
     {
         Db::connect()->close();
         Config::set(self::$originalDatabaseConfig, 'database');
-        Db::connect(null, true);
-        if (is_file(self::$sqlitePath) && !unlink(self::$sqlitePath)) {
-            throw new RuntimeException('Unable to remove operation effect review SQLite fixture.');
-        }
+        Config::set(self::$originalCacheConfig, 'cache');
+        Config::set(self::$originalLogConfig, 'log');
     }
 
     protected function setUp(): void
@@ -58,6 +54,155 @@ final class OperationEffectReviewServiceTest extends TestCase
         Db::name('operation_execution_intents')->delete(true);
         Db::name('agent_logs')->delete(true);
         $this->seedApprovedExecution();
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('decimalEffectBoundaryCases')]
+    public function testDecimalEffectBoundaryPersistsAndExactlyReadsBack(
+        float $before,
+        float $after,
+        float $target,
+        string $direction,
+        string $targetType,
+        string $outcomeStatus
+    ): void {
+        $intent = Db::name('operation_execution_intents')->where('id', 1)->find();
+        $targetPayload = json_decode($intent['target_value_json'], true, 512, JSON_THROW_ON_ERROR);
+        $intentEvidence = json_decode($intent['evidence_json'], true, 512, JSON_THROW_ON_ERROR);
+        $contract = $intentEvidence['approval_target'];
+        $definition = $contract['metric_definition'];
+        $definition['metric_key'] = 'revenue';
+        $definition['calculation'] = 'trusted_daily_revenue';
+        $definitionDigest = hash('sha256', self::canonicalJson([
+            'metric_key' => 'revenue', 'definition' => $definition,
+        ]));
+        $delta = $targetType === 'delta' ? number_format($target, 6, '.', '') : null;
+        $absolute = $targetType === 'absolute' ? number_format($target, 6, '.', '') : null;
+        foreach (['expected_metric' => 'revenue', 'expected_direction' => $direction,
+            'target_type' => $targetType, 'target_value' => $absolute, 'expected_delta' => $delta,
+            'metric_definition' => $definition, 'metric_definition_digest' => $definitionDigest] as $key => $value) {
+            $contract[$key] = $value;
+        }
+        unset($contract['content_digest']);
+        $contract['content_digest'] = hash('sha256', self::canonicalJson($contract));
+        foreach (['target_metric' => 'revenue', 'expected_direction' => $direction,
+            'target_type' => $targetType, 'target_value' => $absolute, 'expected_target' => $absolute, 'expected_delta' => $delta,
+            'metric_definition' => $definition, 'metric_definition_digest' => $definitionDigest,
+            'approval_target_digest' => $contract['content_digest']] as $key => $value) {
+            $targetPayload[$key] = $value;
+            $intentEvidence[$key] = $value;
+        }
+        $intentEvidence['approval_target'] = $contract;
+        Db::name('operation_execution_intents')->where('id', 1)->update([
+            'expected_metric' => 'revenue', 'expected_delta' => $delta,
+            'current_value_json' => json_encode(['revenue' => $before], JSON_THROW_ON_ERROR),
+            'target_value_json' => self::canonicalJson($targetPayload),
+            'evidence_json' => self::canonicalJson($intentEvidence),
+        ]);
+        $source = Db::name('operation_execution_evidence')->where('id', 1)->find();
+        $context = json_decode($source['platform_response_json'], true, 512, JSON_THROW_ON_ERROR);
+        $context['metric_key'] = 'revenue';
+        Db::name('operation_execution_evidence')->where('id', 1)->update([
+            'before_json' => json_encode(['revenue' => $before], JSON_THROW_ON_ERROR),
+            'after_json' => json_encode(['revenue' => $after], JSON_THROW_ON_ERROR),
+            'platform_response_json' => self::canonicalJson($context),
+        ]);
+        $resultStatus = match ($outcomeStatus) {
+            'met' => 'success', 'near' => 'near_success', default => 'failed',
+        };
+        Db::name('operation_execution_tasks')->where('id', 1)->update(['result_status' => $resultStatus]);
+        $input = array_replace($this->effectInput(), ['metric_key' => 'revenue', 'result_status' => $resultStatus]);
+        $service = new OperationEffectReviewService();
+        $saved = $service->create(42, 7, 1, 1, $input, 3);
+        self::assertTrue($saved['created']);
+        self::assertTrue($saved['review']['readback_verified']);
+        self::assertSame($outcomeStatus, $saved['review']['outcome_status']);
+        self::assertSame($resultStatus, $saved['review']['result_status']);
+        self::assertSame(number_format($before, 6, '.', ''), $saved['review']['before_value']);
+        self::assertSame(number_format($after, 6, '.', ''), $saved['review']['after_value']);
+        self::assertSame(number_format($after - $before, 6, '.', ''), $saved['review']['outcome']['actual_delta']);
+        self::assertFalse($saved['review']['causality_claimed']);
+        $duplicate = $service->create(42, 7, 1, 1, $input, 3);
+        self::assertFalse($duplicate['created']);
+        self::assertSame($saved['review'], $duplicate['review']);
+        self::assertSame($saved['review'], $service->readVerified((int)$saved['review']['id'], 42, 7, 1, 1));
+        self::assertSame(1, (int)Db::name('operation_effect_reviews')->count());
+        self::assertSame(1, (int)Db::name('operation_execution_evidence')->count());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('lossyDecimalSources')]
+    public function testLossySourceDecimalIsRejectedWithoutSavingOrRewritingEvidence(
+        string $before, string $after, float $delta
+    ): void {
+        $this->testDecimalEffectBoundaryPersistsAndExactlyReadsBack(100.0, 100.0 + $delta, $delta, 'increase', 'delta', 'met');
+        Db::name('operation_effect_reviews')->delete(true);
+        $beforeJson = json_encode(['revenue' => $before], JSON_THROW_ON_ERROR);
+        $afterJson = json_encode(['revenue' => $after], JSON_THROW_ON_ERROR);
+        Db::name('operation_execution_intents')->where('id', 1)->update(['current_value_json' => $beforeJson]);
+        Db::name('operation_execution_evidence')->where('id', 1)->update([
+            'before_json' => $beforeJson, 'after_json' => $afterJson,
+        ]);
+        Db::name('operation_execution_tasks')->where('id', 1)->update(['result_status' => 'failed']);
+        try {
+            (new OperationEffectReviewService())->create(42, 7, 1, 1,
+                array_replace($this->effectInput(), ['metric_key' => 'revenue', 'result_status' => 'failed']), 3);
+            self::fail('A source decimal changed by float normalization must not produce a saved effect review.');
+        } catch (InvalidArgumentException $error) {
+            self::assertStringContainsString('无法按六位小数精确回读', $error->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('operation_effect_reviews')->count());
+        $evidence = Db::name('operation_execution_evidence')->where('id', 1)->find();
+        self::assertSame($beforeJson, $evidence['before_json']);
+        self::assertSame($afterJson, $evidence['after_json']);
+        self::assertSame(1, (int)Db::name('operation_execution_evidence')->count());
+        self::assertSame('failed', Db::name('operation_execution_tasks')->where('id', 1)->value('result_status'));
+    }
+
+    public static function lossyDecimalSources(): array
+    {
+        return [
+            'micro source falsely becomes twice target' => ['10000000000.000000', '10000000000.000001', 0.000002],
+            'sixty six percent falsely becomes near' => ['10000000000000.000000', '10000000000000.001999', 0.003000],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('compatibleDecimalInputs')]
+    public function testDecimalNormalizationRetainsOrdinaryAndLegacyInputs(mixed $value, string $expected): void
+    {
+        $method = new \ReflectionMethod(OperationEffectReviewService::class, 'decimal');
+        self::assertSame($expected, $method->invoke(new OperationEffectReviewService(), $value, 'test fixture'));
+    }
+
+    public static function compatibleDecimalInputs(): array
+    {
+        return [
+            [0, '0.000000'], ['-0.000000', '0.000000'], ['+000100.210000', '100.210000'],
+            [' 100.21 ', '100.210000'], ['.1', '0.100000'], ['1e-1', '0.100000'],
+            [100.21, '100.210000'], ['0.000001', '0.000001'], ['10000000000.000000', '10000000000.000000'],
+            ['-000001.230000', '-1.230000'], ['0.1234567', '0.123457'],
+        ];
+    }
+
+    public static function decimalEffectBoundaryCases(): array
+    {
+        return [
+            'delta increase exactly met' => [100.0, 100.1, 0.1, 'increase', 'delta', 'met'],
+            'cent target with fractional baseline' => [100.2, 100.21, 0.01, 'increase', 'delta', 'met'],
+            'micro target below seventy percent' => [100.0, 100.000002, 0.000003, 'increase', 'delta', 'missed'],
+            'delta decrease exactly met' => [100.0, 99.9, 0.1, 'decrease', 'delta', 'met'],
+            'delta increase exactly seventy percent' => [100.0, 100.07, 0.1, 'increase', 'delta', 'near'],
+            'delta decrease exactly seventy percent' => [100.0, 99.93, 0.1, 'decrease', 'delta', 'near'],
+            'delta below seventy percent' => [100.0, 100.069999, 0.1, 'increase', 'delta', 'missed'],
+            'delta below full target' => [100.0, 100.099999, 0.1, 'increase', 'delta', 'near'],
+            'delta six decimal increase' => [100.0, 100.000001, 0.000001, 'increase', 'delta', 'met'],
+            'delta six decimal decrease' => [100.0, 99.999999, 0.000001, 'decrease', 'delta', 'met'],
+            'positive target without change' => [100.0, 100.0, 0.000001, 'increase', 'delta', 'missed'],
+            'positive target with worsening' => [100.0, 99.999999, 0.1, 'increase', 'delta', 'adverse'],
+            'zero baseline exactly met' => [0.0, 0.1, 0.1, 'increase', 'delta', 'met'],
+            'absolute increase exactly met' => [100.0, 100.1, 100.1, 'increase', 'absolute', 'met'],
+            'absolute increase seventy percent' => [100.0, 100.07, 100.1, 'increase', 'absolute', 'near'],
+            'absolute decrease seventy percent' => [100.0, 99.93, 99.9, 'decrease', 'absolute', 'near'],
+            'absolute below seventy percent' => [100.0, 100.069999, 100.1, 'increase', 'absolute', 'missed'],
+        ];
     }
 
     public function testCreatePersistsSeparateEffectReviewAndStrictlyReadsItBack(): void

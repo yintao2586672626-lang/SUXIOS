@@ -553,9 +553,9 @@ final class ExecutionOutcomeService
 
         $direction = $this->executionOutcomeDirection($intent, $metric);
         $base['source_verified'] = true;
-        $base['before_value'] = round($beforeValue, 4);
-        $base['after_value'] = round($afterValue, 4);
-        $base['actual_delta'] = round($afterValue - $beforeValue, 4);
+        $base['before_value'] = round($beforeValue, 6);
+        $base['after_value'] = round($afterValue, 6);
+        $base['actual_delta'] = round($afterValue - $beforeValue, 6);
         if ($direction === null) {
             $base['failure_reason'] = 'expected_direction_unknown';
             return $base;
@@ -594,19 +594,20 @@ final class ExecutionOutcomeService
             }
         }
 
+        // Frozen effect metrics and persisted changes use six decimal places.
         $favorableDelta = $direction === 'increase'
-            ? $afterValue - $beforeValue
-            : $beforeValue - $afterValue;
+            ? $base['actual_delta']
+            : -$base['actual_delta'];
         $base['target_type'] = $targetType;
         $base['target_value'] = $targetValue;
         $base['expected_delta'] = $expectedDelta;
         $base['expected_delta_status'] = $expectedDeltaStatus !== '' ? $expectedDeltaStatus : 'quantified';
-        $base['favorable_delta'] = round($favorableDelta, 4);
+        $base['favorable_delta'] = round($favorableDelta, 6);
 
         if ($targetType === 'absolute') {
-            $targetFavorableDelta = $direction === 'increase'
+            $targetFavorableDelta = round($direction === 'increase'
                 ? (float)$targetValue - $beforeValue
-                : $beforeValue - (float)$targetValue;
+                : $beforeValue - (float)$targetValue, 6);
             $targetMet = $direction === 'increase'
                 ? $afterValue >= (float)$targetValue
                 : $afterValue <= (float)$targetValue;
@@ -634,7 +635,7 @@ final class ExecutionOutcomeService
                 ]);
             }
             $progressRate = ($favorableDelta / $targetFavorableDelta) * 100;
-            return $this->finalizeExecutionOutcomeTruth($base, $progressRate);
+            return $this->finalizeExecutionOutcomeTruth($base, $progressRate, $targetFavorableDelta);
         }
 
         if ($expectedDelta === null) {
@@ -664,7 +665,7 @@ final class ExecutionOutcomeService
             ]);
         }
 
-        return $this->finalizeExecutionOutcomeTruth($base, ($favorableDelta / $expectedDelta) * 100);
+        return $this->finalizeExecutionOutcomeTruth($base, ($favorableDelta / $expectedDelta) * 100, $expectedDelta);
     }
 
     public function executionPositiveOutcomeAllowsStatus(array $outcomeTruth, string $reviewStatus): bool
@@ -677,9 +678,13 @@ final class ExecutionOutcomeService
         };
     }
 
-    private function finalizeExecutionOutcomeTruth(array $base, float $progressRate): array
+    private function finalizeExecutionOutcomeTruth(array $base, float $progressRate, float $requiredDelta): array
     {
-        $status = $progressRate >= 100.0 ? 'met' : ($progressRate >= 70.0 ? 'near' : 'missed');
+        $favorableDelta = (float)$base['favorable_delta'];
+        // Seventy percent of a six-decimal target needs seven decimals. The
+        // rounded display percentage cannot decide the verified outcome.
+        $status = $favorableDelta >= $requiredDelta ? 'met'
+            : ($favorableDelta > 0.0 && $favorableDelta >= round($requiredDelta * 0.7, 7) ? 'near' : 'missed');
         return array_replace($base, [
             'status' => $status,
             'outcome_verified' => true,

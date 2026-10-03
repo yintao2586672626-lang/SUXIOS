@@ -61,7 +61,7 @@ test('same selected hotel after account switch clears old results and ignores la
   });
   respond(pending[3], {
     status: 'no_data', metric_scope: 'ota_channel', hotel: { id: 80 },
-    date_range: { from: null, to: null },
+    date_range: { from: null, to: null, requested_from: null, requested_to: null },
   });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(instance.quickAnalysis.status, 'data_missing');

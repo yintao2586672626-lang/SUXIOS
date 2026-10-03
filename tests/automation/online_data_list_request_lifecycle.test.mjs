@@ -30,6 +30,7 @@ function harness() {
     onlineDataFilter: { value: { hotel_id: '901', source: 'ctrip', start_date: '2026-09-01', end_date: '2026-09-01' } },
     onlineDataPage: { value: 1 }, onlineDataPagination: { value: { total: 0, page: 1, page_size: 30 } },
     onlineDataList: { value: [] }, onlineDataQualitySummary: { value: null },
+    downloadCenterTab: { value: 'list' }, onlineDataLoadedQuery: { value: null },
     onlineDataListError: { value: '' }, onlineDataListLoading: { value: false },
     downloadCenterTab: { value: 'all' }, onlineDataLoadedQuery: { value: null },
     onlineDataListRequestPromises: new Map(), onlineDataListResultCache: new Map(),

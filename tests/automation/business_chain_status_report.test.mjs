@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 import { spawnSync } from 'node:child_process';
 import {
   buildPhpBinaryCandidates,
@@ -107,7 +108,7 @@ test('Business-chain runtime unavailability skips locally but fails closed when 
 });
 
 test('Business-chain source rows never label accepted non-traffic evidence as ready', (t) => {
-  const source = readFileSync('scripts/report_business_chain_status.php', 'utf8');
+  const source = readSourceAggregate('scripts/report_business_chain_status.php');
   assert.match(source, /function business_chain_source_evidence_status/);
   assert.match(source, /reference_only_non_traffic/);
 
@@ -128,7 +129,7 @@ test('Business-chain source rows never label accepted non-traffic evidence as re
   }
 });
 
-test('Business-chain report keeps operator-skipped Meituan read-only and action-free', (t) => {
+test('Business-chain report keeps operator-skipped Meituan read-only and collection-free', (t) => {
   const result = spawnSync(php, [
     'scripts/report_business_chain_status.php',
     '--date=2026-06-28',
@@ -201,7 +202,14 @@ test('Business-chain report keeps operator-skipped Meituan read-only and action-
     assert.equal(workflow.revenue_to_ai_handoff.source_scope, 'ota_channel_blocked_unverified');
     assert.deepEqual([...workflow.revenue_to_ai_handoff.target_blocked_platforms].sort(), ['ctrip', 'meituan']);
     assert.equal(workflow.revenue_to_ai_handoff.ai_draft_status, 'requires_p0');
-    assert(sequence.every((item) => !item.startsWith('meituan:') || item === 'meituan:operator_skip'));
+    const meituanActions = sequence.filter((item) => item.startsWith('meituan:'));
+    assert(
+      meituanActions.every((item) => [
+        'meituan:operator_skip',
+        'meituan:single_scope_verifier',
+      ].includes(item)),
+      'operator skip may retain read-only markers but must not emit login or sync actions',
+    );
   }
   assert.doesNotMatch(output, /\/api\/online-data\/capture-meituan-browser/);
   assert.doesNotMatch(output, /\/api\/online-data\/profile-login-trigger\/meituan/);
@@ -233,7 +241,7 @@ test('Operation execution statistics apply date/platform scope before limit and 
   const serviceSource = readFileSync('app/service/OperationManagementService.php', 'utf8');
   const assigneeConcern = readFileSync('app/service/operation/OperationExecutionAssigneeConcern.php', 'utf8');
   const source = serviceSource + assigneeConcern;
-  const reportSource = readFileSync('scripts/report_business_chain_status.php', 'utf8');
+  const reportSource = readSourceAggregate('scripts/report_business_chain_status.php');
   const targetFilter = serviceSource.indexOf("$targetDate = substr(trim((string)($filters['target_date'] ?? '')), 0, 10);");
   const scopedQuery = serviceSource.indexOf('$this->prepareExecutionFlowQuery($query, $filters)');
   const matchedCount = assigneeConcern.indexOf('$matchedTotal = (int)(clone $query)->count();');

@@ -65,7 +65,6 @@ trait OperationExecutionTenantConcern
             }
         }
     }
-
     /** @return array{code:string,message:string}|null */
     private function operationActionTrackTenantSchemaGap(): ?array
     {
@@ -91,7 +90,6 @@ trait OperationExecutionTenantConcern
                 }
             }
         }
-
         return null;
     }
 
@@ -106,7 +104,6 @@ trait OperationExecutionTenantConcern
                 ->where('operation_action_hotel.tenant_id', '>', 0);
         });
     }
-
     /** @param array{code:string,message:string} $gap */
     private function operationActionTrackSchemaGapResponse(array $gap): array
     {
@@ -125,7 +122,6 @@ trait OperationExecutionTenantConcern
             'truncated' => false,
         ];
     }
-
     /**
      * @param array<int,int|string> $hotelIds
      * @param callable(array<string,mixed>):mixed $mutation
@@ -155,7 +151,6 @@ trait OperationExecutionTenantConcern
         if ($hotelId <= 0 || !in_array($hotelId, $hotelIds, true)) {
             return false;
         }
-
         return Db::transaction(function () use ($actionId, $hotelId, $hotelIds, $mutation): mixed {
             try {
                 $hotel = Db::name('hotels')->where('id', $hotelId)->lock(true)->find();
@@ -181,11 +176,31 @@ trait OperationExecutionTenantConcern
             ) {
                 return false;
             }
-
             return $mutation($action);
         });
     }
 
+    /** Verify the original task payload inside the human-approval transaction. */
+    private function assertHumanApprovalTaskReadback(
+        ?array $task,
+        int $taskCount,
+        array $intent,
+        string $targetValueJson,
+        int $authorizedTenantId
+    ): void {
+        if (!is_array($task)
+            || $taskCount !== 1
+            || (int)($task['tenant_id'] ?? 0) <= 0
+            || (int)$task['tenant_id'] !== (int)$intent['tenant_id']
+            || (int)$task['tenant_id'] !== $authorizedTenantId
+            || (string)($task['execution_mode'] ?? '') !== 'manual'
+            || (string)($task['status'] ?? '') !== 'pending_execute'
+            || !hash_equals($targetValueJson, (string)($task['target_value_json'] ?? ''))
+            || !hash_equals((string)($intent['current_value_json'] ?? '{}'), (string)($task['current_value_json'] ?? ''))
+        ) {
+            throw new \RuntimeException('human approval task save/readback cardinality check failed');
+        }
+    }
     /**
      * Resolve one task together with its parent intent and enforce the durable
      * tenant boundary. Source-backed rows remain owned by the tenant that
@@ -209,7 +224,6 @@ trait OperationExecutionTenantConcern
             throw new \RuntimeException('execution task parent intent not found');
         }
         $this->assertExecutionTaskIntentIdentity($task, $intent);
-
         if ($this->tableExists('hotels')) {
             $currentTenantId = $this->tenantIdForHotel((int)($intent['hotel_id'] ?? 0));
             $intentTenantId = (int)($intent['tenant_id'] ?? 0);
@@ -232,7 +246,6 @@ trait OperationExecutionTenantConcern
                 }
             }
         }
-
         return ['task' => $task, 'intent' => $intent];
     }
 
@@ -279,7 +292,6 @@ trait OperationExecutionTenantConcern
             throw new \RuntimeException('execution task parent intent not found');
         }
         $sourceBackedProbe = $this->sourceBackedExecutionIntentSupports($intentProbe);
-
         return Db::transaction(function () use (
             $taskId,
             $hotelIds,
@@ -295,7 +307,6 @@ trait OperationExecutionTenantConcern
             if (!is_array($hotel)) {
                 throw new \RuntimeException('execution task hotel scope is unavailable');
             }
-
             $task = $this->executionTaskRow($taskId, $hotelIds, true);
             if ($task === null || (int)($task['hotel_id'] ?? 0) !== $hotelId) {
                 throw new \RuntimeException('execution task not found');
@@ -858,16 +869,13 @@ trait OperationExecutionTenantConcern
 
     private function executionTenantSchemaHasColumn(string $table, string $column): bool
     {
-        try {
-            $physicalTable = Db::name($table)->getTable();
-            Db::query(
-                'SELECT `' . str_replace('`', '', $column) . '` FROM `'
-                . str_replace('`', '', $physicalTable) . '` LIMIT 0'
-            );
-            return true;
-        } catch (\Throwable) {
-            return false;
+        $inspection = \app\service\DatabaseSchemaRequirement::inspectTableColumns(str_replace('`', '', Db::name($table)->getTable()));
+        if ($inspection['status'] === \app\service\DatabaseSchemaRequirement::STATUS_UNREADABLE) {
+            throw new \RuntimeException('database_table_columns_probe_failed:' . $table, 503);
         }
+
+        return $inspection['status'] === \app\service\DatabaseSchemaRequirement::STATUS_PRESENT
+            && in_array($column, $inspection['columns'], true);
     }
 
     /** @param array{code:string,message:string} $gap */

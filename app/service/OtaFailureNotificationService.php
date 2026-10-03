@@ -23,6 +23,7 @@ final class OtaFailureNotificationService
         'session_unverified',
         'login_expired',
         'zero_rows',
+        'credential_configuration_mismatch',
         'collection_failed',
     ];
 
@@ -804,6 +805,9 @@ final class OtaFailureNotificationService
     /** @param array<string, mixed> $event */
     private function failureReason(array $event): string
     {
+        if (($event['failure_code'] ?? null) === 'credential_configuration_mismatch') {
+            return 'credential_configuration_mismatch';
+        }
         $explicit = strtolower(trim((string)($event['reason_code'] ?? $event['failure_reason'] ?? '')));
         $aliases = [
             'browser_profile_source_missing' => 'source_missing',
@@ -946,6 +950,7 @@ final class OtaFailureNotificationService
             'session_unverified' => '登录会话待验证',
             'login_expired' => '登录授权已失效',
             'zero_rows' => '采集未写入有效数据',
+            'credential_configuration_mismatch' => '凭据配置不一致',
             'collection_failed' => '采集失败',
         ][$reason] ?? '采集失败';
         return $this->platformLabel($platform) . $suffix;
@@ -960,6 +965,7 @@ final class OtaFailureNotificationService
             'session_unverified' => "该门店的{$label}当前登录会话尚未完成同源验证，请由提交人重新登录并运行会话检测。",
             'login_expired' => "该门店的{$label}登录授权已失效，请由提交人重新登录或更新授权后再采集。",
             'zero_rows' => "该门店本次{$label}采集未写入有效数据，请检查目标日期、登录状态和门店绑定后重试。",
+            'credential_configuration_mismatch' => "该门店的{$label}凭据配置不一致，请联系管理员检查保存与执行环境配置。",
             'collection_failed' => "该门店本次{$label}采集失败，请在数据健康页查看失败阶段并重新采集。",
         ][$reason] ?? "该门店本次{$label}采集失败，请在数据健康页查看失败阶段并重新采集。";
         return "数据日期 {$dataDate}。{$detail}";

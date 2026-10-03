@@ -46,13 +46,27 @@ const fixture = (name = 'Fixture hotel A', from = '2026-07-01', to = '2026-07-31
   hotel: { id: hotelId, name },
   metric_scope: 'ota_channel',
   source: { platform: 'ctrip' },
-  date_range: { from, to, requested_from: from, requested_to: to },
+  date_range: { from, to, requested_from: null, requested_to: null },
   summary: {},
 });
 const respond = (request, data = fixture()) => request.resolve({
   ok: true, status: 200, json: async () => ({ code: 200, data }),
 });
 
+test('upload preview renders the cancellation evidence ceiling alongside known counts', () => {
+  const {state,render}=createHarness();
+  state.analysis=fixture();
+  Object.assign(state.ctx,{
+    ctripChannelOrderUploadScope:{systemHotelId:901},
+    ctripChannelOrderUploadPreview:{system_hotel_id:901,channels:[]},
+    ctripChannelOrderUploadChannels:[],ctripChannelOrderUploadGrossOrders:16,
+    ctripChannelOrderUploadCancelledOrders:5,ctripChannelOrderUploadCancelRate:null,
+    ctripChannelOrderUploadCancelEvidenceText:'取消证据不完整，仅展示已知计数，暂不计算整体取消率或比较渠道取消率。',
+  });
+  const notice=[...nodes(render())].find(node=>node.props['data-testid']==='ctrip-upload-cancel-evidence');
+  assert.equal(notice?.children,state.ctx.ctripChannelOrderUploadCancelEvidenceText);
+  assert.equal(hasText(render,'不可计算'),true);
+});
 test('saved legacy adapter displays existing metrics and the explicit fixture boundary', () => {
   const { state, render, component } = createHarness();
   state.analysis = {
@@ -147,7 +161,7 @@ test('detail hotel watcher keeps the newer hotel result when the old request fin
   assert.equal(state.loading, false);
 });
 
-test('detail reset requests all saved dates and restores the older returned range', async () => {
+test('detail reset keeps all saved dates selected and shows the older factual coverage separately', async () => {
   const { state, requests } = createHarness();
   state.dateFrom = '2026-08-01';
   state.dateTo = '2026-08-31';
@@ -159,11 +173,59 @@ test('detail reset requests all saved dates and restores the older returned rang
   assert.equal(params.has('date_to'), false);
   respond(request, fixture('Fixture hotel A', '2025-01-01', '2026-08-31'));
   await flush();
-  assert.equal(state.dateFrom, '2025-01-01');
-  assert.equal(state.dateTo, '2026-08-31');
+  assert.equal(state.dateFrom, '');
+  assert.equal(state.dateTo, '');
+  assert.equal(state.dateRangeLabel, '2025-01-01 至 2026-08-31');
+  assert.equal(state.analysisQueryRangeLabel, '全部已存范围');
   assert.equal(state.loading, false);
 });
 
+test('repeated all-date queries include newly saved dates instead of narrowing to the first coverage', async () => {
+  const { state, requests } = createHarness();
+  const first = state.loadAnalysis();
+  respond(requests.shift(), fixture('Fixture hotel A', '2026-07-08', '2026-07-09'));
+  await first;
+  const second = state.loadAnalysis();
+  const request = requests.shift();
+  const params = new URL(request.url, 'https://fixture.invalid').searchParams;
+  assert.equal(params.has('date_from'), false, 'all-date refresh must not send the first factual coverage as a filter');
+  assert.equal(params.has('date_to'), false);
+  respond(request, fixture('Fixture hotel A', '2026-07-08', '2026-08-10'));
+  await second;
+  assert.equal(state.dateRangeLabel, '2026-07-08 至 2026-08-10');
+  assert.equal(state.dateFrom, '');
+  assert.equal(state.dateTo, '');
+});
+
+test('accepted custom query and factual coverage stay distinct after editing the next query', async () => {
+  const { state, requests, render, component } = createHarness();
+  state.dateFrom = '2026-07-01';
+  state.dateTo = '2026-07-31';
+  const pending = state.loadAnalysis();
+  const data = fixture('Fixture hotel A', '2026-07-08', '2026-07-09');
+  data.date_range.requested_from = '2026-07-01';
+  data.date_range.requested_to = '2026-07-31';
+  respond(requests.shift(), data);
+  await pending;
+  state.dateFrom = '2026-08-01';
+  state.dateTo = '2026-08-31';
+  assert.equal(state.analysisQueryRangeLabel, '2026-07-01 至 2026-07-31', 'displayed result scope comes from the accepted receipt');
+  assert.equal(state.dateRangeLabel, '2026-07-08 至 2026-07-09');
+  assert.equal(hasText(render, '查询范围：2026-07-01 至 2026-07-31；数据覆盖：2026-07-08 至 2026-07-09'), true);
+  assert.match(component.template, /\{\{ analysisQueryRangeLabel \}\}/);
+});
+
+test('no-data receipt shows the requested dates without inventing factual coverage', async () => {
+  const { state, requests, render } = createHarness();
+  state.dateFrom = '2026-07-01';
+  state.dateTo = '2026-07-31';
+  const pending = state.loadAnalysis();
+  respond(requests.shift(), {...fixture(), status:'no_data', date_range:{from:null,to:null,requested_from:'2026-07-01',requested_to:'2026-07-31'}});
+  await pending;
+  assert.equal(state.analysisQueryRangeLabel, '2026-07-01 至 2026-07-31');
+  assert.equal(state.dateRangeLabel, '未取得');
+  assert.equal(hasText(render, '查询范围：2026-07-01 至 2026-07-31；数据覆盖：未取得'), true);
+});
 test('detail invalid-date query cancels a pending read without leaving controls disabled', async () => {
   const { state, requests, render } = createHarness();
   const pending = state.loadAnalysis();
@@ -179,3 +241,91 @@ test('detail invalid-date query cancels a pending read without leaving controls 
   assert.equal(state.analysis, null);
   assert.equal(state.error, '开始日期和结束日期需要同时填写。');
 });
+
+for (const [label, data] of [
+  ['missing data', null],
+  ['array data', []],
+  ['missing status', { ...fixture(), status: undefined }],
+  ['wrong hotel', { ...fixture(), hotel: { id: 902, name: 'Fixture hotel B' } }],
+  ['missing requested range', { ...fixture(), date_range: { from: '2026-07-01', to: '2026-07-31' } }],
+  ['wrong requested range', { ...fixture(), date_range: { from: '2026-07-01', to: '2026-07-31', requested_from: '2026-07-01', requested_to: '2026-07-31' } }],
+]) {
+  test(`detail ${label} is a recoverable read failure and never no-data success`, async () => {
+    const { state, requests, render } = createHarness();
+    const pending = state.loadAnalysis();
+    respond(requests.shift(), data);
+    await pending;
+    assert.equal(state.analysis, null);
+    assert.equal(state.statusLabel, '读取失败');
+    assert.match(state.error, /响应|范围/);
+    assert.equal(hasText(render, '暂无订单数据'), false);
+    assert.ok(dateInputs(render).every(node => node.props.disabled === false));
+    const retry = state.loadAnalysis();
+    respond(requests.shift());
+    await retry;
+    assert.equal(state.statusLabel, '已保存 · 来源待核验');
+    assert.equal(state.error, '');
+  });
+}
+
+test('detail accepts smaller factual coverage when echoed request dates match', async () => {
+  const { state, requests } = createHarness();
+  state.dateFrom = '2026-07-01';
+  state.dateTo = '2026-07-31';
+  const pending = state.loadAnalysis();
+  const data = fixture('Fixture hotel A', '2026-07-08', '2026-07-09');
+  data.date_range.requested_from = state.dateFrom;
+  data.date_range.requested_to = state.dateTo;
+  respond(requests.shift(), data);
+  await pending;
+  assert.equal(state.analysis, data);
+  assert.equal(state.dateRangeLabel, '2026-07-08 至 2026-07-09');
+  assert.equal(state.dateFrom, '2026-07-01');
+  assert.equal(state.dateTo, '2026-07-31');
+  assert.equal(state.error, '');
+});
+
+test('detail preserves legitimate no-data for the selected hotel and explicit requested dates', async () => {
+  const { state, requests, render } = createHarness();
+  state.dateFrom = '2026-07-01';
+  state.dateTo = '2026-07-31';
+  const pending = state.loadAnalysis();
+  const data = { ...fixture(), status: 'no_data', date_range: { from: null, to: null, requested_from: state.dateFrom, requested_to: state.dateTo } };
+  respond(requests.shift(), data);
+  await pending;
+  assert.equal(state.analysis, data);
+  assert.equal(state.statusLabel, '暂无订单数据');
+  assert.equal(state.error, '');
+  assert.equal(hasText(render, '暂无订单数据'), true);
+});
+
+const renderedText = node => Array.isArray(node) ? node.map(renderedText).join(' ')
+  : node && typeof node === 'object' ? renderedText(node.children)
+  : node === null || node === undefined ? '' : String(node);
+
+for (const contract of ['ctrip_order_aggregate_v2', 'unknown']) {
+  test(`${contract} missing receipts are not described as legacy v1 or an invented file count`, () => {
+    const { state, render, component } = createHarness();
+    state.analysis = { ...fixture(), batch: { import_contract: contract }, summary: { active_orders: 2, room_nights: 4, stayed_orders: null } };
+    const text = renderedText(render());
+    assert.doesNotMatch(text, /旧聚合|现存 v1|Top5|原始\s*5\s*份/);
+    assert.match(text, /回执|证据/);
+    assert.match(text, /不能.*反推|不可.*核验/);
+    for (const name of ['losMissingText', 'leadTimeMissingText', 'roomTypesMissingText', 'classificationMissingText', 'exclusionMissingText']) {
+      assert.ok(component.template.includes(`{{ ${name} }}`), `${name} also belongs in the template fallback`);
+    }
+    assert.equal(state.metricCards.find(card => card.key === 'active').value, '2');
+  });
+}
+
+for (const contract of ['ctrip_order_aggregate_v1', 'ctrip_order_legacy_saved_aggregate']) {
+  test(`${contract} keeps its genuine legacy explanation without prescribing five files`, () => {
+    const { state, render } = createHarness();
+    state.analysis = { ...fixture(), batch: { import_contract: contract }, summary: { active_orders: 2, room_nights: 4, stayed_orders: null } };
+    const text = renderedText(render());
+    assert.match(text, /旧聚合/);
+    assert.match(text, /Top5/);
+    assert.doesNotMatch(text, /原始\s*5\s*份/);
+    assert.equal(state.metricCards.find(card => card.key === 'active').value, '2');
+  });
+}

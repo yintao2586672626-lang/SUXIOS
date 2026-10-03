@@ -9,6 +9,7 @@ import { inspectFrontendStartupHelpers } from './lib/frontend_startup_helpers_bu
 import { inspectTailwindRuntimeBuild } from './lib/frontend_tailwind_build.mjs';
 import { inspectFrontendTemplateBuild } from './lib/frontend_template_build.mjs';
 import { inspectPublicEntryRuntimeContracts } from './lib/public_entry_ast_contract.mjs';
+import { inspectCtripProfileFieldConfigPanel } from './lib/ctrip_profile_panel_contract.mjs';
 import {
   AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT,
   AUTHENTICATED_ASSET_PHASE_STARTUP,
@@ -140,6 +141,10 @@ if (!fs.existsSync(indexPath)) {
   const ctripProfileFieldConfigPanelPath = path.join(repoRoot, 'public/components/online-data/ctrip-profile-field-config-panel.js');
   const ctripProfileFieldConfigPanelContent = fs.existsSync(ctripProfileFieldConfigPanelPath)
     ? fs.readFileSync(ctripProfileFieldConfigPanelPath, 'utf8')
+    : '';
+  const ctripProfileFieldConfigTemplatePath = path.join(repoRoot, 'resources/frontend/templates/components/ctrip-profile-field-config-panel.html');
+  const ctripProfileFieldConfigTemplateContent = fs.existsSync(ctripProfileFieldConfigTemplatePath)
+    ? fs.readFileSync(ctripProfileFieldConfigTemplatePath, 'utf8')
     : '';
   const dataConfigDialogsTemplateContent = fs.existsSync(dataConfigDialogsTemplatePath)
     ? fs.readFileSync(dataConfigDialogsTemplatePath, 'utf8')
@@ -333,20 +338,11 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   if (platformAutoPanelsContractMissing) {
     failures.push('public/index.html must lazy-load the platform-auto extension panels instead of loading them before Vue mount.');
   }
-  if (!content.includes('components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split')
-    || !content.includes("const CtripProfileFieldConfigPanel = {")
-    || !content.includes('const ensureCtripProfileFieldConfigPanelReady = async () => {')
-    || !content.includes("requireOnlineDataComponent('CtripProfileFieldConfigPanelBody')")
-    || !content.includes('void ensureCtripProfileFieldConfigPanelReady().catch')
-    || !content.includes('<ctrip-profile-field-config-panel')
-    || !content.includes('data-testid="ctrip-profile-field-config-loading"')
-    || !ctripProfileFieldConfigPanelContent.includes('components.CtripProfileFieldConfigPanelBody')
-    || !/data-testid=\\?"ctrip-profile-field-config-panel\\?"/.test(ctripProfileFieldConfigPanelContent)
-    || !ctripProfileFieldConfigPanelContent.includes('return new Proxy({}, {')
-    || !ctripProfileFieldConfigPanelContent.includes('return props.ctx?.[key] ?? target[key];')
-    || !ctripProfileFieldConfigPanelContent.includes('props.ctx[key] = value;')
-    || !ctripProfileFieldConfigPanelContent.includes('getOwnPropertyDescriptor() {')
-    || content.includes('携程登录会话字段配置')) {
+  if (!inspectCtripProfileFieldConfigPanel({
+    entry: content,
+    component: ctripProfileFieldConfigPanelContent,
+    template: ctripProfileFieldConfigTemplateContent,
+  })) {
     failures.push('public/index.html must lazy-load the admin-only Ctrip profile-field config panel from public/components/online-data/ctrip-profile-field-config-panel.js.');
   }
 
@@ -623,8 +619,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('const overviewRequest = revenueAiResolveOverviewRequest({')
     || !/await request\(overviewRequest\.endpoint(?:,\s*\{[\s\S]{0,240}?requestPolicy(?:\s*:|\s*[,}])[\s\S]{0,160}?\})?\);/.test(content)
     || !revenueAiStaticContent.includes('const resolveRevenueAiOverviewResponse =')
-    || !/const overviewResult = revenueAiResolveOverviewResponse\(\{\s*response:\s*res,\s*expectedScope:\s*\{\s*businessDate:\s*requestPolicy\.businessDate,\s*hotelId\s*\},\s*\}\);/.test(content)
-    || !/const overviewResult = revenueAiResolveOverviewResponse\(\{\s*response:\s*\{\s*code:\s*200,\s*data:\s*payload\.overview\s*\|\|\s*null\s*\},\s*expectedScope:\s*\{\s*businessDate,\s*hotelId:\s*requestContext\.hotelId\s*\},\s*\}\);/.test(content)
+    || !/const overviewResult = revenueAiResolveOverviewResponse\(\{\s*response:\s*res,\s*expectedScope:\s*\{(?:\s*businessDate:\s*requestPolicy\.businessDate,\s*hotelId|\s*hotelId,\s*businessDate:\s*requestPolicy\.businessDate)\s*\},\s*\}\);/.test(content)
+    || !/const overviewResult = revenueAiResolveOverviewResponse\(\{\s*response:\s*\{\s*code:\s*200,\s*data:\s*payload\.overview\s*\|\|\s*null\s*\},\s*expectedScope:\s*\{(?:\s*businessDate,\s*hotelId:\s*requestContext\.hotelId|\s*hotelId:\s*requestContext\.hotelId,\s*businessDate)\s*\},\s*\}\);/.test(content)
     || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ error: e });')
     || content.includes("revenueAiOverviewError.value = res.message || 'Revenue AI 总览接口返回失败';")
     || content.includes("revenueAiOverviewError.value = e.message || 'Revenue AI 总览接口请求失败';")
@@ -788,8 +784,9 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   if (!/const\s+revenueResearchStaticScript\s*=\s*["']revenue-research-static\.js["']/.test(content) || !/const\s+loadRevenueResearchStatic\s*=\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader for revenue-research-static.js.');
   }
-  if (!/watch\(\[currentPage, isLoggedIn\], \(\[page, loggedIn\]\) => \{\s*if \(page === ['"]revenue-research-center['"] && loggedIn && !revenueResearchProducts\.value\.length\) \{\s*void retryRevenueResearchCatalog\(\);/.test(content) || !/const retryRevenueResearchCatalog = \(\) => ensureRevenueResearchReady\(\)/.test(content)) {
-    failures.push('public/index.html must load revenue research static data only when revenue-research-center is opened.');
+  if (!/watch\(\[currentPage, isLoggedIn\], \(\[page, loggedIn\]\) => \{\s*if \(page === ['"]revenue-research-center['"] && loggedIn && !revenueResearchProducts\.value\.length\) \{\s*void retryRevenueResearchCatalog\(\);\s*\}\s*\}, \{ immediate: true \}\)/.test(content)
+    || !/const retryRevenueResearchCatalog = \(\) => ensureRevenueResearchReady\(\)/.test(content)) {
+    failures.push('public entry must lazy-load revenue research for an authenticated research page, including a direct initial entry.');
   }
   if (/<script\s+src=["']ai-analysis-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load ai-analysis-static.js; the login and compass shell do not need OTA AI analysis helpers.');
@@ -3411,7 +3408,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !/if \(!homeTrendHasSamples\.value\) \{\s+destroyHomeTrendChart\(\);\s+return;\s+\}/.test(homeTrendChartSource)) {
     failures.push('public/index.html must not load Chart.js for the home trend chart before confirming there are usable trend samples.');
   }
-  if (!/data-testid=\\?"ctrip-profile-field-modal\\?"/.test(ctripProfileFieldConfigPanelContent)) {
+  if (!ctripProfileFieldConfigTemplateContent.includes('data-testid="ctrip-profile-field-modal"')
+    || !ctripProfileFieldConfigPanelContent.includes('"data-testid":"ctrip-profile-field-modal"')) {
     failures.push('public/components/online-data/ctrip-profile-field-config-panel.js must keep the Ctrip profile-field modal marker in the lazy component.');
   }
 

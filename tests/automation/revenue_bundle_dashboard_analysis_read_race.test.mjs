@@ -13,7 +13,7 @@ const declaration = name => {
   assert.ok(start >= 0 && end, `actual declaration: ${name}`);
   return main.slice(start, start + 1 + end.index);
 };
-const production = ['captureAuthSession', 'isAuthSessionCurrent',
+const production = ['resolveDemandForecastListPayload','resolvePriceSuggestionListPayload','captureAuthSession', 'isAuthSessionCurrent',
   ...['applyRevenueAiOverviewReadback', 'captureRevenueForecastRange', 'isRevenueForecastRangeCurrent'].filter(name => main.includes('            const ' + name + ' =')),
   'captureAgentRevenueRequestContext', 'isAgentRevenueRequestCurrent',
   'createPriceSuggestionPagination', 'createRevenueLoadState', 'createEmptyRevenueAnalysisData',
@@ -48,7 +48,7 @@ function harness() {
   const context = vm.createContext({ ...refs, URLSearchParams, console: { error() {} },
     authSessionEpoch: 1, agentRevenueStateEpoch: 1,
     priceSuggestionRequestSeq: 0, revenueAnalysisBundleRequestSeq: 0,
-    revenueAiOverviewRequestSeq: 0, revenueAiOverviewRequestPromises: new Map(),
+    roomTypesRequestSequence:0,demandForecastsRequestSequence:0,revenueAiOverviewRequestSeq: 0, revenueAiOverviewRequestPromises: new Map(),
     ensureRevenueAiStaticReady: async () => { const gate = ensureGates.shift(); if (gate) await gate; return true; },
     loadRevenueAiOverview: async () => null, resetCompetitorAnalysisView() {}, formatDate: () => '2026-09-12',
     revenueAiResolveOverviewResponse: ({ response }) => ({ overview: response.data, errorMessage: '' }),

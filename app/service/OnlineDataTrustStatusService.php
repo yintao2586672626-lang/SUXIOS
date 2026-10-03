@@ -117,7 +117,9 @@ final class OnlineDataTrustStatusService
             return ['code' => 'failed', 'label' => '入库校验失败'];
         }
         if ($rowClass === 'unverified' || $validationClass === 'unverified') {
-            return ['code' => 'unverified', 'label' => '未回读验证'];
+            return ['code' => 'unverified', 'label' => (int)($row['readback_verified'] ?? 0) === 1
+                ? '已回读，事实未验证'
+                : '未回读验证'];
         }
         if ($rowClass === 'partial' || $validationClass === 'partial') {
             return ['code' => 'partial', 'label' => '部分入库'];

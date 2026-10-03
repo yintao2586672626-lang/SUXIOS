@@ -6,25 +6,23 @@ use app\service\AiDailyReportPresentationRendererService;
 use app\service\AiDailyReportPresentationReviewService;
 use app\service\AiDailyReportPresentationSpecService;
 use PHPUnit\Framework\TestCase;
-use think\App;
 use think\facade\Config;
 use think\facade\Db;
 
 final class AiDailyReportPresentationReviewServiceTest extends TestCase
 {
     private static array $originalConfig;
-    private static string $sqlitePath;
 
     public static function setUpBeforeClass(): void
     {
-        (new App())->initialize();
-        self::$originalConfig = Config::get('database');
-        self::$sqlitePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'presentation_review_test_' . getmypid() . '.sqlite';
-        @unlink(self::$sqlitePath);
-        $config = self::$originalConfig;
-        $config['default'] = 'sqlite';
-        $config['connections']['sqlite'] = ['type' => 'sqlite', 'database' => self::$sqlitePath, 'prefix' => '', 'fields_strict' => false];
-        Config::set($config, 'database');
+        self::$originalConfig = [];
+        foreach (['database', 'cache', 'log'] as $key) self::$originalConfig[$key] = Config::get($key, []);
+        $fixturePath = getenv('SUXIOS_CACHE_PATH') ?: sys_get_temp_dir() . '/presentation-review-' . getmypid();
+        Config::set(['default' => 'file', 'stores' => ['file' => ['type' => 'File', 'path' => $fixturePath . '/cache/']]], 'cache');
+        Config::set(['default' => 'file', 'channels' => ['file' => ['type' => 'File', 'path' => $fixturePath . '/log/', 'close' => true]]], 'log');
+        Config::set(['default' => 'presentation_fixture', 'connections' => ['presentation_fixture' => [
+            'type' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'fields_strict' => false,
+        ]]], 'database');
         Db::connect(null, true);
         Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL)');
         Db::execute('CREATE TABLE ai_report_presentation_specs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER,
@@ -45,9 +43,7 @@ final class AiDailyReportPresentationReviewServiceTest extends TestCase
     public static function tearDownAfterClass(): void
     {
         Db::connect()->close();
-        Config::set(self::$originalConfig, 'database');
-        Db::connect(null, true);
-        @unlink(self::$sqlitePath);
+        foreach (self::$originalConfig as $key => $value) Config::set($value, $key);
     }
 
     protected function setUp(): void
@@ -142,16 +138,13 @@ final class AiDailyReportPresentationReviewServiceTest extends TestCase
         $moved = $stored;
         $moved['hotel_id'] = 77;
 
-        $pending = $service->readForSpec($moved, [77]);
-        self::assertSame('pending', $pending['status']);
-        self::assertNull($pending['review_id']);
-        self::assertFalse($pending['readback_verified']);
-        self::assertNotSame($approved['review_fingerprint'], $pending['review_fingerprint']);
-        $this->fails(fn() => $service->readSnapshotForSpec($moved, [77], $approved['review_id']), 'presentation_review_artifact_lineage_missing');
+        $reason = 'hotel_identity_mapping_unverified_rebuild_current_spec';
+        $this->fails(fn() => $service->readForSpec($moved, [77]), $reason);
+        $this->fails(fn() => $service->readSnapshotForSpec($moved, [77], $approved['review_id']), $reason);
         $this->fails(fn() => $service->saveAndReadback($moved, [77], [
             'expected_review_fingerprint' => $approved['review_fingerprint'],
             'decisions' => [['id' => 'check:scope', 'decision' => 'confirmed']],
-        ], 9), 'presentation_review_stale');
+        ], 9), $reason);
         self::assertSame($savedEvidence, Db::name($service::TABLE)->where('id', $approved['review_id'])->find());
         self::assertSame(1, Db::name($service::TABLE)->count());
     }
@@ -281,11 +274,114 @@ final class AiDailyReportPresentationReviewServiceTest extends TestCase
         $this->fails(fn() => $artifacts->readExact(89, $formal['artifact_id'], [7], 3, true), 'exact readback verification failed');
     }
 
+    public function testRenumberPreservesOldEvidenceAndRequiresNewCurrentScopeReviewBeforeFormalExport(): void
+    {
+        $stored = $this->stored();
+        $reviews = new AiDailyReportPresentationReviewService();
+        $artifacts = new AiDailyReportPresentationArtifactService();
+        $oldReview = $this->complete($stored);
+        $oldFormal = $artifacts->saveAndReadback($stored, 9, true, 'formal', $oldReview['review_fingerprint']);
+        $originalReview = Db::name($reviews::TABLE)->where('id', $oldReview['review_id'])->find();
+        $originalSpecJson = Db::name('ai_report_presentation_specs')->where('id', $stored['record_id'])->value('spec_json');
+        $originalManifest = Db::name('ai_report_presentation_artifacts')->where('id', $oldFormal['artifact_id'])->value('manifest_json');
+
+        // TEST-ONLY: simulate the registry's relational renumber, preserving all digest-bound JSON.
+        Db::name('hotels')->where('id', 7)->update(['id' => 70]);
+        foreach (['ai_report_presentation_specs', $reviews::TABLE, 'ai_report_presentation_artifacts'] as $table) {
+            Db::name($table)->where('hotel_id', 7)->update(['hotel_id' => 70]);
+        }
+        $oldCurrentWrapper = $stored; $oldCurrentWrapper['hotel_id'] = 70;
+        $reason = 'hotel_identity_mapping_unverified_rebuild_current_spec';
+        $this->fails(fn() => $reviews->readForSpec($oldCurrentWrapper, [70]), $reason);
+        $this->fails(fn() => $reviews->readSnapshotForSpec($oldCurrentWrapper, [70], $oldReview['review_id']), $reason);
+        $this->fails(fn() => (new AiDailyReportPresentationSpecService())->readLatest(88, [70], 3), $reason);
+        $this->fails(fn() => $artifacts->readExact(88, $oldFormal['artifact_id'], [70], 3, true), $reason);
+        $this->fails(fn() => $artifacts->saveAndReadback($oldCurrentWrapper, 9, true, 'formal', $oldReview['review_fingerprint']), $reason);
+
+        $report = $this->report();
+        $report['hotel_id'] = 70;
+        $report['source_refs'][0]['hotel_id'] = 70;
+        $current = (new AiDailyReportPresentationSpecService())->saveAndReadback($report, 'owner', 9);
+        self::assertNotSame($stored['record_id'], $current['record_id']);
+        self::assertNotSame($stored['spec_fingerprint'], $current['spec_fingerprint']);
+        $pending = $reviews->readForSpec($current, [70]);
+        self::assertSame('pending', $pending['status']);
+        self::assertNull($pending['review_id']);
+        $this->fails(fn() => $artifacts->saveAndReadback($current, 9, true, 'formal', $oldReview['review_fingerprint']), 'presentation_review_stale');
+        $this->fails(fn() => $artifacts->saveAndReadback($current, 9, true, 'formal', $pending['review_fingerprint']), 'presentation_review_required_before_formal_export');
+        $currentReview = $this->complete($current);
+        $formal = $artifacts->saveAndReadback($current, 9, true, 'formal', $currentReview['review_fingerprint']);
+        self::assertSame(70, $currentReview['hotel_id']);
+        self::assertSame('reviewed', $formal['human_review_status']);
+        self::assertSame($currentReview['review_fingerprint'], $formal['review_fingerprint']);
+        self::assertNotSame($oldFormal['artifact_id'], $formal['artifact_id']);
+        self::assertSame($formal['bundle_base64'], $artifacts->readExact(88, $formal['artifact_id'], [70], 3, true)['bundle_base64']);
+        $renderer = new AiDailyReportPresentationRendererService();
+        $rendered = $renderer->render($current['spec'], $reviews->exportContext($currentReview, 'formal'));
+        self::assertSame('pass', $renderer->verifyBundle($rendered['bundle'], $rendered['manifest'])['status']);
+        $preserved = Db::name($reviews::TABLE)->where('id', $oldReview['review_id'])->find();
+        foreach (['review_json', 'review_fingerprint', 'review_status', 'request_key', 'request_hash'] as $field) {
+            self::assertSame($originalReview[$field], $preserved[$field], $field . ' must remain immutable');
+        }
+        self::assertSame($originalSpecJson, Db::name('ai_report_presentation_specs')->where('id', $stored['record_id'])->value('spec_json'));
+        self::assertSame($originalManifest, Db::name('ai_report_presentation_artifacts')->where('id', $oldFormal['artifact_id'])->value('manifest_json'));
+    }
+
+    public function testSameTenantRelocationAndForgedReviewHotelRemainRejected(): void
+    {
+        $stored = $this->stored();
+        $reviews = new AiDailyReportPresentationReviewService();
+        $review = $this->complete($stored);
+        Db::name('hotels')->insert(['id' => 70, 'tenant_id' => 3, 'name' => 'TEST-ONLY同租户另一酒店']);
+        Db::name('ai_report_presentation_specs')->where('id', $stored['record_id'])->update(['hotel_id' => 70]);
+        Db::name($reviews::TABLE)->where('id', $review['review_id'])->update(['hotel_id' => 70]);
+        $relocated = $stored; $relocated['hotel_id'] = 70;
+        $this->fails(fn() => $reviews->readForSpec($relocated, [7, 70]), 'hotel_identity_mapping_unverified_rebuild_current_spec');
+        Db::name('ai_report_presentation_specs')->where('id', $stored['record_id'])->update(['hotel_id' => 7]);
+        Db::name($reviews::TABLE)->where('id', $review['review_id'])->update(['hotel_id' => 7]);
+        $payload = json_decode((string)Db::name($reviews::TABLE)->where('id', $review['review_id'])->value('review_json'), true);
+        $payload['hotel_id'] = 70;
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR);
+        Db::name($reviews::TABLE)->where('id', $review['review_id'])->update(['review_json' => $json, 'review_fingerprint' => hash('sha256', $json)]);
+        $this->fails(fn() => $reviews->readForSpec($stored, [7, 70]), 'presentation_review_scope_or_source_mismatch');
+        self::assertSame(1, Db::name($reviews::TABLE)->count());
+        self::assertSame(0, Db::name('ai_report_presentation_artifacts')->count());
+    }
+
+    public function testAnonymizedTrainingReviewCannotTransferAcrossHotelIdentityAndFreshReportCanBeReviewed(): void
+    {
+        $stored = $this->stored('training');
+        $review = $this->complete($stored);
+        $oldJson = Db::name(AiDailyReportPresentationReviewService::TABLE)->where('id', $review['review_id'])->value('review_json');
+        Db::name('hotels')->where('id', 7)->update(['id' => 70]);
+        foreach (['ai_report_presentation_specs', AiDailyReportPresentationReviewService::TABLE] as $table) {
+            Db::name($table)->where('hotel_id', 7)->update(['hotel_id' => 70]);
+        }
+        $stored['hotel_id'] = 70;
+        $service = new AiDailyReportPresentationReviewService();
+        $this->fails(fn() => $service->readForSpec($stored, [70]), 'hotel_identity_mapping_unverified_rebuild_current_spec');
+        // TEST-ONLY: a newly generated current-hotel report has a fresh source result version.
+        $report = $this->report(); $report['hotel_id'] = 70; $report['source_refs'][0]['hotel_id'] = 70;
+        $report['result_contract']['result_version'] = str_repeat('c', 64);
+        $current = (new AiDailyReportPresentationSpecService())->saveAndReadback($report, 'training', 9);
+        self::assertNotSame($stored['spec_fingerprint'], $current['spec_fingerprint']);
+        self::assertSame('pending', $service->readForSpec($current, [70])['status']);
+        $reviewed = $this->complete($current);
+        $artifactService = new AiDailyReportPresentationArtifactService();
+        $formal = $artifactService->saveAndReadback($current, 9, true, 'formal', $reviewed['review_fingerprint']);
+        self::assertSame('reviewed', $formal['human_review_status']);
+        self::assertSame($formal['bundle_base64'], $artifactService->readExact(88, $formal['artifact_id'], [70], 3, true)['bundle_base64']);
+        self::assertNull($current['spec']['source_report']['hotel_id']);
+        self::assertArrayNotHasKey('hotel_id', $formal['manifest']['review']);
+        self::assertSame($oldJson, Db::name($service::TABLE)->where('id', $review['review_id'])->value('review_json'));
+    }
+
     private function complete(array $stored, string $note = ''): array
     {
         $service = new AiDailyReportPresentationReviewService();
-        $pending = $service->readForSpec($stored, [7]);
-        return $service->saveAndReadback($stored, [7], ['expected_review_fingerprint' => $pending['review_fingerprint'],
+        $hotelIds = [(int)$stored['hotel_id']];
+        $pending = $service->readForSpec($stored, $hotelIds);
+        return $service->saveAndReadback($stored, $hotelIds, ['expected_review_fingerprint' => $pending['review_fingerprint'],
             'decisions' => array_map(static fn(array $i): array => ['id' => $i['id'], 'decision' => $i['is_evidence_gap'] ? 'gap_acknowledged' : 'confirmed', 'note' => $note], $pending['items'])], 9);
     }
 

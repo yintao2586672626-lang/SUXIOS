@@ -67,6 +67,7 @@ if (!exists('AGENTS.md', outerRoot)) {
   requireIncludes('outer AGENTS.md', outerAgents, 'Commit/push/PR/deploy remain explicit-only');
   requireIncludes('outer AGENTS.md', outerAgents, 'Preserve unrelated changes');
   requireIncludes('outer AGENTS.md', outerAgents, 'Passkey');
+  requireIncludes('outer AGENTS.md', outerAgents, 'quality-completeness-and-issue-handling.md');
   requireIncludes('outer AGENTS.md', outerAgents, 'Use only a named Skill or the single Skill whose trigger directly matches');
   requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/hooks/');
   requireIncludes('outer AGENTS.md', outerAgents, 'untrusted packages and scripts');

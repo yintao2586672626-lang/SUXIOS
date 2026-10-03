@@ -869,6 +869,12 @@ class AiDailyReportService
         $expectedEnd = trim((string)($action['date_end'] ?? $expectedStart));
         $sameWindow = static fn(array $intent): bool => (string)($intent['date_start'] ?? '') === $expectedStart
             && (string)($intent['date_end'] ?? $intent['date_start'] ?? '') === $expectedEnd;
+        $sameIdentity = function (array $intent) use ($idempotencyKey, $actionIndex): bool {
+            $evidence = $this->decodeJson((string)($intent['evidence_json'] ?? ''));
+            $storedKey = trim((string)($evidence['action_idempotency_key'] ?? ''));
+            return $storedKey !== '' ? hash_equals($idempotencyKey, $storedKey)
+                : (int)($evidence['action_index'] ?? -1) === $actionIndex;
+        };
         $expectedDigest = $this->operationService->decisionRecommendationDigest($action);
         $sameRecommendation = function (array $intent) use ($expectedDigest, $action): bool {
             $evidence = $this->decodeJson((string)($intent['evidence_json'] ?? ''));
@@ -899,7 +905,7 @@ class AiDailyReportService
             ->whereNull('deleted_at');
         if ($linkedId > 0) {
             $linked = (clone $query)->where('id', $linkedId)->find();
-            if (is_array($linked) && $sameWindow($linked) && $sameRecommendation($linked)) {
+            if (is_array($linked) && $sameIdentity($linked) && $sameWindow($linked) && $sameRecommendation($linked)) {
                 return $linked;
             }
         }
@@ -909,12 +915,7 @@ class AiDailyReportService
             if (!is_array($row)) {
                 continue;
             }
-            $evidence = $this->decodeJson((string)($row['evidence_json'] ?? ''));
-            $storedKey = trim((string)($evidence['action_idempotency_key'] ?? ''));
-            if ($sameWindow($row) && $sameRecommendation($row)
-                && (($storedKey !== '' && hash_equals($idempotencyKey, $storedKey))
-                || ($storedKey === '' && (int)($evidence['action_index'] ?? -1) === $actionIndex)
-            )) {
+            if ($sameIdentity($row) && $sameWindow($row) && $sameRecommendation($row)) {
                 return $row;
             }
         }
