@@ -304,6 +304,11 @@
                     const result = await request('confirm', { ...payload, client_request_id: requestIdentity });
                     if (disposed) return;
                     if (!Number.isSafeInteger(result.imported_count) || result.imported_count !== payload.rows.length) throw new Error('导入数量未确认，请用同一份预览重试。');
+                    const validIds = ids => Array.isArray(ids) && ids.every(id => Number.isSafeInteger(id) && id > 0) && new Set(ids).size === ids.length;
+                    const idsMatch = validIds(result.project_ids) && validIds(result.entry_ids) && (payload.mode === 'entries'
+                        ? result.project_ids.length === 1 && result.project_ids[0] === payload.project_id && result.entry_ids.length === payload.rows.length
+                        : result.project_ids.length === payload.rows.length && result.entry_ids.length === 0);
+                    if (result.mode !== payload.mode || result.source_file_name !== payload.source_file_name || result.source_sha256 !== payload.source_sha256 || result.source_method !== payload.source_method || typeof result.replayed !== 'boolean' || !idsMatch) throw new Error('导入范围、来源或记录编号未确认，请用同一份预览重试。');
                     emit('saved', result);
                 } catch (caught) { if (caught.code === 409) invalidateReview(); error.value = caught.message; }
                 finally { busy.value = false; }

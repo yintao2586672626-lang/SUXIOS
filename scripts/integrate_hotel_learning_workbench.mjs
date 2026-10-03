@@ -9,9 +9,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const artifact = fs.readFileSync(path.join(root, 'public/components/system/hotel-learning-workbench.min.js'));
 const version = hash(artifact).slice(0, 10);
-const component = `            // SUXI_HOTEL_LEARNING_BEGIN\n            HotelLearningWorkbench: Vue.defineAsyncComponent({\n                loader: () => loadOnlineDataComponentScript('components/system/hotel-learning-workbench.min.js?v=hotel-learning-h${version}')\n                    .then(() => requireSystemComponent('HotelLearningWorkbench')),\n                loadingComponent: { render: () => h('p', { role: 'status', class: 'p-4 text-sm' }, '正在加载业务工具…') },\n                delay: 150,\n            }),\n            // SUXI_HOTEL_LEARNING_END\n`;
+const component = `    // SUXI_HOTEL_LEARNING_BEGIN\n    const HotelLearningWorkbench = Vue.defineAsyncComponent({\n        loader: () => loadOnlineDataComponentScript('components/system/hotel-learning-workbench.min.js?v=hotel-learning-h${version}')\n            .then(() => requireSystemComponent('HotelLearningWorkbench')),\n        loadingComponent: { render: () => h('p', { role: 'status', class: 'p-4 text-sm' }, '正在加载业务工具…') },\n        delay: 150,\n    });\n    // SUXI_HOTEL_LEARNING_END\n`;
 const specs = [
-  { file: 'public/app-main.js', start: '            // SUXI_HOTEL_LEARNING_BEGIN', end: '            // SUXI_HOTEL_LEARNING_END', anchor: '        components: {', block: component },
+  { file: 'public/components/system/app-main-components.js', start: '    // SUXI_HOTEL_LEARNING_BEGIN', end: '    // SUXI_HOTEL_LEARNING_END', anchor: '    const operatingFinanceControlCenterScript =', block: component },
   {
     file: 'resources/frontend/templates/fragments/19c-page-operating-finance.html',
     start: '    <!-- SUXI_HOTEL_LEARNING_BEGIN -->', end: '    <!-- SUXI_HOTEL_LEARNING_END -->', append: true,
@@ -27,6 +27,11 @@ const specs = [
   })),
 ];
 const receipts = [];
+for (const [file, marker] of [
+  ['public/app-main.js', 'HotelLearningWorkbench: appMainComponents.HotelLearningWorkbench'],
+  ['public/components/system/app-main-components-loader.js', "'HotelLearningWorkbench'"],
+  ['public/components/system/app-main-components.js', 'Object.freeze({ HotelLearningWorkbench,'],
+]) if (!fs.readFileSync(path.join(root, file), 'utf8').includes(marker)) throw new Error(`Missing deferred learning registration: ${file}`);
 for (const spec of specs) {
   const file = path.join(root, spec.file); const before = fs.readFileSync(file, 'utf8');
   const newline = before.includes('\r\n') ? '\r\n' : '\n';

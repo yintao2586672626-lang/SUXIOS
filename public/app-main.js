@@ -330,15 +330,7 @@
             return activeRender.apply(this, renderArgs);
         },
         components: {
-            // SUXI_HOTEL_LEARNING_BEGIN
-            HotelLearningWorkbench: Vue.defineAsyncComponent({
-                loader: () => loadOnlineDataComponentScript('components/system/hotel-learning-workbench.min.js?v=hotel-learning-h7acbb52ee7')
-                    .then(() => requireSystemComponent('HotelLearningWorkbench')),
-                loadingComponent: { render: () => h('p', { role: 'status', class: 'p-4 text-sm' }, '正在加载业务工具…') },
-                delay: 150,
-            }),
-            // SUXI_HOTEL_LEARNING_END
-            ChartRenderFeedback,
+            ChartRenderFeedback, HotelLearningWorkbench: appMainComponents.HotelLearningWorkbench,
             OperationExecutionEvidenceViewer: appMainComponents.OperationExecutionEvidenceViewer,
             OperationTaskWorkflowPanel: appMainComponents.OperationTaskWorkflowPanel || Vue.defineAsyncComponent(() => loadOnlineDataComponentScript('components/operations/task-workflow-panel.js?v=20260908-workflow-v1').then(() => window.SUXI_TASK_WORKFLOW_PANEL.create({ Vue, h }))),
             CompassCardHeader,
@@ -1107,8 +1099,7 @@
                 'online-data',
                 'revenue-research-center',
                 'operation-optimizer',
-                'operating-opportunities',
-                'investment-payback',
+                'operating-opportunities', 'operating-finance', 'investment-payback',
                 'operating-targets',
                 'ai-daily-report',
                 'ctrip-ebooking',
@@ -17590,8 +17581,7 @@
                                 testid: 'nav-core-operations-loop',
                             },
                         },
-                        { type: 'source', sourcePath: 'revenue-research-center', overrides: { name: '收益诊断' } },
-                        { type: 'source', sourcePath: 'investment-payback', overrides: { name: '投资回本' } },
+                        { type: 'source', sourcePath: 'revenue-research-center', overrides: { name: '收益诊断' } }, { type: 'source', sourcePath: 'investment-payback', overrides: { name: '投资回本' } },
                         { type: 'source', sourcePath: 'operation-optimizer', overrides: { name: '运营优化台' } },
                         { type: 'source', sourcePath: 'operating-opportunities', overrides: { name: '经营机会' } },
                         { type: 'source', sourcePath: 'operating-finance', overrides: { name: '净收与恢复' } },
@@ -34206,7 +34196,7 @@
                         }
                         loginError.value = '';
                         beginAuthSession(res.data.token);
-                        user.value = res.data.user;
+                        user.value = res.data.user; initialPageOverride = resolveInitialPageOverride(requestedInitialPage, res.data.user);
                         applyAuthContext(res.data.context || res.data.user?.context || {});
                         saveCachedAuthUser(res.data.user);
                         const permittedHotelSnapshot = res.data.user?.permitted_hotels;

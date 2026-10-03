@@ -45,6 +45,16 @@ Route::group('api/operating-finance', function () {
     Route::post('/on-books-snapshots', 'OperatingFinance/saveOnBooksSnapshot');
     Route::post('/demand-events', 'OperatingFinance/saveDemandEvent');
     Route::post('/monthly-finance', 'OperatingFinance/saveMonthlyFinance');
+    Route::get('/evidence/overview', 'OperatingFinance/evidenceOverview')->completeMatch(true);
+    Route::post('/evidence/preview', 'OperatingFinance/previewEvidence')->completeMatch(true);
+    Route::post('/evidence/snapshots', 'OperatingFinance/saveEvidence')->completeMatch(true);
+    Route::get('/evidence/snapshots/:id', 'OperatingFinance/readEvidence')->completeMatch(true);
+})->middleware(\app\middleware\Auth::class);
+
+Route::group('api/booking-monitoring', function () {
+    Route::get('/overview', 'BookingMonitoring/overview')->completeMatch(true);
+    Route::post('/snapshots', 'BookingMonitoring/saveSnapshots')->completeMatch(true);
+    Route::get('/snapshots/:id', 'BookingMonitoring/readSnapshot')->completeMatch(true);
 })->middleware(\app\middleware\Auth::class);
 
 Route::group('api/operation', function () {

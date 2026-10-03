@@ -1,0 +1,81 @@
+{
+  "version": "consumables-price-item-corrections-20261001-v2",
+  "source_sha256": "BF8AA1E0290BCF7F6464D6FFA63BDB653C1E11745A816EA53F517E2FC3EBA4F0",
+  "original_pack_sha256": "E24533560BC55C2CD532AF807CD80117AEC5F4ED46B998FD31825F09903C8347",
+  "reviewed_on": "2026-10-01",
+  "changes": [
+    {
+      "key": "item_01",
+      "unit_id": 135,
+      "previous_chunk_id": 992,
+      "expected_previous_content_digest": "9f97e585725647e334e48dbdf64d8cd589439f85430c5be9e7156bd5b4530f8f",
+      "replaced_line": "A/B是来源款式区分，不自动同时投放，也不自行删并。",
+      "replacement_line": "A/B是来源品项标记，具体款式、是否配套及投放量待确认；不自动同时投放，也不自行删并。",
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "A/B是来源品项标记，具体款式、是否配套及投放量待确认；不自动同时投放，也不自行删并。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "reason": "source_specific_interpretation_and_unknown_AB_meaning"
+    },
+    {
+      "key": "item_02",
+      "unit_id": 136,
+      "previous_chunk_id": 993,
+      "expected_previous_content_digest": "3edde355ca85474255515c6caec4fad248069b59d155ae693e5acb17967cbe82",
+      "replaced_line": "A/B是来源款式区分，不自动同时投放，也不自行删并。",
+      "replacement_line": "A/B是来源品项标记，具体款式、是否配套及投放量待确认；不自动同时投放，也不自行删并。",
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "A/B是来源品项标记，具体款式、是否配套及投放量待确认；不自动同时投放，也不自行删并。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "reason": "source_specific_interpretation_and_unknown_AB_meaning"
+    },
+    {
+      "key": "item_20",
+      "unit_id": 154,
+      "previous_chunk_id": 1011,
+      "expected_previous_content_digest": "9dfc54a852adb17b81362b59b1c9e8ee3a50412f7fef8082e48814872f7cbd0a",
+      "replaced_line": "纸品或垃圾袋克重是规格，不能替代计价包装数量；C31的50G卷纸不是50元。",
+      "replacement_line": "C30:E30散抽7.5kg是来源规格或包装质量描述，不能据此推断抽数、张数或报价按箱；F30:G30独立包装的净含量及计价包装另须确认。",
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "C30:E30散抽7.5kg是来源规格或包装质量描述，不能据此推断抽数、张数或报价按箱；F30:G30独立包装的净含量及计价包装另须确认。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "reason": "source_specific_interpretation_and_unknown_AB_meaning"
+    },
+    {
+      "key": "item_24",
+      "unit_id": 158,
+      "previous_chunk_id": 1015,
+      "expected_previous_content_digest": "e23363a41a0f887fef42250d2aca50526cdbf73cec34e7ce1ccdb061bc94ef61",
+      "replaced_line": "纸品或垃圾袋克重是规格，不能替代计价包装数量；C31的50G卷纸不是50元。",
+      "replacement_line": "D37:G37的25g/28g至35g/40g是袋体规格描述，不能反推每包或每箱数量；D36:G36报价的采购计量单位仍未知。",
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "D37:G37的25g/28g至35g/40g是袋体规格描述，不能反推每包或每箱数量；D36:G36报价的采购计量单位仍未知。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "reason": "source_specific_interpretation_and_unknown_AB_meaning"
+    },
+    {
+      "key": "item_25",
+      "unit_id": 159,
+      "previous_chunk_id": 1016,
+      "expected_previous_content_digest": "835d10d9700e97d44af815bf1cc24e10656537e6291daeb43653085921f1f81b",
+      "replaced_line": "纸品或垃圾袋克重是规格，不能替代计价包装数量；C31的50G卷纸不是50元。",
+      "replacement_line": "D39:G39的2g/2.3g至2.5g/3g是袋体规格描述，不能反推每包或每箱数量；D38:G38报价的采购计量单位仍未知。",
+      "interpretation_limits": [
+        "供应商、报价生效日、有效期、统一币种、税运费、计价包装及箱内数量未知；不是已成交价或本店实耗。",
+        "D39:G39的2g/2.3g至2.5g/3g是袋体规格描述，不能反推每包或每箱数量；D38:G38报价的采购计量单位仍未知。",
+        "区间不取默认中点，上下限和左右原样保留；不得自动用于成本、采购、库存或资金写入。"
+      ],
+      "reason": "source_specific_interpretation_and_unknown_AB_meaning"
+    }
+  ],
+  "quotation_lines_changed": false,
+  "recommendation_lines_changed": false,
+  "automatic_application_authorized": false
+}

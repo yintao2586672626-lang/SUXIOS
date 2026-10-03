@@ -14,7 +14,7 @@ use ZipArchive;
 final class AiDailyReportPresentationRendererService
 {
     public const ARTIFACT_SCHEMA_VERSION = 'suxios.ai_daily_report.presentation_artifact.v1';
-    public const RENDERER_VERSION = '2026-09-27.2';
+    public const RENDERER_VERSION = '2026-10-02.1';
 
     private const ZIP_MTIME = 315532800; // 1980-01-01T00:00:00Z, the ZIP epoch.
     private const MAX_ARTIFACT_BYTES = 4_194_304;
@@ -26,9 +26,20 @@ final class AiDailyReportPresentationRendererService
      * @param array<string,mixed> $spec
      * @return array<string,mixed>
      */
-    public function render(array $spec): array
+    public function render(array $spec, ?array $review = null): array
     {
         $specFingerprint = $this->verifySpecFingerprint($spec);
+        if ($review !== null && (($review['spec_fingerprint'] ?? '') !== $specFingerprint
+            || !in_array($review['export_mode'] ?? '', ['draft', 'formal'], true)
+            || !in_array($review['status'] ?? '', ['pending', 'reviewed', 'needs_revision'], true)
+            || !preg_match('/^[a-f0-9]{64}$/D', (string)($review['review_fingerprint'] ?? ''))
+            || (($review['export_mode'] ?? '') === 'formal' && (($review['status'] ?? '') !== 'reviewed'
+                || ($review['readback_verified'] ?? false) !== true || ($review['pending_item_count'] ?? 1) !== 0
+                || ($review['revision_item_count'] ?? 1) !== 0)))) {
+            throw new RuntimeException('presentation review render context invalid');
+        }
+        $rendererVersion = $review === null ? self::RENDERER_VERSION : self::RENDERER_VERSION . '-'
+            . ($review['export_mode'] === 'formal' ? 'f' : 'd') . '-' . substr(hash('sha256', $this->canonicalJson($review)), 0, 12);
         $slides = $this->arrayRows($spec['slides'] ?? []);
         $evidence = $this->arrayRows($spec['evidence_ledger'] ?? []);
         if ($slides === []) {
@@ -49,13 +60,13 @@ final class AiDailyReportPresentationRendererService
         $specName = 'presentation-spec.json';
         $manifestName = 'manifest.json';
 
-        $html = $this->renderHtml($spec, $slides, $evidenceById, $specFingerprint);
-        $pptx = $this->renderPptx($spec, $slides, $evidenceById, $specFingerprint);
+        $html = $this->renderHtml($spec, $slides, $evidenceById, $specFingerprint, $review);
+        $pptx = $this->renderPptx($spec, $slides, $evidenceById, $specFingerprint, $review);
         $specJson = $this->canonicalJson($spec);
 
         $manifest = [
             'schema_version' => self::ARTIFACT_SCHEMA_VERSION,
-            'renderer_version' => self::RENDERER_VERSION,
+            'renderer_version' => $rendererVersion,
             'render_status' => 'rendered',
             'source' => [
                 'spec_fingerprint' => $specFingerprint,
@@ -73,7 +84,10 @@ final class AiDailyReportPresentationRendererService
                 'pptx_macro_enabled' => false,
                 'pptx_editable_text_and_shapes' => true,
                 'external_write_authorized' => false,
-                'human_review_status' => 'pending',
+                'human_review_status' => $review['status'] ?? 'pending',
+                'export_mode' => $review['export_mode'] ?? 'draft',
+                'operating_approval_granted' => false,
+                'review_status_source' => $review === null ? 'legacy_pending' : 'presentation_review_snapshot',
             ],
             'components' => [
                 'html' => $this->componentDescriptor($htmlName, 'text/html; charset=utf-8', $html),
@@ -95,14 +109,21 @@ final class AiDailyReportPresentationRendererService
                 'visual_inspection_status' => 'not_recorded_in_artifact',
             ],
         ];
+        if ($review !== null) {
+            $manifest['review'] = $review;
+            $manifest['components']['presentation_review'] = $this->componentDescriptor('presentation-review.json', 'application/json; charset=utf-8', $this->canonicalJson($review));
+            $manifest['qa']['visual_inspection_status'] = $review['status'] === 'reviewed' ? 'human_recorded_for_same_spec' : 'pending_or_revision';
+        }
         $manifestJson = $this->canonicalJson($manifest);
         $bundleName = $baseName . '-bundle.zip';
-        $bundle = $this->zip([
+        $files = [
             $htmlName => $html,
             $pptxName => $pptx,
             $specName => $specJson,
             $manifestName => $manifestJson,
-        ]);
+        ];
+        if ($review !== null) $files['presentation-review.json'] = $this->canonicalJson($review);
+        $bundle = $this->zip($files);
 
         if (strlen($bundle) > self::MAX_ARTIFACT_BYTES) {
             throw new RuntimeException('presentation artifact bundle exceeds the safe size limit');
@@ -110,7 +131,7 @@ final class AiDailyReportPresentationRendererService
 
         return [
             'schema_version' => self::ARTIFACT_SCHEMA_VERSION,
-            'renderer_version' => self::RENDERER_VERSION,
+            'renderer_version' => $rendererVersion,
             'spec_fingerprint' => $specFingerprint,
             'filename' => $bundleName,
             'mime_type' => 'application/zip',
@@ -135,7 +156,9 @@ final class AiDailyReportPresentationRendererService
 
         $files = $this->unzip($bundle);
         $components = is_array($manifest['components'] ?? null) ? $manifest['components'] : [];
-        foreach (['html', 'pptx', 'presentation_spec'] as $componentName) {
+        $componentNames = ['html', 'pptx', 'presentation_spec'];
+        if (isset($manifest['review'])) $componentNames[] = 'presentation_review';
+        foreach ($componentNames as $componentName) {
             $component = is_array($components[$componentName] ?? null) ? $components[$componentName] : [];
             $filename = trim((string)($component['filename'] ?? ''));
             if ($filename === '' || !array_key_exists($filename, $files)) {
@@ -148,6 +171,25 @@ final class AiDailyReportPresentationRendererService
             }
             if ((int)($component['bytes'] ?? -1) !== strlen($content)) {
                 $errors[] = 'bundle_component_size_mismatch:' . $componentName;
+            }
+        }
+        if (isset($manifest['review'])) {
+            $review = $manifest['review'];
+            $reviewFile = $files[(string)($components['presentation_review']['filename'] ?? '')] ?? '';
+            $decodedReview = json_decode($reviewFile, true);
+            $specFile = $files[(string)($components['presentation_spec']['filename'] ?? '')] ?? '';
+            $decodedSpec = json_decode($specFile, true);
+            if (!is_array($review) || !is_array($decodedReview) || !is_array($decodedSpec)
+                || $this->canonicalJson($review) !== $this->canonicalJson($decodedReview)
+                || ($manifest['contract']['human_review_status'] ?? '') !== ($review['status'] ?? null)
+                || ($manifest['contract']['export_mode'] ?? '') !== ($review['export_mode'] ?? null)
+                || ($manifest['source']['spec_fingerprint'] ?? '') !== ($review['spec_fingerprint'] ?? null)
+                || ($review['source_evidence_fingerprint'] ?? '') !== hash('sha256', $this->canonicalJson([
+                    'source_report' => $decodedSpec['source_report'] ?? [], 'ledger' => $decodedSpec['evidence_ledger'] ?? []]))
+                || (($review['export_mode'] ?? '') === 'formal' && (($review['status'] ?? '') !== 'reviewed'
+                    || ($review['readback_verified'] ?? false) !== true || ($review['pending_item_count'] ?? 1) !== 0
+                    || ($review['revision_item_count'] ?? 1) !== 0))) {
+                $errors[] = 'bundle_review_context_mismatch';
             }
         }
 
@@ -206,7 +248,7 @@ final class AiDailyReportPresentationRendererService
      * @param array<int,array<string,mixed>> $slides
      * @param array<string,array<string,mixed>> $evidenceById
      */
-    private function renderHtml(array $spec, array $slides, array $evidenceById, string $fingerprint): string
+    private function renderHtml(array $spec, array $slides, array $evidenceById, string $fingerprint, ?array $review): string
     {
         $renderedSlides = [];
         $total = count($slides);
@@ -217,7 +259,7 @@ final class AiDailyReportPresentationRendererService
             $rows = $this->slideEvidence($slide, $evidenceById);
             $densityClass = count($rows) >= 5 ? ' density-compact' : '';
             $number = $index + 1;
-            $sourceLines = $this->slideSourceLines($slide, $rows, $fingerprint);
+            $sourceLines = $this->slideSourceLines($slide, $rows, $fingerprint, $review);
             $evidenceHtml = '';
             foreach ($rows as $row) {
                 $class = (string)($row['class'] ?? 'UNKNOWN');
@@ -239,7 +281,7 @@ final class AiDailyReportPresentationRendererService
                 ? '<div class="title-copy"><div class="eyebrow">SUXIOS · EVIDENCE-GOVERNED REPORT</div>'
                     . '<h1>' . $this->html($title) . '</h1><p class="title-message">' . $this->html($message) . '</p>'
                     . '<div class="title-status">数据状态：' . $this->html((string)($spec['deck']['data_status'] ?? 'unverified'))
-                    . ' · 人工复核：待完成</div></div>'
+                    . ' · ' . $this->html($this->reviewLabel($review)) . '</div></div>'
                 : '<header><div class="eyebrow">' . $this->html($this->roleLabel($role)) . '</div>'
                     . '<h2>' . $this->html($title) . '</h2><p class="message">' . $this->html($message) . '</p></header>'
                     . '<ol class="evidence-list">' . $evidenceHtml . '</ol>';
@@ -247,7 +289,7 @@ final class AiDailyReportPresentationRendererService
             $renderedSlides[] = '<section class="slide role-' . $this->html(strtolower($role)) . $densityClass . '" id="slide-' . $number . '" tabindex="0">'
                 . '<div class="slide-inner">' . $titleContent
                 . '<details class="sources"><summary>来源与边界</summary><ul>' . $sourcesHtml . '</ul></details>'
-                . '<footer><span>SUXIOS</span><span>' . sprintf('%02d/%02d', $number, $total) . '</span></footer>'
+                . '<footer><span>SUXIOS · ' . $this->html($this->reviewLabel($review)) . '</span><span>' . sprintf('%02d/%02d', $number, $total) . '</span></footer>'
                 . '</div></section>';
         }
 
@@ -283,7 +325,7 @@ JS;
      * @param array<int,array<string,mixed>> $slides
      * @param array<string,array<string,mixed>> $evidenceById
      */
-    private function renderPptx(array $spec, array $slides, array $evidenceById, string $fingerprint): string
+    private function renderPptx(array $spec, array $slides, array $evidenceById, string $fingerprint, ?array $review): string
     {
         $slideCount = count($slides);
         $files = [
@@ -313,11 +355,12 @@ JS;
                 $slide,
                 $rows,
                 $number,
-                $slideCount
+                $slideCount,
+                $review
             );
             $files['ppt/slides/_rels/slide' . $number . '.xml.rels'] = $this->slideRelationshipsXml($number);
             $files['ppt/notesSlides/notesSlide' . $number . '.xml'] = $this->notesSlideXml(
-                $this->slideSourceLines($slide, $rows, $fingerprint)
+                $this->slideSourceLines($slide, $rows, $fingerprint, $review)
             );
             $files['ppt/notesSlides/_rels/notesSlide' . $number . '.xml.rels'] = $this->notesSlideRelationshipsXml($number);
         }
@@ -330,7 +373,7 @@ JS;
      * @param array<string,mixed> $slide
      * @param array<int,array<string,mixed>> $rows
      */
-    private function slideXml(array $spec, array $slide, array $rows, int $number, int $total): string
+    private function slideXml(array $spec, array $slide, array $rows, int $number, int $total, ?array $review): string
     {
         $role = strtoupper(trim((string)($slide['role'] ?? 'CONTENT')));
         $dark = $role === 'TITLE';
@@ -380,7 +423,7 @@ JS;
                 $secondaryColor,
                 false
             );
-            $status = '数据状态：' . (string)($spec['deck']['data_status'] ?? 'unverified') . ' · 人工复核：待完成';
+            $status = '数据状态：' . (string)($spec['deck']['data_status'] ?? 'unverified') . ' · ' . $this->reviewLabel($review);
             $shapes[] = $this->textBox($shapeId++, 'Data status', .95, 5.15, 8.5, .4, $status, 16, 'B8C8C0');
         } else {
             $shapes[] = $this->textBox(
@@ -478,7 +521,7 @@ JS;
 
         $footerColor = $dark ? 'B8C8C0' : '64748B';
         $shapes[] = $this->lineShape($shapeId++, 'Footer rule', .72, 7.03, 11.88, $dark ? '6F826F' : 'D7DDD8', .8);
-        $shapes[] = $this->textBox($shapeId++, 'Footer brand', .72, 7.09, 2.0, .22, 'SUXIOS', 10, $footerColor, true);
+        $shapes[] = $this->textBox($shapeId++, 'Footer brand', .72, 7.09, 8.7, .22, 'SUXIOS · ' . $this->reviewLabel($review), 10, $footerColor, true);
         $shapes[] = $this->textBox(
             $shapeId++,
             'Footer page',
@@ -798,13 +841,19 @@ JS;
      * @param array<int,array<string,mixed>> $rows
      * @return array<int,string>
      */
-    private function slideSourceLines(array $slide, array $rows, string $fingerprint): array
+    private function slideSourceLines(array $slide, array $rows, string $fingerprint, ?array $review): array
     {
         $lines = [
             '[Sources]',
             'PresentationSpec SHA-256: ' . $fingerprint,
             $this->text((string)($slide['source_note'] ?? '来源边界未提供。'), 300),
         ];
+        $lines[] = $this->reviewLabel($review);
+        if ($review !== null) {
+            $lines[] = 'Report review SHA-256: ' . $review['review_fingerprint'];
+            $lines[] = 'Source evidence SHA-256: ' . $review['source_evidence_fingerprint'];
+            $lines[] = 'Review confirms report presentation only; evidence gaps remain gaps and operating actions remain unapproved.';
+        }
         foreach ($rows as $row) {
             $id = (string)($row['id'] ?? 'evidence');
             $gapCode = trim((string)($row['gap_code'] ?? ''));
@@ -819,6 +868,12 @@ JS;
             }
         }
         return $lines;
+    }
+
+    private function reviewLabel(?array $review): string
+    {
+        $status = match ($review['status'] ?? 'pending') { 'reviewed' => '已逐项复核', 'needs_revision' => '待修订', default => '待完成' };
+        return (($review['export_mode'] ?? 'draft') === 'formal' ? '正式版' : '草稿') . ' · 人工复核：' . $status;
     }
 
     private function roleLabel(string $role): string

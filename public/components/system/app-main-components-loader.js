@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-hfd680f14d6';
+    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-h4fc54d5e9c';
     const fullScriptAsset = fullScript.split('?', 1)[0];
     let fullScriptPromise = null;
 
@@ -22,6 +22,15 @@
                 .then(() => window.SUXI_LOAD_DEFERRED_AUTHENTICATED_ASSET(fullScriptAsset))
                 .then(requireFullFactory)
                 .catch(error => {
+                    if (!window.SUXI_APP_MAIN_COMPONENTS_FULL?.create) {
+                        const expectedAsset = new URL(fullScriptAsset, document.baseURI);
+                        for (const script of [...document.scripts]) {
+                            try {
+                                const loadedAsset = new URL(script.src, document.baseURI);
+                                if (loadedAsset.origin === expectedAsset.origin && loadedAsset.pathname === expectedAsset.pathname) script.remove();
+                            } catch { /* Ignore unrelated inline or invalid script URLs. */ }
+                        }
+                    }
                     fullScriptPromise = null;
                     throw error;
                 });
@@ -183,7 +192,8 @@
             'PlatformAutoSettingsPanels', 'PlatformAutoSecondaryPanels', 'CtripProfileFieldConfigPanel',
             'CompetitorDeviceManagement', 'DataConfigDialogs', 'SessionProofNotice',
             'LocalCollectorLoginHandoff', 'PmsRealtimeSyncResult', 'HotelThreeSourceOnboardingPanel',
-            'OperatingLoopAuthority', 'ManagerCapabilityPanel', 'OperatingOpportunityLab',
+            'OperatingLoopAuthority',
+            'HotelLearningWorkbench', 'ManagerCapabilityPanel', 'OperatingOpportunityLab',
             'OperatingFinanceControlCenter', 'OperatingNetworkReplicationList',
             'MeituanStoredRecordDetail', 'MeituanSearchKeywordWorkbench', 'SimulationHeroActions', 'ForecastDecisionWorkbench',
             'RevenueCockpitOpportunityDetails', 'RevenueCockpitSnapshotStatus',

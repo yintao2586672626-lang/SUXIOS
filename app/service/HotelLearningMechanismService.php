@@ -317,6 +317,7 @@ final class HotelLearningMechanismService
     {
         $text = $this->text($value, 20);
         if ($text === '' && !$required) return null;
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $text)) throw new InvalidArgumentException('请输入有效业务日期');
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', $text);
         if (!$date || $date->format('Y-m-d') !== $text) throw new InvalidArgumentException('请输入有效业务日期');
         return $text;

@@ -34,7 +34,9 @@ final class InvestmentScenarioCashPlanner
             if ($rate === '') $rate = null;
             if ($term === '') $term = null;
             $method = $row['method'] ?? null;
-            if (($rate !== null && (!is_numeric($rate) || !is_finite((float)$rate) || $rate < 0 || $rate > 1)) || ($term !== null && (!is_numeric($term) || (int)$term != $term || $term < 1 || $term > 360))
+            $rateUnderflow = is_string($rate) && is_numeric($rate) && (float)$rate === 0.0
+                && preg_match('/[1-9]/', explode('e', strtolower(trim($rate)), 2)[0]);
+            if (($rate !== null && (!is_numeric($rate) || !is_finite((float)$rate) || $rateUnderflow || $rate < 0 || $rate > 1)) || ($term !== null && (!is_numeric($term) || (int)$term != $term || $term < 1 || $term > 360))
                 || !in_array($method, ['equal_principal', 'annuity', 'interest_only'], true)) throw new InvalidArgumentException('贷款利率、期限或偿还方式不正确');
             $principal = $this->money($row['principal'] ?? null, '贷款本金');
             if ($principal !== null && InvestmentPaybackCalculator::fen($principal) <= 0) throw new InvalidArgumentException('贷款本金须大于0');

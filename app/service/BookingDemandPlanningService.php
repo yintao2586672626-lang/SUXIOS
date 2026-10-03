@@ -44,6 +44,19 @@ final class BookingDemandPlanningService
             ?? static fn(callable $callback): array => Db::transaction($callback);
     }
 
+    /** Reuse the existing scope, source, date and missing-value contract for room-type snapshots. */
+    public function validatedSnapshotContent(int $tenantId, array $permittedHotelIds, int $hotelId, array $input): array
+    {
+        $tenantId = $this->resolveScope($tenantId, $permittedHotelIds, $hotelId);
+        return $this->normalizeSnapshot($tenantId, $hotelId, $input);
+    }
+
+    /** Internal readback validation for already scope-filtered bulk readers. */
+    public function validatedSnapshotReadback(array $row): array
+    {
+        return $this->hydrateSnapshot($row);
+    }
+
     /** @param list<int> $permittedHotelIds @return array<string,mixed> */
     public function saveOnBooksSnapshot(
         int $tenantId,

@@ -28,6 +28,9 @@ final class InvestmentScenarioCalculator
             }
         }
         if ($out['as_of'] !== null) {
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $out['as_of'])) {
+                throw new InvalidArgumentException('as_of must be a valid YYYY-MM-DD date');
+            }
             $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $out['as_of']);
             if ($date === false || $date->format('Y-m-d') !== $out['as_of']) {
                 throw new InvalidArgumentException('as_of must be a valid YYYY-MM-DD date');
@@ -407,7 +410,9 @@ final class InvestmentScenarioCalculator
             throw new InvalidArgumentException($key . ' must be numeric or null');
         }
         $number = (float) $value;
-        if (!is_finite($number) || $number < $min || $number > $max || ($integer && floor($number) !== $number)) {
+        $underflow = is_string($value) && $number === 0.0
+            && preg_match('/[1-9]/', explode('e', strtolower(trim($value)), 2)[0]);
+        if (!is_finite($number) || $underflow || $number < $min || $number > $max || ($integer && floor($number) !== $number)) {
             throw new InvalidArgumentException($key . ' is outside its allowed range');
         }
         return $integer ? (int) $number : $number;

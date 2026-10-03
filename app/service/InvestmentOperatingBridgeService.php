@@ -160,7 +160,7 @@ final class InvestmentOperatingBridgeService
             if ($value === null || $value === '') {
                 $complete = false; $issues[] = $field . '_missing';
             } else {
-                $amounts[$key] = InvestmentPaybackCalculator::yuan(InvestmentPaybackCalculator::fen($value, $key === 'net_actual_recovered', $field));
+                $amounts[$key] = InvestmentPaybackCalculator::yuan($this->cumulativeFen($value, $key === 'net_actual_recovered'));
             }
         }
         $historyComplete = ($summary['data_quality']['history_complete'] ?? false) === true
@@ -213,7 +213,7 @@ final class InvestmentOperatingBridgeService
             foreach ($projects as $project) {
                 if (!$project['amounts_complete']) continue;
                 foreach ($totals as $field => $sum) {
-                    $fen = InvestmentPaybackCalculator::fen($project['amounts'][$field], $field === 'net_actual_recovered');
+                    $fen = $this->cumulativeFen($project['amounts'][$field], $field === 'net_actual_recovered');
                     if (($fen > 0 && $sum > PHP_INT_MAX - $fen) || ($fen < 0 && $sum < PHP_INT_MIN - $fen)) {
                         throw new RuntimeException('investment_bridge_total_overflow');
                     }
@@ -231,5 +231,19 @@ final class InvestmentOperatingBridgeService
                 ? ($comparisonBlocked ? 'project_cash_comparison_scope_mismatch' : 'investor_identity_unverified')
                 : 'project_cash_history_or_coverage_incomplete');
         return $reply;
+    }
+
+    /** Ledger summaries are cumulative; the individual-entry ceiling does not apply. */
+    private function cumulativeFen(mixed $value, bool $signed): int
+    {
+        if (!is_string($value) && !is_int($value) && !is_float($value)) throw new InvalidArgumentException('investment_bridge_cumulative_amount_invalid');
+        $pattern = $signed ? '/^(-?)(\d{1,17})(?:\.(\d{1,2}))?$/D' : '/^()(\d{1,17})(?:\.(\d{1,2}))?$/D';
+        if (!preg_match($pattern, trim((string)$value), $match)) throw new InvalidArgumentException('investment_bridge_cumulative_amount_invalid');
+        $digits = ltrim($match[2] . str_pad($match[3] ?? '', 2, '0'), '0') ?: '0';
+        $maximum = (string)PHP_INT_MAX;
+        if (strlen($digits) > strlen($maximum) || (strlen($digits) === strlen($maximum) && strcmp($digits, $maximum) > 0)) {
+            throw new InvalidArgumentException('investment_bridge_cumulative_amount_overflow');
+        }
+        return ($match[1] === '-' ? -1 : 1) * (int)$digits;
     }
 }

@@ -27,3 +27,16 @@ test('blocked and absent bridge remains missing instead of zero cash success',as
 test('incompatible currency, basis or cutoff cannot display amounts as CNY cash',async()=>{
  const output=await html({...sample,projects:[{...sample.projects[0],scope_compatible:false}]});assert.doesNotMatch(output,/¥1,000|¥0/);assert.match(output,/资金口径、币种或截止日待核/);assert.match(output,/未取得/);
 });
+test('canonical decimal cash retains every cent beyond Number precision, including negative recovery and true zero',async()=>{
+ const output=await html({...sample,projects:[{...sample.projects[0],amounts:{actual_invested:'90071992547409.91',net_actual_recovered:'-90071992547409.93',unrecovered:'0.00'}}]});
+ assert.match(output,/¥90,071,992,547,409\.91/);assert.match(output,/¥-90,071,992,547,409\.93/);assert.match(output,/¥0\.00/);assert.doesNotMatch(output,/¥90,071,992,547,409\.9</);
+});
+test('ordinary unit costs keep two-place rounding while missing cash stays missing',async()=>{
+ const output=await html({...sample,projects:[{...sample.projects[0],amounts:{actual_invested:'12.345',net_actual_recovered:'-1.239',unrecovered:null}}]});
+ assert.match(output,/¥12\.35/);assert.match(output,/¥-1\.24/);assert.match(output,/未取得/);assert.doesNotMatch(output,/¥12\.34|¥0/);
+});
+test('changing the selected hotel or period hides a still-loaded previous bridge',async()=>{
+ for(const extra of [{hotelId:'8'},{periodMonth:'2026-10'},{hotels:[{id:7,tenant_id:3}]}]){
+  const output=await html(sample,extra);assert.doesNotMatch(output,/合成项目|¥1,000/);assert.match(output,/未取得当前酒店及账期/);
+ }
+});

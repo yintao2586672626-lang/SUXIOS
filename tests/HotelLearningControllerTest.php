@@ -34,6 +34,8 @@ final class HotelLearningControllerTest extends TestCase
             'plan review object' => ['operating_review', ['plan'], 'invalid-object'],
             'contract object' => ['contract_review', ['constraints'], 'invalid-object'],
             'investment date' => ['investment_target', ['scenario', 'as_of'], ['invalid-date']],
+            'investment NUL date' => ['investment_target', ['scenario', 'as_of'], "2026-10-\0" . '3'],
+            'profile NUL date' => ['profile', ['fields', 0, 'as_of'], "2026-10-\0" . '3'],
             'target request object' => ['investment_target', ['request'], 'invalid-object'],
         ];
     }

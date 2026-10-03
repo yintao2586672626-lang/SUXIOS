@@ -17,6 +17,7 @@ final class ConsumablesActualCostService
         $attested = ($input['operator_attested'] ?? false) === true;
         $rows = $input['items'] ?? [];
         if (!is_array($rows) || count($rows) > 100) throw new InvalidArgumentException('consumables_items_invalid');
+        $today = (new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai')))->format('Y-m-d');
         $normalized = []; $missing = []; $knownCents = 0; $lossCents = 0; $knownCount = 0; $complete = true;
         foreach ($rows as $index => $raw) {
             if (!is_array($raw) || !is_bool($raw['enabled'] ?? null)) throw new InvalidArgumentException('consumables_enabled_required');
@@ -29,6 +30,9 @@ final class ConsumablesActualCostService
             $gaps = [];
             foreach (['opening_quantity','purchased_quantity','transfer_in_quantity','closing_quantity','transfer_out_quantity','returned_quantity','written_off_quantity'] as $key) if ($item[$key] === null) $gaps[] = $key;
             if ($item['source_ref'] === '' || !$this->validDate($item['source_date'])) $gaps[] = 'source_evidence';
+            if ($item['enabled'] && $this->validDate($item['source_date']) && $item['source_date'] > $today) {
+                throw new InvalidArgumentException('consumables_actual_source_date_in_future');
+            }
             $quantity = $item['enabled'] && $gaps === [] ? $this->inventoryQuantity([
                 $item['opening_quantity'], $item['purchased_quantity'], $item['transfer_in_quantity'],
                 -$item['closing_quantity'], -$item['transfer_out_quantity'], -$item['returned_quantity'], -$item['written_off_quantity'],
@@ -80,7 +84,7 @@ final class ConsumablesActualCostService
     {
         if ($value === null || is_string($value) && trim($value) === '') return null;
         if (is_bool($value) || !is_numeric($value) || !is_finite((float)$value) || (float)$value < 0 || (float)$value > 1e12) throw new InvalidArgumentException('consumables_number_invalid');
-        if (is_string($value) && (float)$value === 0.0 && strpbrk(preg_split('/[eE]/', trim($value))[0], '123456789') !== false) throw new InvalidArgumentException('consumables_number_precision_loss');
+        if (is_string($value) && (float)$value === 0.0 && preg_match('/[1-9]/', preg_split('/e/i', $value, 2)[0])) throw new InvalidArgumentException('consumables_number_invalid');
         return (float)$value;
     }
     private function inventoryQuantity(array $terms, ?float $price): float
@@ -111,5 +115,5 @@ final class ConsumablesActualCostService
         if (!is_scalar($value) || is_bool($value) || mb_strlen((string)$value) > $limit) throw new InvalidArgumentException('consumables_text_invalid');
         return trim((string)$value);
     }
-    private function validDate(string $date): bool { $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $date); return $d !== false && $d->format('Y-m-d') === $date; }
+    private function validDate(string $date): bool { if (!preg_match('/^\d{4}-\d{2}-\d{2}$/D', $date)) return false; $d = \DateTimeImmutable::createFromFormat('!Y-m-d', $date); return $d !== false && $d->format('Y-m-d') === $date; }
 }

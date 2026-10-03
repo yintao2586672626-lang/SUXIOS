@@ -1,0 +1,286 @@
+{
+  "contract": "suxios.five-enhancements.delivery.v1",
+  "base_commit": "30cac6f8c37c66dbe14aecc87366e9c901b36dec",
+  "source_head": "9fa781fc92baa66b410f4e5d6e8c8c3c1ebae81b",
+  "dependency_worktree": "HOTEL-payback-mainline-20261002",
+  "dependency_commit": "5386eadc610dbd469523fbfeb6ee48f1e37a90a6",
+  "main_thread": "01a0eed4-02fb-7240-84ea-10ba830bae5c",
+  "verification": {
+    "candidate_php_tests": 134,
+    "candidate_php_assertions": 1054,
+    "candidate_node_tests": 71,
+    "skipped": 0,
+    "composed_investment_acceptance": "passed in the main-thread target; see composed_receipt",
+    "real_business_write": false,
+    "deployment": false
+  },
+  "source_files": [
+    {
+      "path": ".gitattributes",
+      "sha256": "5d111ec7490587d98d41626d57c5090cde95bab5f2fc99eee69ec1f7d14172be"
+    },
+    {
+      "path": "app/controller/AiDailyReport.php",
+      "sha256": "81b2dc5dccbae9272c183a5a43dfebcd7ff87f6ec9408453503eb67faf86f44f"
+    },
+    {
+      "path": "app/controller/BookingMonitoring.php",
+      "sha256": "3c79d1f7dda93d68079b463986b939b6a114658b41fb213a8583561c7d3dcd0b"
+    },
+    {
+      "path": "app/controller/OperatingFinance.php",
+      "sha256": "6fd49f18783b06ea5751de9d6445e2bc0d2a2275dfab7e17f603b339746705fa"
+    },
+    {
+      "path": "app/service/ActualConsumablesScenarioReferenceService.php",
+      "sha256": "70934e48e66774a9fa848a4c379862c86682c2a3e2ccf9e46288f5add39a83d5"
+    },
+    {
+      "path": "app/service/AiDailyReportPresentationArtifactService.php",
+      "sha256": "92855c67fba659ddae765abf7270474dfc0e482c581279f5b0570f0b42e284cc"
+    },
+    {
+      "path": "app/service/AiDailyReportPresentationRendererService.php",
+      "sha256": "4cf78c038d36f4adb06cf262cc1ce2c3be4be7a9aea4009033e4580ee209b733"
+    },
+    {
+      "path": "app/service/AiDailyReportPresentationReviewService.php",
+      "sha256": "07665e62de2c4838a160980f89f98d0ccae63ff0c16ed98de17d39204c89e7b5"
+    },
+    {
+      "path": "app/service/AiDailyReportPresentationSpecService.php",
+      "sha256": "f5d6e1c0cff98646a403dc85aff2db2fbdd42e2b4d5ae8d3c35b0e9d39bed2ba"
+    },
+    {
+      "path": "app/service/BookingDemandPlanningService.php",
+      "sha256": "a46358aa2ee4690c3cb80b08ca104b3363ed8fc578c760c1af40c9834a723774"
+    },
+    {
+      "path": "app/service/BookingMonitoringService.php",
+      "sha256": "0b5ab41ff77f36dfdcf22b1d9fd67fa99ef5635d0d038fe56bfe57bcfba5c3ee"
+    },
+    {
+      "path": "app/service/ChannelEconomicsService.php",
+      "sha256": "a38403f12b8b6cf99f7b566ff09398227f5962aeaaaf1d95e507193be53992bc"
+    },
+    {
+      "path": "app/service/ConsumablesActualCostService.php",
+      "sha256": "ddd26918f8b1e42c1636bf61b6f721d6a72424600b413f52d6cfb1b76cf44561"
+    },
+    {
+      "path": "app/service/ConsumablesProcurementReferenceService.php",
+      "sha256": "13b16ea0c2099f5567ef1b0c6718c0e4e2e0f5fb2af4025f85c8ff3bf899670a"
+    },
+    {
+      "path": "app/service/OperatingEvidenceSnapshotStore.php",
+      "sha256": "b16bb06e922bbab7b8221042c812fa13c522b80b8a3f50cd0fd110dc890ce4b1"
+    },
+    {
+      "path": "app/service/SchemaVersionService.php",
+      "sha256": "c027113b248835d9e1e7cdf48fd1428e4dd02c7278b1f9ab0fb392bfd63e1d06"
+    },
+    {
+      "path": "database/migration_checksums.lock.json",
+      "sha256": "5147570b3c5e69e1473804ec23c33540d7148c304ec3ec09b63b1b3ad7f5ae41"
+    },
+    {
+      "path": "database/migrations/20261002_create_ai_report_presentation_reviews.sql",
+      "sha256": "32dadf8990bf355050f601972e36defa0fb9da625b64f388f923b869a57edb23"
+    },
+    {
+      "path": "database/migrations/20261002_create_operating_evidence_snapshots.sql",
+      "sha256": "87bb58c2d139b12f9abd9cdf195c8b03c4d843d193b5611a26593b6992b200f3"
+    },
+    {
+      "path": "database/migrations/20261002_create_room_type_on_books_snapshots.sql",
+      "sha256": "9dc6db2d06d14655b381265abc20fb077c11ae4b4d0d6caa92ccfa79834ba779"
+    },
+    {
+      "path": "docs/integration/five-enhancements-20261002.md",
+      "sha256": "2a7d5a31ff8ea0fc3ee5167992e5f5da8fd99b2255126b80c72fc3bad69e9d22"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/README.md",
+      "sha256": "4c864367955f5e0cba2fe43654a9a1340c4d7f418e253bcc7f46f13b3e16ee08"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/catalog.json",
+      "sha256": "d129a820408654fc79b9e9345037590dc6bfdd27ad2baff7a80c24eee1eb8053"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/extracted.json",
+      "sha256": "3b33b841af2c0e1361cfd29100c37e4393155da4c09093151b43807fdf9ebd67"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/item-corrections-v2.json",
+      "sha256": "0a42d319057b08456514337a9b2c8deeca2c1e3fb212fca3695a0f8c93ef4ced"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/item-knowledge-pack.json",
+      "sha256": "e24533560bc55c2cd532af807cd80117aec5f4ed46b998fd31825f09903c8347"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/item-source-manifest.json",
+      "sha256": "82c839660963a85bb99c472454186f43d16e1697ddaa37285397e7fbf144e66d"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/knowledge-pack.json",
+      "sha256": "bf6ee05962c3d6684e5e9f8ade9db399b1cc1e331771760d3f5f8f40bec57178"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/source-manifest.json",
+      "sha256": "732ddce9174b0883e370a7d87228bb915727097c5964f08ef2eef8e921af605c"
+    },
+    {
+      "path": "docs/knowledge/consumables-price-list-20261001/source.xlsx",
+      "sha256": "bf8aa1e0290bcf7f6464d6ffa63bdb653c1e11745a816ea53f517e2fc3eba4f0"
+    },
+    {
+      "path": "public/app-startup-helpers.min.js",
+      "sha256": "8d63ff91c462ba7427ce85f742f09a3b296353ab3214ef57a817276eb45993de"
+    },
+    {
+      "path": "public/components/system/ai-daily-report-delivery.js",
+      "sha256": "63af6fece1f156ef5bfc51b98834da2bd75e6d882a0b3b405805c686810b0a9c"
+    },
+    {
+      "path": "public/components/system/app-main-components-loader.js",
+      "sha256": "6e4bffe6fb1403138f9f7062bc6efcfb9aece2930b513e573c5fdd425760e91f"
+    },
+    {
+      "path": "public/components/system/app-main-components.js",
+      "sha256": "d68c451c3990d4379da871039b1cb4cecff768843b0054fd3d59a51383aa1819"
+    },
+    {
+      "path": "public/components/system/booking-monitoring-panel.js",
+      "sha256": "c1723e52752f1e3d02ccd961909659c653c5830db91290d78c610c711ffbe31e"
+    },
+    {
+      "path": "public/components/system/business-closure-loader.js",
+      "sha256": "87f716ce1675463306baa26d6ea15c4845140a74fe2272c1e695f50ed6ac35e6"
+    },
+    {
+      "path": "public/components/system/business-closure-views.js",
+      "sha256": "f5eadefa7d39fd535b53754c2cfbd8d54c36dc4265acac58448dac4ee4eda0fa"
+    },
+    {
+      "path": "public/components/system/operating-economics-workbench.js",
+      "sha256": "af1b580105b605bc115c62cc4311daf705b09ee3cace18614e12e55ee01fd192"
+    },
+    {
+      "path": "public/components/system/operating-economics-workbench.min.js",
+      "sha256": "bbff37786c38cd78b8c893a4362cdb847152e2e2bab8412f5ca831ec444b3446"
+    },
+    {
+      "path": "public/components/system/operating-finance-control-center.js",
+      "sha256": "775a141f3694c67f75eabe3713cd6a336b0a847b6a116011dd378f6ea11d9379"
+    },
+    {
+      "path": "public/components/system/operating-finance-control-center.min.js",
+      "sha256": "5f7bafe3b3f752d62342ae935e02513fe0e368e93ada543fdec8ecbf555d6d4d"
+    },
+    {
+      "path": "public/index.html",
+      "sha256": "3a51bed96f86ec3567f8a1bb1a10557a97645bd37b75090f1d7f033279097932"
+    },
+    {
+      "path": "resources/frontend/templates/fragments/16-page-ai-daily-report.html",
+      "sha256": "3e1b59dada7274af73c68960439985712fdb01c55e93208cbe5011adc3008925"
+    },
+    {
+      "path": "route/domain/ai_daily_reports.php",
+      "sha256": "a4e41b95b6e14da93239df0a02eb52576bc2345a448086092330873f83c0c7c3"
+    },
+    {
+      "path": "route/domain/operations.php",
+      "sha256": "0096ddf9fc27638fd0ce9b4ff27e298fb15886c6020cc35a5562c8f6217cb065"
+    },
+    {
+      "path": "scripts/build_operating_economics_component.mjs",
+      "sha256": "9e5d557ed12d02970eb443302ef8941211e58caa561e91faef4b9191ffc93218"
+    },
+    {
+      "path": "scripts/build_operating_finance_component.mjs",
+      "sha256": "514021a409261465c6a1cba5c524ba7a2858f5a30be5306b94f2386fe0e68a33"
+    },
+    {
+      "path": "scripts/cloud_hotel_id_column_registry.php",
+      "sha256": "ae8715f4c1c13e1755392de3cded793e03a6b9796b60863978ce9a72d2c3fc9a"
+    },
+    {
+      "path": "scripts/verify_five_snapshot_migrations_mariadb.php",
+      "sha256": "b8bd048919d345b85f8fd1a38dc84fe60e5a694154b5071b9a55e3672c75b768"
+    },
+    {
+      "path": "tests/ActualConsumablesScenarioReferenceTest.php",
+      "sha256": "43b3f4178574b5d14bc47033cfcb5e1f6a874c31e49c8845b11d85cf19252b55"
+    },
+    {
+      "path": "tests/AiDailyReportPresentationReviewRoutingTest.php",
+      "sha256": "1ea3aa717d04df7dec2c417f6283e3651880c7bee34b2f33b700ea2ecf8179f8"
+    },
+    {
+      "path": "tests/AiDailyReportPresentationReviewServiceTest.php",
+      "sha256": "dc9adbff36026696207256d456ae7eb59f52a13877d4d48345a7b37e76caf50d"
+    },
+    {
+      "path": "tests/BookingMonitoringRoutingTest.php",
+      "sha256": "b94e1340a641cb8f75defcb942e8015905508ec3358c2965339b6e56a6a3fc61"
+    },
+    {
+      "path": "tests/BookingMonitoringServiceTest.php",
+      "sha256": "450271d65cd6187d3f324aa55b28a54e709512780ad9c30c25b34cf59665f094"
+    },
+    {
+      "path": "tests/ConsumablesProcurementReferenceServiceTest.php",
+      "sha256": "55f3df1afa0429b9433a66c1f2e9bef6c85cb2a069952dfca98045c6a09b8cdc"
+    },
+    {
+      "path": "tests/OperatingEvidenceChainTest.php",
+      "sha256": "3c30b49397113d671af7fd88c894c10823a8c9f319fdb66bea060dd5291a4101"
+    },
+    {
+      "path": "tests/OperatingEvidenceRoutingTest.php",
+      "sha256": "79581fd6a65cefafa10a940a60771feeca0e4ee9386b186fd0ab0b8580b8b722"
+    },
+    {
+      "path": "tests/SchemaVersionServiceTest.php",
+      "sha256": "cc853c293fa69cab49f1da53ffa792e85c7a486dbcdd325e6b7f77374df56201"
+    },
+    {
+      "path": "tests/automation/ai_daily_report_delivery_boundary.test.mjs",
+      "sha256": "cad42a853ac5b0c49971452096e53824cac2fe1df91706b3c4536d297483c68c"
+    },
+    {
+      "path": "tests/automation/ai_daily_report_presentation_artifact_ui.test.mjs",
+      "sha256": "5af60828d31b0727dfb5903dbb2fa78a45fe0c8ef28494a1fd78ccce4a2704a0"
+    },
+    {
+      "path": "tests/automation/ai_daily_report_presentation_review_ui.test.mjs",
+      "sha256": "058a42cc63bb3f07b10d8cff3501b9a7784668c569464ac7e496a52083f835a7"
+    },
+    {
+      "path": "tests/automation/booking_monitoring_panel.test.mjs",
+      "sha256": "f39e29eca375fe27edc7980943fcb620afa146c3ce4e234f51899490f3726743"
+    },
+    {
+      "path": "tests/automation/operating_economics_workbench.test.mjs",
+      "sha256": "11e211457edccda174a703557aeb9c5bc7fff108a0c9050b50b2a00960c5c6a4"
+    }
+  ],
+  "generated_shared_artifacts_to_rebuild": [
+    "public/app-startup-helpers.min.js",
+    "public/components/system/app-main-components-loader.js",
+    "public/components/system/business-closure-loader.js",
+    "public/components/system/business-closure-views.js",
+    "public/components/system/operating-finance-control-center.min.js",
+    "public/index.html"
+  ],
+  "prerequisite_working_copy_validation": {
+    "php_tests": 12,
+    "assertions": 93,
+    "committed_dependency_verified": false
+  },
+  "delivery_commit": "deb01ee834c6da70b4adb15c69f7da1bd9391f0b",
+  "composed_receipt": "docs/integration/receipts/composed-main-thread-20261002.json"
+}

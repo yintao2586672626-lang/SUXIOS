@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
+import { minify as realMinify } from 'terser';
 
 const repoRoot = process.cwd();
 const scriptPath = path.resolve(process.env.OPERATING_COMPONENT_BUILD_SOURCE || 'scripts/build_operating_finance_component.mjs');
@@ -17,6 +18,13 @@ const runScript = new AsyncFunction('crypto', 'fs', 'path', 'fileURLToPath', 'mi
     '__buildScriptUrl', 'console', script);
 const names = {
     finance: 'components/system/operating-finance-control-center.js',
+    bridgePanel: 'components/system/investment-operating-bridge-panel.js',
+    guestQr: 'components/system/guest-feedback-qr.js',
+    guest: 'components/system/guest-operations-panel.js',
+    campaign: 'components/system/campaign-operations-panel.js',
+    workspace: 'components/system/business-feature-workspace.js',
+    economics: 'components/system/operating-economics-workbench.min.js',
+    booking: 'components/system/booking-monitoring-panel.js',
     artifact: 'components/system/operating-finance-control-center.min.js',
     lab: 'components/system/operating-opportunity-lab.js',
     component: 'components/system/app-main-components.js',
@@ -25,15 +33,24 @@ const names = {
 };
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex').slice(0, 10);
 
-function fixture() {
+function fixture({ realMinifier = false } = {}) {
     const tick = String.fromCharCode(96);
     const entries = {
         finance: 'x = {\n        template: ' + tick + '内容\n        ' + tick + ',\n    };',
+        bridgePanel: '// synthetic bridge panel source\n',
+        guestQr: '// synthetic guest QR source\n',
+        guest: '// synthetic guest panel source\n',
+        campaign: '// synthetic campaign panel source\n',
+        workspace: '// synthetic workspace source\n',
+        economics: '// synthetic economics artifact\n',
+        booking: '// synthetic booking panel source\n',
         artifact: 'compiled-finance;\n',
         lab: '// synthetic 今日事项 A\n',
         component: "const business = 'preserve';\n"
             + "const finance = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h0123456789';\n"
-            + "const lab = 'components/system/operating-opportunity-lab.js?v=20260831-impact-estimate-h0123456789';\n",
+            + "const lab = 'components/system/operating-opportunity-lab.js?v=20260831-impact-estimate-h0123456789';\n"
+            + "const economics = 'components/system/operating-economics-workbench.min.js?v=economics-h0123456789';\n"
+            + "const booking = 'components/system/booking-monitoring-panel.js?v=booking-h0123456789';\n",
         bridge: "const exposed = ['OperatingFinanceControlCenter'];\nconst full = 'components/system/app-main-components.js?v=20260830-operating-finance-h0123456789';",
         index: '<script src="components/system/app-main-components.js?v=20260830-operating-finance-h0123456789"></script>',
     };
@@ -58,7 +75,7 @@ function fixture() {
     const run = async () => {
         let output;
         await runScript(crypto, closedFs, path, fileURLToPath,
-            async () => ({ code: 'compiled-finance;' }), () => 'return null;', {},
+            realMinifier ? realMinify : async () => ({ code: 'compiled-finance;' }), () => 'return null;', { compress: {} },
             updateFrontendAssetVersion, pathToFileURL(path.join(repoRoot, 'scripts/build_operating_finance_component.mjs')).href,
             { log: value => { output = JSON.parse(value); } });
         return output;
@@ -67,9 +84,15 @@ function fixture() {
 }
 
 function assertChain(f) {
+    assert.equal(readFrontendAssetVersion(f.get('component'), names.artifact).hash, hash(f.get('artifact')),
+        'finance URL follows its exact compiled bundle bytes');
     const child = readFrontendAssetVersion(f.get('component'), names.lab);
     assert.equal(child.hash, hash(f.get('lab')), 'nested URL follows exact child bytes');
     assert.equal(child.versionPrefix, '20260831-impact-estimate');
+    for (const name of ['economics', 'booking']) {
+        assert.equal(readFrontendAssetVersion(f.get('component'), names[name]).hash, hash(f.get(name)),
+            name + ' nested URL follows its exact dependency bytes');
+    }
     for (const name of ['bridge', 'index']) {
         assert.equal(readFrontendAssetVersion(f.get(name), names.component).hash, hash(f.get('component')),
             name + ' follows updated parent bytes');
@@ -116,4 +139,27 @@ test('missing or ambiguous nested reference fails before publishing loader or en
         await assert.rejects(f.run(), /exactly once/);
         ['component', 'bridge', 'index'].forEach((name, index) => assert.equal(f.get(name), before[index]));
     }
+});
+
+test('bridge source content changes propagate through the real minified finance bundle and remain stable on repeat', async () => {
+    const f = fixture({ realMinifier: true });
+    const financeSource = f.get('finance');
+    f.set('bridgePanel', "window.SUXI_BRIDGE_PANEL_MARKER = 'bridge-before';\n");
+    await f.run();
+    assert.ok(f.get('artifact').includes('bridge-before'), 'the official build must include the bridge source');
+    assertChain(f);
+    const namesInChain = ['artifact', 'component', 'bridge', 'index'];
+    const previous = namesInChain.map(name => f.get(name));
+    f.set('bridgePanel', "window.SUXI_BRIDGE_PANEL_MARKER = 'bridge-after';\n");
+    const changed = await f.run();
+    assert.equal(changed.changed, true);
+    assert.ok(f.get('artifact').includes('bridge-after'));
+    assert.ok(!f.get('artifact').includes('bridge-before'));
+    assertChain(f);
+    namesInChain.forEach((name, index) => assert.notEqual(f.get(name), previous[index], name + ' follows changed bridge content'));
+    assert.equal(f.get('finance'), financeSource, 'source identity changes must not rewrite the finance business source');
+    f.writes.length = 0;
+    const repeated = await f.run();
+    assert.equal(repeated.changed, false);
+    assert.deepEqual(f.writes, [], 'an identical bridge bundle does not republish assets');
 });

@@ -247,7 +247,7 @@ class InvestmentPaybackService
             $old = $id > 0 ? $this->findProject($id, true) : null;
             if ($old) {
                 $this->assertWritable($old);
-                $this->assertVersion($old, $input);
+                if ($this->assertVersion($old, $input, true)) return $id;
             }
             $data = self::normalizeProject($input, $old);
             $this->authorize($data['hotel_id']);
@@ -279,12 +279,7 @@ class InvestmentPaybackService
                 // Confirmation belongs to the exact opening balance and cash
                 // basis that was reviewed. Save a changed basis first, then
                 // explicitly confirm it in a separate versioned update.
-                foreach (['investor_name', 'hotel_id', 'basis', 'currency', 'first_invested_on', 'opening_as_of', 'opening_invested', 'opening_recovered', 'opening_source'] as $field) {
-                    if ((string)($old[$field] ?? '') !== (string)($data[$field] ?? '')) {
-                        $data['history_complete_through'] = null;
-                        break;
-                    }
-                }
+                $data = $this->invalidateChangedProjectHistory($old, $data);
             }
             $digest = self::digest($data);
             if (!$old) {
@@ -360,7 +355,7 @@ class InvestmentPaybackService
                 if ($old['voided_at'] !== null) {
                     throw new RuntimeException('已作废记录不能重新编辑；请新增修正记录', 409);
                 }
-                $this->assertVersion($old, $input);
+                if ($this->assertVersion($old, $input, true)) return;
             }
             $data = self::normalizeEntry($input, $old);
             $digest = self::digest($data);
@@ -713,10 +708,10 @@ class InvestmentPaybackService
         }
     }
 
-    private function assertVersion(array $row, array $input): void
+    private function assertVersion(array $row, array $input, bool $allowExactUpdateReplay = false): bool
     {
         if (!array_key_exists('expected_version', $input)) {
-            return;
+            return false;
         }
         $version = $input['expected_version'];
         // Omission remains compatible with older clients; an explicit value
@@ -727,8 +722,56 @@ class InvestmentPaybackService
             throw new InvalidArgumentException('记录版本须为正整数或规范数字字符串');
         }
         if ((int)$version !== (int)$row['version']) {
+            if ($allowExactUpdateReplay && $this->isExactUpdateReplay($row, $input)) return true;
             throw new RuntimeException('记录已被修改，请重新读取后再保存', 409);
         }
+        return false;
+    }
+
+    /** Lost update replies may replay only the exact committed actor-scoped transition. */
+    private function isExactUpdateReplay(array $row, array $input): bool
+    {
+        $expected = (int)$input['expected_version'];
+        if ($expected === PHP_INT_MAX || (int)$row['version'] !== $expected + 1
+            || (int)$row['tenant_id'] !== $this->tenantId || (int)$row['updated_by'] !== $this->actorId) return false;
+        $isEntry = array_key_exists('project_id', $row);
+        $projectId = (int)($isEntry ? $row['project_id'] : $row['id']);
+        $query = Db::name('investment_payback_events')->where('tenant_id', $this->tenantId)->where('actor_id', $this->actorId)
+            ->where('project_id', $projectId)->where('event_type', $isEntry ? 'entry_updated' : 'project_updated');
+        $isEntry ? $query->where('entry_id', (int)$row['id']) : $query->whereNull('entry_id');
+        $event = $query->order('id', 'desc')->find();
+        try {
+            $payload = $event ? json_decode((string)$event['payload_json'], true, 512, JSON_THROW_ON_ERROR) : null;
+            $before = is_array($payload) ? ($payload['before'] ?? null) : null;
+            $after = is_array($payload) ? ($payload['after'] ?? null) : null;
+            if (!is_array($before) || !is_array($after) || ($before['version'] ?? null) !== $expected
+                || ($before['id'] ?? null) !== (int)$row['id'] || ($before['tenant_id'] ?? null) !== $this->tenantId
+                || ($before['client_request_id'] ?? null) !== $row['client_request_id']
+                || ($isEntry && ($before['project_id'] ?? null) !== $projectId)
+                || $after !== ($isEntry ? $this->formatEntry($row) : $this->formatProject($row))) return false;
+            // Rebuild against the immutable old state, including automatic loss
+            // of opening-history confirmation, never against the edited row.
+            if ($isEntry) {
+                $before['business_date'] = $before['date'];
+                $data = self::normalizeEntry($input, $before);
+            } else {
+                $data = $this->invalidateChangedProjectHistory($before, self::normalizeProject($input, $before));
+            }
+            return hash_equals((string)$row['input_digest'], self::digest($data));
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function invalidateChangedProjectHistory(array $before, array $data): array
+    {
+        foreach (['investor_name', 'hotel_id', 'basis', 'currency', 'first_invested_on', 'opening_as_of', 'opening_invested', 'opening_recovered', 'opening_source'] as $field) {
+            if ((string)($before[$field] ?? '') !== (string)($data[$field] ?? '')) {
+                $data['history_complete_through'] = null;
+                break;
+            }
+        }
+        return $data;
     }
 
     private function assertRetry(array $row, string $digest): void

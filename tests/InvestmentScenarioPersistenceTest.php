@@ -7,6 +7,8 @@ use app\service\InvestmentScenarioCalculator;
 use app\service\KnowledgeContentDigestService;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use RuntimeException;
 use Tests\Support\InvestmentScenarioFixture as Fixture;
 use think\facade\Db;
@@ -176,8 +178,11 @@ final class InvestmentScenarioPersistenceTest extends TestCase
         self::assertSame(0, Db::name('investment_payback_entries')->count());
     }
 
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
     public function testUnavailableProcurementCatalogAndReferenceRejectWithoutAnyLedgerWrites(): void
     {
+        Fixture::withoutOptionalModules();
         $project = Fixture::ledger()->saveProject(Fixture::project());
         $id = $project['project']['id'];
         $service = Fixture::scenarios();
@@ -203,7 +208,7 @@ final class InvestmentScenarioPersistenceTest extends TestCase
             }
             self::assertSame($before, $this->ledgerRows(), $action);
         }
-        self::assertSame(['procurement_reference' => false, 'actual_consumables_reference' => true], $service->detail($id)['capabilities']);
+        self::assertSame(['procurement_reference' => false, 'actual_consumables_reference' => false], $service->detail($id)['capabilities']);
     }
 
     public function testPreviewHasNoWritesAndChangedStaleSaveIsRejected(): void
@@ -245,6 +250,65 @@ final class InvestmentScenarioPersistenceTest extends TestCase
         self::assertSame($saved['content_digest'], $repeated['content_digest']);
         self::assertSame($saved['input'], $service->detail($id)['input']);
         self::assertSame(0, Db::name('investment_payback_entries')->count());
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testEmptyActualEvidenceFieldsSaveAndReadBackWithoutRequiringTheOptionalModule(): void
+    {
+        Fixture::withoutOptionalModules();
+        self::assertFalse(class_exists(\app\service\ActualConsumablesScenarioReferenceService::class));
+        $id = Fixture::ledger()->saveProject(Fixture::project())['project']['id'];
+        $service = Fixture::scenarios();
+        $input = (new InvestmentScenarioCalculator())->referenceExample();
+        $input['cost_evidence_snapshot_id'] = null;
+        $input['cost_evidence_digest'] = '';
+        $input['cost_evidence_confirmed'] = false;
+        $preview = $service->preview($id, ['scenario' => $input]);
+        self::assertSame('preview_only', $preview['readback']);
+        self::assertSame(1, Db::name('investment_payback_events')->count());
+        $saved = $service->save($id, ['expected_version' => 1, 'scenario' => $input]);
+        $read = $service->detail($id);
+        self::assertSame('exact', $read['readback']);
+        foreach (['input', 'result', 'content_digest', 'scenario_version'] as $key) self::assertSame($saved[$key], $read[$key]);
+        self::assertNull($read['input']['cost_evidence_snapshot_id']);
+        self::assertNull($read['input']['cost_evidence_digest']);
+        self::assertFalse($read['input']['cost_evidence_confirmed']);
+        self::assertFalse($read['capabilities']['actual_consumables_reference']);
+        $before = $this->ledgerRows();
+        self::assertSame('unchanged', $service->save($id, ['expected_version' => 1, 'scenario' => $input])['action']);
+        self::assertSame($before, $this->ledgerRows());
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testAnySubmittedActualEvidenceBindingRejectsWithoutChangingTheSavedScenarioOrCash(): void
+    {
+        Fixture::withoutOptionalModules();
+        self::assertFalse(class_exists(\app\service\ActualConsumablesScenarioReferenceService::class));
+        $ledger = Fixture::ledger();
+        $id = $ledger->saveProject(Fixture::project())['project']['id'];
+        $cash = $ledger->saveEntry($id, ['kind' => 'investment', 'amount' => '1000.01', 'date' => '2026-10-01',
+            'precision' => 'day', 'source' => '合成实际出资', 'client_request_id' => 'optional-module-cash']);
+        $service = Fixture::scenarios();
+        $input = (new InvestmentScenarioCalculator())->referenceExample();
+        $saved = $service->save($id, ['expected_version' => $cash['project']['version'], 'scenario' => $input]);
+        $before = $this->ledgerRows();
+        foreach ([['cost_evidence_snapshot_id' => 5], ['cost_evidence_digest' => str_repeat('a', 64)],
+            ['cost_evidence_confirmed' => true], ['cost_evidence_snapshot_id' => 5,
+                'cost_evidence_digest' => str_repeat('a', 64), 'cost_evidence_confirmed' => true]] as $binding) {
+            foreach (['preview', 'save'] as $action) {
+                try {
+                    $service->{$action}($id, ['expected_version' => $saved['project_version'], 'scenario' => array_replace($input, $binding)]);
+                    self::fail('An unavailable actual-cost evidence binding must fail explicitly');
+                } catch (InvalidArgumentException $error) {
+                    self::assertStringContainsString('实际耗材证据尚未接入', $error->getMessage());
+                }
+                self::assertSame($before, $this->ledgerRows(), $action . ':' . implode(',', array_keys($binding)));
+                self::assertSame($saved['content_digest'], $service->detail($id)['content_digest']);
+            }
+        }
+        self::assertSame($cash['entries'], $ledger->detail($id)['entries']);
     }
 
     public function testEmptyActualEvidenceFieldsSaveAndReadBackWithTheIntegratedEvidenceModule(): void
@@ -307,6 +371,39 @@ final class InvestmentScenarioPersistenceTest extends TestCase
             }
         }
         self::assertSame($cash['entries'], $ledger->detail($id)['entries']);
+    }
+
+    #[RunInSeparateProcess]
+    #[PreserveGlobalState(false)]
+    public function testUnavailableProcurementCatalogWithActualEvidenceModuleRejectsWithoutAnyLedgerWrites(): void
+    {
+        Fixture::withoutOptionalModules([\app\service\ConsumablesProcurementReferenceService::class]);
+        $project = Fixture::ledger()->saveProject(Fixture::project());
+        $id = $project['project']['id'];
+        $service = Fixture::scenarios();
+        self::assertFalse(class_exists(\app\service\ConsumablesProcurementReferenceService::class));
+        $before = $this->ledgerRows();
+        $this->failure(fn() => $service->consumablesReference($id), 503);
+        self::assertSame($before, $this->ledgerRows());
+        $input = (new InvestmentScenarioCalculator())->referenceExample();
+        $input['operating_cost_basis'] = 'occupied_room_night';
+        $input['consumables_cost'] = ['mode' => 'derived', 'other_variable_cost_per_night' => 0, 'items' => [
+            ['id' => 'quoted', 'name' => '合成引用', 'enabled' => true, 'unit' => 'piece', 'usage_basis' => 'occupied_room_night',
+                'package_price' => 20, 'package_quantity' => 100, 'usage_quantity' => 2,
+                'source_label' => '合成测试', 'as_of' => '2026-10-01',
+                'procurement_reference' => ['catalog_id' => 'synthetic-unavailable-catalog', 'source_sha256' => str_repeat('a', 64),
+                    'item_id' => 1, 'tier_id' => 'd', 'confirmed_for_scenario' => true]],
+        ]];
+        foreach (['preview', 'save'] as $action) {
+            try {
+                $service->{$action}($id, ['expected_version' => 1, 'scenario' => $input]);
+                self::fail('A submitted reference cannot bypass an unavailable procurement module');
+            } catch (InvalidArgumentException $error) {
+                self::assertStringContainsString('采购参考目录尚未接入', $error->getMessage());
+            }
+            self::assertSame($before, $this->ledgerRows(), $action);
+        }
+        self::assertSame(['procurement_reference' => false, 'actual_consumables_reference' => true], $service->detail($id)['capabilities']);
     }
 
     public function testLibraryHistoryVersionCopyAndCompareUseExactProjectSnapshotsWithoutCashWrites(): void

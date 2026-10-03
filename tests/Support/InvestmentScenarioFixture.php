@@ -16,6 +16,26 @@ use think\facade\Db;
 /** Explicit synthetic identities and an isolated SQLite file, with no business database or login state. */
 final class InvestmentScenarioFixture
 {
+    /** Only call in a fresh isolated test process to exercise missing optional modules. */
+    public static function withoutOptionalModules(array $unavailable = [\app\service\ConsumablesProcurementReferenceService::class,
+        \app\service\ActualConsumablesScenarioReferenceService::class]): void
+    {
+        foreach ($unavailable as $class) {
+            if (class_exists($class, false)) {
+                throw new RuntimeException('Missing-module fixture requires a fresh isolated process');
+            }
+        }
+        $loaders = spl_autoload_functions() ?: [];
+        foreach ($loaders as $loader) spl_autoload_unregister($loader);
+        foreach ($loaders as $loader) {
+            spl_autoload_register(static function (string $class) use ($loader, $unavailable): void {
+                $identity = strtolower(ltrim($class, '\\'));
+                foreach ($unavailable as $blocked) if ($identity === strtolower($blocked)) return;
+                $loader($class);
+            });
+        }
+    }
+
     public static function connect(string $path): void
     {
         if (!str_starts_with(basename($path), 'investment-scenario-test-') || pathinfo($path, PATHINFO_EXTENSION) !== 'sqlite') {

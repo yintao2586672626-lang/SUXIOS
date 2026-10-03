@@ -1,0 +1,12 @@
+{
+  "version_label": "consumables-price-items-reference-20261001-v1",
+  "source_sha256": "BF8AA1E0290BCF7F6464D6FFA63BDB653C1E11745A816EA53F517E2FC3EBA4F0",
+  "source_manifest_sha256": "732DDCE9174B0883E370A7D87228BB915727097C5964F08EF2EEF8E921AF605C",
+  "catalog_sha256": "D129A820408654FC79B9E9345037590DC6BFDD27AD2BAFF7A80C24EEE1EB8053",
+  "pack_sha256": "E24533560BC55C2CD532AF807CD80117AEC5F4ED46B998FD31825F09903C8347",
+  "items": 27,
+  "quoted_cells": 135,
+  "purpose": "bounded_per_item_runtime_retrieval_of_all_five_original_tier_cells",
+  "original_catalog_modified": false,
+  "automatic_application_authorized": false
+}

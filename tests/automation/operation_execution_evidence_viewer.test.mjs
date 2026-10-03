@@ -146,7 +146,9 @@ async function open(p, intentId = 111) {
   const button = p.control('operation-evidence-view', intentId); assert.ok(button, 'original17 now exposes the evidence view entry');
   assert.match(raw.main, /OperationExecutionEvidenceViewer: appMainComponents\.OperationExecutionEvidenceViewer/);
   assert.match(raw.main, /readOperationExecutionTask, captureOperationEvidenceViewContext,/);
-  assert.match(raw.loader, /'OperationExecutionEvidenceViewer'/); assert.match(raw.full, /return Object\.freeze\(\{ OperationExecutionEvidenceViewer,/);
+  assert.match(raw.loader, /'OperationExecutionEvidenceViewer'/);
+  assert.match(raw.full, /return Object\.freeze\(\{(?:[^}]*,\s*)?\s*OperationExecutionEvidenceViewer\s*(?:,|\})/,
+    'the frozen component registry exports the viewer regardless of sibling ordering');
   assert.equal(p.Viewer?.__asyncResolved?.name, 'OperationExecutionEvidenceViewer', 'original FULL.create export resolved through loader');
   const run = p.click(button); await until(() => p.requests.length > before, 'original exact task GET');
   assert.match(p.text(), /正在读取本任务执行证据/); return { run, call: p.requests.at(-1) };
