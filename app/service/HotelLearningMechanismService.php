@@ -32,10 +32,11 @@ final class HotelLearningMechanismService
 
     private function target(array $input): array
     {
-        $scenario = (array)($input['scenario'] ?? []);
+        $scenario = $this->object($input['scenario'] ?? null, '投资情景');
+        if (array_key_exists('as_of', $scenario)) $this->date($scenario['as_of'], false);
         $this->rejectActualReferences($scenario);
         $normalized = (new InvestmentScenarioCalculator())->normalize($scenario);
-        $result = (new InvestmentScenarioTargetSolver())->solve($normalized, (array)($input['request'] ?? []));
+        $result = (new InvestmentScenarioTargetSolver())->solve($normalized, $this->object($input['request'] ?? null, '目标反求参数'));
         $result['inputs'] = ['scenario' => $normalized, 'request' => $result['request']];
         return $result;
     }
@@ -56,7 +57,7 @@ final class HotelLearningMechanismService
     {
         $asOf = $this->date($input['as_of'] ?? '', true);
         $months = $this->number($input['payback_months'] ?? null, '假设回本月份', 0, 720);
-        $constraints = (new InvestmentScenarioCashPlanner())->normalizeConstraints((array)($input['constraints'] ?? []));
+        $constraints = (new InvestmentScenarioCashPlanner())->normalizeConstraints($this->object($input['constraints'] ?? null, '合同约束'));
         $forward = ['input' => ['as_of' => $asOf], 'status' => $months === null ? 'partial' : 'ready',
             'scenario_payback' => $months === null ? null : ['total_years' => $months / 12]];
         $calendar = (new InvestmentContractDateConstraintService())->evaluate($constraints, $forward);
@@ -89,9 +90,9 @@ final class HotelLearningMechanismService
 
     private function ota(array $input): array
     {
-        $rawScene = (array)($input['scene'] ?? []); $scene = []; $gaps = [];
+        $rawScene = $this->object($input['scene'] ?? null, '搜索场景'); $scene = []; $gaps = [];
         foreach (['keyword', 'location', 'device', 'login_state', 'sort', 'filters', 'observed_at', 'source_ref', 'platform_store_id'] as $key) {
-            $scene[$key] = $this->text($rawScene[$key] ?? '', 1000);
+            $scene[$key] = $key === 'observed_at' ? $this->observationTime($rawScene[$key] ?? '') : $this->text($rawScene[$key] ?? '', 1000);
             if ($scene[$key] === '') $gaps[] = 'scene.' . $key;
         }
         $scene['check_in'] = $this->date($rawScene['check_in'] ?? '', true);
@@ -105,11 +106,12 @@ final class HotelLearningMechanismService
         if ($status === 'observed' && ($min === null || $max === null || $max < $min)) throw new InvalidArgumentException('已观测排名必须填写有效区间');
         if ($status !== 'observed') { $min = null; $max = null; }
         $range = $this->integer($input['observed_through_rank'] ?? null, '观察范围', 1, 100000);
+        if ($status === 'observed' && $range !== null && $max > $range) throw new InvalidArgumentException('已观测排名不能超出本次明确观察范围');
         if ($status === 'not_seen_in_range' && $range === null) $gaps[] = 'observed_through_rank';
-        $rate = $this->rate($input['conversion_rate'] ?? null, (string)($input['rate_unit'] ?? ''));
+        $rate = $this->rate($input['conversion_rate'] ?? null, $this->text($input['rate_unit'] ?? '', 100));
         $price = $this->number($input['price'] ?? null, '可成交价', 0, 1000000);
         if ($price === null) $gaps[] = 'price';
-        $rawTerms = (array)($input['price_terms'] ?? []); $terms = [];
+        $rawTerms = $this->object($input['price_terms'] ?? null, '售卖条件'); $terms = [];
         foreach (['room_type', 'cancellation', 'breakfast', 'guest_count', 'membership', 'tax_basis', 'payment'] as $key) {
             $terms[$key] = $this->text($rawTerms[$key] ?? '', 300);
             if ($terms[$key] === '') $gaps[] = 'price_terms.' . $key;
@@ -130,7 +132,9 @@ final class HotelLearningMechanismService
 
     private function market(array $input): array
     {
-        $rows = $this->rows($input['hotels'] ?? [], 100); $weights = (array)($input['weights'] ?? []);
+        $comparisonAttested = $input['comparison_attested'] ?? false;
+        if (!is_bool($comparisonAttested)) throw new InvalidArgumentException('人工同口径核对须为明确的勾选状态');
+        $rows = $this->rows($input['hotels'] ?? [], 100); $weights = $this->object($input['weights'] ?? null, '评分权重');
         $metrics = ['traffic', 'conversion', 'revenue']; $sum = 0.0;
         foreach ($metrics as $metric) {
             $weights[$metric] = $this->number($weights[$metric] ?? null, '评分权重', 0, 1);
@@ -150,7 +154,7 @@ final class HotelLearningMechanismService
             if ($rowKey !== $sceneKey) throw new InvalidArgumentException('每家样本必须属于相同的完整场景口径');
             $seen[$id] = true; $item = ['platform_store_id' => $id, 'name' => $this->text($row['name'] ?? '', 200), 'comparison_key' => $rowKey];
             foreach (['traffic', 'revenue'] as $key) $item[$key] = $this->number($row[$key] ?? null, '样本指标', 0, 1.0e12);
-            $item['conversion'] = $this->rate($row['conversion'] ?? null, (string)($row['rate_unit'] ?? ''));
+            $item['conversion'] = $this->rate($row['conversion'] ?? null, $this->text($row['rate_unit'] ?? '', 100));
             $item['rate_unit'] = 'percentage_point';
             $items[] = $item;
         }
@@ -160,15 +164,21 @@ final class HotelLearningMechanismService
             $ranges[$key] = $values ? ['min' => min($values), 'max' => max($values)] : null;
         }
         $normalizedItems = $items;
-        $incompleteSample = count($items) < 2;
-        foreach ($metrics as $key) if ($weights[$key] > 0 && ($coverage[$key]['present'] !== count($items) || $ranges[$key] === null || $ranges[$key]['min'] === $ranges[$key]['max'])) $incompleteSample = true;
+        $scoreLimits = count($items) < 2 ? ['sample' => 'insufficient_sample_size'] : [];
+        foreach ($metrics as $key) {
+            if ($weights[$key] === 0.0) continue;
+            if ($coverage[$key]['present'] !== count($items) || $ranges[$key] === null) $scoreLimits[$key] = 'incomplete_metric_coverage';
+            elseif ($ranges[$key]['min'] === $ranges[$key]['max']) $scoreLimits[$key] = 'no_metric_variation';
+        }
+        $incompleteSample = $scoreLimits !== [];
         foreach ($items as &$item) {
             $score = 0.0; $scores = []; $usable = !$incompleteSample;
             foreach ($metrics as $key) {
                 $range = $ranges[$key];
                 if ($weights[$key] === 0.0) { $scores[$key] = null; continue; }
+                if ($item[$key] === null) $missing[] = $item['platform_store_id'] . '.' . $key;
                 if ($item[$key] === null || $range === null || $range['max'] === $range['min']) {
-                    $usable = false; $scores[$key] = null; $missing[] = $item['platform_store_id'] . '.' . $key;
+                    $usable = false; $scores[$key] = null;
                 } else {
                     $scores[$key] = ($item[$key] - $range['min']) / ($range['max'] - $range['min']) * 100;
                     $score += $scores[$key] * $weights[$key];
@@ -179,16 +189,17 @@ final class HotelLearningMechanismService
         unset($item);
         $sampleFingerprint = $this->hash(['sample_ref' => $sample, 'items' => $normalizedItems, 'ids' => array_keys($seen), 'ranges' => $ranges,
             'weights' => $weights, 'model_version' => $version, 'comparison_key' => $sceneKey]);
-        return ['status' => !$items ? 'missing' : ($missing || count($items) < 2 ? 'partial' : 'calculated_reference'),
+        return ['status' => !$items ? 'missing' : ($incompleteSample ? 'partial' : 'calculated_reference'),
             'items' => $items, 'weights' => $weights, 'ranges' => $ranges, 'coverage' => $coverage,
             'sample_fingerprint' => $sampleFingerprint, 'comparison_key' => $sceneKey, 'model_version' => $version,
-            'inputs' => ['hotels' => $normalizedItems, 'weights' => $weights, 'model_version' => $version, 'sample_ref' => $sample, 'comparison_key' => $sceneKey],
-            'missing_items' => array_values(array_unique($missing)), 'official_platform_score' => false, 'automatic_grading' => false];
+            'inputs' => ['hotels' => $normalizedItems, 'weights' => $weights, 'model_version' => $version, 'sample_ref' => $sample, 'comparison_key' => $sceneKey, 'comparison_attested' => $comparisonAttested],
+            'missing_items' => array_values(array_unique($missing)), 'score_unavailable_reasons' => $scoreLimits,
+            'official_platform_score' => false, 'automatic_grading' => false];
     }
 
     private function review(array $input): array
     {
-        $actual = (array)($input['actual'] ?? []); $plan = (array)($input['plan'] ?? []); $gaps = []; $rows = [];
+        $actual = $this->object($input['actual'] ?? null, '实际复盘'); $plan = $this->object($input['plan'] ?? null, '计划复盘'); $gaps = []; $rows = [];
         $start = $this->date($input['period_start'] ?? '', true); $end = $this->date($input['period_end'] ?? '', true);
         if ($end < $start) throw new InvalidArgumentException('复盘结束日期不能早于开始日期');
         $normalized = [];
@@ -202,11 +213,16 @@ final class HotelLearningMechanismService
         }
         foreach (['available_room_nights', 'sold_room_nights', 'revenue', 'operating_cost', 'debt_service', 'project_net_cash', 'investor_received_cash'] as $metric) {
             $low = in_array($metric, ['project_net_cash', 'investor_received_cash'], true) ? -1.0e12 : 0;
-            $a = $this->number($actual[$metric] ?? null, '实际值', $low, 1.0e12);
-            $p = $this->number($plan[$metric] ?? null, '计划值', $low, 1.0e12);
+            $roomNights = in_array($metric, ['available_room_nights', 'sold_room_nights'], true);
+            $a = $roomNights ? $this->integer($actual[$metric] ?? null, '实际间夜数', 0, 1000000000000)
+                : $this->number($actual[$metric] ?? null, '实际值', $low, 1.0e12);
+            $p = $roomNights ? $this->integer($plan[$metric] ?? null, '计划间夜数', 0, 1000000000000)
+                : $this->number($plan[$metric] ?? null, '计划值', $low, 1.0e12);
             if ($a === null || $p === null) $gaps[] = $metric;
+            if ($a === null) $gaps[] = 'actual.' . $metric;
+            if ($p === null) $gaps[] = 'plan.' . $metric;
             $rows[] = ['metric' => $metric, 'actual' => $a, 'plan' => $p,
-                'difference' => $a !== null && $p !== null ? round($a - $p, 6) : null];
+                'difference' => $a !== null && $p !== null ? $a - $p : null];
             $normalized['actual'][$metric] = $a; $normalized['plan'][$metric] = $p;
         }
         $byKey = array_column($rows, null, 'metric');
@@ -217,11 +233,15 @@ final class HotelLearningMechanismService
         $actualRevenue = $byKey['revenue']['actual']; $actualCost = $byKey['operating_cost']['actual'];
         $scopeAligned = !in_array('actual.period_mismatch', $gaps, true) && !in_array('plan.period_mismatch', $gaps, true)
             && $normalized['actual']['basis'] === $normalized['plan']['basis'] && $normalized['actual']['basis'] !== '';
-        if (!$scopeAligned) { $gaps[] = 'scope_mismatch'; foreach ($rows as &$row) $row['difference'] = null; unset($row); }
-        return ['status' => $gaps || !$scopeAligned ? 'partial' : 'compared', 'rows' => $rows, 'scope_aligned' => $scopeAligned,
+        $comparisonReady = $scopeAligned && $normalized['actual']['source_ref'] !== '' && $normalized['plan']['source_ref'] !== '';
+        if (!$scopeAligned) $gaps[] = 'scope_mismatch';
+        if (!$comparisonReady) { foreach ($rows as &$row) $row['difference'] = null; unset($row); }
+        $actualCostRatio = $scopeAligned && $normalized['actual']['source_ref'] !== '' && $actualRevenue > 0 && $actualCost !== null ? $actualCost / $actualRevenue : null;
+        if ($actualCostRatio !== null && !is_finite($actualCostRatio)) throw new InvalidArgumentException('收入与经营成本比例超出可计算范围，请核对金额和单位');
+        return ['status' => $gaps || !$scopeAligned ? 'partial' : 'compared', 'rows' => $rows, 'scope_aligned' => $scopeAligned, 'comparison_ready' => $comparisonReady,
             'inputs' => ['period_start' => $start, 'period_end' => $end] + $normalized,
             'period_start' => $start, 'period_end' => $end,
-            'actual_cost_ratio' => $scopeAligned && $actualRevenue > 0 && $actualCost !== null ? $actualCost / $actualRevenue : null,
+            'actual_cost_ratio' => $actualCostRatio,
             'missing_items' => array_values(array_unique($gaps)), 'annualized_as_actual' => false,
             'project_cash_equals_investor_recovery' => false];
     }
@@ -230,7 +250,7 @@ final class HotelLearningMechanismService
     {
         $gaps = []; $record = [];
         foreach (['question', 'model', 'model_version', 'region', 'network', 'observed_at', 'response_summary', 'source_ref'] as $key) {
-            $record[$key] = $this->text($input[$key] ?? '', $key === 'response_summary' ? 12000 : 1000);
+            $record[$key] = $key === 'observed_at' ? $this->observationTime($input[$key] ?? '') : $this->text($input[$key] ?? '', $key === 'response_summary' ? 12000 : 1000);
             if ($record[$key] === '') $gaps[] = $key;
         }
         $record['citations'] = $this->rows($input['citations'] ?? [], 40);
@@ -265,6 +285,7 @@ final class HotelLearningMechanismService
     {
         if ($value === null || $value === '') return null;
         if (is_bool($value) || !is_numeric($value) || !is_finite((float)$value) || (float)$value < $min || (float)$value > $max) throw new InvalidArgumentException($label . '数值无效');
+        if (is_string($value) && (float)$value === 0.0 && strpbrk(preg_split('/[eE]/', trim($value))[0], '123456789') !== false) throw new InvalidArgumentException($label . '非零值超出可表示精度，请核对数值与单位');
         return (float)$value;
     }
     private function integer(mixed $value, string $label, int $min, int $max): ?float
@@ -279,6 +300,12 @@ final class HotelLearningMechanismService
         foreach ($rows as $row) if (!is_array($row)) throw new InvalidArgumentException('记录行格式无效');
         return $rows;
     }
+    private function object(mixed $value, string $label): array
+    {
+        if ($value === null) return [];
+        if (!is_array($value) || ($value !== [] && array_is_list($value))) throw new InvalidArgumentException($label . '须为字段对象');
+        return $value;
+    }
     private function text(mixed $value, int $limit): string
     {
         if (!is_scalar($value) && $value !== null) throw new InvalidArgumentException('文本字段格式无效');
@@ -292,6 +319,15 @@ final class HotelLearningMechanismService
         if ($text === '' && !$required) return null;
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', $text);
         if (!$date || $date->format('Y-m-d') !== $text) throw new InvalidArgumentException('请输入有效业务日期');
+        return $text;
+    }
+    private function observationTime(mixed $value): string
+    {
+        $text = $this->text($value, 1000);
+        if ($text === '') return '';
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:[+]08:00)?$/D', $text)) throw new InvalidArgumentException('观察时点需完整日期和时间，按北京时间填写');
+        $this->date(substr($text, 0, 10), true);
+        if ((int)substr($text, 11, 2) > 23 || (int)substr($text, 14, 2) > 59 || (strlen($text) >= 19 && (int)substr($text, 17, 2) > 59)) throw new InvalidArgumentException('观察时点无效');
         return $text;
     }
     private function enum(mixed $value, array $values): string

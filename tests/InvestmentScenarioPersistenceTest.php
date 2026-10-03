@@ -30,6 +30,68 @@ final class InvestmentScenarioPersistenceTest extends TestCase
         @unlink($this->path);
     }
 
+    public function testExactMicroMonthlyConsumablesBindingSurvivesScenarioSaveAndRejectsZeroRewrite(): void
+    {
+        Db::execute('CREATE TABLE hotel_operating_evidence_snapshots ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id INTEGER,hotel_id INTEGER,source_hotel_id INTEGER,'
+            . 'kind TEXT,period_month TEXT,platform TEXT,payload_json TEXT,content_digest TEXT,idempotency_key TEXT,'
+            . 'created_by INTEGER,created_at TEXT,UNIQUE(tenant_id,hotel_id,kind,period_month,platform,idempotency_key))');
+        $actual = (new \app\service\ConsumablesActualCostService())->calculate([
+            'occupied_room_nights' => 1000000, 'occupied_room_nights_source_ref' => 'synthetic-pms-round2',
+            'denominator_scope' => 'whole_hotel', 'operator_attested' => true,
+            'items' => [['id' => 'round2-stock', 'name' => '合成微量成本', 'enabled' => true, 'unit' => 'piece',
+                'source_ref' => 'synthetic-stock-round2', 'source_date' => '2026-10-02',
+                'opening_quantity' => 0, 'purchased_quantity' => 1, 'transfer_in_quantity' => 0,
+                'closing_quantity' => 0, 'transfer_out_quantity' => 0, 'returned_quantity' => 0,
+                'written_off_quantity' => 0, 'unit_price' => 0.04]],
+        ]);
+        self::assertSame(4e-8, $actual['actual_consumables_cost_per_room_night']);
+        $store = new \app\service\OperatingEvidenceSnapshotStore();
+        $scope = $store->scope(10, [80], 80, '2026-10', 'whole_hotel', 'consumables_actual');
+        $evidence = $store->save($scope, ['inputs' => $actual['inputs'], 'result' => $actual,
+            'status' => $actual['status'], 'source_quality' => $actual['source_quality']], 'round2-actual-reference', 7);
+        $ledger = Fixture::ledger();
+        $project = $ledger->saveProject(Fixture::project());
+        $id = $project['project']['id'];
+        $cash = $ledger->saveEntry($id, ['kind' => 'investment', 'amount' => '1000.01', 'date' => '2026-10-01',
+            'precision' => 'day', 'source' => '合成实际出资', 'client_request_id' => 'round2-exact-cost-cash']);
+        $entries = Db::name('investment_payback_entries')->order('id')->select()->toArray();
+        $scenario = (new InvestmentScenarioCalculator())->referenceExample();
+        $scenario['operating_cost_basis'] = 'occupied_room_night';
+        $scenario['cost_evidence_snapshot_id'] = $evidence['snapshot_id'];
+        $scenario['cost_evidence_digest'] = $evidence['content_digest'];
+        $scenario['cost_evidence_confirmed'] = true;
+        $scenario['consumables_cost'] = ['mode' => 'derived', 'other_variable_cost_per_night' => 0,
+            'items' => [['id' => 'actual-evidence-' . $evidence['snapshot_id'], 'name' => '人工月度耗材参考',
+                'enabled' => true, 'unit' => 'piece', 'usage_basis' => 'occupied_room_night',
+                'package_price' => '4e-8', 'package_quantity' => 1, 'usage_quantity' => 1,
+                'occurrences_per_occupied_night' => 1]]];
+        $service = Fixture::scenarios();
+        $preview = $service->preview($id, ['scenario' => $scenario]);
+        self::assertSame(4e-8, $preview['input']['consumables_cost']['items'][0]['package_price']);
+        $saved = $service->save($id, ['expected_version' => $cash['project']['version'], 'scenario' => $scenario]);
+        $read = $service->detail($id);
+        self::assertSame($saved['content_digest'], $read['content_digest']);
+        self::assertSame(4e-8, $read['input']['consumables_cost']['items'][0]['package_price']);
+        self::assertSame($evidence['content_digest'], $read['input']['cost_evidence_digest']);
+        self::assertTrue($read['input']['cost_evidence_confirmed']);
+        self::assertSame('2026-10-02', $read['input']['consumables_cost']['items'][0]['as_of']);
+        self::assertStringContainsString('2026-10', $read['input']['consumables_cost']['items'][0]['source_label']);
+        $eventCount = Db::name('investment_payback_events')->count();
+        $scenario['consumables_cost']['items'][0]['package_price'] = 0;
+        foreach (['preview', 'save'] as $action) {
+            try {
+                $service->{$action}($id, ['expected_version' => $saved['project_version'], 'scenario' => $scenario]);
+                self::fail('An adopted nonzero saved monthly cost cannot be rewritten to zero');
+            } catch (RuntimeException $error) {
+                self::assertSame(409, $error->getCode());
+            }
+            self::assertSame($eventCount, Db::name('investment_payback_events')->count());
+            self::assertSame($saved['content_digest'], $service->detail($id)['content_digest']);
+            self::assertSame($entries, Db::name('investment_payback_entries')->order('id')->select()->toArray());
+        }
+    }
+
     public function testSaveGetRetryEditKeepsExactSnapshotAndActualCashUntouched(): void
     {
         $ledger = Fixture::ledger();

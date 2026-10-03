@@ -24,6 +24,9 @@ final class HotelLearning extends Base
             $hotelValue = $request['hotel_id'] ?? null;
             if (!is_scalar($hotelValue) || is_bool($hotelValue) || !preg_match('/^[1-9]\d{0,9}$/D', (string)$hotelValue)) throw new InvalidArgumentException('请选择有效酒店');
             $hotel = (int)$hotelValue;
+            foreach (['mode', 'period_month', 'platform'] as $field) {
+                if (!is_string($request[$field] ?? null)) throw new InvalidArgumentException('业务方法、月份和平台须为有效文本');
+            }
             $mode = (string)($request['mode'] ?? '');
             $capability = in_array($mode, ['investment_target', 'contract_review'], true) ? 'investment.simulate' : ($action === 'save' ? 'operation.execute' : 'operation.view');
             if ($denied = $this->hotelCapabilityDeniedResponse($hotel, $capability, '当前账号没有该酒店的业务权限')) return $denied;
@@ -37,9 +40,10 @@ final class HotelLearning extends Base
             }
             if ($action === 'read') return $this->success($store->read($scope, $id));
             if (!is_array($request['inputs'] ?? null)) throw new InvalidArgumentException('请填写业务输入');
+            if ($action === 'save' && !is_string($request['idempotency_key'] ?? null)) throw new InvalidArgumentException('保存请求标识须为有效文本，请重试');
             $inputs = $request['inputs'];
-            $this->validateDates($mode, $inputs, $scope['period_month']);
             $result = (new HotelLearningMechanismService())->calculate($mode, $inputs);
+            $this->validateDates($mode, $result['inputs'], $scope['period_month']);
             if ($action === 'preview') return $this->success(['scope' => $scope, 'inputs' => $result['inputs'], 'result' => $result,
                 'status' => $result['status'], 'readback_verified' => false]);
             return $this->success($store->save($scope, $result, (string)($request['idempotency_key'] ?? ''), (int)$this->currentUser->id), '业务版本已保存并准确回读');

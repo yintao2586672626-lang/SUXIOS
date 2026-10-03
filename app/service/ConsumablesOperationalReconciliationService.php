@@ -14,6 +14,7 @@ final class ConsumablesOperationalReconciliationService
         $this->assertInventoryArithmetic($result['items']);
         $rawRows = array_values($input['items'] ?? []);
         $cleaningCount = $this->number($input['cleaning_count'] ?? null);
+        if ($cleaningCount !== null && floor($cleaningCount) !== $cleaningCount) throw new InvalidArgumentException('consumables_cleaning_count_must_be_integer');
         $cleaningSource = $this->source($input['cleaning_count_source_ref'] ?? '');
         $recorded = $cleaningCount !== null || $cleaningSource !== '';
         $enabled = 0;
@@ -42,14 +43,14 @@ final class ConsumablesOperationalReconciliationService
             $issuedEvidenceReady = $issued !== null && $issuedSource !== '';
             $countEvidenceReady = $bookClosing !== null && $bookSource !== '' && $row['closing_quantity'] !== null && $inventorySourceReady;
             $issuedCost = $row['enabled'] && $issuedEvidenceReady && $inventorySourceReady && $row['unit_price'] !== null
-                ? $this->amount($issued * $row['unit_price']) : null;
+                ? $this->valuedAmount($issued, $row['unit_price']) : null;
             $issueDifference = $row['enabled'] && $issuedEvidenceReady && $row['consumed_quantity'] !== null
                 ? $this->quantity($row['consumed_quantity'] - $issued) : null;
             $issueDifferenceCost = $issueDifference !== null && $row['unit_price'] !== null
-                ? $this->amount($issueDifference * $row['unit_price']) : null;
+                ? $this->valuedAmount($issueDifference, $row['unit_price']) : null;
             $countDifference = $row['enabled'] && $countEvidenceReady ? $this->quantity($row['closing_quantity'] - $bookClosing) : null;
             $countDifferenceCost = $countDifference !== null && $row['unit_price'] !== null
-                ? $this->amount($countDifference * $row['unit_price']) : null;
+                ? $this->valuedAmount($countDifference, $row['unit_price']) : null;
 
             if ($row['enabled']) {
                 ++$enabled;
@@ -140,7 +141,10 @@ final class ConsumablesOperationalReconciliationService
     private function assertInventoryArithmetic(array $items): void
     {
         foreach ($items as $item) {
-            if (!$item['enabled'] || $item['consumed_quantity'] === null) continue;
+            if (!$item['enabled']) continue;
+            foreach (['opening_quantity','purchased_quantity','transfer_in_quantity','closing_quantity','transfer_out_quantity','returned_quantity','written_off_quantity'] as $field) {
+                if ($item[$field] === null) continue 2;
+            }
             $terms = [$item['opening_quantity'], $item['purchased_quantity'], $item['transfer_in_quantity'],
                 -$item['closing_quantity'], -$item['transfer_out_quantity'], -$item['returned_quantity'], -$item['written_off_quantity']];
             $sum = 0.0; $correction = 0.0;
@@ -151,17 +155,21 @@ final class ConsumablesOperationalReconciliationService
             }
             $stable = $sum + $correction;
             $noise = PHP_FLOAT_EPSILON * array_sum(array_map('abs', $terms)) * count($terms);
-            if ($stable < -$noise && $item['consumed_quantity'] >= 0) throw new InvalidArgumentException('库存负余额被数量精度掩盖，请核对库存和单位');
-            if (round($stable, 6) !== $item['consumed_quantity']) throw new InvalidArgumentException('库存数量跨度过大，当前精度无法可靠核算，请拆分后核对');
+            $naive = 0.0;
+            foreach ($terms as $term) $naive += $term;
+            $moneyImpact = $item['unit_price'] === null ? null : round(abs($stable) * $item['unit_price'], 2);
+            if ($stable < 0 && round($naive, 6) >= 0 && (abs($stable) > $noise || $moneyImpact !== null && $moneyImpact > 0)) throw new InvalidArgumentException('库存负余额被数量精度掩盖，请核对库存和单位');
+            if (round($stable, 6) !== round($naive, 6)) throw new InvalidArgumentException('库存数量跨度过大，当前精度无法可靠核算，请拆分后核对');
         }
     }
 
     private function number(mixed $value): ?float
     {
-        if ($value === null || $value === '') return null;
+        if ($value === null || is_string($value) && trim($value) === '') return null;
         if (is_bool($value) || !is_numeric($value) || !is_finite((float)$value) || (float)$value < 0 || (float)$value > 1e12) {
             throw new InvalidArgumentException('consumables_reconciliation_number_invalid');
         }
+        if (is_string($value) && (float)$value === 0.0 && strpbrk(preg_split('/[eE]/', trim($value))[0], '123456789') !== false) throw new InvalidArgumentException('consumables_reconciliation_number_precision_loss');
         return (float)$value;
     }
 
@@ -179,14 +187,20 @@ final class ConsumablesOperationalReconciliationService
         return $parsed !== false && $parsed->format('Y-m-d') === $date;
     }
 
-    private function quantity(float $value): float { return $this->bounded($value, 6); }
+    private function quantity(float $value): float { return $this->bounded($value, null); }
+    private function valuedAmount(float $quantity, float $price): float
+    {
+        $value = $quantity * $price;
+        if ($quantity !== 0.0 && $price !== 0.0 && $value === 0.0) throw new InvalidArgumentException('consumables_reconciliation_calculated_amount_precision_loss');
+        return $this->amount($value);
+    }
     private function amount(float $value): float { return $this->bounded($value, 2); }
-    private function unitCost(float $value): float { return $this->bounded($value, 6); }
-    private function bounded(float $value, int $precision): float
+    private function unitCost(float $value): float { return $this->bounded($value, null); }
+    private function bounded(float $value, ?int $precision): float
     {
         if (!is_finite($value) || abs($value) > 1e12) {
             throw new InvalidArgumentException('consumables_reconciliation_calculated_amount_out_of_range');
         }
-        return round($value, $precision);
+        return $precision === null ? ($value == 0.0 ? 0.0 : $value) : round($value, $precision);
     }
 }

@@ -118,9 +118,10 @@ final class ConsumablesCostCalculator
             if ($item['enabled'] && $item['package_price'] !== null && $item['package_quantity'] !== null
                 && (!isset($item['procurement_reference']) || $itemMissing === [])) {
                 $unitCost = $this->finite($item['package_price'] / $item['package_quantity'], 'consumables.items.' . $index . '.unit_cost');
+                if ($item['package_price'] > 0 && $unitCost === 0.0) throw new InvalidArgumentException('consumables.items.' . $index . '.unit_cost loses nonzero precision');
             }
             if ($item['enabled'] && $itemMissing === []) {
-                $cost = $this->finite($unitCost * $item['usage_quantity'] * $item['occurrences_per_occupied_night'], 'consumables.items.' . $index . '.cost_per_occupied_night');
+                $cost = $this->product([$unitCost, $item['usage_quantity'], $item['occurrences_per_occupied_night']], 'consumables.items.' . $index . '.cost_per_occupied_night');
             }
             $items[] = $item + ['unit_cost' => $unitCost, 'cost_per_occupied_night' => $cost, 'missing_fields' => $itemMissing];
             if (!$item['enabled']) {
@@ -180,6 +181,7 @@ final class ConsumablesCostCalculator
             throw new InvalidArgumentException($field . ' must be a number or null');
         }
         $number = (float)$value;
+        if (is_string($value) && $number === 0.0 && strpbrk(preg_split('/[eE]/', trim($value))[0], '123456789') !== false) throw new InvalidArgumentException($field . ' loses nonzero precision');
         if (!is_finite($number) || $number < 0 || ($positive && $number <= 0)) {
             throw new InvalidArgumentException($field . ' must be finite and ' . ($positive ? 'positive' : 'nonnegative'));
         }
@@ -190,6 +192,16 @@ final class ConsumablesCostCalculator
     {
         if (!is_finite($value)) {
             throw new InvalidArgumentException($field . ' exceeds finite arithmetic');
+        }
+        return $value;
+    }
+    private function product(array $factors, string $field): float
+    {
+        if (in_array(0.0, $factors, true)) return 0.0;
+        $value = 1.0;
+        foreach ($factors as $factor) {
+            $value = $this->finite($value * $factor, $field);
+            if ($value === 0.0) throw new InvalidArgumentException($field . ' loses nonzero precision');
         }
         return $value;
     }
