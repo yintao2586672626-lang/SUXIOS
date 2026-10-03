@@ -44,6 +44,19 @@ final class BookingDemandPlanningService
             ?? static fn(callable $callback): array => Db::transaction($callback);
     }
 
+    /** Reuse the existing scope, source, date and missing-value contract for room-type snapshots. */
+    public function validatedSnapshotContent(int $tenantId, array $permittedHotelIds, int $hotelId, array $input): array
+    {
+        $tenantId = $this->resolveScope($tenantId, $permittedHotelIds, $hotelId);
+        return $this->normalizeSnapshot($tenantId, $hotelId, $input);
+    }
+
+    /** Internal readback validation for already scope-filtered bulk readers. */
+    public function validatedSnapshotReadback(array $row): array
+    {
+        return $this->hydrateSnapshot($row);
+    }
+
     /** @param list<int> $permittedHotelIds @return array<string,mixed> */
     public function saveOnBooksSnapshot(
         int $tenantId,
@@ -382,19 +395,24 @@ final class BookingDemandPlanningService
             $base['data_gaps'][] = 'previous_cumulative_cancel_room_nights_exceeds_gross_booking_room_nights';
             return $base;
         }
+        if ($grossBookings !== null && $previousGrossBookings !== null && $grossBookings < $previousGrossBookings) {
+            $base['status'] = 'rebaseline_required';
+            $base['data_gaps'][] = 'gross_booking_counter_reset_or_mismatch';
+            return $base;
+        }
         $previousRooms = $this->nullableNumber($previous['on_books_room_nights'] ?? null, 'previous_on_books_room_nights');
         if ($currentRooms === null || $previousRooms === null) {
             $base['data_gaps'][] = 'on_books_room_nights_missing';
         } else {
             $netPickup = $currentRooms - $previousRooms;
-            $base['net_pickup_room_nights'] = round($netPickup, 2);
+            $base['net_pickup_room_nights'] = round($netPickup, 4);
             $base['pickup_room_nights_per_hour'] = round($netPickup / $hours, 4);
         }
 
         $previousRevenue = $this->nullableNumber($previous['on_books_room_revenue'] ?? null, 'previous_on_books_room_revenue');
         if ($currentRevenue !== null && $previousRevenue !== null) {
             $delta = $currentRevenue - $previousRevenue;
-            $base['room_revenue_delta'] = round($delta, 2);
+            $base['room_revenue_delta'] = round($delta, 4);
             $base['room_revenue_per_hour'] = round($delta / $hours, 4);
         } else {
             $base['data_gaps'][] = 'on_books_room_revenue_missing';
@@ -409,7 +427,7 @@ final class BookingDemandPlanningService
         } elseif ($base['net_pickup_room_nights'] !== null) {
             $base['gross_pickup_room_nights'] = round(
                 (float)$base['net_pickup_room_nights'] + ($currentCancel - $previousCancel),
-                2
+                4
             );
         }
 
@@ -481,7 +499,7 @@ final class BookingDemandPlanningService
         $sum = static fn(array $rows, string $field): float => round(array_sum(array_map(
             static fn(array $row): float => (float)$row[$field],
             $rows
-        )), 2);
+        )), 4);
         $dataGaps = [];
         if (count($withSnapshot) < $dayCount) $dataGaps[] = 'window_snapshot_coverage_incomplete';
         if ($withSnapshot !== [] && !$snapshotScopeComparable) $dataGaps[] = 'window_snapshot_fact_scope_mismatch';

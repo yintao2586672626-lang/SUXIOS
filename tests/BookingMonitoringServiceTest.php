@@ -1,0 +1,574 @@
+<?php
+declare(strict_types=1);
+
+use app\service\BookingDemandPlanningService;
+use app\service\BookingMonitoringService;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+use think\App;
+use think\facade\Config;
+use think\facade\Db;
+
+final class BookingMonitoringServiceTest extends TestCase
+{
+    private static array $originalConfig;
+    private static string $sqlitePath;
+
+    public static function setUpBeforeClass(): void
+    {
+        (new App())->initialize();
+        self::$originalConfig = Config::get('database');
+        self::$sqlitePath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'booking_monitor_test_' . getmypid() . '.sqlite';
+        @unlink(self::$sqlitePath);
+        $config = self::$originalConfig;
+        $config['default'] = 'sqlite';
+        $config['connections']['sqlite'] = ['type' => 'sqlite', 'database' => self::$sqlitePath, 'prefix' => '', 'fields_strict' => false];
+        Config::set($config, 'database');
+        Db::connect(null, true);
+        Db::execute('CREATE TABLE hotels (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL)');
+        Db::execute('CREATE TABLE room_types (id INTEGER PRIMARY KEY, hotel_id INTEGER NOT NULL, name TEXT NOT NULL)');
+        $shared = 'id INTEGER PRIMARY KEY AUTOINCREMENT, contract_version TEXT NOT NULL, tenant_id INTEGER NOT NULL,
+            hotel_id INTEGER NOT NULL, source_hotel_id INTEGER NOT NULL, platform TEXT NOT NULL, fact_scope TEXT NOT NULL,
+            stay_date TEXT NOT NULL, captured_at TEXT NOT NULL, source_method TEXT NOT NULL, source_ref_hash TEXT NOT NULL,
+            on_books_room_nights REAL NULL, on_books_room_revenue REAL NULL, cumulative_cancel_room_nights REAL NULL,
+            gross_booking_room_nights REAL NULL, quality_status TEXT NOT NULL, readback_verified INTEGER NOT NULL,
+            idempotency_key TEXT NOT NULL, content_digest TEXT NOT NULL, created_by INTEGER NOT NULL, created_at TEXT NOT NULL';
+        Db::execute('CREATE TABLE hotel_on_books_snapshots (' . $shared . ', UNIQUE(tenant_id,hotel_id,platform,stay_date,idempotency_key))');
+        Db::execute('CREATE TABLE hotel_room_type_on_books_snapshots (' . $shared . ', room_type_id INTEGER NOT NULL,
+            room_type_name TEXT NOT NULL, supersedes_snapshot_id INTEGER NULL, UNIQUE(tenant_id,hotel_id,idempotency_key))');
+    }
+
+    public static function tearDownAfterClass(): void
+    {
+        Db::connect()->close();
+        Config::set(self::$originalConfig, 'database');
+        Db::connect(null, true);
+        @unlink(self::$sqlitePath);
+    }
+
+    protected function setUp(): void
+    {
+        Db::execute('DELETE FROM hotel_room_type_on_books_snapshots');
+        Db::execute('DELETE FROM hotel_on_books_snapshots');
+        Db::execute('DELETE FROM room_types');
+        Db::execute('DELETE FROM hotels');
+        Db::name('hotels')->insertAll([
+            ['id' => 80, 'tenant_id' => 7, 'name' => 'TEST-ONLY酒店80'],
+            ['id' => 82, 'tenant_id' => 7, 'name' => 'TEST-ONLY酒店82'],
+            ['id' => 81, 'tenant_id' => 8, 'name' => 'TEST-ONLY其他租户'],
+        ]);
+        Db::name('room_types')->insertAll([
+            ['id' => 1, 'hotel_id' => 80, 'name' => 'TEST-ONLY大床'],
+            ['id' => 2, 'hotel_id' => 80, 'name' => 'TEST-ONLY双床'],
+            ['id' => 3, 'hotel_id' => 82, 'name' => 'TEST-ONLY大床'],
+        ]);
+    }
+
+    public function testImportExactReadbackReplayAndManualQualityCannotSelfPromote(): void
+    {
+        $service = $this->service();
+        $row = $this->row('2026-10-02 09:00:00', 10);
+        $row['quality_status'] = 'verified';
+        $row['source_method'] = 'authorized_api_export';
+        $saved = $service->saveSnapshots(7, [80], [$row], 9);
+        self::assertSame('saved_readback_verified', $saved['save_status']);
+        self::assertTrue($saved['readback_verified']);
+        self::assertSame('manual_confirmed', $saved['snapshots'][0]['quality_status']);
+        self::assertSame('manual_file_import', $saved['snapshots'][0]['source_method']);
+        self::assertSame('TEST-ONLY大床', $saved['snapshots'][0]['room_type_name']);
+        self::assertSame($saved['snapshots'][0], $service->readSnapshot(7, [80], 80, $saved['snapshots'][0]['id']) + ['idempotent' => false]);
+        $replay = $service->saveSnapshots(7, [80], [$row], 9);
+        self::assertTrue($replay['snapshots'][0]['idempotent']);
+        self::assertSame($saved['snapshots'][0]['id'], $replay['snapshots'][0]['id']);
+        self::assertSame(1, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    public function testExactFixed24hIgnoresMoreRecentIntraDaySnapshotsAndKeepsRoomsSeparate(): void
+    {
+        $service = $this->service();
+        $service->saveSnapshots(7, [80], [
+            $this->row('2026-10-01 09:00:00', 8),
+            $this->row('2026-10-02 09:00:00', 11),
+            $this->row('2026-10-02 10:00:00', 99),
+            $this->row('2026-10-01 09:00:00', 2, 2),
+            $this->row('2026-10-02 09:00:00', 3, 2),
+        ], 9);
+        $view = $service->overview(7, [80], [80], $this->query());
+        $bed = $this->cell($view, 80, 1);
+        $twin = $this->cell($view, 80, 2);
+        self::assertSame('ready', $bed['status']);
+        self::assertSame(24.0, $bed['elapsed_hours']);
+        self::assertSame(3.0, $bed['net_pickup_24h_room_nights']);
+        self::assertSame(1.0, $twin['net_pickup_24h_room_nights']);
+        self::assertSame(11.0, $bed['current']['on_books_room_nights']);
+        self::assertSame('2026-10-02 09:00:00', $view['observation_time']);
+        self::assertSame('2026-10-01 09:00:00', $view['baseline_time']);
+        self::assertSame('Asia/Shanghai', $view['timezone']);
+        self::assertFalse($view['boundaries']['automatic_pricing']);
+        self::assertSame(0, $view['boundaries']['external_write_count']);
+    }
+
+    public function testFixed24hAndHistoryPreserveFourDecimalDifferences(): void
+    {
+        $service = $this->service();
+        $before = $this->row('2026-10-01 09:00:00', 1);
+        $current = $this->row('2026-10-02 09:00:00', 1.0001);
+        $before['on_books_room_revenue'] = 1;
+        $current['on_books_room_revenue'] = 1.0001;
+        $rows = [$before, $current];
+        for ($week = 1; $week <= 4; $week++) {
+            $anchor = new DateTimeImmutable('2026-10-02 09:00:00', new DateTimeZone('Asia/Shanghai'));
+            $history = $anchor->modify('-' . ($week * 7) . ' days');
+            $row = $this->row($history->format('Y-m-d H:i:s'), 1);
+            $row['stay_date'] = $history->modify('+1 day')->format('Y-m-d');
+            $rows[] = $row;
+        }
+        $service->saveSnapshots(7, [80], $rows, 9);
+        $cell = $this->cell($service->overview(7, [80], [80], $this->query()), 80, 1);
+        self::assertSame('ready', $cell['status']);
+        self::assertSame(0.0001, $cell['net_pickup_24h_room_nights']);
+        self::assertSame(0.0001, $cell['gross_pickup_24h_room_nights']);
+        self::assertSame(0.0001, $cell['room_revenue_delta_24h']);
+        self::assertSame(1.0, $cell['same_lead_time_median_room_nights']);
+        self::assertSame(0.0001, $cell['delta_vs_same_lead_time_median']);
+        self::assertSame(4, $cell['history_coverage']);
+    }
+
+    public function testFixed24hGrossCounterResetCannotRemainComparable(): void
+    {
+        $before = $this->row('2026-10-01 09:00:00', 8);
+        $current = $this->row('2026-10-02 09:00:00', 9);
+        $before['cumulative_cancel_room_nights'] = 1;
+        $before['gross_booking_room_nights'] = 10;
+        $current['cumulative_cancel_room_nights'] = 2;
+        $current['gross_booking_room_nights'] = 9;
+        $service = $this->service();
+        $service->saveSnapshots(7, [80], [$before, $current], 9);
+        $cell = $this->cell($service->overview(7, [80], [80], $this->query()), 80, 1);
+        self::assertSame('not_comparable', $cell['status']);
+        self::assertNull($cell['net_pickup_24h_room_nights']);
+        self::assertNull($cell['gross_pickup_24h_room_nights']);
+        self::assertNull($cell['room_revenue_delta_24h']);
+        self::assertContains('gross_booking_counter_reset_or_mismatch', $cell['data_gaps']);
+    }
+
+    public function testLateStaleAndApproximateObservationsNeverBecome24hPickup(): void
+    {
+        $service = $this->service();
+        $service->saveSnapshots(7, [80], [
+            $this->row('2026-10-01 09:00:00', 8, 1),
+            $this->row('2026-10-02 09:05:00', 11, 1),
+            $this->row('2026-10-02 08:45:00', 3, 2),
+        ], 9);
+        $view = $service->overview(7, [80], [80], $this->query());
+        self::assertSame('late', $this->cell($view, 80, 1)['current']['status']);
+        self::assertSame('approximate', $this->cell($view, 80, 2)['current']['status']);
+        self::assertNull($this->cell($view, 80, 1)['net_pickup_24h_room_nights']);
+        self::assertNull($this->cell($view, 80, 2)['net_pickup_24h_room_nights']);
+        $service->saveSnapshots(7, [80], [$this->row('2026-10-01 08:00:00', 8, 0)], 9);
+        $view = $service->overview(7, [80], [80], $this->query());
+        self::assertSame('stale', $this->cell($view, 80, 0)['current']['status']);
+        self::assertNull($this->cell($view, 80, 0)['net_pickup_24h_room_nights']);
+    }
+
+    public function testSameLeadTimeHistoryUsesPreviousFourWeekdaysAndNoOtherHotelOrRoom(): void
+    {
+        $service = $this->service();
+        $rows = [$this->row('2026-10-02 09:00:00', 20), $this->row('2026-10-01 09:00:00', 18)];
+        foreach ([1 => 8, 2 => 10, 3 => 12, 4 => 14] as $week => $rooms) {
+            $anchor = new DateTimeImmutable('2026-10-02 09:00:00', new DateTimeZone('Asia/Shanghai'));
+            $history = $anchor->modify('-' . ($week * 7) . ' days');
+            $row = $this->row($history->format('Y-m-d H:i:s'), $rooms);
+            $row['stay_date'] = $history->modify('+1 day')->format('Y-m-d');
+            $rows[] = $row;
+            $other = $row;
+            $other['room_type_id'] = 2;
+            $other['on_books_room_nights'] = 999;
+            $rows[] = $other;
+        }
+        $service->saveSnapshots(7, [80], $rows, 9);
+        $view = $service->overview(7, [80, 82], [80, 82], $this->query());
+        $cell = $this->cell($view, 80, 1);
+        self::assertSame(4, $cell['history_coverage']);
+        self::assertSame('ready', $cell['history_status']);
+        self::assertSame(11.0, $cell['same_lead_time_median_room_nights']);
+        self::assertSame(9.0, $cell['delta_vs_same_lead_time_median']);
+        self::assertSame(1, $cell['history'][0]['lead_time_days']);
+        self::assertSame('ready', $cell['baseline_readiness']['status']);
+        self::assertCount(6, $cell['baseline_readiness']['requirements']);
+        self::assertSame([], $cell['baseline_readiness']['gaps']);
+        self::assertSame(1, $view['baseline_readiness']['complete_cell_count']);
+        self::assertNull($this->cell($view, 82, 3)['current']['on_books_room_nights']);
+        self::assertSame('missing', $this->cell($view, 82, 3)['history_status']);
+        $missing=$this->cell($view,82,3)['baseline_readiness'];
+        self::assertSame('incomplete',$missing['status']);self::assertCount(6,$missing['gaps']);
+        self::assertSame('2026-09-25 09:00:00',$missing['gaps'][2]['target_time']);
+        self::assertSame('2026-09-26',$missing['gaps'][2]['stay_date']);
+    }
+
+    public function testOldSummariesRemainUnsplitAndIncompleteHistoryKeepsNullMedian(): void
+    {
+        $planning = new BookingDemandPlanningService(static fn(): DateTimeImmutable => new DateTimeImmutable('2026-10-02 12:00:00', new DateTimeZone('Asia/Shanghai')));
+        foreach (['2026-10-01 09:00:00' => 8, '2026-10-02 09:00:00' => 10] as $capture => $rooms) {
+            $row = $this->row($capture, $rooms, 0);
+            $row['source_method'] = 'manual_entry';
+            $row['quality_status'] = 'manual_confirmed';
+            $row['idempotency_key'] = hash('sha256', 'TEST-ONLY-legacy-' . $capture);
+            $planning->saveOnBooksSnapshot(7, [80], 80, $row, 9);
+        }
+        $view = $this->service()->overview(7, [80], [80], $this->query());
+        $summary = $this->cell($view, 80, 0);
+        self::assertSame(2.0, $summary['net_pickup_24h_room_nights']);
+        self::assertStringStartsWith('hotel_on_books_snapshots#', $summary['current']['evidence_ref']);
+        self::assertNull($this->cell($view, 80, 1)['current']['on_books_room_nights']);
+        self::assertNull($summary['same_lead_time_median_room_nights']);
+        self::assertSame('missing', $summary['history_status']);
+    }
+
+    public function testUnverifiedAndMissingBaselineKeepNumericMetricsNull(): void
+    {
+        $row = $this->row('2026-10-02 09:00:00', 0);
+        $row['operator_attested'] = false;
+        $this->service()->saveSnapshots(7, [80], [$row], 9);
+        $cell = $this->cell($this->service()->overview(7, [80], [80], $this->query()), 80, 1);
+        self::assertSame('unverified', $cell['status']);
+        self::assertSame(0.0, $cell['current']['on_books_room_nights']);
+        self::assertNull($cell['net_pickup_24h_room_nights']);
+        self::assertSame('missing', $cell['baseline']['status']);
+    }
+
+    public function testImportPrevalidatesAllRowsAndRejectsCrossHotelOrTenantWithoutPartialWrite(): void
+    {
+        $bad = $this->row('2026-10-02 09:00:00', 5);
+        $bad['hotel_id'] = 82;
+        try {
+            $this->service()->saveSnapshots(7, [80], [$this->row('2026-10-01 09:00:00', 4), $bad], 9);
+            self::fail('cross-hotel import must fail');
+        } catch (RuntimeException $error) {
+            self::assertSame(403, $error->getCode());
+            self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+        }
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('booking_monitor_hotel_tenant_scope_mismatch');
+        $this->service()->overview(7, [80, 81], [80, 81], $this->query());
+    }
+
+    public function testRoomTypeCannotBeImportedUnderAnotherHotel(): void
+    {
+        $row = $this->row('2026-10-02 09:00:00', 5);
+        $row['room_type_id'] = 3;
+        $this->expectExceptionMessage('booking_monitor_room_type_outside_hotel');
+        $this->service()->saveSnapshots(7, [80], [$row], 9);
+    }
+
+    public function testFractionalHotelIdentityIsRejectedAndFourDecimalImportHasMatchingStorageContract(): void
+    {
+        $row = $this->row('2026-10-02 09:00:00', 10.1234);
+        $saved = $this->service()->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        self::assertSame(10.1234, $saved['on_books_room_nights']);
+        $migration = file_get_contents(dirname(__DIR__) . '/database/migrations/20261002_create_room_type_on_books_snapshots.sql');
+        self::assertStringContainsString('`on_books_room_nights` DECIMAL(14,4)', $migration);
+        self::assertStringContainsString('`on_books_room_revenue` DECIMAL(18,4)', $migration);
+        $row['hotel_id'] = 80.5;
+        $this->expectExceptionMessage('booking_monitor_room_type_id_invalid');
+        $this->service()->saveSnapshots(7, [80], [$row], 9);
+    }
+
+    public function testCorrectionAppendsAndReplaysWithoutOverwritingOriginalEvidence(): void
+    {
+        $service = $this->service();
+        $row = $this->row('2026-10-02 09:00:00', 9);
+        $saved = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        $row['on_books_room_nights'] = 11;
+        $row['supersedes_snapshot_id'] = $saved['id'];
+        $correction = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        self::assertSame(2, Db::name(BookingMonitoringService::TABLE)->count());
+        self::assertSame(9.0, $service->readSnapshot(7, [80], 80, $saved['id'])['on_books_room_nights']);
+        self::assertSame($saved['id'], $correction['supersedes_snapshot_id']);
+        self::assertSame(11.0, $this->cell($service->overview(7, [80], [80], $this->query()), 80, 1)['current']['on_books_room_nights']);
+        $row['stay_date'] = '2026-10-04';
+        $this->expectExceptionMessage('booking_monitor_correction_scope_mismatch');
+        $service->saveSnapshots(7, [80], [$row], 9);
+    }
+
+    public function testDeletedRoomTypeCorrectionAppendsWithExactReadbackAndImmutableOriginal(): void
+    {
+        $service = $this->service();
+        $row = $this->row('2026-10-02 09:00:00.123456', 10.1234);
+        $original = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        Db::name('room_types')->where('id', 1)->delete();
+        $history = $this->cell($service->overview(7, [80], [80], $this->query()), 80, 1);
+        self::assertSame('TEST-ONLY大床（历史房型）', $history['room_type_name']);
+        self::assertSame(10.1234, $history['current']['on_books_room_nights']);
+
+        $row['supersedes_snapshot_id'] = $original['id'];
+        $row['source_ref'] = 'TEST-ONLY retired room correction';
+        $row['on_books_room_nights'] = 11.1234;
+        $row['on_books_room_revenue'] = null;
+        $row['cumulative_cancel_room_nights'] = null;
+        $row['gross_booking_room_nights'] = null;
+        $corrected = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        $read = $service->readSnapshot(7, [80], 80, $corrected['id']);
+        self::assertNotSame($original['id'], $corrected['id']);
+        self::assertSame($original['id'], $read['supersedes_snapshot_id']);
+        self::assertSame($original['room_type_name'], $read['room_type_name']);
+        self::assertSame(11.1234, $read['on_books_room_nights']);
+        self::assertNull($read['on_books_room_revenue']);
+        self::assertNull($read['cumulative_cancel_room_nights']);
+        self::assertNull($read['gross_booking_room_nights']);
+        self::assertSame('2026-10-02 09:00:00.123456', $read['captured_at']);
+        self::assertSame($corrected, $read + ['idempotent' => false]);
+        self::assertSame($original, $service->readSnapshot(7, [80], 80, $original['id']) + ['idempotent' => false]);
+        $replay = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        self::assertSame($corrected['id'], $replay['id']);
+        self::assertTrue($replay['idempotent']);
+        self::assertSame(2, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    public function testLateCorrectionChainUsesLatestVersionOfEarliestLateCaptureWithoutChangingOriginals(): void
+    {
+        $service = $this->service();
+        $service->saveSnapshots(7, [80], [$this->row('2026-10-01 09:00:00', 8)], 9);
+        $row = $this->row('2026-10-02 09:05:00', 10);
+        $original = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        $later = $service->saveSnapshots(7, [80], [$this->row('2026-10-02 09:10:00', 99)], 9)['snapshots'][0];
+        $row['on_books_room_nights'] = 12;
+        $row['supersedes_snapshot_id'] = $original['id'];
+        $first = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        $row['on_books_room_nights'] = 13;
+        $row['supersedes_snapshot_id'] = $first['id'];
+        $latest = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+
+        $cell = $this->cell($service->overview(7, [80], [80], $this->query()), 80, 1);
+        self::assertSame('late', $cell['current']['status']);
+        self::assertSame('2026-10-02 09:05:00.000000', $cell['current']['captured_at']);
+        self::assertSame(13.0, $cell['current']['on_books_room_nights']);
+        self::assertSame($latest['evidence_ref'], $cell['current']['evidence_ref']);
+        self::assertNull($cell['net_pickup_24h_room_nights']);
+        self::assertNull($cell['gross_pickup_24h_room_nights']);
+        self::assertNull($cell['room_revenue_delta_24h']);
+        foreach ([$original, $later, $first] as $saved) {
+            self::assertSame($saved, $service->readSnapshot(7, [80], 80, $saved['id']) + ['idempotent' => false]);
+        }
+    }
+
+    public function testEqualLateCaptureUsesRoomTypePriorityThenLatestIdentityInsteadOfLaterCapture(): void
+    {
+        $original = $this->row('2026-10-02 09:05:00.000000', 10) + [
+            'id' => 999, '_priority' => 0, 'quality_status' => 'manual_confirmed', 'readback_verified' => 1,
+            'source_method' => 'manual_file_import', 'evidence_ref' => 'TEST-ONLY legacy#999',
+        ];
+        $new = array_replace($original, ['id' => 1, '_priority' => 1, 'on_books_room_nights' => 12.0, 'evidence_ref' => 'TEST-ONLY room#1']);
+        $correction = array_replace($new, ['id' => 2, 'on_books_room_nights' => 13.0, 'evidence_ref' => 'TEST-ONLY room#2']);
+        $later = array_replace($correction, ['id' => 3, 'captured_at' => '2026-10-02 09:10:00.000000', 'on_books_room_nights' => 99.0]);
+        $cell = $this->service()->compareSlots(7, 80, 'ctrip', '2026-10-03',
+            new DateTimeImmutable('2026-10-02 09:00:00', new DateTimeZone('Asia/Shanghai')), [$later, $correction, $original, $new]);
+        self::assertSame('late', $cell['current']['status']);
+        self::assertSame('TEST-ONLY room#2', $cell['current']['evidence_ref']);
+        self::assertSame(13.0, $cell['current']['on_books_room_nights']);
+        self::assertNull($cell['net_pickup_24h_room_nights']);
+    }
+
+    #[DataProvider('historicalCorrectionCatalogueChanges')]
+    public function testHistoricalCorrectionReplaysAfterRoomRenamesAndDeletion(?string $idempotencyKey, string $catalogueChange): void
+    {
+        $service = $this->service();
+        $row = $this->row('2026-10-02 09:00:00.123456', 10.1234);
+        $original = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        Db::name('room_types')->where('id', 1)->update(['name' => 'TEST-ONLY renamed before correction']);
+        $row['supersedes_snapshot_id'] = $original['id'];
+        $row['source_ref'] = 'TEST-ONLY historical correction replay';
+        $row['on_books_room_nights'] = 11.1234;
+        $row['on_books_room_revenue'] = 1123.4567;
+        if ($idempotencyKey !== null) $row['idempotency_key'] = $idempotencyKey;
+        $corrected = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        if ($catalogueChange === 'rename') {
+            Db::name('room_types')->where('id', 1)->update(['name' => 'TEST-ONLY renamed again after correction']);
+        } else {
+            Db::name('room_types')->where('id', 1)->delete();
+        }
+
+        $replay = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        self::assertSame($corrected['id'], $replay['id']);
+        self::assertTrue($replay['idempotent']);
+        $expectedReplay = $corrected;
+        $expectedReplay['idempotent'] = true;
+        self::assertSame($expectedReplay, $replay);
+        self::assertSame($original['room_type_name'], $corrected['room_type_name']);
+        self::assertSame($original['id'], $corrected['supersedes_snapshot_id']);
+        self::assertSame(11.1234, $corrected['on_books_room_nights']);
+        self::assertSame(1123.4567, $corrected['on_books_room_revenue']);
+        self::assertSame($original, $service->readSnapshot(7, [80], 80, $original['id']) + ['idempotent' => false]);
+        self::assertSame($corrected, $service->readSnapshot(7, [80], 80, $corrected['id']) + ['idempotent' => false]);
+        self::assertSame(2, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    public static function historicalCorrectionCatalogueChanges(): array
+    {
+        return [
+            'default key after another rename' => [null, 'rename'],
+            'default key after deletion' => [null, 'delete'],
+            'explicit key after another rename' => ['TEST-ONLY-historical-correction-replay', 'rename'],
+            'explicit key after deletion' => ['TEST-ONLY-historical-correction-replay', 'delete'],
+        ];
+    }
+
+    public function testDeletedRoomTypeCannotPermitNewFactsOrCorrectionScopeChanges(): void
+    {
+        $service = $this->service();
+        $row = $this->row('2026-10-02 09:00:00', 10);
+        $row['platform'] = 'manual_all_channels';
+        $row['fact_scope'] = 'accommodation_room_fee';
+        $original = $service->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        Db::name('room_types')->where('id', 1)->delete();
+        $row['supersedes_snapshot_id'] = $original['id'];
+        $row['on_books_room_nights'] = 11;
+        $cases = [
+            [7, [80], ['supersedes_snapshot_id' => null], 'booking_monitor_room_type_outside_hotel'],
+            [7, [80], ['room_type_id' => 2], 'booking_monitor_correction_room_type_mismatch'],
+            [7, [80, 82], ['hotel_id' => 82], 'booking_monitor_snapshot_not_found'],
+            [8, [81], ['hotel_id' => 81], 'booking_monitor_snapshot_not_found'],
+            [7, [80], ['platform' => 'dingdandao_pms'], 'booking_monitor_correction_scope_mismatch'],
+            [7, [80], ['stay_date' => '2026-10-04'], 'booking_monitor_correction_scope_mismatch'],
+            [7, [80], ['captured_at' => '2026-10-02 09:01:00'], 'booking_monitor_correction_scope_mismatch'],
+            [7, [80], ['fact_scope' => 'whole_hotel'], 'booking_monitor_correction_scope_mismatch'],
+        ];
+        foreach ($cases as [$tenantId, $permitted, $changes, $reason]) {
+            try {
+                $service->saveSnapshots($tenantId, $permitted, [array_replace($row, $changes)], 9);
+                self::fail('deleted room correction must preserve scope: ' . json_encode($changes));
+            } catch (InvalidArgumentException | RuntimeException $error) {
+                self::assertSame($reason, $error->getMessage());
+                self::assertSame(1, Db::name(BookingMonitoringService::TABLE)->count());
+            }
+        }
+        self::assertSame($original, $service->readSnapshot(7, [80], 80, $original['id']) + ['idempotent' => false]);
+    }
+
+    public function testSameReplayKeyWithDifferentContentRollsBackEntireBatch(): void
+    {
+        $service = $this->service();
+        $row = $this->row('2026-10-02 09:00:00', 9);
+        $row['idempotency_key'] = 'TEST-ONLY-replay-key';
+        $service->saveSnapshots(7, [80], [$row], 9);
+        $row['on_books_room_nights'] = 11;
+        try {
+            $service->saveSnapshots(7, [80], [$this->row('2026-10-01 09:00:00', 8), $row], 9);
+            self::fail('conflicting replay must fail');
+        } catch (RuntimeException $error) {
+            self::assertSame('booking_monitor_idempotency_conflict', $error->getMessage());
+            self::assertSame(1, Db::name(BookingMonitoringService::TABLE)->count());
+        }
+    }
+
+    public function testCorruptReadbackFailsInsteadOfReturningHistoricalFallback(): void
+    {
+        $saved = $this->service()->saveSnapshots(7, [80], [$this->row('2026-10-02 09:00:00', 9)], 9)['snapshots'][0];
+        Db::name(BookingMonitoringService::TABLE)->where('id', $saved['id'])->update(['on_books_room_nights' => 99]);
+        $this->expectExceptionMessage('booking_monitor_content_digest_mismatch');
+        $this->service()->overview(7, [80], [80], $this->query());
+    }
+
+    public function testFutureDatesAndMissingNumbersFailAndPendingAnchorIsExplicit(): void
+    {
+        $view = $this->service('2026-10-02 08:00:00')->overview(7, [80], [80], $this->query());
+        self::assertContains('fixed_observation_time_not_reached', $this->cell($view, 80, 1)['data_gaps']);
+        self::assertSame('not_due',$this->cell($view,80,1)['current']['status']);
+        self::assertSame('not_due',$this->cell($view,80,1)['baseline_readiness']['gaps'][0]['status']);
+        foreach ([['business_date' => '2026-02-30'], ['business_date' => '2026-10-03'], ['fixed_time' => '24:01'], ['horizon_days' => 0]] as $invalid) {
+            try { $this->service()->overview(7, [80], [80], $invalid + $this->query()); self::fail('invalid date/slot/horizon'); }
+            catch (InvalidArgumentException $error) { self::assertStringStartsWith('booking_monitor_', $error->getMessage()); }
+        }
+        $row = $this->row('2026-10-02 09:00:00', 4);
+        $row['on_books_room_nights'] = null;
+        $this->expectExceptionMessage('on_books_room_nights_required');
+        $this->service()->saveSnapshots(7, [80], [$row], 9);
+    }
+
+    public function testDifferentFactScopesCannotBecomeComparable24hOrHistory(): void
+    {
+        $service = $this->service();
+        $before = $this->row('2026-10-01 09:00:00', 8);
+        $after = $this->row('2026-10-02 09:00:00', 9);
+        $before['platform'] = $after['platform'] = 'manual_all_channels';
+        $before['fact_scope'] = 'whole_hotel';
+        $after['fact_scope'] = 'accommodation_room_fee';
+        $service->saveSnapshots(7, [80], [$before, $after], 9);
+        $cell = $this->cell($service->overview(7, [80], [80], ['platform' => 'manual_all_channels'] + $this->query()), 80, 1);
+        self::assertSame('not_comparable', $cell['status']);
+        self::assertNull($cell['net_pickup_24h_room_nights']);
+        self::assertContains('on_books_fact_scope_changed', $cell['data_gaps']);
+    }
+
+    public function testControllerRequiresLoginAndExecutionPermissionBeforeAnyWrite(): void
+    {
+        $anonymous = $this->controller(['hotel_ids' => '80'], null)->overview();
+        self::assertSame(401, $anonymous->getCode());
+        self::assertSame(401, $anonymous->getData()['code']);
+        $user = new class {
+            public int $id = 9;
+            public function getPermittedHotelIds(): array { return [80]; }
+            public function hasHotelPermission(int $hotelId, string $capability): bool { return $hotelId === 80 && $capability === 'operation.view'; }
+        };
+        $denied = $this->controller(['rows' => [$this->row('2026-10-02 09:00:00', 8)]], $user, 'POST')->saveSnapshots();
+        self::assertSame(403, $denied->getCode());
+        self::assertSame('booking_monitor_hotel_outside_permitted_scope', $denied->getData()['data']['reason_code']);
+        self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+    }
+
+    public function testControllerReadbackIsBoundToExplicitPermittedHotel(): void
+    {
+        $snapshot = $this->service()->saveSnapshots(7, [80], [$this->row('2026-10-02 09:00:00', 8)], 9)['snapshots'][0];
+        $user = new class {
+            public int $id = 9;
+            public function getPermittedHotelIds(): array { return [80]; }
+            public function hasHotelPermission(int $hotelId, string $capability): bool { return $hotelId === 80; }
+        };
+        $readback = $this->controller(['hotel_id' => 80, 'id' => $snapshot['id']], $user)->readSnapshot();
+        self::assertSame(200, $readback->getData()['code']);
+        self::assertSame($snapshot['content_digest'], $readback->getData()['data']['content_digest']);
+        $other = $this->controller(['hotel_id' => 82, 'id' => $snapshot['id']], $user)->readSnapshot();
+        self::assertSame(403, $other->getCode());
+        self::assertFalse($other->getData()['data']['readback_verified']);
+    }
+
+    private function controller(array $params, ?object $user, string $method = 'GET'): \app\controller\BookingMonitoring
+    {
+        $class = new ReflectionClass(\app\controller\BookingMonitoring::class);
+        $controller = $class->newInstanceWithoutConstructor();
+        $request = new class($params, $method) {
+            public function __construct(private array $values, private string $verb) {}
+            public function param(string $key, mixed $default = null): mixed { return $this->values[$key] ?? $default; }
+            public function post(): array { return $this->verb === 'POST' ? $this->values : []; }
+            public function method(): string { return $this->verb; }
+            public function getContent(): string { return ''; }
+        };
+        $class->getProperty('request')->setValue($controller, $request);
+        $class->getProperty('currentUser')->setValue($controller, $user);
+        return $controller;
+    }
+
+    private function service(string $now = '2026-10-02 12:00:00'): BookingMonitoringService
+    {
+        return new BookingMonitoringService(static fn(): DateTimeImmutable => new DateTimeImmutable($now, new DateTimeZone('Asia/Shanghai')));
+    }
+
+    private function row(string $capturedAt, float $rooms, int $roomId = 1): array
+    {
+        return ['hotel_id' => 80, 'room_type_id' => $roomId, 'platform' => 'ctrip', 'fact_scope' => 'ota_channel',
+            'stay_date' => '2026-10-03', 'captured_at' => $capturedAt, 'on_books_room_nights' => $rooms,
+            'on_books_room_revenue' => $rooms * 100, 'cumulative_cancel_room_nights' => 0, 'gross_booking_room_nights' => $rooms,
+            'source_ref' => 'TEST-ONLY-synthetic-source-' . $capturedAt . '-' . $roomId, 'operator_attested' => true];
+    }
+
+    private function query(): array
+    {
+        return ['platform' => 'ctrip', 'business_date' => '2026-10-02', 'fixed_time' => '09:00', 'horizon_days' => 1];
+    }
+
+    private function cell(array $view, int $hotelId, int $roomId): array
+    {
+        foreach ($view['cells'] as $cell) if ($cell['hotel_id'] === $hotelId && $cell['room_type_id'] === $roomId) return $cell;
+        self::fail('cell missing');
+    }
+}

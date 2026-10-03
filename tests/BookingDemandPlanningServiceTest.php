@@ -88,6 +88,49 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertNotContains('on_books_snapshot_time_not_increasing', $result['data_gaps']);
     }
 
+    public function testFourDecimalPickupDifferencesKeepPositiveNegativeAndActualZero(): void
+    {
+        foreach ([[1.0, 1.0001, 0.0, 0.0001, 0.0001], [1.0001, 1.0, 0.0001, -0.0001, 0.0], [1.0, 1.0, 0.0, 0.0, 0.0]] as [$before, $after, $cancel, $delta, $gross]) {
+            $result = $this->service()->summarizeSnapshots(7, 80, 'ctrip', '2026-09-10', [
+                $this->snapshot(1, '2026-08-30 08:00:00.000000', $before, $before, 0, 10),
+                $this->snapshot(2, '2026-08-30 10:00:00.000000', $after, $after, $cancel, 10),
+            ]);
+            self::assertSame('ready', $result['status']);
+            self::assertSame($delta, $result['net_pickup_room_nights']);
+            self::assertSame($delta, $result['room_revenue_delta']);
+            self::assertSame($gross, $result['gross_pickup_room_nights']);
+        }
+    }
+
+    public function testGrossBookingCounterResetRequiresRebaselineBeforeAnyPickup(): void
+    {
+        $result = $this->service()->summarizeSnapshots(7, 80, 'ctrip', '2026-09-10', [
+            $this->snapshot(1, '2026-08-30 08:00:00.000000', 8, 800, 1, 10),
+            $this->snapshot(2, '2026-08-30 10:00:00.000000', 9, 900, 2, 9),
+        ]);
+        self::assertSame('rebaseline_required', $result['status']);
+        self::assertNull($result['net_pickup_room_nights']);
+        self::assertNull($result['gross_pickup_room_nights']);
+        self::assertNull($result['room_revenue_delta']);
+        self::assertNull($result['cancellation_rate_percent']);
+        self::assertContains('gross_booking_counter_reset_or_mismatch', $result['data_gaps']);
+    }
+
+    public function testUnknownGrossCounterIsNotZeroOrAnInventedReset(): void
+    {
+        foreach ([[null, 9], [10, null], [null, null], [0, 0]] as [$beforeGross, $afterGross]) {
+            $result = $this->service()->summarizeSnapshots(7, 80, 'ctrip', '2026-09-10', [
+                $this->snapshot(1, '2026-08-30 08:00:00.000000', 0, 0, 0, $beforeGross),
+                $this->snapshot(2, '2026-08-30 10:00:00.000000', 0, 0, 0, $afterGross),
+            ]);
+            self::assertSame('ready', $result['status']);
+            self::assertSame(0.0, $result['net_pickup_room_nights']);
+            self::assertSame(0.0, $result['gross_pickup_room_nights']);
+            self::assertSame($afterGross === null ? null : (float)$afterGross, $result['current_gross_booking_room_nights']);
+            self::assertNotContains('gross_booking_counter_reset_or_mismatch', $result['data_gaps']);
+        }
+    }
+
     public function testMissingOrResetCancellationCounterNeverBecomesZeroGrossPickup(): void
     {
         $service = new BookingDemandPlanningService();
@@ -308,6 +351,27 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertSame(0, $plan['external_write_count']);
         self::assertNotContains(14, $plan['requested_horizons']);
         self::assertNotContains(30, $plan['requested_horizons']);
+    }
+
+    public function testDemandPlanWindowsPreserveFourDecimalTotalsAndPickup(): void
+    {
+        $service = $this->service();
+        for ($offset = 1; $offset <= 7; $offset++) {
+            $stayDate = (new DateTimeImmutable('2026-08-30'))->modify('+' . $offset . ' days')->format('Y-m-d');
+            $this->savePlanSnapshot($service, $stayDate, '08:00:00', 1, 1);
+            $this->savePlanSnapshot($service, $stayDate, '10:00:00', 1.0001, 1.0001);
+        }
+        $plan = $service->demandPlan(7, [80], 80, 'ctrip', '2026-08-30');
+        foreach ($plan['windows'] as $index => $window) {
+            $total = [1.0001, 3.0003, 7.0007][$index];
+            $pickup = [0.0001, 0.0003, 0.0007][$index];
+            self::assertSame($total, $window['on_books_room_nights_total']);
+            self::assertSame($total, $window['observed_on_books_room_nights']);
+            self::assertSame($total, $window['on_books_room_revenue_total']);
+            self::assertSame($total, $window['observed_on_books_room_revenue']);
+            self::assertSame($pickup, $window['net_pickup_room_nights_total']);
+            self::assertSame($pickup, $window['observed_net_pickup_room_nights']);
+        }
     }
 
     public function testDemandPlanKeepsIncompleteThreeAndSevenDayTotalsNull(): void

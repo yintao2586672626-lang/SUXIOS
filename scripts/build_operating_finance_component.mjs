@@ -45,7 +45,10 @@ const opportunityVersion = updateFrontendAssetVersion(
   opportunityAsset,
   fs.readFileSync(path.join(repoRoot, 'public', opportunityAsset)),
 );
-const nextLoaderSource = opportunityVersion.html.replace(
+const dependencyLoader = opportunityVersion.html
+  .replace(/components\/system\/operating-economics-workbench\.min\.js\?v=[A-Za-z0-9-]+/, `components/system/operating-economics-workbench.min.js?v=economics-h${crypto.createHash('sha256').update(fs.readFileSync(path.join(repoRoot,'public/components/system/operating-economics-workbench.min.js'))).digest('hex').slice(0,10)}`)
+  .replace(/components\/system\/booking-monitoring-panel\.js\?v=[A-Za-z0-9-]+/, `components/system/booking-monitoring-panel.js?v=booking-h${crypto.createHash('sha256').update(fs.readFileSync(path.join(repoRoot,'public/components/system/booking-monitoring-panel.js'))).digest('hex').slice(0,10)}`);
+const nextLoaderSource = dependencyLoader.replace(
   loaderPattern,
   `components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h${artifactSha256.slice(0, 10)}`,
 );
