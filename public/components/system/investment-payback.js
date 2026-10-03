@@ -35,6 +35,7 @@
             const totalProjects = ref(0);
             let loadedPage = 1;
             const projectForm = ref(null);
+            let projectBeforeEdit = null;
             const entryForm = ref(null);
             const discardPrompt = ref(false);
             let initialForm = '', formOpener = null;
@@ -294,20 +295,72 @@
                 return first.status === 'not_reached' ? '尚未达到实际回本' : '资料不足，尚不能确认';
             };
             const firstPaybackText = computed(() => describeFirstPayback(summary.value));
-            const api = async (path, payload) => {
+            const hasField = (value, key) => value != null && Object.prototype.hasOwnProperty.call(value, key);
+            const serverTrim = value => String(value).replace(/^[ \t\n\r\0\v]+|[ \t\n\r\0\v]+$/g, '');
+            const validProjectId = value => (typeof value === 'number' || typeof value === 'string') && /^[1-9]\d*$/.test(String(value)) && Number.isSafeInteger(Number(value));
+            const knownProject = id => Number(detail.value?.project.id) === Number(id) ? detail.value.project : projects.value.find(project => Number(project.id) === Number(id));
+            const scopeError = () => { throw new Error('项目读回范围或格式不一致，请保留当前内容后重试'); };
+            const checkCashScope = (project, value, cutoff) => {
+                // Older replies may omit metadata; every scope field they do return must agree.
+                for (const [key, expected] of [['basis', 'investor_cash'], ['currency', 'CNY']]) {
+                    if ((hasField(project, key) && project[key] !== expected) || (hasField(value, key) && value[key] !== expected)) scopeError();
+                }
+                if (hasField(value, 'as_of') && value.as_of !== cutoff) scopeError();
+            };
+            const checkProjectScope = (project, expected) => {
+                if (!project || !validProjectId(project.id)) scopeError();
+                if (hasField(project, 'tenant_id') && !validProjectId(project.tenant_id)) scopeError();
+                if (hasField(project, 'hotel_id') && project.hotel_id !== null && !validProjectId(project.hotel_id)) scopeError();
+                for (const key of ['tenant_id', 'hotel_id']) {
+                    if (hasField(expected, key) && hasField(project, key)) {
+                        const expectedValue = key === 'hotel_id' && expected[key] === '' ? null : expected[key];
+                        if ((key === 'hotel_id' && expectedValue !== null && !validProjectId(expectedValue)) || String(project[key]) !== String(expectedValue)) scopeError();
+                    }
+                }
+            };
+            const checkProjectList = (list, cutoff, previous = [], expectedTenant) => {
+                if (!Array.isArray(list)) scopeError();
+                const seen = new Set(previous.map(project => Number(project.id)));
+                let tenant = previous.find(project => hasField(project, 'tenant_id'))?.tenant_id ?? expectedTenant;
+                for (const project of list) {
+                    checkProjectScope(project);
+                    const id = Number(project.id);
+                    if (seen.has(id)) scopeError();
+                    seen.add(id);
+                    if (hasField(project, 'tenant_id')) {
+                        if (tenant !== undefined && Number(project.tenant_id) !== Number(tenant)) scopeError();
+                        tenant = project.tenant_id;
+                    }
+                    checkCashScope(project, project.summary, cutoff);
+                }
+            };
+            const api = async (path, payload, expectedProject) => {
+                const projectPath = path.match(/^\/projects\/(\d+)(?:[/?]|$)/);
+                const expectedId = projectPath ? Number(projectPath[1]) : payload?.id ? Number(payload.id) : null;
+                const expectedScope = { ...(expectedProject || (expectedId === null ? null : knownProject(expectedId))), ...payload };
+                const expectedTenant = expectedScope.tenant_id ?? detail.value?.project.tenant_id ?? projects.value.find(project => hasField(project, 'tenant_id'))?.tenant_id;
+                const requestedCutoff = payload === undefined ? decodeURIComponent(path.match(/[?&]as_of=([^&]*)/)?.[1] ?? asOf.value) : asOf.value;
                 const controller = new AbortController();
                 const timeoutError = new Error(payload === undefined ? '账目读取超时，请重试' : '保存结果尚未确认，请保留当前内容并用同一记录重试，系统会核对重复提交。');
                 let timedOut = false, timer;
                 const deadline = new Promise((_, reject) => { timer = window.setTimeout(() => { timedOut = true; controller.abort(); reject(timeoutError); }, 45000); });
                 try {
-                    const options = payload === undefined ? { withBusinessContext: false } : { withBusinessContext: false, method: 'POST', body: JSON.stringify({ ...payload, as_of: asOf.value }) };
+                    const options = payload === undefined ? { withBusinessContext: false } : { withBusinessContext: false, method: 'POST', body: JSON.stringify({ ...payload, as_of: requestedCutoff }) };
                     const response = await Promise.race([props.request(`/investment-payback${path}`, { ...options, signal: controller.signal }), deadline]);
                     if (Number(response?.code) !== 200 || !response?.data) throw new Error(response?.message || response?.msg || '回本台账请求未完成');
-                    const projectPath = path.match(/^\/projects\/(\d+)(?:[/?]|$)/);
                     if (projectPath || (path === '/projects' && payload !== undefined)) {
-                        const result = response.data, expectedId = projectPath ? Number(projectPath[1]) : payload.id ? Number(payload.id) : null;
-                        if (!Number.isSafeInteger(Number(result.project?.id)) || Number(result.project.id) <= 0 || (expectedId !== null && Number(result.project.id) !== expectedId) || !Array.isArray(result.entries) || !result.summary) throw new Error('项目读回范围或格式不一致，请保留当前内容后重试');
+                        const result = response.data;
+                        checkProjectScope(result.project, expectedScope);
+                        if ((expectedId !== null && Number(result.project.id) !== expectedId) || !Array.isArray(result.entries) || !result.summary || typeof result.summary !== 'object' || Array.isArray(result.summary)) scopeError();
+                        checkCashScope(result.project, result.summary, requestedCutoff);
+                        const tenant = result.project.tenant_id ?? expectedScope.tenant_id;
+                        for (const entry of result.entries) {
+                            if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+                                || (hasField(entry, 'project_id') && (!validProjectId(entry.project_id) || Number(entry.project_id) !== Number(result.project.id)))
+                                || (hasField(entry, 'tenant_id') && (!validProjectId(entry.tenant_id) || (tenant !== undefined && Number(entry.tenant_id) !== Number(tenant))))) scopeError();
+                        }
                     }
+                    if (payload === undefined && /^\/projects(?:\?|$)/.test(path)) checkProjectList(response.data.list, requestedCutoff, [], expectedTenant);
                     return response.data;
                 } catch (error) { throw timedOut ? timeoutError : error; }
                 finally { window.clearTimeout(timer); }
@@ -442,6 +495,7 @@
                     const result = await api(`/projects?as_of=${asOf.value}&include_archived=${includeArchived.value ? '1' : '0'}&page_size=100&page=${loadedPage + 1}`);
                     if (generation !== listGeneration) return;
                     if (!Array.isArray(result.list)) throw new Error('项目列表响应格式不正确');
+                    checkProjectList(result.list, asOf.value, projects.value);
                     projects.value = [...projects.value, ...result.list];
                     restoreCardOrder(result);
                     loadedPage++;
@@ -452,6 +506,7 @@
             };
             const selectProject = async id => {
                 if (saving.value || scenarioBusy.value || orderBusy.value) return;
+                const expectedProject = knownProject(id);
                 if (String(detail.value?.project.id) !== String(id)) { clearLedgerFilters(); ledgerSort.value = 'newest'; }
                 const generation = ++detailGeneration;
                 scenarioOpened.value = false;
@@ -463,7 +518,7 @@
                 entryForm.value = null;
                 confirmation.type = '';
                 try {
-                    const result = await api(`/projects/${id}?as_of=${asOf.value}`);
+                    const result = await api(`/projects/${id}?as_of=${asOf.value}`, undefined, expectedProject);
                     if (generation === detailGeneration) detail.value = result;
                 } catch (error) { if (generation === detailGeneration) detailError.value = error.message; }
                 finally { if (generation === detailGeneration) detailLoading.value = false; }
@@ -494,19 +549,51 @@
                 detailLoading.value = false;
                 formError.value = '';
                 entryForm.value = null;
+                projectBeforeEdit = project ? { ...project } : null;
                 const empty = { project_name: '', investor_name: '本人', hotel_id: '', basis: 'investor_cash', currency: 'CNY', status: 'operating', first_invested_on: '', expected_monthly_amount: '', expected_source: '人工填写未来每月净收回假设', forecast_as_of: asOf.value, history_complete_through: '', opening_as_of: '', opening_invested: '', opening_recovered: '', opening_source: '', notes: '', client_request_id: requestId() };
                 projectForm.value = project ? { ...empty, ...project, hotel_id: project.hotel_id || '', expected_monthly_amount: project.expected_monthly_amount ?? '', history_complete_through: project.history_complete_through || '', first_invested_on: project.first_invested_on || '', opening_as_of: project.opening_as_of || '', opening_invested: project.opening_invested ?? '', opening_recovered: project.opening_recovered ?? '', opening_source: project.opening_source || '', expected_version: project.version } : empty;
                 if (!project) projectForm.value.opening_as_of = asOf.value;
                 captureForm();
                 focusForm();
             };
+            const projectSavedFields = input => {
+                const expected = {};
+                for (const key of ['project_name', 'investor_name', 'expected_source', 'opening_source', 'notes']) if (hasField(input, key)) expected[key] = serverTrim(input[key] ?? '');
+                for (const key of ['basis', 'currency', 'status']) if (hasField(input, key)) expected[key] = input[key];
+                for (const key of ['first_invested_on', 'forecast_as_of', 'history_complete_through', 'opening_as_of']) if (hasField(input, key)) expected[key] = input[key] == null || input[key] === '' ? null : serverTrim(input[key]);
+                for (const key of ['opening_invested', 'opening_recovered', 'expected_monthly_amount']) if (hasField(input, key)) {
+                    const cents = input[key] == null || input[key] === '' ? null : amountCents(serverTrim(input[key]));
+                    expected[key] = input[key] == null || input[key] === '' ? null : cents === null ? undefined : centsAmount(cents);
+                }
+                if (hasField(input, 'hotel_id')) expected.hotel_id = input.hotel_id == null || input.hotel_id === '' ? null : Number(input.hotel_id);
+                return expected;
+            };
+            const matchesProjectWrite = (result, input, previous) => {
+                const project = result.project, expected = projectSavedFields(input);
+                if (!input.id && (!hasField(project, 'client_request_id') || project.client_request_id !== input.client_request_id)) return false;
+                if (previous && hasField(expected, 'history_complete_through')) {
+                    // The server clears prior completeness when its opening cash or identity basis changes.
+                    if (['investor_name', 'hotel_id', 'basis', 'currency', 'first_invested_on', 'opening_as_of', 'opening_invested', 'opening_recovered', 'opening_source'].some(key => hasField(previous, key) && hasField(expected, key) && String(previous[key] ?? '') !== String(expected[key] ?? ''))) expected.history_complete_through = null;
+                }
+                return Object.entries(expected).every(([key, value]) => hasField(project, key) && value !== undefined
+                    && (['opening_invested', 'opening_recovered', 'expected_monthly_amount'].includes(key) ? value === null ? project[key] === null : amountCents(project[key]) === amountCents(value)
+                        : key === 'hotel_id' ? value === null ? project[key] === null : Number(project[key]) === value : project[key] === value));
+            };
+            const saveProjectReadback = async (input, previous, cutoff) => {
+                let readback = await api('/projects', input, previous);
+                if (!matchesProjectWrite(readback, input, previous)) readback = await api(`/projects/${readback.project.id}?as_of=${cutoff}`, undefined, { ...previous, ...input });
+                if (!matchesProjectWrite(readback, input, previous)) throw new Error('项目或测算假设保存后的精确回读未通过，请保留当前内容并用同一记录重试或重新读取核对。');
+                return readback;
+            };
             const saveProject = async () => {
                 if (saving.value || scenarioBusy.value || discardPrompt.value) return;
                 saving.value = true;
                 formError.value = '';
+                notice.value = '';
                 const isNew = !projectForm.value.id;
                 try {
-                    const input = { ...projectForm.value, hotel_id: projectForm.value.hotel_id || null };
+                    const input = { ...projectForm.value, hotel_id: projectForm.value.hotel_id == null || projectForm.value.hotel_id === '' ? null : projectForm.value.hotel_id };
+                    if (input.hotel_id !== null && !validProjectId(input.hotel_id)) scopeError();
                     if (isNew) {
                         const hasInvested = input.opening_invested !== '' && input.opening_invested != null;
                         const hasRecovered = input.opening_recovered !== '' && input.opening_recovered != null;
@@ -514,7 +601,7 @@
                         if (!hasInvested) { input.opening_as_of = ''; input.opening_source = ''; }
                         else input.opening_source = input.opening_source.trim() || '人工录入累计余额';
                     }
-                    detail.value = await api('/projects', input);
+                    detail.value = await saveProjectReadback(input, projectBeforeEdit, asOf.value);
                     projectForm.value = null;
                     notice.value = '项目已保存并读回。';
                     await refreshProjects();
@@ -530,12 +617,37 @@
                 focusForm();
             };
             const changePrecision = () => { entryForm.value.date = entryForm.value.precision === 'month' ? entryForm.value.date.slice(0, 7) : ''; };
+            const savedEntry = (result, input) => {
+                const matches = result.entries.filter(entry => input.id ? Number(entry.id) === Number(input.id) : entry.client_request_id === input.client_request_id);
+                return matches.length === 1 ? matches[0] : null;
+            };
+            const verifyEntryReadback = (result, input, project) => {
+                const entry = savedEntry(result, input), tenant = project.tenant_id ?? result.project.tenant_id;
+                const sameBoolean = (actual, expected) => [true, 1, '1'].includes(actual) ? expected === true : [false, 0, '0'].includes(actual) && expected === false;
+                const expectedOriginal = input.original_entry_id == null || input.original_entry_id === '' ? null : Number(input.original_entry_id);
+                const actualOriginal = entry?.original_entry_id == null ? null : Number(entry.original_entry_id);
+                const same = entry && validProjectId(entry.id) && validProjectId(entry.project_id) && Number(entry.project_id) === Number(project.id)
+                    && (!hasField(entry, 'tenant_id') || (validProjectId(entry.tenant_id) && (tenant === undefined || Number(entry.tenant_id) === Number(tenant))))
+                    && !entry.voided_at && entry.kind === input.kind && amountCents(entry.amount) !== null && amountCents(entry.amount) === amountCents(serverTrim(input.amount))
+                    && entry.date === serverTrim(input.date) && entry.precision === (input.precision || 'day')
+                    && sameBoolean(entry.is_planned, input.is_planned === true) && sameBoolean(entry.confirmed_zero, input.confirmed_zero === true)
+                    && hasField(entry, 'original_entry_id') && actualOriginal === expectedOriginal
+                    && ['source', 'category', 'notes'].every(key => hasField(entry, key) && entry[key] === serverTrim(input[key] ?? ''));
+                if (!same) throw new Error('资金记录保存后的精确回读未通过，请保留当前内容并用同一记录重试或重新读取核对。');
+            };
             const saveEntry = async () => {
                 if (saving.value || scenarioBusy.value || discardPrompt.value) return;
                 saving.value = true;
                 formError.value = '';
+                notice.value = '';
                 try {
-                    detail.value = await api(`/projects/${detail.value.project.id}/entries`, { ...entryForm.value, confirmed_zero: entryForm.value.kind === 'recovery' && entryForm.value.amount !== '' && Number(entryForm.value.amount) === 0 && entryForm.value.confirmed_zero, original_entry_id: entryForm.value.kind === 'refund' ? (entryForm.value.original_entry_id || null) : null });
+                    const project = { ...detail.value.project }, cutoff = asOf.value;
+                    const input = { ...entryForm.value, confirmed_zero: entryForm.value.kind === 'recovery' && entryForm.value.amount !== '' && Number(entryForm.value.amount) === 0 && entryForm.value.confirmed_zero, original_entry_id: entryForm.value.kind === 'refund' ? (entryForm.value.original_entry_id || null) : null };
+                    let readback = await api(`/projects/${project.id}/entries`, input, project);
+                    // A partial write reply is uncertain; one scoped read can establish the record without another write.
+                    if (!savedEntry(readback, input)) readback = await api(`/projects/${project.id}?as_of=${cutoff}`, undefined, project);
+                    verifyEntryReadback(readback, input, project);
+                    detail.value = readback;
                     entryForm.value = null;
                     notice.value = '资金记录已保存并读回，回本汇总已重新计算。';
                     await refreshProjects();
@@ -548,9 +660,10 @@
                 if (saving.value || scenarioBusy.value) return;
                 saving.value = true;
                 detailError.value = '';
+                notice.value = '';
                 try {
-                    const project = detail.value.project;
-                    detail.value = await api('/projects', { ...project, expected_version: project.version, expected_monthly_amount: forecastForm.amount, expected_source: forecastForm.source, forecast_as_of: asOf.value });
+                    const project = { ...detail.value.project }, cutoff = asOf.value;
+                    detail.value = await saveProjectReadback({ ...project, expected_version: project.version, expected_monthly_amount: forecastForm.amount, expected_source: forecastForm.source, forecast_as_of: cutoff }, project, cutoff);
                     notice.value = '测算假设已保存并读回。';
                     await refreshProjects();
                 } catch (error) { detailError.value = error.message; }

@@ -1493,8 +1493,8 @@ class Agent extends Base
             'forecast_date' => $forecastDate,
             'room_type_id' => $roomTypeId,
             'forecast_method' => $forecastMethod,
-            'predicted_occupancy' => $this->parseBoundedNumber($data['predicted_occupancy'] ?? null, 'predicted_occupancy', 0.0, 100.0, false),
-            'predicted_demand' => (int)round($this->parseBoundedNumber($data['predicted_demand'] ?? null, 'predicted_demand', 0.0, null, true)),
+            'predicted_occupancy' => $this->parseBoundedNumber($data['predicted_occupancy'] ?? null, 'predicted_occupancy', 0.0, 100.0, true, 2),
+            'predicted_demand' => (int)round($this->parseBoundedNumber($data['predicted_demand'] ?? null, 'predicted_demand', 0.0, 4294967295.0, true)),
             'confidence_score' => $this->normalizeConfidenceScore($data['confidence_score'] ?? ($data['confidence_percent'] ?? null)),
             'is_event_driven' => (int)($data['is_event_driven'] ?? 0) === 1 ? 1 : 0,
             'event_factors' => is_array($data['event_factors'] ?? null) ? array_values((array)$data['event_factors']) : [],
@@ -1555,7 +1555,7 @@ class Agent extends Base
         ];
     }
 
-    private function parseBoundedNumber(mixed $value, string $field, float $min, ?float $max = null, bool $allowMin = true): float
+    private function parseBoundedNumber(mixed $value, string $field, float $min, ?float $max = null, bool $allowMin = true, int $precision = 4): float
     {
         if (is_string($value)) {
             $value = trim($value);
@@ -1564,7 +1564,17 @@ class Agent extends Base
             throw new \InvalidArgumentException($field . ' must be numeric');
         }
 
-        $number = round((float)$value, 4);
+        $rawNumber = (float)$value;
+        if (!is_finite($rawNumber)) {
+            throw new \InvalidArgumentException($field . ' must be finite');
+        }
+        if ($allowMin ? $rawNumber < $min : $rawNumber <= $min) {
+            throw new \InvalidArgumentException($field . ' is below allowed range');
+        }
+        if ($max !== null && $rawNumber > $max) {
+            throw new \InvalidArgumentException($field . ' is above allowed range');
+        }
+        $number = round($rawNumber, $precision);
         if ($allowMin ? $number < $min : $number <= $min) {
             throw new \InvalidArgumentException($field . ' is below allowed range');
         }

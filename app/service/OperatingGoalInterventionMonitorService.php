@@ -722,39 +722,27 @@ final class OperatingGoalInterventionMonitorService
         }
 
         $value = (float)$snapshot['value'];
-        [$operator, $threshold] = $this->conditionOperatorAndThreshold($condition);
-        if ($operator === '' || $threshold === null) {
+        $evaluated = self::evaluateGuardValue($condition, $value, $stopCondition);
+        if ($evaluated['status'] === 'unavailable') {
             return [
                 'metric_key' => $metricKey,
                 'status' => 'unavailable',
                 'value' => $value,
-                'operator' => $operator,
-                'threshold' => $threshold,
+                'operator' => $evaluated['operator'],
+                'threshold' => $evaluated['threshold'],
                 'evidence_refs' => $this->strings($snapshot['evidence_refs'] ?? []),
-                'data_gaps' => ['condition_not_machine_evaluable:' . $metricKey],
+                'data_gaps' => [$evaluated['reason_code'] . ':' . $metricKey],
             ];
         }
-        $matched = match ($operator) {
-            '>' => $value > $threshold,
-            '>=' => $value >= $threshold,
-            '<' => $value < $threshold,
-            '<=' => $value <= $threshold,
-            '=' => abs($value - $threshold) <= 0.000001,
-            default => false,
-        };
-
-        // A guard's comparison describes the safe state; a stop condition's
-        // comparison describes the trigger state.
-        $status = $stopCondition
-            ? ($matched ? 'triggered' : 'clear')
-            : ($matched ? 'within_bounds' : 'breached');
         return [
             'metric_key' => $metricKey,
-            'status' => $status,
+            'status' => $evaluated['status'],
             'value' => $value,
             'unit' => (string)($snapshot['unit'] ?? $condition['unit'] ?? ''),
-            'operator' => $operator,
-            'threshold' => $threshold,
+            'operator' => $evaluated['operator'],
+            'threshold' => $evaluated['threshold'],
+            'lower_bound' => $evaluated['lower_bound'],
+            'upper_bound' => $evaluated['upper_bound'],
             'period_start' => (string)($snapshot['period_start'] ?? ''),
             'period_end' => (string)($snapshot['period_end'] ?? ''),
             'fact_scope' => (string)($snapshot['fact_scope'] ?? ''),
@@ -763,8 +751,8 @@ final class OperatingGoalInterventionMonitorService
         ];
     }
 
-    /** @return array{0:string,1:?float} */
-    private function conditionOperatorAndThreshold(array $condition): array
+    /** Shared by current-day monitoring and frozen intervention assessment. */
+    public static function evaluateGuardValue(array $condition, float $value, bool $stopCondition = false): array
     {
         $operator = strtolower(trim((string)($condition['operator'] ?? $condition['comparison'] ?? '')));
         $operator = match ($operator) {
@@ -775,17 +763,63 @@ final class OperatingGoalInterventionMonitorService
             'eq', 'equals' => '=',
             default => $operator,
         };
-        $threshold = null;
-        foreach (['threshold', 'lower_bound', 'upper_bound', 'minimum', 'maximum', 'min', 'max'] as $key) {
-            if (array_key_exists($key, $condition) && is_numeric($condition[$key])) {
-                $threshold = (float)$condition[$key];
-                if ($operator === '') {
-                    $operator = in_array($key, ['lower_bound', 'minimum', 'min'], true) ? '>=' : '<=';
+        $bounds = is_array($condition['bounds'] ?? null) ? $condition['bounds'] : [];
+        $invalid = !is_finite($value);
+        $number = static function (array $keys) use ($condition, $bounds, &$invalid): ?float {
+            foreach ([$condition, $bounds] as $source) {
+                foreach ($keys as $key) {
+                    if (!array_key_exists($key, $source) || $source[$key] === null) {
+                        continue;
+                    }
+                    if (!is_numeric($source[$key]) || !is_finite((float)$source[$key])) {
+                        $invalid = true;
+                        return null;
+                    }
+                    return (float)$source[$key];
                 }
-                break;
+            }
+            return null;
+        };
+        $lower = $number(['lower_bound', 'minimum', 'min_value', 'min_allowed', 'min']);
+        $upper = $number(['upper_bound', 'maximum', 'max_value', 'max_allowed', 'max']);
+        $threshold = $number(['threshold']);
+        $hasBounds = $lower !== null || $upper !== null;
+        $reason = '';
+        if ($invalid || ($lower !== null && $upper !== null && $lower > $upper)) {
+            $reason = 'condition_bounds_invalid';
+        } elseif ($operator !== '' && !in_array($operator, ['>', '>=', '<', '<=', '='], true)) {
+            $reason = 'condition_not_machine_evaluable';
+        } elseif (!$hasBounds && ($operator === '' || $threshold === null)) {
+            $reason = 'condition_not_machine_evaluable';
+        }
+        if ($operator !== '' && $threshold === null) {
+            $threshold = in_array($operator, ['>', '>='], true) ? $lower
+                : (in_array($operator, ['<', '<='], true) ? $upper : ($lower ?? $upper));
+            if ($threshold === null && $reason === '') {
+                $reason = 'condition_not_machine_evaluable';
             }
         }
-        return [in_array($operator, ['>', '>=', '<', '<=', '='], true) ? $operator : '', $threshold];
+        $result = ['status' => 'unavailable', 'operator' => $operator !== '' ? $operator : 'range',
+            'threshold' => $threshold, 'lower_bound' => $lower, 'upper_bound' => $upper, 'reason_code' => $reason];
+        if ($reason !== '') {
+            return $result;
+        }
+        $matched = ($lower === null || $value + 0.000001 >= $lower)
+            && ($upper === null || $value - 0.000001 <= $upper);
+        if ($operator !== '') {
+            $matched = $matched && match ($operator) {
+                '>' => $value > $threshold,
+                '>=' => $value + 0.000001 >= $threshold,
+                '<' => $value < $threshold,
+                '<=' => $value - 0.000001 <= $threshold,
+                '=' => abs($value - $threshold) <= 0.000001,
+                default => false,
+            };
+        }
+        $result['status'] = $stopCondition
+            ? ($matched ? 'triggered' : 'clear')
+            : ($matched ? 'within_bounds' : 'breached');
+        return $result;
     }
 
     /** @return array<string,array<string,mixed>> */

@@ -94,6 +94,11 @@ final class OperatingFinance extends Base
                     'external_write_count' => 0,
                 ];
             $wecomReceipt = $this->module('wecom_task_receipt', fn(): array => $this->wecomReceiptSummary($tenantId, $hotelId));
+            $investmentBridge = $this->currentUser->hasHotelPermission($hotelId, 'investment.view')
+                ? $this->module('investment_bridge', fn(): array => (new \app\service\InvestmentOperatingBridgeService(
+                    new \app\service\InvestmentPaybackService($this->currentUser)
+                ))->overview($tenantId, $permittedHotelIds, $hotelId, $periodMonth))
+                : ['status' => 'blocked', 'reason_code' => 'investment_view_permission_required', 'projects' => null, 'totals' => null];
 
             return $this->success([
                 'contract_version' => 'operating_finance_control_center.v1',
@@ -110,6 +115,7 @@ final class OperatingFinance extends Base
                 'booking_demand_plan' => $demandPlan,
                 'demand_calendar' => $demand,
                 'wecom_task_receipt' => $wecomReceipt,
+                'investment_bridge' => $investmentBridge,
                 'monthly_finance' => $monthly,
                 'portfolio' => $portfolio,
                 'boundaries' => [

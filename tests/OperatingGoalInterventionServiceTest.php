@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\service\OperatingGoalInterventionService;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use think\App;
@@ -417,6 +418,217 @@ SQL);
         ], $overview['summary']);
         self::assertCount(3, $overview['interventions']);
         self::assertNotNull($overview['interventions'][0]['latest_assessment']);
+    }
+
+    public function testHumanJsonEvidenceAliasesAreDowngradedAndExactlyReadBack(): void
+    {
+        [$service, $taskId, $input] = $this->verifiedAssessmentFixture();
+        $followup = $input['followup_snapshot'];
+        $guards = $input['guard_observations'];
+        unset($input['followup_snapshot'], $input['guard_observations']);
+        $input['followup_snapshot_json'] = json_encode($followup, JSON_THROW_ON_ERROR);
+        $input['guard_observations_json'] = json_encode($guards, JSON_THROW_ON_ERROR);
+        $input['assessment_origin'] = 'system_monitor';
+
+        $saved = $service->createAssessmentForTask(7, [80], 80, $taskId, $input, 11);
+        $replay = $service->createAssessmentForTask(7, [80], 80, $taskId, $input, 11);
+        $overview = $service->overview(7, [80], 80);
+        $readback = $overview['interventions'][0]['latest_assessment'];
+
+        self::assertSame('indeterminate', $saved['verdict']);
+        self::assertContains('followup_quality_unverified', $saved['reason_codes']);
+        self::assertSame('human', $saved['comparison']['assessment_origin']);
+        self::assertEquals(110.0, $saved['followup_snapshot']['value']);
+        self::assertSame($followup['evidence_refs'], $saved['followup_snapshot']['evidence_refs']);
+        self::assertSame('user_provided', $saved['followup_snapshot']['evidence_origin']);
+        self::assertFalse($saved['followup_snapshot']['readback_verified']);
+        self::assertSame($guards[0]['evidence_refs'], $saved['guard_observations'][0]['evidence_refs']);
+        self::assertSame('unverified', $saved['guard_observations'][0]['quality_status']);
+        self::assertFalse($saved['guard_observations'][0]['readback_verified']);
+        self::assertSame($saved['content_digest'], $readback['content_digest']);
+        self::assertSame($saved['followup_snapshot'], $readback['followup_snapshot']);
+        self::assertSame($saved['guard_observations'], $readback['guard_observations']);
+        self::assertSame($saved['id'], $replay['id']);
+        self::assertTrue($replay['idempotent']);
+        self::assertTrue($readback['db_readback_verified']);
+        self::assertSame(1, (int)Db::name('operation_intervention_assessments')->count());
+    }
+
+    public function testAutomatedJsonEvidenceAliasesPreserveTheJudgedSnapshotsOnReadback(): void
+    {
+        [$service, $taskId, $input] = $this->verifiedAssessmentFixture();
+        $followup = $input['followup_snapshot'];
+        $guards = $input['guard_observations'];
+        unset($input['followup_snapshot'], $input['guard_observations']);
+        $input['followup_snapshot_json'] = json_encode($followup, JSON_THROW_ON_ERROR);
+        $input['guard_observations_json'] = json_encode($guards, JSON_THROW_ON_ERROR);
+
+        $saved = $service->createAutomatedAssessmentForTask(7, [80], 80, $taskId, $input);
+        $readback = $service->overview(7, [80], 80)['interventions'][0]['latest_assessment'];
+
+        self::assertSame('supported', $saved['verdict'], json_encode($saved['reason_codes'], JSON_THROW_ON_ERROR));
+        self::assertSame('system_monitor', $saved['comparison']['assessment_origin']);
+        self::assertEquals($followup, $readback['followup_snapshot']);
+        self::assertEquals($guards, $readback['guard_observations']);
+        self::assertSame($saved['content_digest'], $readback['content_digest']);
+        self::assertTrue($readback['db_readback_verified']);
+    }
+
+    public function testHumanNestedGuardSnapshotCannotRetainSystemVerification(): void
+    {
+        [$service, $taskId, $input] = $this->verifiedAssessmentFixture();
+        $guard = $input['guard_observations'][0];
+        $input['guard_observations'] = [['followup_snapshot' => $guard]];
+
+        $saved = $service->createAssessmentForTask(7, [80], 80, $taskId, $input, 11);
+        $readback = $service->overview(7, [80], 80)['interventions'][0]['latest_assessment'];
+
+        self::assertContains('guard_observation_quality_unverified:occupancy_rate', $saved['reason_codes']);
+        self::assertContains('guard_observation_readback_unverified:occupancy_rate', $saved['reason_codes']);
+        self::assertSame('indeterminate', $saved['comparison']['guard_results'][0]['status']);
+        $snapshot = $readback['guard_observations'][0]['followup_snapshot'];
+        self::assertSame('user_provided', $snapshot['evidence_origin']);
+        self::assertFalse($snapshot['readback_verified']);
+        self::assertSame($guard['evidence_refs'], $snapshot['evidence_refs']);
+    }
+
+    public function testEquivalentAliasesAndMetricKeyedGuardJsonRemainCompatible(): void
+    {
+        [$service, $taskId, $input] = $this->verifiedAssessmentFixture();
+        $input['followup'] = array_reverse($input['followup_snapshot'], true);
+        $input['followup_snapshot_json'] = json_encode($input['followup_snapshot'], JSON_THROW_ON_ERROR);
+        $input['guard_observations_json'] = json_encode([
+            'occupancy_rate' => $input['guard_observations'][0],
+        ], JSON_THROW_ON_ERROR);
+        $input['external_interferences_json'] = '[]';
+
+        $saved = $service->createAutomatedAssessmentForTask(7, [80], 80, $taskId, $input);
+        $replay = $service->createAutomatedAssessmentForTask(7, [80], 80, $taskId, $input);
+        $readback = $service->overview(7, [80], 80)['interventions'][0]['latest_assessment'];
+
+        self::assertSame('supported', $saved['verdict']);
+        self::assertEquals($input['followup_snapshot'], $readback['followup_snapshot']);
+        self::assertEquals($input['guard_observations'], $readback['guard_observations']);
+        self::assertSame($saved['content_digest'], $readback['content_digest']);
+        self::assertSame($saved['id'], $replay['id']);
+        self::assertTrue($replay['idempotent']);
+    }
+
+    public function testMetricKeyedNestedGuardJsonKeepsItsMetadataAndMetricOnReadback(): void
+    {
+        [$service, $taskId, $input] = $this->verifiedAssessmentFixture();
+        $guard = $input['guard_observations'][0];
+        unset($guard['metric_key'], $input['guard_observations']);
+        $input['guard_observations_json'] = json_encode([
+            'occupancy_rate' => ['followup_snapshot' => $guard, 'notes' => 'keep this draft note'],
+        ], JSON_THROW_ON_ERROR);
+
+        $saved = $service->createAssessmentForTask(7, [80], 80, $taskId, $input, 11);
+        $readback = $service->overview(7, [80], 80)['interventions'][0]['latest_assessment'];
+        $observation = $readback['guard_observations'][0];
+
+        self::assertSame('indeterminate', $saved['verdict']);
+        self::assertSame('keep this draft note', $observation['notes']);
+        self::assertSame('occupancy_rate', $observation['followup_snapshot']['metric_key']);
+        self::assertSame($guard['evidence_refs'], $observation['followup_snapshot']['evidence_refs']);
+        self::assertSame('unverified', $observation['followup_snapshot']['quality_status']);
+        self::assertFalse($observation['followup_snapshot']['readback_verified']);
+        self::assertSame($saved['content_digest'], $readback['content_digest']);
+    }
+
+    public function testJsonStringSnapshotAndInterferenceAliasPreserveTheJudgedEvidence(): void
+    {
+        [$service, $taskId, $input] = $this->verifiedAssessmentFixture();
+        $interferences = [['status' => 'present', 'description' => 'same-period event', 'evidence_refs' => ['event#1']]];
+        $followup = $input['followup_snapshot'];
+        $input['followup_snapshot'] = json_encode($followup, JSON_THROW_ON_ERROR);
+        unset($input['external_interferences']);
+        $input['external_interferences_json'] = json_encode($interferences, JSON_THROW_ON_ERROR);
+
+        $saved = $service->createAutomatedAssessmentForTask(7, [80], 80, $taskId, $input);
+        $readback = $service->overview(7, [80], 80)['interventions'][0]['latest_assessment'];
+
+        self::assertSame('indeterminate', $saved['verdict']);
+        self::assertContains('external_interference_present', $saved['reason_codes']);
+        self::assertEquals($followup, $readback['followup_snapshot']);
+        self::assertEquals($interferences, $readback['external_interferences']);
+        self::assertSame($saved['content_digest'], $readback['content_digest']);
+        self::assertTrue($readback['db_readback_verified']);
+    }
+
+    #[DataProvider('invalidAssessmentEvidenceAliases')]
+    public function testMalformedOrConflictingEvidenceAliasesDoNotReplaceSavedDraft(array $overrides): void
+    {
+        [$service, $taskId, $input] = $this->verifiedAssessmentFixture();
+        $saved = $service->createAssessmentForTask(7, [80], 80, $taskId, $input, 11);
+        $draft = [...$input, ...$overrides];
+        $originalDraft = $draft;
+        try {
+            $service->createAssessmentForTask(7, [80], 80, $taskId, $draft, 11);
+            self::fail('Malformed or conflicting evidence aliases must be rejected.');
+        } catch (InvalidArgumentException) {
+            self::assertSame($originalDraft, $draft);
+            self::assertSame(1, (int)Db::name('operation_intervention_assessments')->count());
+            $readback = $service->overview(7, [80], 80)['interventions'][0]['latest_assessment'];
+            self::assertSame($saved['id'], $readback['id']);
+            self::assertSame($saved['content_digest'], $readback['content_digest']);
+            self::assertSame($saved['followup_snapshot'], $readback['followup_snapshot']);
+        }
+    }
+
+    public static function invalidAssessmentEvidenceAliases(): iterable
+    {
+        yield 'malformed followup JSON' => [['followup_snapshot_json' => '{']];
+        yield 'malformed guard JSON' => [['guard_observations_json' => '[']];
+        yield 'scalar followup JSON' => [['followup_snapshot_json' => '"verified"']];
+        yield 'list followup JSON' => [['followup_snapshot_json' => '[{"value":110}]']];
+        yield 'null guard JSON' => [['guard_observations_json' => 'null']];
+        yield 'conflicting followup JSON' => [['followup_snapshot_json' => '{"value":999}']];
+        yield 'conflicting legacy followup' => [['followup' => ['value' => 999]]];
+        yield 'conflicting guard JSON' => [['guard_observations_json' => '[{"metric_key":"occupancy_rate","value":1}]']];
+        yield 'malformed interference JSON' => [['external_interferences_json' => '{']];
+        yield 'conflicting interference JSON' => [['external_interferences_json' => '[{"status":"present"}]']];
+        yield 'mismatched metric map' => [['guard_observations_json' => '{"occupancy_rate":{"metric_key":"refund_rate","value":4}}']];
+        yield 'scalar guard item' => [['guard_observations_json' => '["verified"]']];
+        yield 'scalar nested guard snapshot' => [['guard_observations_json' => '[{"followup_snapshot":"verified"}]']];
+    }
+
+    /** @return array{0:OperatingGoalInterventionService,1:int,2:array<string,mixed>} */
+    private function verifiedAssessmentFixture(): array
+    {
+        $service = new OperatingGoalInterventionService();
+        $goal = $service->createGoalContract(7, [80], 80, $this->goalInput(), 11);
+        [$intentId, $taskId] = $this->seedIntentAndTask('pending');
+        $identity = [
+            'tenant_id' => 7, 'hotel_id' => 80, 'system_hotel_id' => 80,
+            'platform' => 'hotel', 'platform_hotel_id' => 'system-80',
+            'business_module' => 'operations', 'subject' => 'hotel',
+            'date_role' => 'business_date', 'source_method' => 'pms_readback',
+            'fact_scope' => 'whole_hotel_accommodation',
+        ];
+        $intervention = $this->interventionInput((int)$goal['id']);
+        $intervention['baseline'] = [...$intervention['baseline'], ...$identity,
+            'evidence_refs' => ['dingdandao_operating_target_captures#baseline']];
+        $service->createInterventionForIntent(7, [80], 80, $intentId, $intervention, 11);
+        Db::name('operation_execution_tasks')->where('id', $taskId)->update([
+            'status' => 'executed', 'executed_at' => '2026-08-04 09:00:00',
+        ]);
+        Db::name('operation_execution_evidence')->insert([
+            'tenant_id' => 7, 'task_id' => $taskId, 'evidence_type' => 'manual',
+            'before_json' => '{}', 'after_json' => '{"done":true}',
+            'attachment_path' => '', 'platform_response_json' => '{}',
+            'remark' => 'same-scope execution receipt', 'created_by' => 11,
+            'created_at' => '2026-08-04 09:00:00', 'updated_at' => '2026-08-04 09:00:00',
+            'deleted_at' => null,
+        ]);
+        $input = $this->assessmentInput('supported', 1);
+        $input['followup_snapshot'] = [...$input['followup'], ...$identity,
+            'captured_at' => '2026-08-07 08:00:00', 'readback_verified' => true,
+            'evidence_refs' => ['dingdandao_operating_target_captures#followup']];
+        unset($input['followup']);
+        $input['guard_observations'][0] = [...$input['guard_observations'][0], ...$identity,
+            'readback_verified' => true];
+        return [$service, $taskId, $input];
     }
 
     public function testAssessmentWriteReusesTheOuterTaskAuthorizationTransaction(): void

@@ -42588,6 +42588,7 @@
                 remark: '',
             });
             const demandForecastSaving = ref(false);
+            const demandForecastSaveReadback = ref(null);
             const demandForecastForm = ref(createDemandForecastForm());
             const forecastAccuracy = ref({});
             const highDemandDates = ref([]);
@@ -42786,6 +42787,7 @@
                 demandForecasts.value = [];
                 forecastFilter.value = createForecastFilter();
                 demandForecastSaving.value = false;
+                demandForecastSaveReadback.value = null;
                 demandForecastForm.value = createDemandForecastForm();
                 forecastAccuracy.value = {};
                 highDemandDates.value = [];
@@ -44250,37 +44252,62 @@
             };
 
             const resetDemandForecastForm = () => {
+                if (demandForecastSaving.value) return;
                 demandForecastForm.value = createDemandForecastForm();
+                demandForecastSaveReadback.value = null;
+            };
+
+            const demandForecastInputNumber = value => {
+                const parsed = typeof value === 'number' || (typeof value === 'string' && value.trim() !== '') ? Number(value) : NaN;
+                return Number.isFinite(parsed) ? parsed : null;
+            };
+
+            const demandForecastSavedReceiptMatches = (data, expected) => {
+                const row = data?.forecast;
+                const id = Number(data?.id);
+                const numberMatches = (actual, value) => demandForecastInputNumber(actual) === value;
+                return data?.readback_verified === true && Number.isSafeInteger(id) && id > 0 && numberMatches(data?.id, id) && numberMatches(row?.id, id)
+                    && numberMatches(row?.hotel_id, expected.hotel_id) && numberMatches(row?.room_type_id, expected.room_type_id)
+                    && row?.forecast_date === expected.forecast_date && numberMatches(row?.forecast_method, expected.forecast_method)
+                    && numberMatches(row?.predicted_occupancy, expected.predicted_occupancy)
+                    && numberMatches(row?.predicted_demand, expected.predicted_demand)
+                    && numberMatches(row?.confidence_score, expected.confidence_score)
+                    && String(row?.remark || '').trim() === String(expected.remark).trim()
+                    && Object.entries(expected.historical_data).every(([key, value]) => row?.historical_data?.[key] === value);
             };
 
             const saveDemandForecastInput = async () => {
+                if (demandForecastSaving.value) return;
                 const requestContext = captureAgentRevenueRequestContext();
                 const hotelId = Number(filterReportHotel.value || 0);
                 const roomTypeId = Number(demandForecastForm.value.room_type_id || 0);
                 const forecastDate = demandForecastForm.value.forecast_date;
-                const predictedOccupancy = Number(demandForecastForm.value.predicted_occupancy || 0);
+                const predictedOccupancy = demandForecastInputNumber(demandForecastForm.value.predicted_occupancy);
                 const demandRaw = demandForecastForm.value.predicted_demand;
                 const confidenceRaw = demandForecastForm.value.confidence_percent;
-                const predictedDemand = demandRaw === null || demandRaw === '' ? null : Number(demandRaw);
-                const confidencePercent = confidenceRaw === null || confidenceRaw === '' ? null : Number(confidenceRaw);
+                const predictedDemand = demandForecastInputNumber(demandRaw);
+                const confidencePercent = demandForecastInputNumber(confidenceRaw);
                 if (hotelId <= 0) {
                     showToast('请先选择酒店', 'error');
                     return;
                 }
-                if (!forecastDate || roomTypeId <= 0 || predictedOccupancy <= 0 || predictedOccupancy > 100
-                    || predictedDemand === null || !Number.isFinite(predictedDemand) || predictedDemand < 0
-                    || confidencePercent === null || !Number.isFinite(confidencePercent) || confidencePercent <= 0 || confidencePercent > 100) {
-                    showToast('请补齐预测日期、启用房型、预测入住率、需求间夜和 1-100 的人工置信度', 'error');
+                if (!forecastDate || roomTypeId <= 0 || predictedOccupancy === null
+                    || predictedOccupancy < 0 || predictedOccupancy > 100
+                    || predictedDemand === null || predictedDemand < 0 || predictedDemand > 4294967295
+                    || confidencePercent === null || confidencePercent <= 0 || confidencePercent > 100) {
+                    showToast('请检查日期、房型、0–100% 入住率、有效间夜和置信度', 'error');
                     return;
                 }
+                const submittedDraft = {...demandForecastForm.value};
+                demandForecastSaveReadback.value = null;
                 demandForecastSaving.value = true;
                 try {
                     const payload = {
                         hotel_id: hotelId,
                         forecast_date: forecastDate,
                         room_type_id: roomTypeId,
-                        predicted_occupancy: predictedOccupancy,
-                        predicted_demand: predictedDemand,
+                        predicted_occupancy: Number(predictedOccupancy.toLocaleString('en-US', {useGrouping: false, maximumFractionDigits: 2})),
+                        predicted_demand: Math.round(Number(predictedDemand.toLocaleString('en-US', {useGrouping: false, maximumFractionDigits: 4}))),
                         confidence_score: Number((confidencePercent / 100).toFixed(4)),
                         forecast_method: 3,
                         is_event_driven: 0,
@@ -44297,9 +44324,17 @@
                     });
                     if (!isAgentRevenueRequestCurrent(requestContext)) return;
                     if (res.code === 200) {
-                        syncRevenuePricingInputDate(forecastDate, { syncDraftDates: false });
-                        showToast('需求预测已保存；继续补携程竞品价样本。');
-                        resetDemandForecastForm();
+                        if (!demandForecastSavedReceiptMatches(res.data, payload)) {
+                            demandForecastSaveReadback.value = {status: 'failed', message: '预测保存未确认，输入已保留；请刷新核实。'};
+                            showToast(demandForecastSaveReadback.value.message, 'error');
+                            return;
+                        }
+                        demandForecastSaveReadback.value = {status: 'verified', id: Number(res.data.id),
+                            message: `人工携程预测 #${res.data.id}（${forecastDate}）已保存并准确回读；模型未校准。`};
+                        const draftUnchanged = Object.entries(submittedDraft).every(([key, value]) => demandForecastForm.value[key] === value);
+                        if (draftUnchanged) syncRevenuePricingInputDate(forecastDate, { syncDraftDates: false });
+                        showToast(demandForecastSaveReadback.value.message);
+                        if (draftUnchanged) demandForecastForm.value = createDemandForecastForm();
                         await Promise.allSettled([
                             loadDemandForecasts(),
                             loadRevenueAnalysis(),
@@ -44311,7 +44346,8 @@
                     }
                 } catch (e) {
                     if (!isAgentRevenueRequestCurrent(requestContext)) return;
-                    showToast('需求预测保存失败: ' + e.message, 'error');
+                    demandForecastSaveReadback.value = {status: 'unknown', message: '预测保存未确认，输入已保留；请刷新核实。' + e.message};
+                    showToast(demandForecastSaveReadback.value.message, 'error');
                 } finally {
                     if (isAgentRevenueRequestCurrent(requestContext)) {
                         demandForecastSaving.value = false;
@@ -54867,7 +54903,7 @@
                 loadPriceSuggestions, changePriceSuggestionPage, approvePrice, generatePriceSuggestions, applyPriceSuggestion, createPriceSuggestionExecutionIntent, reviewPriceSuggestion, pricingReadinessBadgeClass, priceSuggestionReviewReadinessClass, agentClosureReadinessBadgeClass,
                 loadAgentLogs,
                 // Agent中心 - 收益管理增强
-                demandForecasts, forecastFilter, demandForecastForm, demandForecastSaving, highDemandDates, revenueDashboard,
+                demandForecasts, forecastFilter, demandForecastForm, demandForecastSaving, demandForecastSaveReadback, highDemandDates, revenueDashboard,
                 revenueAnalysisData, revenueAnalysisDataNotice, revenueAccuracyText, revenueRevparRows,
                 competitorAnalysis, competitorAnalysisLoading, competitorAnalysisError, competitorFilter, competitorPriceForm, competitorPriceSaving,
                 competitorManualSamples, competitorMicroscopeSelectedKey, competitorMicroscope, competitorMicroscopeOptions, competitorMicroscopeDetail, competitorMicroscopeGapClass,

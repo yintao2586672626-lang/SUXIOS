@@ -12,7 +12,7 @@ final class RevenueForecastReadinessServiceTest extends TestCase
     {
         $readiness = (new RevenueForecastReadinessService())->buildForecastReadiness([
             'forecast_date' => date('Y-m-d', strtotime('+1 day')),
-            'predicted_occupancy' => 0,
+            'predicted_occupancy' => null,
             'confidence_score' => 0.8,
         ]);
 
