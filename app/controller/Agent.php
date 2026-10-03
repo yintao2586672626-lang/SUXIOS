@@ -1523,13 +1523,14 @@ class Agent extends Base
         $this->assertRevenueHotelPermission((int)$data['hotel_id']);
         $this->assertRevenueRoomTypeScope((int)$data['hotel_id'], (int)$data['room_type_id']);
         
-        $analysis = CompetitorAnalysis::recordAnalysis(
-            $data['hotel_id'],
-            $data['competitor_hotel_id'],
-            $data
-        );
-        
-        return $this->success(['id' => $analysis->id], '记录成功');
+        try {
+            $saved = CompetitorAnalysis::recordManualAnalysis(
+                $data['hotel_id'], $data['competitor_hotel_id'], $data
+            );
+        } catch (\RuntimeException $e) {
+            return $this->error('竞品价样本保存回读未通过，请核实后重试', 500);
+        }
+        return $this->success($saved, '记录已保存并回读');
     }
 
     /**
@@ -2601,7 +2602,7 @@ class Agent extends Base
         $sortOrder = max(0, (int)($data['sort_order'] ?? 0));
         $isEnabled = (int)($data['is_enabled'] ?? 1) === 0 ? 0 : 1;
 
-        return [
+        $payload = [
             'id' => (int)($data['id'] ?? 0),
             'hotel_id' => $hotelId,
             'name' => $name,
@@ -2611,8 +2612,17 @@ class Agent extends Base
             'room_count' => $roomCount,
             'sort_order' => $sortOrder,
             'is_enabled' => $isEnabled,
-            'facilities' => is_array($data['facilities'] ?? null) ? array_values((array)$data['facilities']) : [],
         ];
+        if (array_key_exists('facilities', $data)) {
+            if (!is_array($data['facilities'])) {
+                throw new \InvalidArgumentException('facilities must be an array');
+            }
+            $payload['facilities'] = array_values($data['facilities']);
+        } elseif ($payload['id'] <= 0) {
+            $payload['facilities'] = [];
+        }
+
+        return $payload;
     }
 
     private function parsePositiveRoomTypeMoney(mixed $value, string $field): float

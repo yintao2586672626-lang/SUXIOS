@@ -188,7 +188,8 @@
             },
             uploadReceiptKey() {
                 if (!this.uploadResultMatchesCurrentHotel) return '';
-                const result = this.ctx?.ctripChannelOrderUploadResult || {};
+                const result = this.ctx?.ctripChannelOrderUploadResult;
+                if (!result || typeof result !== 'object' || Array.isArray(result) || !Object.keys(result).length) return '';
                 return [result.task_id || '', result.import_readback?.readback_count || '', result.status || ''].join(':');
             },
             uploadResultMatchesCurrentHotel() {
@@ -262,6 +263,29 @@
             sourceBoundaryText() {
                 return `${this.analysis?.quality_label || '人工文件来源仍为待核验'}；参考底价不是确认收入，也不扩大为全酒店经营口径。`;
             },
+            losMissingText() {
+                return this.isLegacyAggregate
+                    ? '旧聚合没有精确分布，不能从平均值反推；需重新上传同一酒店的原始 XLS。'
+                    : '当前范围的精确连住分布未取得，不能从平均值反推；请核对同一酒店原始订单及分布回执。';
+            },
+            leadTimeMissingText() {
+                return this.isLegacyAggregate
+                    ? '旧聚合仅保留平均提前天数，不能反推分布；需重新上传同一酒店的原始 XLS。'
+                    : '当前范围的精确提前预订分布未取得，不能从平均值反推；请核对同一酒店原始订单及分布回执。';
+            },
+            roomTypesMissingText() {
+                return this.isLegacyAggregate
+                    ? '旧聚合仅保留每日 Top5，不能恢复完整房型排名；需重新上传同一酒店的原始 XLS。'
+                    : '当前范围的完整房型回执未取得，不能据此恢复房型排名；请核对同一酒店原始订单及房型明细。';
+            },
+            classificationMissingText() {
+                return this.isLegacyAggregate
+                    ? '现存旧聚合没有逐状态回执，已入住订单不可独立核验。'
+                    : '当前范围的逐状态回执未取得，已入住订单不可独立核验。';
+            },
+            exclusionMissingText() {
+                return '扫码单/关房记录的精确字段和值尚未核实，因此未应用猜测规则；请核对同一酒店原始 XLS，并确认对应源字段和值后再补充排除回执。';
+            },
             contractClass() {
                 return this.isLegacyAggregate
                     ? 'border-amber-200 bg-amber-50 text-amber-800'
@@ -271,7 +295,7 @@
                 return [
                     { key: 'gross', label: '总订单（含取消）', value: numberText(this.summary.gross_orders), note: this.isLegacyAggregate ? '旧聚合保存口径；缺逐单去重回执' : '本批次按订单号去重' },
                     { key: 'active', label: '有效订单', value: numberText(this.summary.active_orders), note: this.isLegacyAggregate ? '旧聚合保存的有效口径' : '按原始订单状态分类' },
-                    { key: 'stayed', label: '已入住订单', value: numberText(this.summary.stayed_orders), note: this.summary.stayed_orders === null || this.summary.stayed_orders === undefined ? '旧聚合缺逐状态证据' : '订单状态=已入住' },
+                    { key: 'stayed', label: '已入住订单', value: numberText(this.summary.stayed_orders), note: this.summary.stayed_orders === null || this.summary.stayed_orders === undefined ? (this.isLegacyAggregate ? '旧聚合缺逐状态证据' : '已入住状态回执缺失，不能独立核验') : '订单状态=已入住' },
                     { key: 'cancelled', label: '取消订单 / 取消率', value: `${numberText(this.summary.cancelled_orders)} / ${percentText(this.summary.cancel_rate)}`, note: '取消订单 ÷ 含取消总单' },
                     { key: 'nights', label: '有效间夜', value: numberText(this.summary.room_nights, 1), note: '有效订单房间数×晚数' },
                     { key: 'bottom', label: '参考底价（非确认收入）', value: moneyText(this.summary.reference_bottom_price_total), note: `参考ADR ${moneyText(this.summary.reference_bottom_price_adr)}` },
@@ -281,9 +305,16 @@
             },
             dateRangeLabel() {
                 const range = this.analysis?.date_range || {};
-                const from = range.from || range.date_from || this.dateFrom || '未取得';
-                const to = range.to || range.date_to || this.dateTo || '未取得';
-                return `${from} 至 ${to}`;
+                const from = range.from || range.date_from || '';
+                const to = range.to || range.date_to || '';
+                return from || to ? `${from || '未取得'} 至 ${to || '未取得'}` : '未取得';
+            },
+            analysisQueryRangeLabel() {
+                const range = this.analysis?.date_range;
+                if (!range) return '尚未取得查询回执';
+                const from = range.requested_from || '';
+                const to = range.requested_to || '';
+                return from || to ? `${from || '未取得'} 至 ${to || '未取得'}` : '全部已存范围';
             },
         },
         watch: {
@@ -483,12 +514,19 @@
             async loadQuickAnalysis() {
                 const hotelId = this.systemHotelId;
                 const authScopeKey = this.authScopeKey;
+                const dateFrom = this.quickDateFrom;
+                const dateTo = this.quickDateTo;
                 const sequence = ++this.quickRequestSequence;
+                const isCurrentRequest = () => sequence === this.quickRequestSequence
+                    && hotelId === this.systemHotelId
+                    && dateFrom === this.quickDateFrom
+                    && dateTo === this.quickDateTo && authScopeKey === this.authScopeKey;
                 this.quickError = '';
-                this.quickStale = false;
+                this.quickStale = !!this.quickAnalysis;
+                this.quickLoading = false;
                 if (!hotelId) {
                     this.quickAnalysis = null;
-                    this.quickLoading = false;
+                    this.quickStale = false;
                     return;
                 }
                 if ((this.quickDateFrom && !this.quickDateTo) || (!this.quickDateFrom && this.quickDateTo)) {
@@ -507,9 +545,9 @@
                 this.quickLoading = true;
                 try {
                     const params = new URLSearchParams({ system_hotel_id: String(hotelId) });
-                    if (this.quickDateFrom && this.quickDateTo) {
-                        params.set('date_from', this.quickDateFrom);
-                        params.set('date_to', this.quickDateTo);
+                    if (dateFrom && dateTo) {
+                        params.set('date_from', dateFrom);
+                        params.set('date_to', dateTo);
                     }
                     let authToken = String(this.ctx?.token || '').trim();
                     if (!authToken) {
@@ -527,8 +565,12 @@
                     if (!response.ok || !payload || Number(payload.code) !== 200) {
                         throw new Error(payload?.message || `双平台订单快析读取失败（HTTP ${response.status}）`);
                     }
-                    if (sequence !== this.quickRequestSequence || authScopeKey !== this.authScopeKey) return;
+                    if (!isCurrentRequest()) return;
                     const returned = payload.data;
+                    if (!returned || typeof returned !== 'object' || Array.isArray(returned)
+                        || typeof returned.status !== 'string' || !returned.status.trim()) {
+                        throw new Error('双平台订单快析响应不完整，请重新查询。');
+                    }
                     const range = returned?.date_range;
                     const platforms = returned?.platforms;
                     const rangeMatches = range && typeof range === 'object'
@@ -543,13 +585,12 @@
                         && platforms?.meituan?.platform === 'meituan'
                         && platforms.meituan.metric_scope === 'ota_channel';
                     if (!scopeMatches || !rangeMatches) {
-                        this.quickAnalysis = null;
                         throw new Error('双平台订单快析返回的酒店、平台、指标或日期范围与当前筛选不一致，已停止展示。');
                     }
                     this.quickAnalysis = returned;
                     this.quickStale = false;
                 } catch (error) {
-                    if (sequence !== this.quickRequestSequence || authScopeKey !== this.authScopeKey) return;
+                    if (!isCurrentRequest()) return;
                     this.quickError = error?.message || '双平台订单快析读取失败。';
                     this.quickStale = !!this.quickAnalysis;
                 } finally {
@@ -622,24 +663,25 @@
                     const returnedAnalysis = payload.data;
                     const returnedHotelId = Number(returnedAnalysis?.hotel?.id);
                     const returnedRange = returnedAnalysis?.date_range;
+                    if (!returnedAnalysis || typeof returnedAnalysis !== 'object' || Array.isArray(returnedAnalysis)
+                        || typeof returnedAnalysis.status !== 'string' || !returnedAnalysis.status.trim()
+                        || !returnedRange || typeof returnedRange !== 'object' || Array.isArray(returnedRange)
+                        || !Object.prototype.hasOwnProperty.call(returnedRange, 'requested_from')
+                        || !Object.prototype.hasOwnProperty.call(returnedRange, 'requested_to')) {
+                        throw new Error('携程订单分析响应不完整，返回的酒店、日期范围或状态无法核验，请重新查询。');
+                    }
                     const returnedPlatform = String(returnedAnalysis?.source?.platform || '').trim().toLowerCase();
                     const identityMatches = Number.isSafeInteger(returnedHotelId)
                         && returnedHotelId === hotelId
                         && returnedAnalysis?.metric_scope === 'ota_channel'
                         && (!returnedPlatform || returnedPlatform === 'ctrip');
-                    const rangeMatches = returnedRange && typeof returnedRange === 'object'
-                        && (!this.dateFrom && !this.dateTo
-                            || returnedRange.requested_from === this.dateFrom
-                                && returnedRange.requested_to === this.dateTo);
+                    const rangeMatches = String(returnedRange.requested_from ?? '') === dateFrom
+                        && String(returnedRange.requested_to ?? '') === dateTo;
                     if (!identityMatches || !rangeMatches) {
                         throw new Error('订单分析返回的酒店、平台或日期范围与当前筛选不一致，已停止展示。');
                     }
                     this.analysis = returnedAnalysis;
                     const range = this.analysis?.date_range || {};
-                    if (!this.dateFrom && !this.dateTo) {
-                        this.dateFrom = String(range.from || range.date_from || '');
-                        this.dateTo = String(range.to || range.date_to || '');
-                    }
                 } catch (error) {
                     if (!isCurrentRequest() || authScopeKey !== this.authScopeKey) return;
                     this.analysis = null;
@@ -861,8 +903,8 @@
                                     }, this.quickLoading ? '刷新中' : '刷新'),
                                 ]),
                                 this.quickRangePreset === 'custom' ? h('div', { class: 'flex flex-wrap items-end gap-2' }, [
-                                    h('label', { class: 'text-xs text-gray-300' }, ['开始日期', h('input', { type: 'date', value: this.quickDateFrom, onInput: (event) => { this.quickDateFrom = event.target.value; }, class: 'mt-1 block rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900' })]),
-                                    h('label', { class: 'text-xs text-gray-300' }, ['结束日期', h('input', { type: 'date', value: this.quickDateTo, onInput: (event) => { this.quickDateTo = event.target.value; }, class: 'mt-1 block rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900' })]),
+                                    h('label', { class: 'text-xs text-gray-300' }, ['开始日期', h('input', { type: 'date', value: this.quickDateFrom, disabled: this.quickLoading || !this.systemHotelId, onInput: (event) => { this.quickDateFrom = event.target.value; }, class: 'mt-1 block rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900' })]),
+                                    h('label', { class: 'text-xs text-gray-300' }, ['结束日期', h('input', { type: 'date', value: this.quickDateTo, disabled: this.quickLoading || !this.systemHotelId, onInput: (event) => { this.quickDateTo = event.target.value; }, class: 'mt-1 block rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs text-gray-900' })]),
                                     h('button', { type: 'button', disabled: this.quickLoading, onClick: () => this.loadQuickAnalysis(), class: 'rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50', style: { background: '#dcc591', color: '#06110d' } }, '查询'),
                                 ]) : null,
                             ]),
@@ -920,7 +962,8 @@
                                 : null,
                             this.analysis ? badge(this.contractLabel, this.contractClass) : null,
                         ]),
-                        h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, `${this.analysis?.hotel?.name || this.ctx?.platformHotelSelectedName || '当前酒店'} · 携程系 OTA 渠道 · ${this.dateRangeLabel}`),
+                        h('p', { class: 'mt-1 text-xs leading-5 text-slate-500' }, `${this.analysis?.hotel?.name || this.ctx?.platformHotelSelectedName || '当前酒店'} · 携程系 OTA 渠道`),
+                        h('p', { class: 'text-xs leading-5 text-slate-500' }, `查询范围：${this.analysisQueryRangeLabel}；数据覆盖：${this.dateRangeLabel}`),
                         h('p', { class: 'text-xs leading-5 text-amber-700' }, this.sourceBoundaryText),
                         h('p', { class: 'text-xs leading-5 text-blue-700' }, '已保存订单分析与实时 Cookie 采集相互独立；顶部授权告警只影响实时抓取。'),
                     ]),
@@ -972,6 +1015,10 @@
                             uploadMetric('取消订单', numberText(this.ctx?.ctripChannelOrderUploadCancelledOrders)),
                             uploadMetric('取消率', numeric(this.ctx?.ctripChannelOrderUploadCancelRate) === null ? '不可计算' : `${Number(this.ctx.ctripChannelOrderUploadCancelRate).toFixed(1)}%`),
                         ]),
+                        this.ctx?.ctripChannelOrderUploadCancelEvidenceText ? h('p', {
+                            'data-testid': 'ctrip-upload-cancel-evidence',
+                            class: 'text-xs leading-5 text-amber-800',
+                        }, this.ctx.ctripChannelOrderUploadCancelEvidenceText) : null,
                         h('div', { class: 'overflow-x-auto rounded border border-emerald-100 bg-white' }, [h('table', { class: 'min-w-full text-xs' }, [
                             h('thead', { class: 'bg-emerald-50 text-emerald-800' }, [h('tr', {}, ['渠道', '有效订单', '含取消总单', '取消率', '间夜'].map((label, index) => h('th', { class: `px-2 py-2 ${index ? 'text-right' : 'text-left'}` }, label)))]),
                             h('tbody', { class: 'divide-y divide-emerald-50' }, this.uploadChannels.map((row) => h('tr', { key: row.key }, [
@@ -1008,13 +1055,13 @@
                         : h('p', { class: 'mt-3 text-sm leading-6 text-amber-700' }, missingText),
                 ]);
                 sections.push(h('div', { class: 'grid grid-cols-1 gap-4 xl:grid-cols-3' }, [
-                    distributionCard('连住分布', this.losDistribution, '旧聚合没有精确分布，不能从平均值反推；需重新上传原始 XLS。'),
-                    distributionCard('提前预订分布', this.leadTimeDistribution, '缺原始预订日明细，现有均值不能恢复分布；需重新上传原始 XLS。'),
+                    distributionCard('连住分布', this.losDistribution, this.losMissingText),
+                    distributionCard('提前预订分布', this.leadTimeDistribution, this.leadTimeMissingText),
                     h('div', { class: 'rounded-lg border border-slate-200 p-4' }, [
                         h('h5', { class: 'font-semibold text-slate-800' }, '房型偏好'),
                         this.roomTypes.status === 'available'
                             ? h('div', { class: 'mt-3 space-y-2' }, safeRows(this.roomTypes.rows).slice(0, 10).map((row) => h('div', { key: row.name, class: 'flex items-start justify-between gap-3 text-sm' }, [h('span', { class: 'min-w-0 truncate text-slate-500', title: row.name }, row.name), h('b', { class: 'shrink-0' }, `${numberText(row.active_orders || row.orders)} 单`)])))
-                            : h('p', { class: 'mt-3 text-sm leading-6 text-amber-700' }, '旧聚合仅保留每日 Top5，不能恢复完整房型排名；需重新上传原始 XLS。'),
+                            : h('p', { class: 'mt-3 text-sm leading-6 text-amber-700' }, this.roomTypesMissingText),
                     ]),
                 ]));
                 sections.push(h('div', { class: 'grid grid-cols-1 gap-4 xl:grid-cols-2' }, [
@@ -1027,13 +1074,13 @@
                                 `取消：${numberText(this.analysis.classification.cancelled_orders)}`,
                                 `未知状态：${numberText(this.analysis.classification.unknown_status_orders)}`,
                             ].map((text) => h('div', {}, text)))
-                            : h('p', { class: 'mt-2 leading-6 text-amber-700' }, '现存 v1 聚合没有逐状态回执，已入住订单不可独立核验。'),
+                            : h('p', { class: 'mt-2 leading-6 text-amber-700' }, this.classificationMissingText),
                     ]),
                     h('div', { class: 'rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm' }, [
                         h('h5', { class: 'font-semibold text-slate-800' }, '排除规则回执'),
                         this.analysis.exclusions?.status === 'available'
                             ? h('p', { class: 'mt-2 text-slate-600' }, `已排除 ${numberText(this.analysis.exclusions.excluded_order_count)} 单；规则 ${this.analysis.exclusions.policy_version || '未返回'}。`)
-                            : h('p', { class: 'mt-2 leading-6 text-amber-700' }, '扫码单/关房记录的精确字段值未取得，因此未猜测排除；请重新上传原始 5 份 XLS 后核验。'),
+                            : h('p', { class: 'mt-2 leading-6 text-amber-700' }, this.exclusionMissingText),
                     ]),
                 ]));
                 if (this.missingDimensions.length) {
@@ -1045,7 +1092,7 @@
                                 'data-testid': 'ctrip-order-analysis-open-upload',
                                 onClick: () => this.openEvidenceUpload(),
                                 class: 'rounded-lg bg-[#65502f] px-3 py-2 text-xs font-semibold text-white',
-                            }, '上传原始 XLS 补全'),
+                            }, '上传原始 XLS'),
                         ]),
                         h('p', { class: 'mt-2 text-xs leading-5 text-amber-800' }, '分析报告 HTML 可作材料对照，但不能替代逐笔订单、去重、状态和排除规则回执。'),
                         h('ul', { class: 'mt-2 space-y-1 text-xs leading-5 text-amber-800' }, this.missingDimensions.map((item) => h('li', { key: item.key }, `${item.label || item.key}：${item.reason || '原始证据缺失'}${item.next_action ? `；${item.next_action}` : ''}`))),
@@ -1076,7 +1123,8 @@
                                 <span v-if="analysis?.persistence_readback_status === 'verified'" class="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">保存值级回读已确认</span>
                                 <span v-if="analysis" :class="['rounded-full border px-2 py-0.5 text-xs font-semibold', contractClass]">{{ contractLabel }}</span>
                             </div>
-                            <p class="mt-1 text-xs leading-5 text-slate-500">{{ analysis?.hotel?.name || ctx?.platformHotelSelectedName || '当前酒店' }} · 携程系 OTA 渠道 · {{ dateRangeLabel }}</p>
+                            <p class="mt-1 text-xs leading-5 text-slate-500">{{ analysis?.hotel?.name || ctx?.platformHotelSelectedName || '当前酒店' }} · 携程系 OTA 渠道</p>
+                            <p class="text-xs leading-5 text-slate-500">查询范围：{{ analysisQueryRangeLabel }}；数据覆盖：{{ dateRangeLabel }}</p>
                             <p class="text-xs leading-5 text-amber-700">{{ sourceBoundaryText }}</p>
                             <p class="text-xs leading-5 text-blue-700">已保存订单分析与实时 Cookie 采集相互独立；顶部授权告警只影响实时抓取。</p>
                         </div>
@@ -1104,6 +1152,7 @@
                             <div class="rounded bg-white p-2"><div class="text-[11px] text-emerald-700">取消订单</div><b>{{ numberText(ctx?.ctripChannelOrderUploadCancelledOrders) }}</b></div>
                             <div class="rounded bg-white p-2"><div class="text-[11px] text-emerald-700">取消率</div><b>{{ numeric(ctx?.ctripChannelOrderUploadCancelRate) === null ? '不可计算' : Number(ctx.ctripChannelOrderUploadCancelRate).toFixed(1) + '%' }}</b></div>
                         </div>
+                        <p v-if="ctx?.ctripChannelOrderUploadCancelEvidenceText" data-testid="ctrip-upload-cancel-evidence" class="text-xs leading-5 text-amber-800">{{ ctx.ctripChannelOrderUploadCancelEvidenceText }}</p>
                         <div class="overflow-x-auto rounded border border-emerald-100 bg-white"><table class="min-w-full text-xs"><thead class="bg-emerald-50 text-emerald-800"><tr><th class="px-2 py-2 text-left">渠道</th><th class="px-2 py-2 text-right">有效订单</th><th class="px-2 py-2 text-right">含取消总单</th><th class="px-2 py-2 text-right">取消率</th><th class="px-2 py-2 text-right">间夜</th></tr></thead><tbody class="divide-y divide-emerald-50"><tr v-for="row in uploadChannels" :key="row.key"><td class="px-2 py-2 font-medium text-slate-700">{{ row.label }}</td><td class="px-2 py-2 text-right">{{ numberText(row.orders) }}</td><td class="px-2 py-2 text-right">{{ numberText(row.gross_orders) }}</td><td class="px-2 py-2 text-right">{{ percentText(row.cancel_rate) }}</td><td class="px-2 py-2 text-right">{{ numberText(row.room_nights, 1) }}</td></tr></tbody></table></div>
                         <p class="text-xs leading-5 text-emerald-800">{{ ctx?.ctripChannelOrderPortraitInsight }}</p>
                     </div>
@@ -1132,17 +1181,17 @@
                         <div class="rounded-lg border border-slate-200 p-4">
                             <h5 class="font-semibold text-slate-800">连住分布</h5>
                             <div v-if="losDistribution.status === 'available'" class="mt-3 space-y-2"><div v-for="bucket in safeRows(losDistribution.buckets)" :key="bucket.key" class="flex items-center justify-between text-sm"><span class="text-slate-500">{{ bucket.label }}</span><b>{{ numberText(bucket.orders) }}</b></div></div>
-                            <p v-else class="mt-3 text-sm leading-6 text-amber-700">旧聚合没有精确分布，不能从平均值反推；需重新上传原始 XLS。</p>
+                            <p v-else class="mt-3 text-sm leading-6 text-amber-700">{{ losMissingText }}</p>
                         </div>
                         <div class="rounded-lg border border-slate-200 p-4">
                             <h5 class="font-semibold text-slate-800">提前预订分布</h5>
                             <div v-if="leadTimeDistribution.status === 'available'" class="mt-3 space-y-2"><div v-for="bucket in safeRows(leadTimeDistribution.buckets)" :key="bucket.key" class="flex items-center justify-between text-sm"><span class="text-slate-500">{{ bucket.label }}</span><b>{{ numberText(bucket.orders) }}</b></div></div>
-                            <p v-else class="mt-3 text-sm leading-6 text-amber-700">缺原始预订日明细，现有均值不能恢复分布；需重新上传原始 XLS。</p>
+                            <p v-else class="mt-3 text-sm leading-6 text-amber-700">{{ leadTimeMissingText }}</p>
                         </div>
                         <div class="rounded-lg border border-slate-200 p-4">
                             <h5 class="font-semibold text-slate-800">房型偏好</h5>
                             <div v-if="roomTypes.status === 'available'" class="mt-3 space-y-2"><div v-for="row in safeRows(roomTypes.rows).slice(0, 10)" :key="row.name" class="flex items-start justify-between gap-3 text-sm"><span class="min-w-0 truncate text-slate-500" :title="row.name">{{ row.name }}</span><b class="shrink-0">{{ numberText(row.active_orders || row.orders) }} 单</b></div></div>
-                            <p v-else class="mt-3 text-sm leading-6 text-amber-700">旧聚合仅保留每日 Top5，不能恢复完整房型排名；需重新上传原始 XLS。</p>
+                            <p v-else class="mt-3 text-sm leading-6 text-amber-700">{{ roomTypesMissingText }}</p>
                         </div>
                     </div>
 
@@ -1150,17 +1199,17 @@
                         <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
                             <h5 class="font-semibold text-slate-800">订单状态分类回执</h5>
                             <div v-if="analysis.classification?.status === 'available'" class="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600"><div>已入住：{{ numberText(analysis.classification.stayed_orders) }}</div><div>有效未入住：{{ numberText(analysis.classification.active_not_stayed_orders) }}</div><div>取消：{{ numberText(analysis.classification.cancelled_orders) }}</div><div>未知状态：{{ numberText(analysis.classification.unknown_status_orders) }}</div></div>
-                            <p v-else class="mt-2 leading-6 text-amber-700">现存 v1 聚合没有逐状态回执，已入住订单不可独立核验。</p>
+                            <p v-else class="mt-2 leading-6 text-amber-700">{{ classificationMissingText }}</p>
                         </div>
                         <div class="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
                             <h5 class="font-semibold text-slate-800">排除规则回执</h5>
                             <p v-if="analysis.exclusions?.status === 'available'" class="mt-2 text-slate-600">已排除 {{ numberText(analysis.exclusions.excluded_order_count) }} 单；规则 {{ analysis.exclusions.policy_version || '未返回' }}。</p>
-                            <p v-else class="mt-2 leading-6 text-amber-700">扫码单/关房记录的精确字段值未取得，因此未猜测排除；请重新上传原始 5 份 XLS 后核验。</p>
+                            <p v-else class="mt-2 leading-6 text-amber-700">{{ exclusionMissingText }}</p>
                         </div>
                     </div>
 
                     <div v-if="missingDimensions.length" class="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                        <div class="flex flex-wrap items-center justify-between gap-2"><h5 class="text-sm font-semibold text-amber-900">仍缺原始证据的板块</h5><button type="button" data-testid="ctrip-order-analysis-open-upload" @click="openEvidenceUpload" class="rounded-lg bg-[#65502f] px-3 py-2 text-xs font-semibold text-white">上传原始 XLS 补全</button></div>
+                        <div class="flex flex-wrap items-center justify-between gap-2"><h5 class="text-sm font-semibold text-amber-900">仍缺原始证据的板块</h5><button type="button" data-testid="ctrip-order-analysis-open-upload" @click="openEvidenceUpload" class="rounded-lg bg-[#65502f] px-3 py-2 text-xs font-semibold text-white">上传原始 XLS</button></div>
                         <p class="mt-2 text-xs leading-5 text-amber-800">分析报告 HTML 可作材料对照，但不能替代逐笔订单、去重、状态和排除规则回执。</p>
                         <ul class="mt-2 space-y-1 text-xs leading-5 text-amber-800"><li v-for="item in missingDimensions" :key="item.key">{{ item.label || item.key }}：{{ item.reason || '原始证据缺失' }}<span v-if="item.next_action">；{{ item.next_action }}</span></li></ul>
                     </div>

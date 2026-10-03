@@ -65,6 +65,8 @@ try {
         });
         $identity = new class {
             public int $id = 7;
+            public int $tenant_id = 10;
+            public function isSuperAdmin(): bool { return false; }
             public function getPermittedHotelIds(): array { return [20]; }
             public function hasHotelPermission($hotel, $capability): bool { return $hotel === 20 && !isset($_GET['read_only']); }
         };

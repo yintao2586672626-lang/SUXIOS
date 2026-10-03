@@ -22,110 +22,12 @@
     const createHotelDataAnalystFeedbackUi = analystComponents.createFeedbackUi;
     const renderHotelDataAnalystQualityReceipt = analystComponents.renderQualityReceipt;
     const hotelDataAnalystProfile = analystComponents.hotelDataAnalystProfile;
-    const renderRevenueDecisionFrame = (frame, testId = '') => {
-        if (!frame || typeof frame !== 'object') return null;
-        const candidates = Array.isArray(frame.candidate_objects) ? frame.candidate_objects : [];
-        const keyInputs = Array.isArray(frame.key_inputs) ? frame.key_inputs : [];
-        const primaryMethods = Array.isArray(frame.method_refs?.primary) ? frame.method_refs.primary : [];
-        const supportingMethods = Array.isArray(frame.method_refs?.supporting) ? frame.method_refs.supporting : [];
-        const status = String(frame.classification_status || 'unclassified');
-        const label = String(frame.primary_label || '')
-            || (candidates.length ? `待锁定：${candidates.map((item) => String(item?.label || '')).filter(Boolean).join(' / ')}` : '尚未锁定');
-        const statusText = ({
-            selected: '人工选择', inferred: '问题识别', ambiguous: '跨维歧义', unclassified: '未识别',
-        })[status] || '待核对';
-        const sourceFingerprint = String(frame.source?.fingerprint || '');
-        return h('section', {
-            class: 'mt-3 rounded-xl border border-amber-200 bg-amber-50/70 p-3',
-            'data-testid': testId || undefined,
-        }, [
-            h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
-                h('div', [
-                    h('div', { class: 'text-[11px] font-semibold uppercase tracking-wide text-amber-700' }, '八维决策框架'),
-                    h('strong', { class: 'mt-1 block text-sm text-slate-900' }, label),
-                ]),
-                h('span', { class: 'rounded-full bg-white px-2 py-1 text-[11px] font-medium text-amber-800' }, statusText),
-            ]),
-            keyInputs.length
-                ? h('div', { class: 'mt-2' }, [
-                    h('div', { class: 'text-[11px] text-slate-500' }, '关键输入（需逐项核对）'),
-                    h('div', { class: 'mt-1 flex flex-wrap gap-1.5' }, keyInputs.map((item) => h('span', {
-                        key: String(item), class: 'rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] text-slate-700',
-                    }, String(item)))),
-                ])
-                : h('p', { class: 'mt-2 text-xs text-amber-800' }, '请先选择一个主决策对象；系统不会把跨维问题强行归到单一对象。'),
-            h('p', { class: 'mt-2 text-xs leading-5 text-slate-700' }, `边界：${String(frame.core_boundary || frame.framework_boundary || '待核对')}`),
-            h('p', { class: 'mt-1 text-[11px] leading-5 text-slate-500' }, String(frame.evidence_gate?.message || '框架不替代经营事实。')),
-            h('details', { class: 'mt-2 text-[11px] text-slate-500' }, [
-                h('summary', { class: 'cursor-pointer font-medium text-slate-600' }, '查看方法索引与来源边界'),
-                h('p', { class: 'mt-1 leading-5' }, `主方法：${primaryMethods.join('、') || '未锁定'}；支撑方法：${supportingMethods.join('、') || '未锁定'}。RM代码仅保留来源索引，定义未提供。`),
-                sourceFingerprint ? h('p', { class: 'mt-1 break-all leading-5' }, `来源指纹：${sourceFingerprint}`) : null,
-            ].filter(Boolean)),
-        ]);
-    };
     const { preciseMetricHasValue, preciseMetricUnitLabel, preciseMetricGapRows, normalizePreciseMetricSet } = analystComponents;
     const preciseMetricGapText = (gap) => String(
         gap && typeof gap === 'object' ? (gap.message || gap.reason || gap.code || '') : (gap || '')
     ).trim();
-    const preciseMetricInputText = (input) => {
-        if (input === null || input === undefined) return '';
-        if (typeof input !== 'object') return String(input);
-        const metric = input.metric && typeof input.metric === 'object' ? input.metric : {};
-        const label = String(input.label || input.name || metric.name || input.metric_name || input.metric_key || metric.key || '输入');
-        const value = input.value ?? input.amount ?? null;
-        const unit = preciseMetricUnitLabel(input.unit);
-        return preciseMetricHasValue(value)
-            ? `${label} ${String(value)}${unit ? ` ${unit}` : ''}`
-            : label;
-    };
-    // PRECISE_QUERY_EXPLANATION_START
-    const renderPreciseQueryConditions = (result = {}) => {
-        const scope = result.precise_query_scope || {};
-        if (!result.precise_query_id) return null;
-        const metricNames = { amount: '订单金额', room_revenue: '实住房费收入', settlement_amount: '结算金额', book_order_num: '订单量', quantity: '间夜', list_exposure: '曝光人数', detail_exposure: '访客人数', exposure_to_visit_rate: '曝光到访率' };
-        const fields = [
-            ['历史编号', `#${result.precise_query_id} · ${result.persistence_status === 'readback_verified' ? '已按编号回读' : '待回读'}`],
-            ['酒店', scope.hotel_id ? `${scope.hotel_name || '酒店'}（${scope.hotel_id}）` : '待确认'],
-            ['渠道', ({ ctrip: '携程', meituan: '美团', all_ota: '携程与美团（分别核验口径）' })[scope.platform] || '待确认'],
-            ['期间', scope.date_start ? `${scope.date_start} 至 ${scope.date_end}` : (scope.business_date || '待确认')],
-            ['指标口径', (scope.metric_keys || []).map(key => metricNames[key] || key).join('、') || '待确认'],
-            ['时间说明', scope.date_source === 'completed_recent_days' ? '上海业务日；最近N天不含今天' : '上海业务日（Asia/Shanghai）'],
-        ];
-        if (scope.comparison) fields.push(['对比条件', `${scope.comparison.date_start} 至 ${scope.comparison.date_end}；同口径、同天数、完整覆盖`]);
-        if (scope.parent_question_id) fields.push(['追问来源', `已保存问题 #${scope.parent_question_id}`]);
-        return h('section', { class: 'sx-ai-consultant-gaps', 'data-testid': 'precise-query-conditions' }, [
-            h('strong', '解释后的查询条件'),
-            ...fields.map(([label, text]) => h('p', { key: label }, `${label}：${text}`)),
-        ]);
-    };
-    const renderPrecisePeriodEvidence = (precise = {}, options = {}) => {
-        const comparison = precise.comparison;
-        const windows = comparison ? [['本期', comparison.current], ['对比期', comparison.baseline]] : [['查询期间', precise]];
-        const valueText = (value, unit) => value === null || value === undefined ? '不可计算' : `${value} ${preciseMetricUnitLabel(unit)}`;
-        return h('section', { class: 'sx-ai-consultant-gaps', 'data-testid': options.testId || 'precise-query-period' }, [
-            ...windows.map(([label, item]) => h('article', { key: label, 'data-period-status': item.status }, [
-                h('strong', `${label}：${item.date_start} 至 ${item.date_end}`),
-                h('p', `覆盖：${item.coverage?.available_days ?? 0}/${item.coverage?.expected_days ?? 0}`),
-                h('p', `全期间值：${valueText(item.value, item.unit)}`),
-                item.partial_value !== null && item.partial_value !== undefined ? h('p', `${item.subtotal_label || '非全期间小计'}：${valueText(item.partial_value, item.unit)}`) : null,
-                h('p', `缺失日期：${(item.coverage?.missing_dates || []).join('、') || '无'}`),
-                h('p', `计算：${item.formula || '暂无可用计算'}`),
-                item.blocked_reason ? h('p', String(item.blocked_reason)) : null,
-                h('details', [
-                    h('summary', '逐日事实与引用'),
-                    ...(item.daily_facts || []).map(day => h('p', { key: day.business_date }, `${day.business_date}：${valueText(day.value, day.unit)}；来源 ${(day.source_records || []).join('、') || '缺失'}；${day.blocked_reason || day.readback_status || '未核验'}`)),
-                ]),
-            ].filter(Boolean))),
-            comparison ? h('div', [
-                h('p', `同口径差额：${valueText(comparison.difference, precise.unit)}`),
-                h('p', `变化率：${valueText(comparison.change_percent, '%')}`),
-                h('p', String(comparison.formula || '')),
-                comparison.blocked_reason ? h('p', String(comparison.blocked_reason)) : null,
-            ].filter(Boolean)) : null,
-            h('p', '数值来自确定性日事实；OTA渠道范围，不代表全酒店。'),
-        ].filter(Boolean));
-    };
-    // PRECISE_QUERY_EXPLANATION_END
+    const { renderRevenueDecisionFrame, preciseMetricInputText, renderPreciseQueryConditions, renderPrecisePeriodEvidence }
+        = analystComponents.createOperatingEvidenceRenderers({ preciseMetricUnitLabel, preciseMetricHasValue });
     const renderPreciseMetricEvidence = (answer = {}, options = {}) => {
         if (['operating_period_metric', 'operating_period_comparison'].includes(answer?.precise_result?.kind)) return renderPrecisePeriodEvidence(answer.precise_result, options);
         const normalized = options.normalized || normalizePreciseMetricSet(answer);
@@ -4073,9 +3975,20 @@
                     const ctx = props.ctx || {};
                     savePendingCoach(topic);
                     if (topic.action_key === 'data-health') {
-                        ctx.currentPage = 'online-data';
-                        ctx.onlineDataTab = 'data-health';
-                        await Promise.resolve(ctx.openOnlineDataTab?.('data-health', { force: true }));
+                        if (['report', 'action'].includes(String(turn?.result?.assistant_mode || ''))) {
+                            const target = operatingEvidenceTarget(turn.result, turn);
+                            if (target.error) throw new Error(target.error);
+                            if (typeof ctx.openOperatingQuestionDataHealth !== 'function') {
+                                throw new Error('该回答的数据缺口入口尚未加载，请稍后重试。');
+                            }
+                            if (await ctx.openOperatingQuestionDataHealth(target.request) !== true) {
+                                throw new Error('该回答的数据缺口未能打开，请按原回答范围重试。');
+                            }
+                        } else {
+                            ctx.currentPage = 'online-data';
+                            ctx.onlineDataTab = 'data-health';
+                            await Promise.resolve(ctx.openOnlineDataTab?.('data-health', { force: true }));
+                        }
                     } else if (topic.action_key === 'auto-collect') {
                         await Promise.resolve(ctx.openOnlinePlatformAutoTab?.({ force: true }));
                     } else {

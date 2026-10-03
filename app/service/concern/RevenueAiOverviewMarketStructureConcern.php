@@ -40,45 +40,6 @@ trait RevenueAiOverviewMarketStructureConcern
             ];
         }
 
-        $trust = is_array($metricsSummary['metric_trust']['booking_window_adr.buckets'] ?? null)
-            ? $metricsSummary['metric_trust']['booking_window_adr.buckets'] : [];
-        $truth = is_array($trust['truth'] ?? null) ? $trust['truth'] : [];
-        $truthStatus = (string)($truth['status'] ?? 'unverified');
-        $sourceFailureReasons = array_values(array_diff(
-            (array)($trust['failure_reasons'] ?? []),
-            ['booking_window_adr_fields_partial']
-        ));
-        $persistence = is_array($truth['persistence'] ?? null) ? $truth['persistence'] : [];
-        $structuralGapOnly = $truthStatus === 'partial'
-            && $sourceFailureReasons === []
-            && (array)($truth['evidence_gap_codes'] ?? []) === []
-            && ($persistence['stored'] ?? false) === true
-            && ($persistence['readback_verified'] ?? false) === true;
-        if (!$structuralGapOnly && (($trust['saved_success'] ?? false) !== true
-            || $truthStatus !== 'verified'
-            || $sourceFailureReasons !== [])) {
-            $sourceStatus = in_array($truthStatus, ['partial', 'collection_failed'], true)
-                ? $truthStatus : 'unverified';
-            return [
-                'label' => '提前期房费结构',
-                'value' => '--',
-                'status' => $sourceStatus === 'collection_failed' ? 'failed' : $sourceStatus,
-                'reason' => 'booking_window_adr_source_' . $sourceStatus,
-                'detail' => $sourceStatus === 'collection_failed'
-                    ? '提前期房费来源采集失败，不能据此发布价格结构；请复核来源并重新保存回读。'
-                    : '提前期房费结构已有数值，但来源尚未全部完成同酒店、同渠道、同业务日的保存回读，不能作为已核验结构。',
-                'scope' => 'ota',
-                'date_basis' => 'lead_time_days',
-                'source_channels' => $sourceChannels,
-                'detail_metrics' => [
-                    'lead_time_row_count' => (int)($summary['lead_time_row_count'] ?? 0),
-                    'aligned_row_count' => (int)($summary['aligned_row_count'] ?? 0),
-                    'bucket_count' => count($buckets),
-                    'buckets' => $buckets,
-                    'truth_status' => $truthStatus,
-                ],
-            ];
-        }
 
         $parts = array_map(
             static fn(array $bucket): string => (string)($bucket['label'] ?? '') . ' ¥' . number_format((float)$bucket['adr'], 2),
@@ -141,39 +102,6 @@ trait RevenueAiOverviewMarketStructureConcern
             ];
         }
 
-        $trust = is_array($metricsSummary['metric_trust']['channel_booking_window_month.cells'] ?? null)
-            ? $metricsSummary['metric_trust']['channel_booking_window_month.cells'] : [];
-        $truth = is_array($trust['truth'] ?? null) ? $trust['truth'] : [];
-        $truthStatus = (string)($truth['status'] ?? 'unverified');
-        $sourceFailureReasons = array_values(array_diff(
-            (array)($trust['failure_reasons'] ?? []),
-            ['channel_booking_window_month_fields_partial', 'channel_booking_window_month_sparse_cells']
-        ));
-        $persistence = is_array($truth['persistence'] ?? null) ? $truth['persistence'] : [];
-        $structuralGapOnly = $truthStatus === 'partial'
-            && $sourceFailureReasons === []
-            && (array)($truth['evidence_gap_codes'] ?? []) === []
-            && ($persistence['stored'] ?? false) === true
-            && ($persistence['readback_verified'] ?? false) === true;
-        if (!$structuralGapOnly && (($trust['saved_success'] ?? false) !== true
-            || $truthStatus !== 'verified'
-            || $sourceFailureReasons !== [])) {
-            $sourceStatus = in_array($truthStatus, ['partial', 'collection_failed'], true)
-                ? $truthStatus : 'unverified';
-            return [
-                'label' => '渠道预售窗口',
-                'value' => '--',
-                'status' => $sourceStatus === 'collection_failed' ? 'failed' : $sourceStatus,
-                'reason' => 'channel_booking_window_month_source_' . $sourceStatus,
-                'detail' => $sourceStatus === 'collection_failed'
-                    ? '渠道预售窗口来源采集失败，不能据此发布月份订单结构；请复核来源并重新保存回读。'
-                    : '月份订单结构已有数值，但来源尚未全部完成同酒店、同渠道、同业务日的保存回读，不能作为已核验结构。',
-                'scope' => 'ota',
-                'date_basis' => 'checkin_month',
-                'source_channels' => $sourceChannels,
-                'detail_metrics' => $summary + ['truth_status' => $truthStatus],
-            ];
-        }
 
         usort($cells, static function (array $left, array $right): int {
             return [(float)($right['order_count'] ?? 0), (float)($right['order_share'] ?? 0)]
@@ -211,12 +139,14 @@ trait RevenueAiOverviewMarketStructureConcern
         $avgOurPrice = $this->numeric($summary['avg_our_price'] ?? null);
         $avgCompetitorPrice = $this->numeric($summary['avg_competitor_price'] ?? null);
         $avgPriceGap = $this->numeric($summary['avg_price_gap'] ?? null);
-        if ($rows <= 0 || $avgOurPrice === null || $avgCompetitorPrice === null) {
+        $calculationFailed = in_array('numeric_aggregate_nonfinite',
+            (array)($metricsSummary['metric_trust']['competitor_price.avg_price_gap']['failure_reasons'] ?? []), true);
+        if ($rows <= 0 || $avgOurPrice === null || $avgCompetitorPrice === null || $avgPriceGap === null) {
             return [
                 'label' => '竞对价格倒挂预警',
                 'value' => '--',
-                'status' => 'not_loaded',
-                'reason' => 'competitor_price_fields_missing',
+                'status' => $calculationFailed ? 'not_calculable' : 'not_loaded',
+                'reason' => $calculationFailed ? 'numeric_aggregate_nonfinite' : 'competitor_price_fields_missing',
                 'scope' => 'ota',
                 'source_channels' => $sourceChannels,
                 'detail_metrics' => [
@@ -229,57 +159,8 @@ trait RevenueAiOverviewMarketStructureConcern
             ];
         }
 
-        $metricTrust = is_array($metricsSummary['metric_trust'] ?? null)
-            ? $metricsSummary['metric_trust'] : [];
-        $priceTruthStatuses = [];
-        $untrustedPriceMetrics = [];
-        foreach (['competitor_price.avg_our_price', 'competitor_price.avg_competitor_price'] as $trustKey) {
-            $trust = is_array($metricTrust[$trustKey] ?? null) ? $metricTrust[$trustKey] : [];
-            $truth = is_array($trust['truth'] ?? null) ? $trust['truth'] : [];
-            $truthStatus = (string)($truth['status'] ?? 'unverified');
-            $priceTruthStatuses[$trustKey] = $truthStatus;
-            if (($trust['saved_success'] ?? false) !== true
-                || $truthStatus !== 'verified'
-                || (array)($trust['failure_reasons'] ?? []) !== []) {
-                $untrustedPriceMetrics[] = $trustKey;
-            }
-        }
-        if ($untrustedPriceMetrics !== []) {
-            $sourceStatus = in_array('collection_failed', $priceTruthStatuses, true)
-                ? 'collection_failed'
-                : (in_array('partial', $priceTruthStatuses, true)
-                    || in_array('verified', $priceTruthStatuses, true) ? 'partial' : 'unverified');
-            $detail = match ($sourceStatus) {
-                'collection_failed' => '目标日竞对价格来源采集失败，不能据此发布价格倒挂预警；请复核来源并重新保存回读。',
-                'partial' => '目标日竞对价格只有部分来源完成保存回读，不能把当前均价当作完整价格倒挂证据。',
-                default => '目标日竞对价格已记录，但来源尚未完成同酒店、同平台、同业务日的保存回读核验，不能据此发布价格倒挂预警。',
-            };
-            return [
-                'label' => '竞对价格倒挂预警',
-                'value' => '--',
-                'status' => $sourceStatus === 'collection_failed' ? 'failed' : $sourceStatus,
-                'reason' => 'competitor_price_source_' . $sourceStatus,
-                'detail' => $detail,
-                'scope' => 'ota',
-                'source_channels' => $sourceChannels,
-                'detail_metrics' => [
-                    'sample_rows' => $rows,
-                    'avg_our_price' => $avgOurPrice,
-                    'avg_competitor_price' => $avgCompetitorPrice,
-                    'avg_price_gap' => $avgPriceGap,
-                    'untrusted_metric_keys' => $untrustedPriceMetrics,
-                    'metric_truth_statuses' => $priceTruthStatuses,
-                ],
-            ];
-        }
 
-        if ($avgPriceGap === null) {
-            $avgPriceGap = round($avgOurPrice - $avgCompetitorPrice, 2);
-        }
         $avgPriceGapRate = $this->numeric($summary['avg_price_gap_rate'] ?? null);
-        if ($avgPriceGapRate === null && $avgCompetitorPrice > 0) {
-            $avgPriceGapRate = round($avgPriceGap / $avgCompetitorPrice * 100, 2);
-        }
 
         if (abs($avgPriceGap) < 0.01) {
             $value = '接近竞对均价';

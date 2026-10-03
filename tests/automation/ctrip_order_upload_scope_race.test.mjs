@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
+import { ref, computed, watch } from 'vue';
 
 const appSource = fs.readFileSync('public/app-main.js', 'utf8');
 const panelSource = fs.readFileSync('public/components/online-data/ctrip-order-analysis-panel.js', 'utf8');
@@ -17,25 +18,26 @@ const uploadSource = appSource.slice(start, end);
 
 function harness() {
   const pending = [];
-  const hotelId = { value: 80 };
-  const hotelName = { value: 'Synthetic hotel A' };
-  const makeRef = value => ({ value });
-  const computed = getter => Object.defineProperty({}, 'value', { get: getter });
+  const hotelId = ref(80);
+  const hotelName = ref('Synthetic hotel A');
   class FakeFormData {
     constructor() { this.rows = []; }
     append(key, value) { this.rows.push([key, value]); }
   }
   const context = vm.createContext({
-    ref: makeRef,
+    ref, watch,
     computed,
     FormData: FakeFormData,
     platformHotelSelectedId: hotelId,
     platformHotelSelectedName: hotelName,
-    token: { value: 'synthetic-token' },
+    platformHotelContext: ref('ctrip'), authSessionEpoch: 1,
+    token: ref('synthetic-token'),
     readAuthToken: () => '',
     fetch: (url, options) => new Promise((resolve, reject) => pending.push({ url, options, resolve, reject })),
   });
-  vm.runInContext(uploadSource + `
+  const watcher = appSource.match(/watch\(\[platformHotelContext, platformHotelSelectedId, token\], resetCtripChannelOrderUploadScope[^;]*;/)?.[0];
+  assert.ok(watcher, 'Production scope invalidation is exercised');
+  vm.runInContext(uploadSource + watcher + `
     globalThis.upload = uploadCtripChannelOrders;
     globalThis.changeFile = handleCtripChannelOrderFileChange;
     globalThis.acknowledgePartialReview = acknowledgeCtripChannelOrderPartialReview;
@@ -75,13 +77,14 @@ function harness() {
   };
   return { context, pending, hotelId, hotelName, component, view };
 }
-const response = () => ({
+const response = (hotelId = 80) => ({
   ok: true,
   json: async () => ({ code: 200, data: {
     task_id: 7001,
     status: 'verified',
     import_readback: { status: 'verified', readback_count: 2, value_level_verified: true },
     import_preview: {
+      system_hotel_id: hotelId,
       date_from: '2026-09-01',
       date_to: '2026-09-02',
       source_file_count: 1,
@@ -90,7 +93,7 @@ const response = () => ({
   } }),
 });
 
-test('a delayed successful hotel A upload is not displayed as hotel B analysis and remains available on return', async () => {
+test('a delayed hotel A upload cannot become hotel B analysis or revive when returning to A', async () => {
   const h = harness();
   const pendingUpload = h.context.upload();
   assert.equal(h.pending.length, 1, h.context.uploadState.error.value);
@@ -120,9 +123,10 @@ test('a delayed successful hotel A upload is not displayed as hotel B analysis a
   h.hotelId.value = 80;
   const hotelA = h.view(80);
   assert.equal(h.context.uploadState.scopeMismatch.value, false);
-  assert.equal(hotelA.uploadResultMatchesCurrentHotel, true);
-  assert.equal(hotelA.uploadPreview?.date_from, '2026-09-01');
-  assert.match(hotelA.uploadReceiptKey, /7001/);
+  assert.equal(hotelA.uploadResultMatchesCurrentHotel, true, 'Original submitted scope still belongs to A; accepted result remains absent');
+  assert.equal(hotelA.uploadPreview, null);
+  assert.equal(hotelA.uploadReceiptKey, '');
+  assert.equal(h.context.uploadState.partialReceipt.value.status, 'outcome_unknown');
 });
 
 test('a same-hotel upload continues to expose its exact response preview', async () => {
@@ -153,7 +157,7 @@ test('an interrupted request stays attributed to its target hotel and does not l
   assert.equal(h.context.uploadState.scope?.value?.systemHotelId, 80);
   assert.equal(h.context.uploadState.scope?.value?.submitted, true);
   assert.equal(h.context.uploadState.scopeMismatch.value, true);
-  assert.match(h.context.uploadState.error.value, /服务器是否保存无法确认/);
+  assert.match(h.context.uploadState.error.value, /原酒店|切换/);
   assert.equal(h.context.uploadState.partialReceipt.value.status, 'outcome_unknown');
 
   h.hotelId.value = 80;
@@ -197,11 +201,11 @@ test('a file selected for hotel A cannot be uploaded to hotel B after switching'
   const rejectedSelection = h.context.upload();
   assert.equal(h.pending.length, 1, 'the A file must not be posted under hotel B');
   await rejectedSelection;
-  assert.equal(h.context.uploadState.error.value, '');
+  assert.match(h.context.uploadState.error.value, /请选择/);
   assert.equal(h.view(81).uploadPreview, null);
   assert.equal(h.view(81).uploadReceiptKey, '');
-  assert.equal(h.context.uploadState.fileScope?.value?.systemHotelId, 80);
-  assert.equal(h.context.uploadState.fileScopeMismatch.value, true);
+  assert.equal(h.context.uploadState.fileScope.value, null);
+  assert.equal(h.context.uploadState.fileScopeMismatch.value, false);
   assert.equal(h.context.uploadState.scope?.value?.systemHotelId, 80, 'rejecting the stale file selection must retain A receipt ownership');
 
   h.context.changeFile({ target: { files: vm.runInContext("[{ name: 'hotel-b-orders.csv', size: 7 }]", h.context) } });
@@ -210,7 +214,7 @@ test('a file selected for hotel A cannot be uploaded to hotel B after switching'
   const retry = h.context.upload();
   assert.equal(h.pending.length, 2);
   assert.equal(h.pending[1].options.body.rows.find(([key]) => key === 'system_hotel_id')[1], '81');
-  h.pending[1].resolve(await response());
+  h.pending[1].resolve(await response(81));
   await retry;
   assert.equal(h.view(81).uploadResultMatchesCurrentHotel, true);
 });
@@ -219,8 +223,6 @@ test('a partial server import keeps its task receipt and blocks blind retry unti
   const h = harness();
   const pendingUpload = h.context.upload();
   assert.equal(h.pending.length, 1);
-  h.hotelId.value = 81;
-  h.hotelName.value = 'Synthetic hotel B';
   h.pending[0].resolve({
     ok: false,
     status: 422,
@@ -253,7 +255,7 @@ test('a partial server import keeps its task receipt and blocks blind retry unti
   assert.equal(receipt?.hotelName, 'Synthetic hotel A');
   assert.equal(Object.hasOwn(receipt || {}, 'failureReason'), false);
   assert.equal(h.context.uploadState.result.value, null, 'a partial payload must never become a success preview');
-  assert.equal(h.context.uploadState.scopeMismatch.value, true, 'the partial receipt stays attached to the original hotel');
+  assert.equal(h.context.uploadState.scopeMismatch.value, false, 'the partial receipt stays attached to the current original hotel');
   assert.equal(h.view(81).uploadPreview, null);
   assert.match(h.context.uploadState.error.value, /仅部分完成/);
   assert.match(appSource, /ctripChannelOrderUploadFileInput, ctripChannelOrderUploadPartialReceipt,[\s\S]*acknowledgeCtripChannelOrderPartialReview/);
@@ -276,11 +278,13 @@ test('a partial server import keeps its task receipt and blocks blind retry unti
   assert.equal(h.context.uploadState.scope.value, null);
   assert.equal(h.context.uploadState.error.value, '');
 
+  h.hotelId.value = 81;
+  h.hotelName.value = 'Synthetic hotel B';
   h.context.changeFile({ target: { files: vm.runInContext("[{ name: 'orders.csv', size: 7 }]", h.context) } });
   const retryAfterReview = h.context.upload();
   assert.equal(h.pending.length, 2, 'an acknowledged history review can recover by explicitly selecting a file again');
   assert.equal(h.pending[1].options.body.rows.find(([key]) => key === 'system_hotel_id')[1], '81');
-  h.pending[1].resolve(await response());
+  h.pending[1].resolve(await response(81));
   await retryAfterReview;
   assert.equal(h.view(81).uploadPreview?.date_from, '2026-09-01');
 });

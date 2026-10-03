@@ -66,6 +66,17 @@ class AiGovernance extends Base
         $pagination = $this->getPagination();
         $query = AiModelCallLog::where([]);
 
+        $params = $this->request->param();
+        if (array_key_exists('hotel_id', $params)) {
+            $value = $params['hotel_id'];
+            $hotelId = (is_int($value) || is_string($value)) && preg_match('/^[1-9][0-9]*$/D', (string)$value) === 1
+                ? filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) : false;
+            if ($hotelId === false) {
+                return $this->error('hotel_id 必须为正整数', 422);
+            }
+            $query->where('hotel_id', $hotelId);
+        }
+
         foreach (['request_id', 'module', 'scenario', 'model_key', 'status', 'prompt_version', 'human_confirmation_status', 'evaluation_set', 'eval_case_id'] as $field) {
             $value = trim((string)$this->request->param($field, ''));
             if ($value !== '') {
@@ -452,8 +463,11 @@ class AiGovernance extends Base
     private function formatLogRow(array $row, bool $withDetail = false): array
     {
         $governance = is_array($row['governance_json'] ?? null) ? $row['governance_json'] : [];
+        $hotelId = isset($row['hotel_id']) && (int)$row['hotel_id'] > 0 ? (int)$row['hotel_id'] : null;
         $base = [
             'id' => (int)($row['id'] ?? 0),
+            'hotel_id' => $hotelId,
+            'hotel_scope_status' => $hotelId !== null ? 'recorded' : 'unknown',
             'request_id' => (string)($row['request_id'] ?? ''),
             'module' => (string)($row['module'] ?? ''),
             'scenario' => (string)($row['scenario'] ?? ''),

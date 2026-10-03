@@ -145,16 +145,17 @@ test('selected-hotel response with rows but no persistence stays non-success and
     }),
     notify: (message, level) => notifications.push({ message, level }),
     setFetchSuccess: value => successStates.push(value),
+    handleFetchFailure: async message => notifications.push({ message, level: 'error' }),
     useDisplayHotels: rows => rows,
     refreshOnlineHistory: () => refreshes.push('history'),
     refreshLatestCtripData: () => refreshes.push('latest'),
     refreshOnlineData: () => refreshes.push('online'),
   });
 
-  assert.equal(result.status, 'no_saved');
+  assert.equal(result.status, 'business_failed');
   assert.equal(successStates.at(-1), false);
   assert.deepEqual(refreshes, []);
-  assert.equal(notifications.at(-1).level, 'warning');
+  assert.equal(notifications.at(-1).level, 'error');
 });
 
 test('date-unverified 422 response stays visible for audit without refreshing trusted downstream state', async () => {

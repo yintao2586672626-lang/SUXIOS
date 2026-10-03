@@ -909,6 +909,15 @@ final class OnlineDailyDataPersistenceService
                 ->where('data_date', $itemDate)
                 ->where('source', $source)
                 ->where('data_type', 'traffic');
+            if (isset($columns['dimension'])) {
+                $query->where('dimension', $dimension ?: 'traffic');
+            }
+            if (isset($columns['platform'])) {
+                $query->where('platform', $platform);
+            }
+            if (isset($columns['tenant_id'])) {
+                $query->where('tenant_id', self::resolveTenantIdForSystemHotel($systemHotelId));
+            }
             self::applyPeriodQuery($query, $periodFilter, $columns);
             if (isset($columns['tenant_id'])) {
                 $query->where('tenant_id', self::resolveTenantIdForSystemHotel($systemHotelId));

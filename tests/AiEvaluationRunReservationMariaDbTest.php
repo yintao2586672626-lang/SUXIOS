@@ -15,18 +15,25 @@ final class AiEvaluationRunReservationMariaDbTest extends TestCase
 
     public static function setUpBeforeClass(): void
     {
+        $expectedDatabase = trim((string)getenv('SUXI_E2E_DB_NAME'));
+        if (
+            (string)getenv('SUXI_AI_EVALUATION_RESERVATION_DB_TEST') !== '1'
+            || (string)getenv('SUXI_E2E_DB_OVERRIDE') !== '1'
+            || preg_match('/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/iD', $expectedDatabase) !== 1
+        ) {
+            self::markTestSkipped('Evaluation reservation integration requires explicit opt-in and a dedicated *_test/*_testing/*_e2e database.');
+        }
         (new App(dirname(__DIR__)))->initialize();
     }
 
     protected function setUp(): void
     {
-        $explicit = (string)getenv('SUXI_AI_EVALUATION_RESERVATION_DB_TEST') === '1';
         $expectedDatabase = trim((string)getenv('SUXI_E2E_DB_NAME'));
         $databaseRow = Db::query('SELECT DATABASE() AS database_name, VERSION() AS database_version');
         $databaseName = trim((string)($databaseRow[0]['database_name'] ?? ''));
         $dedicated = preg_match('/(?:^|[_-])(?:test(?:ing)?|e2e)(?:$|[_-])/iD', $databaseName) === 1;
-        if (!$explicit && (!$dedicated || ($expectedDatabase !== '' && !hash_equals($expectedDatabase, $databaseName)))) {
-            self::markTestSkipped('A dedicated MariaDB test database is required for evaluation reservation verification.');
+        if (!$dedicated || !hash_equals($expectedDatabase, $databaseName)) {
+            self::fail('Evaluation reservation integration must connect to the explicitly selected dedicated test database.');
         }
         $columns = Db::query("SHOW COLUMNS FROM `ai_evaluation_runs` WHERE `Field` IN ('claim_token_hash','lease_expires_at')");
         self::assertCount(

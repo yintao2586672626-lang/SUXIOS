@@ -30,7 +30,7 @@ const requestSource = [
 const names = [
   'manualCtripPricingInputMeta', 'firstEnabledRoomTypeId', 'emptyCompetitorAnalysis', 'createCompetitorPriceForm',
   'captureAgentRevenueRequestContext', 'isAgentRevenueRequestCurrent', 'setRevenueLoadState',
-  'syncRevenuePricingInputDate', 'resetCompetitorPriceForm', 'saveCompetitorPriceInput', 'loadCompetitorAnalysis',
+  'syncRevenuePricingInputDate', 'resetCompetitorPriceForm', 'competitorPriceSampleMatches', 'verifyCompetitorPriceSaveReadback', 'saveCompetitorPriceInput', 'loadCompetitorAnalysis',
   ...(main.includes('const competitorManualSamples =') ? ['competitorManualSamples'] : []),
 ];
 let card, tab, hiddenAncestors;
@@ -63,6 +63,7 @@ async function harness() {
     permittedHotels: [{ id: 80, tenant_id: 7, name: 'Synthetic hotel' }],
   }).map(([key, value]) => [key, Vue.ref(value)]));
   const requests = [], notices = [];
+  state.competitorPriceSaveReadback = Vue.ref(null);
   const sandbox = {
     ...state, computed: Vue.computed, window: {}, URL, URLSearchParams, Headers, AbortController, DOMException, Date, Intl,
     setTimeout, clearTimeout, console: { error() {}, warn() {} }, API_BASE: 'https://synthetic.invalid/api',
@@ -188,6 +189,7 @@ test('real save and refresh show the separately read sample with exact fields an
   assert.equal(payload.hotel_id, 80); assert.equal(payload.room_type_id, 501); assert.equal(payload.analysis_date, '2026-09-15');
   assert.equal(payload.ota_platform, 1); assert.equal(payload.competitor_data.input_type, 'manual_ctrip_competitor_price_sample'); assert.equal(payload.competitor_data.auto_write_ota, false);
   h.reply(post, { code: 200, message: '记录成功', data: { id: 76001 } }); await tick();
+  h.reply(h.latest('GET'), { code: 200, data: response([manual({ competitor_data: payload.competitor_data })]) }); await tick();
   h.settleReads(response([manual()]), { meituanStatus: 500 }); await pending; await tick(); await h.html();
   assert.equal(h.state.competitorPriceForm.value.our_price, null); assert.equal(h.state.competitorPriceForm.value.competitor_name, '');
   assert.equal(status(h), 'ready'); assert.equal(h.rows().length, 1);

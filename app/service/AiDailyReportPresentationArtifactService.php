@@ -374,6 +374,12 @@ final class AiDailyReportPresentationArtifactService
         }
 
         if (!$verified) {
+            if ($rowIdentityVerified && $specAudience !== 'training'
+                && (int)($specSource['tenant_id'] ?? 0) === (int)($row['tenant_id'] ?? 0)
+                && (int)($specSource['report_id'] ?? 0) === (int)($row['report_id'] ?? 0)
+                && (int)($specSource['hotel_id'] ?? 0) !== (int)($row['hotel_id'] ?? 0)) {
+                throw new RuntimeException('AI daily report presentation artifact exact readback verification failed: hotel_identity_mapping_unverified_rebuild_current_spec', 409);
+            }
             throw new RuntimeException('AI daily report presentation artifact exact readback verification failed');
         }
 

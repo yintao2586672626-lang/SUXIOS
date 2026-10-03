@@ -30,7 +30,7 @@ const requestSource = [
 const names = [
   ...['captureRevenueForecastRange', 'isRevenueForecastRangeCurrent'].filter(name => main.includes('            const ' + name + ' =')),
   ...(main.includes('            const applyDemandForecastReadback =') ? ['applyDemandForecastReadback'] : []),
-  'manualCtripPricingInputMeta', 'firstEnabledRoomTypeId', 'createDemandForecastForm',
+  'resolveDemandForecastListPayload', 'manualCtripPricingInputMeta', 'firstEnabledRoomTypeId', 'createDemandForecastForm',
   'captureAgentRevenueRequestContext', 'isAgentRevenueRequestCurrent', 'setRevenueLoadState',
   'syncRevenuePricingInputDate', 'resetDemandForecastForm', 'demandForecastInputNumber', 'demandForecastSavedReceiptMatches', 'saveDemandForecastInput', 'loadDemandForecasts',
 ];
@@ -68,6 +68,7 @@ async function harness() {
     ...state, window: {}, URL, URLSearchParams, Headers, AbortController, DOMException, Date, Intl,
     setTimeout, clearTimeout, console: { error() {}, warn() {} }, API_BASE: 'https://synthetic.invalid/api',
     authSessionEpoch: 1, pageRequestGeneration: 0, agentRevenueStateEpoch: 1,
+    demandForecastsRequestSequence: 0,
     user: Vue.ref({ id: 11, tenant_id: 7 }), token: Vue.ref(''),
     authContext: Vue.ref({ tenantId: 7, hotelId: 80, permissionStatus: 'allowed', platform: 'all' }),
     revenueAiBusinessDate: Vue.ref('2026-09-15'), coreOperationsTargetDate: Vue.ref('2026-09-15'),
@@ -89,7 +90,7 @@ async function harness() {
   sandbox.requireAppSystemStatic = key => sandbox.appSystemStatic[key];
   vm.runInContext(requestSource + '\n' + names.map(declaration).join('\n') + '\nglobalThis.methods={' + names.join(',') + '};', sandbox);
   state.demandForecastForm.value = sandbox.methods.createDemandForecastForm();
-  const context = { ...state, ...sandbox.methods, loadPriceSuggestionWorkbench: async () => {} };
+  const context = { ...state, ...sandbox.methods, demandForecastReadState: Vue.computed(() => state.revenueLoadState.value.forecasts), loadPriceSuggestionWorkbench: async () => {} };
   let tree;
   const html = async () => renderToString(Vue.createSSRApp({ setup: () => context, render() { tree = render.call(this, this, []); return tree; } }));
   const nodes = () => flatten(tree);
@@ -114,7 +115,7 @@ async function harness() {
     listeners.input({ target: element }); await tick();
   };
   const read = async data => {
-    const { pending } = await click('刷新'); reply(latest('GET'), { code: 200, data });
+    const { pending } = await click(state.revenueLoadState.value.forecasts.status === 'failed' ? '重新读取需求预测' : '刷新'); reply(latest('GET'), { code: 200, data });
     const result = await pending; await tick(); await html(); return result;
   };
   await html(); const originalTab = nodes().find(node => node.type === 'button');
@@ -218,7 +219,7 @@ test('malformed GET lists fail in the original loader instead of becoming a vali
     const result = await h.read(response);
     assert.equal(h.state.revenueLoadState.value.forecasts.status, 'failed', 'Malformed reply must fail before any empty UI assertion');
     assert.equal(result, null); assert.equal(h.state.demandForecasts.value.length, 0);
-    assert.ok(h.visibleText().includes('列表回执格式无效'));
+    assert.match(h.visibleText(), /未取得有效需求预测列表|需求预测记录与当前酒店或日期范围不一致/);
     assert.equal(h.visibleText().includes('暂无已保存'), false);
     assert.equal(h.notices.at(-1).type, 'error');
   }

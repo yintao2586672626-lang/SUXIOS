@@ -171,13 +171,13 @@ final class MeituanTemporalServiceTest extends TestCase
         );
 
         self::assertSame($blockedSource, $summary['source_state']);
-        self::assertSame('ready', $summary['today']['status']);
-        self::assertSame('all_required_fields_verified', $summary['today']['reason_code']);
+        self::assertSame('blocked', $summary['today']['status']);
+        self::assertSame($blockedSource['reason_code'], $summary['today']['reason_code']);
         self::assertSame(2026.78, $summary['today']['metrics']['sales_amount']['value']);
-        self::assertSame('partial', $summary['yesterday']['status']);
-        self::assertSame('required_fields_partial', $summary['yesterday']['reason_code']);
-        self::assertSame('partial', $summary['future']['status']);
-        self::assertSame('required_fields_partial', $summary['future']['reason_code']);
+        foreach (['yesterday', 'future'] as $section) {
+            self::assertSame('blocked', $summary[$section]['status']);
+            self::assertSame($blockedSource['reason_code'], $summary[$section]['reason_code']);
+        }
 
         $empty = $service->buildSummaryFromRows(
             [],
@@ -187,9 +187,9 @@ final class MeituanTemporalServiceTest extends TestCase
             $blockedSource
         );
         self::assertSame($blockedSource, $empty['source_state']);
-        self::assertSame('missing', $empty['today']['status']);
-        self::assertSame('missing', $empty['yesterday']['status']);
-        self::assertSame('missing', $empty['future']['status']);
+        self::assertSame('blocked', $empty['today']['status']);
+        self::assertSame('blocked', $empty['yesterday']['status']);
+        self::assertSame('blocked', $empty['future']['status']);
         self::assertNull($empty['today']['metrics']['sales_amount']['value']);
 
         $early = $service->buildSummaryFromRows(
@@ -199,9 +199,10 @@ final class MeituanTemporalServiceTest extends TestCase
             new DateTimeImmutable('2026-07-29 08:00:00', new DateTimeZone('Asia/Shanghai')),
             $blockedSource
         );
-        self::assertSame('missing', $early['today']['status']);
-        self::assertSame('pending_source_update', $early['yesterday']['status']);
-        self::assertSame('pending_source_update', $early['future']['status']);
+        foreach (['today', 'yesterday', 'future'] as $section) {
+            self::assertSame('blocked', $early[$section]['status']);
+            self::assertSame($blockedSource['reason_code'], $early[$section]['reason_code']);
+        }
         self::assertSame($blockedSource, $early['source_state']);
     }
 
@@ -1097,7 +1098,7 @@ final class MeituanTemporalServiceTest extends TestCase
         self::assertSame('2026-07-29 18:00:00', $summary['today']['captured_at']);
     }
 
-    public function testHistoricalReplayUsesShanghaiCutoffAndSeparatesCurrentSourceBlock(): void
+    public function testHistoricalReplayUsesShanghaiCutoffAndKeepsCurrentSourceBlock(): void
     {
         $rows = [
             $this->completeBusinessRow(80, 904, '2026-07-29', '2026-07-29T15:59:00Z'),
@@ -1114,7 +1115,7 @@ final class MeituanTemporalServiceTest extends TestCase
 
         $current = $service->buildSummaryFromRows($rows, 80, '2026-07-29',
             new DateTimeImmutable('2026-07-29 23:59:00', new DateTimeZone('Asia/Shanghai')), $source);
-        self::assertSame('ready', $current['today']['status']);
+        self::assertSame('blocked', $current['today']['status']);
         self::assertSame($source, $current['source_state']);
         self::assertSame('current', $current['read_mode']);
     }

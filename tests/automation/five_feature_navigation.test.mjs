@@ -34,6 +34,11 @@ function evidenceHarness() {
   const calls = [];
   const applied = [];
   const s = {
+    coreOperationsMaxDate: '2026-09-30',
+    coreOperationsHotelId: ref('64'), coreOperationsTargetDate: ref('2026-09-30'),
+    dashboardHotelId: ref('64'),
+    onlineDataFilter: ref({ hotel_id: '64', source: 'meituan', start_date: '2026-09-30', end_date: '2026-09-30' }),
+    gapNavigation: [], gapNotices: [], gapResets: 0,
     operatingQuestionForm: ref({ hotel_id: '80', platform: 'ctrip', date_start: '2026-08-25', date_end: '2026-08-25' }),
     operatingQuestionState: ref({ loading: false, history_opening_id: 0, council_generation: 0, result: null }),
     filterReportHotel: ref('80'), currentPage: ref('compass'), agentTab: ref('revenue'),
@@ -48,11 +53,85 @@ function evidenceHarness() {
   s.reportHotelOptionExists = (id) => s.accessibleHotels.has(id);
   s.captureAuthSession = () => s.authEpoch;
   s.isAuthSessionCurrent = (epoch) => epoch === s.authEpoch;
+  s.resetCoreOperationsScopedState = () => { s.gapResets += 1; };
+  s.openOnlineDataEntryTab = async (tab, options) => { s.gapNavigation.push({ tab, options,
+    hotel: s.coreOperationsHotelId.value, date: s.coreOperationsTargetDate.value, filter: plain(s.onlineDataFilter.value) }); };
+  s.showToast = (...args) => s.gapNotices.push(args);
   vm.createContext(s);
-  vm.runInContext(`${evidenceSource}\nthis.openEvidence = openOperatingQuestionEvidence;`, s);
+  vm.runInContext(`${evidenceSource}\nthis.openEvidence = openOperatingQuestionEvidence; this.openGap = openOperatingQuestionDataHealth;`, s);
   return { s, calls, applied };
 }
 
+test('saved-answer data health reads the exact record and replaces the previous hotel and date', async () => {
+  const { s, calls } = evidenceHarness();
+  const exact = question(41);
+  s.transport = async () => ({ code: 200, data: exact });
+  assert.equal(await s.openGap(exact), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, '/agent/operating-questions/41');
+  assert.equal(s.gapResets, 1);
+  assert.equal(s.filterReportHotel.value, '80');
+  assert.equal(s.dashboardHotelId.value, '80');
+  assert.deepEqual(plain(s.gapNavigation), [{ tab: 'data-health', options: { force: true, delayMs: 0 },
+    hotel: '80', date: '2026-08-23', filter: { hotel_id: '80', source: 'ctrip', start_date: '2026-08-23', end_date: '2026-08-23' } }]);
+});
+
+test('a multi-day dual-OTA answer keeps the whole query filter and explicitly diagnoses the end date', async () => {
+  const { s } = evidenceHarness();
+  const exact = question(41, { platform: 'all_ota', date_start: '2026-08-20' });
+  s.transport = async () => ({ code: 200, data: exact });
+  assert.equal(await s.openGap(exact), true);
+  assert.equal(s.gapNavigation[0].date, '2026-08-23');
+  assert.deepEqual(plain(s.onlineDataFilter.value), { hotel_id: '80', source: '', start_date: '2026-08-20', end_date: '2026-08-23' });
+  assert.match(s.gapNotices[0][0], /2026-08-20 至 2026-08-23.*截止日 2026-08-23.*逐日/);
+});
+
+test('invalid dates or unsupported platforms cannot read or reuse a previous diagnostic scope', async () => {
+  for (const mutation of [{ date_start: '2026-02-30' }, { date_end: '2026-08-22' },
+    { date_end: '2026-10-01' }, { platform: 'qunar' }, { platform: '' }]) {
+    const { s, calls } = evidenceHarness();
+    await assert.rejects(s.openGap(question(41, mutation)), /日期|携程\/美团/);
+    assert.equal(calls.length, 0);
+    assert.equal(s.gapNavigation.length, 0);
+    assert.equal(s.coreOperationsHotelId.value, '64');
+    assert.equal(s.coreOperationsTargetDate.value, '2026-09-30');
+  }
+});
+
+test('wrong readback identity, revoked access and session changes cannot open a saved-answer gap', async () => {
+  for (const change of ['wrong-hotel', 'wrong-date', 'revoked', 'session']) {
+    const { s } = evidenceHarness();
+    const exact = question(41);
+    s.transport = async () => {
+      if (change === 'revoked') s.accessibleHotels.delete('80');
+      if (change === 'session') s.authEpoch += 1;
+      return { code: 200, data: { ...exact, ...(change === 'wrong-hotel' ? { hotel_id: 81 } : {}),
+        ...(change === 'wrong-date' ? { date_end: '2026-08-24' } : {}) } };
+    };
+    await assert.rejects(s.openGap(exact), /范围|不一致/);
+    assert.equal(s.gapNavigation.length, 0);
+    assert.equal(s.coreOperationsHotelId.value, '64');
+  }
+});
+
+test('leaving or changing the answer after exact readback cannot redirect the new page to data health', async () => {
+  for (const change of [
+    s => { s.currentPage.value = 'compass'; },
+    s => { s.authEpoch += 1; },
+    s => { s.accessibleHotels.delete('80'); },
+    s => { s.operatingQuestionState.value.result = question(42); },
+    s => { s.operatingQuestionForm.value.date_end = '2026-08-24'; },
+  ]) {
+    const { s } = evidenceHarness();
+    const exact = question(41);
+    s.transport = async () => ({ code: 200, data: exact });
+    s.nextTick = async () => { change(s); };
+    await assert.rejects(s.openGap(exact), /范围已变化/);
+    assert.equal(s.gapNavigation.length, 0);
+    assert.equal(s.coreOperationsHotelId.value, '64');
+    assert.equal(s.coreOperationsTargetDate.value, '2026-09-30');
+  }
+});
 function dailyHarness() {
   const calls = [];
   const toasts = [];

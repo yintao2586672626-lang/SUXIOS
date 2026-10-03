@@ -77,9 +77,34 @@ final class PmsFactReconciliationService
         int $hotelId,
         string $businessDate,
         array $captures,
-        array $histories = []
+        array $histories = [],
+        ?int $tenantId = null
     ): array {
+        if ($hotelId <= 0 || ($tenantId !== null && $tenantId <= 0)) {
+            throw new InvalidArgumentException('pms_reconciliation_scope_invalid');
+        }
         $businessDate = $this->date($businessDate);
+        if ($tenantId === null) {
+            foreach ($captures as $provider => $capture) {
+                if (is_array($capture)
+                    && (int)($capture['hotel_id'] ?? 0) === $hotelId
+                    && (string)($capture['provider'] ?? '') === (string)$provider
+                    && (int)($capture['tenant_id'] ?? 0) > 0
+                ) {
+                    $tenantId = (int)$capture['tenant_id'];
+                    break;
+                }
+            }
+        }
+        foreach ([DingdandaoOperatingTargetCaptureService::PROVIDER, MeituanCloudPmsCaptureService::PROVIDER] as $provider) {
+            $captures[$provider] = $this->scopeCapture(
+                $provider, $hotelId, $tenantId, (array)($captures[$provider] ?? [])
+            );
+            $histories[$provider] = array_map(
+                fn(array $capture): array => $this->scopeCapture($provider, $hotelId, $tenantId, $capture),
+                array_values(array_filter((array)($histories[$provider] ?? []), 'is_array'))
+            );
+        }
         $sources = [
             DingdandaoOperatingTargetCaptureService::PROVIDER => $this->normalizeSource(
                 DingdandaoOperatingTargetCaptureService::PROVIDER,
@@ -147,6 +172,7 @@ final class PmsFactReconciliationService
         return [
             'contract_version' => self::CONTRACT_VERSION,
             'hotel_id' => $hotelId,
+            'tenant_id' => $tenantId,
             'business_date' => $businessDate,
             'result_scope' => 'diagnostic_only',
             'sources' => $sources,
@@ -171,10 +197,39 @@ final class PmsFactReconciliationService
         ];
     }
 
+    /** Reject foreign input before facts or the pickup baseline can consume it. */
+    private function scopeCapture(string $provider, int $hotelId, ?int $tenantId, array $capture): array
+    {
+        if ($capture === []) {
+            return [];
+        }
+        if ((int)($capture['hotel_id'] ?? 0) === $hotelId
+            && (int)($capture['tenant_id'] ?? 0) > 0
+            && ($tenantId === null || (int)$capture['tenant_id'] === $tenantId)
+            && (string)($capture['provider'] ?? '') === $provider
+        ) {
+            return $capture;
+        }
+        return [
+            'provider' => $provider,
+            'hotel_id' => $hotelId,
+            'tenant_id' => $tenantId,
+            'capture_status' => 'blocked',
+            'quality_status' => 'identity_mismatch',
+            'identity_status' => 'mismatched',
+            'date_status' => 'unverified',
+            'readback_status' => 'blocked',
+            'summary' => [],
+            'gaps' => [[
+                'code' => 'pms_capture_scope_mismatch',
+                'message' => 'PMS快照缺少或不匹配当前酒店、租户及来源身份，已排除该快照和相关派生计算。',
+            ]],
+        ];
+    }
+
     /**
-     * Failed or unverified captures stay in the audit trail but cannot become
-     * the comparison baseline. "Adjacent" means adjacent in the verified
-     * snapshot series for this same source and business date.
+     * Failed or unverified captures cannot become the comparison baseline.
+     * Adjacent means adjacent in this source's verified, scoped daily history.
      *
      * @param array<string, mixed> $currentCapture
      * @param list<array<string, mixed>> $history
@@ -282,17 +337,19 @@ final class PmsFactReconciliationService
                 'data_gaps' => $previous['gaps'],
             ];
         }
-        if ((string)($current['source_scope'] ?? '') !== (string)($previous['source_scope'] ?? '')) {
+        if ((string)($current['source_scope'] ?? '') !== (string)($previous['source_scope'] ?? '')
+            || (string)($current['provider_hotel_id'] ?? '') !== (string)($previous['provider_hotel_id'] ?? '')
+        ) {
             return [
                 ...$base,
                 'status' => 'rebaseline_required',
                 'status_label' => '来源范围变化',
                 'rule_id' => 'PMS_DELTA_SCOPE_CHANGED',
-                'judgment' => '前后快照的来源范围不同，旧快照不能继续作为基线。',
+                'judgment' => '前后快照的 PMS 门店身份或来源范围不同，旧快照不能继续作为基线。',
                 'recommended_manual_check' => '按当前来源范围重新建立当天基线。',
                 'data_gaps' => [[
                     'code' => 'source_scope_mismatch',
-                    'message' => '当前与上一快照的来源范围不同。',
+                    'message' => '当前与上一快照的 PMS 门店身份或来源范围不同。',
                 ]],
             ];
         }

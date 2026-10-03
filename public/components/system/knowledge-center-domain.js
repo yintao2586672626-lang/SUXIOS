@@ -2367,7 +2367,6 @@
                     }
                     // Local decoding validates UTF-8; server extraction preserves the uploaded original and fingerprint.
                 }
-
                 const extracted = await extractKnowledgeDocumentByApi(file, actionContext);
                 assertKnowledgeImportActionCurrent(actionContext);
                 return {

@@ -38,6 +38,29 @@ final class ManagerCoachingIntegrationTest extends TestCase
     private function rejects(callable $run, string $message): void
     { try { $run(); self::fail('Expected failure: ' . $message); } catch (\InvalidArgumentException|\RuntimeException $e) { self::assertStringContainsString($message, $e->getMessage()); } }
 
+    public function testVersionedKnowledgeCannotBypassImmutableReferenceAndCoachingSnapshotsThroughGenericEditing(): void
+    {
+        $reflection = new \ReflectionClass(\app\controller\Knowledge::class);
+        $controller = $reflection->newInstanceWithoutConstructor();
+        $reflection->getProperty('currentUser')->setValue($controller, new class {
+            public int $id = 7;
+            public int $tenant_id = 10;
+            public function isSuperAdmin(): bool { return true; }
+        });
+        $canModify = $reflection->getMethod('canModifyOwnedRow');
+        $base = ['hotel_id' => 20, 'tenant_id' => 10, 'created_by' => 7, 'status' => 'done'];
+        foreach ([
+            ['source' => 'reference_sop', 'stable_key' => 'reference:20:7:synthetic'],
+            ['source' => 'text', 'stable_key' => 'material:20:7:' . str_repeat('a', 64)],
+            ['source' => 'FORMAL_OPERATING_SOP', 'stable_key' => ''],
+            ['source' => ' formal_operating_sop ', 'stable_key' => ''],
+        ] as $identity) {
+            self::assertFalse($canModify->invoke($controller, array_merge($base, $identity)),
+                'Generic editing must not mutate a versioned or formal knowledge source.');
+        }
+        self::assertTrue($canModify->invoke($controller, $base + ['source' => 'text', 'stable_key' => '']));
+    }
+
     private function controller(bool $superAdmin, array $post = [], array $get = []): ManagerCapability
     {
         $reflection = new \ReflectionClass(ManagerCapability::class);
@@ -270,5 +293,42 @@ final class ManagerCoachingIntegrationTest extends TestCase
         self::assertSame($latest['chunk']['chunk_id'], $refs->save(20, 7, $revision)['chunk']['chunk_id']);
         $this->rejects(fn() => $refs->save(20, 7, array_replace($revision, ['title' => '旧稿覆盖新稿', 'idempotency_key' => 'different-request'])), '版本冲突');
         self::assertSame('superseded', Db::name('knowledge_chunks')->where('chunk_id', $reference['chunk']['chunk_id'])->value('lifecycle_status'));
+    }
+
+    public function testTrustedAccessContextIsRequiredForOtherOwnersKnowledge(): void
+    {
+        $content = ['raw_text' => "私有操作标准\n管理员可用于带教引用", 'lifecycle_status' => 'active'];
+        $unitId = (int)Db::name('knowledge_units')->insertGetId([
+            'hotel_id' => 20, 'name' => '其他作者的私有知识', 'source' => 'manual', 'status' => 'done',
+            'description' => 'synthetic only', 'tags' => '[]', 'created_by' => 8,
+            'stable_key' => 'synthetic-private-' . bin2hex(random_bytes(5)), 'lifecycle_status' => 'active',
+        ]);
+        $chunkId = (int)Db::name('knowledge_chunks')->insertGetId([
+            'unit_id' => $unitId, 'type' => 'manual', 'content' => json_encode($content, JSON_THROW_ON_ERROR),
+            'content_digest' => (new \app\service\KnowledgeContentDigestService())->digest($content),
+            'lifecycle_status' => 'active', 'created_by' => 8,
+        ]);
+        Db::name('knowledge_units')->where('unit_id', $unitId)->update(['current_chunk_id' => $chunkId]);
+
+        $input = array_replace(CoachingKnowledgeFixture::planInput((int)$this->case['id']), [
+            'cause' => 'knowledge', 'knowledge_chunk_ids' => [$chunkId],
+            'idempotency_key' => 'private-' . bin2hex(random_bytes(5)),
+            'super_admin' => true, 'access_context' => ['tenant_id' => 10, 'super_admin' => true],
+        ]);
+        $this->rejects(fn() => $this->service()->create(10, 20, 7, 7, $input), '无权');
+        self::assertSame(0, Db::name('manager_coaching_plans')->count());
+
+        $created = $this->service()->create(
+            10,
+            20,
+            7,
+            7,
+            $input,
+            ['tenant_id' => 10, 'super_admin' => true]
+        );
+        $snapshot = $created['plan']['content']['knowledge_snapshots'][0];
+        self::assertSame($chunkId, $snapshot['chunk_id']);
+        self::assertSame('manager_coaching.knowledge_excerpt.v1', $snapshot['snapshot_schema_version']);
+        self::assertSame('readback_verified', $created['persistence_status']);
     }
 }

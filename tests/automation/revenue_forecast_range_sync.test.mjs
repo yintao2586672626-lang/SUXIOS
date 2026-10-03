@@ -13,7 +13,7 @@ const take = name => {
   assert.ok(start >= 0 && end, `actual declaration: ${name}`);
   return main.slice(start, start + 1 + end.index);
 };
-const production = ['captureAuthSession', 'isAuthSessionCurrent', 'captureAgentRevenueRequestContext',
+const production = ['resolveDemandForecastListPayload','resolvePriceSuggestionListPayload','captureAuthSession', 'isAuthSessionCurrent', 'captureAgentRevenueRequestContext',
   ...(main.includes('            const applyRevenueAiOverviewReadback =') ? ['applyRevenueAiOverviewReadback'] : []),
   ...(main.includes('            const isRevenueForecastRangeCurrent =') ? ['isRevenueForecastRangeCurrent'] : []),
   ...(main.includes('            const captureRevenueForecastRange =') ? ['captureRevenueForecastRange'] : []),
@@ -22,7 +22,7 @@ const production = ['captureAuthSession', 'isAuthSessionCurrent', 'captureAgentR
   'manualCtripPricingInputMeta', 'createCompetitorPriceForm', 'resetCompetitorPriceForm',
   'applyRoomTypeReadback', 'applyDemandForecastReadback', 'applyRevenueDashboardReadback', 'applyRevenueAnalysisReadback',
   'setRevenueLoadState', 'syncRevenuePricingInputDate', 'loadDemandForecasts',
-  'loadRevenueAnalysisBundle', 'saveCompetitorPriceInput',
+  'loadRevenueAnalysisBundle', 'competitorPriceSampleMatches', 'verifyCompetitorPriceSaveReadback', 'saveCompetitorPriceInput',
 ].map(take).join('\n');
 const copy = value => JSON.parse(JSON.stringify(value));
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -34,7 +34,7 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 // and overview/competitor display are closed boundaries; all HTTP is deferred.
 function harness() {
   const refs = {}, requests = [], notices = [], boundaries = [], ensureGates = [];
-  for (const match of production.matchAll(/\b(\w+)\.value/g)) refs[match[1]] ??= Vue.ref(null);
+  for (const match of production.matchAll(/\b(\w+)\.value\b/g)) refs[match[1]] ??= Vue.ref(null);
   const initial = {
     token: 'synthetic-session', filterReportHotel: '81', revenueAiBusinessDate: '2026-09-12',
     priceSuggestionFilter: { date: '2026-09-12', end_date: '2026-09-13', status: 0 },
@@ -53,7 +53,7 @@ function harness() {
   const boundary = name => async () => { boundaries.push(name); };
   const context = vm.createContext({ ...refs, URLSearchParams, console: { error() {} },
     authSessionEpoch: 1, agentRevenueStateEpoch: 1, revenueAnalysisBundleRequestSeq: 0, priceSuggestionRequestSeq: 0,
-    revenueAiOverviewRequestSeq: 0, revenueAiOverviewRequestPromises: new Map(),
+    roomTypesRequestSequence:0,demandForecastsRequestSequence:0,revenueAiOverviewRequestSeq: 0, revenueAiOverviewRequestPromises: new Map(),
     ensureRevenueAiStaticReady: async () => { const gate = ensureGates.shift(); if (gate) await gate.promise; return true; },
     formatDate: () => '2026-09-12', resetCompetitorAnalysisView() {},
     loadRevenueAnalysis: boundary('analysis'), loadRevenueDashboard: boundary('dashboard'),
@@ -64,7 +64,7 @@ function harness() {
     request: (url, options = {}) => {
       const parsed = new URL(url, 'https://synthetic.invalid');
       assert.ok(['/agent/revenue-bundle', '/agent/demand-forecasts', '/agent/competitor-analysis'].includes(parsed.pathname));
-      assert.equal(options.method || 'GET', parsed.pathname === '/agent/competitor-analysis' ? 'POST' : 'GET');
+      assert.ok(['GET', 'POST'].includes(options.method || 'GET'));
       const transport = deferred();
       requests.push({ ...transport, path: parsed.pathname, params: parsed.searchParams, options, settled: false });
       return transport.promise;
@@ -80,7 +80,12 @@ function harness() {
     assert.ok(row && !row.settled, 'one pending synthetic transport'); row.settled = true;
     if (outcome === 'throw') return row.reject(new Error(`synthetic ${marker} exception`));
     if (outcome === 'failed') return row.resolve({ code: 503, message: `synthetic ${marker} failure` });
-    if (row.path === '/agent/competitor-analysis') return row.resolve({ code: 200, data: { id: 9001 } });
+    if (row.path === '/agent/competitor-analysis') {
+      if (row.options.method === 'POST') return row.resolve({ code: 200, data: { id: 9001 } });
+      const post = requests.findLast(item => item.path === '/agent/competitor-analysis' && item.options.method === 'POST');
+      const expected = JSON.parse(post.options.body);
+      return row.resolve({ code: 200, data: { query_scope: { hotel_id: expected.hotel_id, date: expected.analysis_date }, price_matrix: { room: { sample: { ...expected, id: 9001 } } } } });
+    }
     const empty = outcome === 'empty';
     const forecasts = { forecasts: empty ? [] : [{ id: 1001, marker, forecast_date: row.params.get('start_date'),
       predicted_demand: 0, predicted_occupancy: 0, historical_data: { input_type: 'manual_demand_forecast' } }],
@@ -108,6 +113,12 @@ async function begin(h, kind) {
 }
 async function ready(h, marker = 'old-ready') {
   const operation = await begin(h, 'forecasts'); h.reply(operation.row, 'success', marker); await operation.pending;
+}
+async function confirmSave(h, post) {
+  h.reply(post); await flush();
+  const exactRead = h.requests.findLast(row => row.path === '/agent/competitor-analysis' && row.options.method !== 'POST' && !row.settled);
+  assert.ok(exactRead, 'A separate exact scoped GET must verify the saved sample');
+  h.reply(exactRead); await flush();
 }
 function assertIdle(h) {
   assert.equal(h.state().status, 'idle', 'range invalidation is unread, not an empty successful read');
@@ -212,7 +223,7 @@ for (const outcome of ['success', 'empty', 'failed', 'throw']) {
     assert.equal(payload.ota_platform, 1); assert.equal(payload.competitor_data.auto_write_ota, false);
     assert.equal(payload.competitor_data.source_scope, 'ctrip_ota_channel');
     assert.equal(payload.competitor_data.input_type, 'manual_ctrip_competitor_price_sample');
-    h.reply(save.row); await flush();
+    await confirmSave(h, save.row);
     const reads = h.requests.filter(row => row.path === '/agent/demand-forecasts' && !row.settled);
     assert.equal(reads.length, 1, 'save-date change must perform one real forecast read');
     const forecast = reads[0];
@@ -238,8 +249,8 @@ for (const outcome of ['success', 'empty', 'failed', 'throw']) {
 test('same-range competitor save preserves ready predictions and adds no forecast request', async () => {
   const h = harness(); await ready(h); h.refs.competitorPriceForm.value.analysis_date = '2026-09-12';
   const expected = h.snapshot(), owner = h.state(), count = h.requests.length;
-  const save = await begin(h, 'save'); h.reply(save.row); await save.pending;
-  assert.equal(h.requests.length, count + 1); assert.equal(h.state(), owner); assert.deepEqual(h.snapshot(), expected);
+  const save = await begin(h, 'save'); await confirmSave(h, save.row); await save.pending;
+  assert.equal(h.requests.length, count + 2); assert.equal(h.state(), owner); assert.deepEqual(h.snapshot(), expected);
   assert.equal(h.refs.competitorPriceSaving.value, false);
   assert.deepEqual(h.boundaries.sort(), ['analysis', 'competitor', 'dashboard', 'overview', 'prices']);
 });
@@ -257,7 +268,7 @@ for (const outcome of ['failed', 'throw']) {
 for (const scope of ['hotel', 'session', 'epoch', 'start-date', 'end-date']) {
   test(`forecast ${scope} isolation survives the save-triggered read for every old outcome`, async () => {
     for (const outcome of outcomes) {
-      const h = harness(), save = await begin(h, 'save'); h.reply(save.row); await flush();
+      const h = harness(), save = await begin(h, 'save'); await confirmSave(h, save.row);
       const forecast = h.requests.find(row => row.path === '/agent/demand-forecasts');
       assert.ok(forecast, 'actual save-triggered forecast reader'); h.changeScope(scope);
       const expected = h.snapshot(), notices = h.notices.length;

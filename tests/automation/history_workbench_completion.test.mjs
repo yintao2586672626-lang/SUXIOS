@@ -118,7 +118,6 @@ test('history export never substitutes an external OTA hotel identifier for the 
     requestPage: async () => response([scoped], 1, 1) });
   assert.equal(rows.length, 1);
 });
-
 test('filtered export cancels between pages when account or loaded result identity changes', async () => {
   let current = true, calls = 0;
   await assert.rejects(system.readOnlineHistoryExportRows({ query, isCurrent: () => current,
@@ -385,7 +384,6 @@ test('advertising availability belongs to the loaded result hotel, including all
     assert.equal(tree.children[0].children.includes('不适用'), loadedHotel === '81');
   }
 });
-
 test('CSV metadata identifies exported scope while formula prefixes and null metrics remain safe', () => {
   const data = meituan.buildMeituanDownloadData([row(1, { hotel_name: '\t=HYPERLINK("x")', dimension: '@SUM(1)', list_exposure: 0, detail_exposure: null, amount: null })]);
   const csv = meituan.buildMeituanStoredPageCsvPayload('ads', data, { hotelId: 80, startDate: '2026-08-01', endDate: '2026-08-03', scope: 'filtered', page: 9, createStart: '2026-08-02', createEnd: '2026-08-03', dataTypes: 'advertising' });

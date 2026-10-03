@@ -228,17 +228,12 @@ trait AiDailyReportStorageReadConcern
 
     private function tableHasColumn(string $table, string $column): bool
     {
-        static $cache = [];
-        $connection = Db::connect(); $physicalTable = Db::name($table)->getTable();
-        $key = spl_object_id($connection) . '.' . $connection->getConfig('database') . '.' . $physicalTable . '.' . $column;
-        if (array_key_exists($key, $cache)) {
-            return $cache[$key];
+        $physicalTable = str_replace('`', '', Db::name($table)->getTable());
+        $inspection = \app\service\DatabaseSchemaRequirement::inspectTableColumns($physicalTable);
+        if ($inspection['status'] === \app\service\DatabaseSchemaRequirement::STATUS_UNREADABLE) {
+            throw new \RuntimeException('database_table_columns_probe_failed:' . $table, 503);
         }
-
-        try {
-            $columns = $connection->getFields($physicalTable); return $cache[$key] = isset($columns[$column]);
-        } catch (Throwable $e) {
-            return $cache[$key] = false;
-        }
+        return $inspection['status'] === \app\service\DatabaseSchemaRequirement::STATUS_PRESENT
+            && in_array($column, $inspection['columns'], true);
     }
 }

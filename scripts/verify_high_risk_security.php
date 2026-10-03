@@ -281,7 +281,8 @@ $otaMigrationCommandSource = file_get_contents(__DIR__ . '/../app/command/Migrat
 $otaMigrationServiceSource = file_get_contents(__DIR__ . '/../app/service/OtaCredentialMigrationService.php');
 $otaCustomRequestServiceSource = file_get_contents(__DIR__ . '/../app/service/OtaCustomRequestService.php');
 $packageSource = file_get_contents(__DIR__ . '/../package.json');
-$meituanCapturedPersistenceSource = extract_method_source($onlineSource, 'saveMeituanCapturedDailyRows');
+$meituanCapturedPersistenceSource = extract_method_source($onlineSource, 'saveMeituanCapturedDailyRows')
+    . extract_method_source($onlineSource, 'persistMeituanCapturedDailyRows');
 $competitorTaskSource = extract_method_source($competitorSource, 'task');
 $competitorReportSource = extract_method_source($competitorSource, 'report')
     . "\n"

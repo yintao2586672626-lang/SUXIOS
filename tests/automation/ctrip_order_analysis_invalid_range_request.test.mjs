@@ -41,6 +41,7 @@ const createHarness = ({ analysis = null } = {}) => {
 const resolveAnalysis = (request, dateRange) => request.resolve({
   ok: true,
   json: async () => ({ code: 200, data: {
+    status: 'available_unverified',
     metric_scope: 'ota_channel',
     hotel: { id: 80, name: 'Synthetic hotel' },
     date_range: {

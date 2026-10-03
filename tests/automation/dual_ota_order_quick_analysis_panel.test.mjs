@@ -106,8 +106,8 @@ for (const [name,from,to,retain,lateFailure] of [
 test('dual-OTA quick analysis uses one authenticated persisted-read endpoint and four ranges', () => {
   assert.match(panel, /fetch\(`\/api\/online-data\/dual-ota\/order-analysis\?\$\{params\.toString\(\)}`/);
   assert.match(panel, /new URLSearchParams\(\{ system_hotel_id: String\(hotelId\) \}\)/);
-  assert.match(panel, /params\.set\('date_from', this\.quickDateFrom\)/);
-  assert.match(panel, /params\.set\('date_to', this\.quickDateTo\)/);
+  assert.match(panel, /params\.set\('date_from', dateFrom\)/);
+  assert.match(panel, /params\.set\('date_to', dateTo\)/);
   assert.match(panel, /headers:\s*authToken\s*\?\s*\{ Authorization: `Bearer \$\{authToken}` \}\s*:\s*\{\}/);
   assert.match(panel, /cache:\s*'no-store'/);
   assert.match(panel, /setQuickRangePreset\('30d', false\)/);

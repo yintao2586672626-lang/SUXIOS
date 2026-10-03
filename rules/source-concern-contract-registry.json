@@ -68,10 +68,17 @@
     "app/service/RevenueAiOverviewService.php": [
       "app/service/concern/RevenueAiOverviewLabelConcern.php",
       "app/service/concern/RevenueAiOverviewMarketStructureConcern.php",
-      "app/service/concern/RevenueAiOverviewPricingEvidenceConcern.php"
+      "app/service/concern/RevenueAiOverviewPricingEvidenceConcern.php",
+      "app/service/concern/RevenueAiOverviewManualOrderConcern.php",
+      "app/service/RevenueAiOverviewIssueConcern.php",
+      "app/service/concern/RevenueAiOverviewCompetitorSignalConcern.php",
+      "app/service/concern/RevenueAiOverviewOtaStructureSignalConcern.php"
     ],
     "scripts/report_business_chain_status.php": [
       "scripts/lib/business_chain_p0_scope.php"
+    ],
+    "scripts/verify_public_entry_guard.mjs": [
+      "scripts/lib/ctrip_profile_panel_contract.mjs"
     ],
     "tests/OnlineDataTest.php": [
       "tests/Support/OnlineData/CtripTestCases.php",

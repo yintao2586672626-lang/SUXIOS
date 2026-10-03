@@ -168,3 +168,56 @@ test('missing scope, missing callback and lack of a professional entry fail with
   assert.match(textOf(forbidden.render()), /没有专业问答入口权限/);
   assert.equal(calls, 0);
 });
+
+test('a blocked saved answer opens its own data-health scope instead of the last diagnostic scope', async () => {
+  const exact = answer(41, '2026-08-23', { answer_status: 'blocked_missing_fact' });
+  const ui = mount([turn(exact)]);
+  ui.ctx.coreOperationsHotelId = '64';
+  ui.ctx.coreOperationsTargetDate = '2026-09-30';
+  let fallbackReads = 0;
+  ui.ctx.openOnlineDataTab = () => { fallbackReads += 1; };
+  const opened = [];
+  ui.ctx.openOperatingQuestionDataHealth = async payload => { opened.push({ ...payload }); return true; };
+  const button = ui.nodes().find(node => node.type === 'button' && /补齐可信事实/.test(textOf(node)));
+  assert.equal(await button.props.onClick(), true);
+  assert.deepEqual(opened.map(({ id, hotel_id, platform, date_start, date_end, content_digest }) => (
+    { id, hotel_id, platform, date_start, date_end, content_digest }
+  )), [exact].map(({ id, hotel_id, platform, date_start, date_end, content_digest }) => (
+    { id, hotel_id, platform, date_start, date_end, content_digest }
+  )));
+  assert.equal(fallbackReads, 0, 'a saved answer cannot fall back to the previous diagnostic scope');
+  assert.equal(ui.ctx.currentPage, 'compass', 'the verified parent callback owns navigation');
+});
+
+test('a saved-answer gap read rejects duplicate clicks and releases the entry after failure for retry', async () => {
+  const ui = mount([turn(answer(41, '2026-08-23', { answer_status: 'blocked_missing_fact' }))]);
+  let finish;
+  let calls = 0;
+  ui.ctx.openOperatingQuestionDataHealth = () => { calls += 1; return new Promise(resolve => { finish = resolve; }); };
+  const button = () => ui.nodes().find(node => node.type === 'button' && /补齐可信事实/.test(textOf(node)));
+  const pending = button().props.onClick();
+  assert.equal(await button().props.onClick(), false);
+  assert.equal(calls, 1);
+  finish(false);
+  assert.equal(await pending, false);
+  assert.match(ui.state.error, /未能打开/);
+  assert.equal(ui.state.opening_key, '');
+  ui.ctx.openOperatingQuestionDataHealth = async () => true;
+  assert.equal(await button().props.onClick(), true);
+  assert.equal(ui.state.error, '');
+});
+
+test('missing saved scope or a missing gap callback never navigates using current form defaults', async () => {
+  for (const exact of [answer(41, '2026-08-23', { answer_status: 'blocked_missing_fact' }),
+    answer(0, '2026-08-23', { answer_status: 'blocked_missing_fact' }),
+    answer(41, '2026-08-23', { answer_status: 'blocked_missing_fact', content_digest: '' })]) {
+    const ui = mount([turn(exact)]);
+    let reads = 0;
+    ui.ctx.openOnlineDataTab = () => { reads += 1; };
+    const button = ui.nodes().find(node => node.type === 'button' && /补齐可信事实/.test(textOf(node)));
+    assert.equal(await button.props.onClick(), false);
+    assert.equal(reads, 0);
+    assert.equal(ui.ctx.currentPage, 'compass');
+    assert.match(ui.state.error, /尚未加载|没有已保存|缺少完整范围/);
+  }
+});

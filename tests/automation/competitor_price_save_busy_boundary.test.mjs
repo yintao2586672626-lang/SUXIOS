@@ -30,7 +30,7 @@ const requestSource = [
 const names = [
   'manualCtripPricingInputMeta', 'firstEnabledRoomTypeId', 'emptyCompetitorAnalysis', 'createCompetitorPriceForm',
   'captureAgentRevenueRequestContext', 'isAgentRevenueRequestCurrent', 'setRevenueLoadState',
-  'syncRevenuePricingInputDate', 'resetCompetitorPriceForm', 'saveCompetitorPriceInput', 'loadCompetitorAnalysis',
+  'syncRevenuePricingInputDate', 'resetCompetitorPriceForm', 'competitorPriceSampleMatches', 'verifyCompetitorPriceSaveReadback', 'saveCompetitorPriceInput', 'loadCompetitorAnalysis',
   ...(main.includes('const competitorManualSamples =') ? ['competitorManualSamples'] : []),
 ];
 let card, tab, hiddenAncestors, cardAncestors;
@@ -76,6 +76,7 @@ async function harness() {
     permittedHotels: [{ id: 80, tenant_id: 7, name: 'Synthetic hotel' }],
   }).map(([key, value]) => [key, Vue.ref(value)]));
   const requests = [], notices = [];
+  state.competitorPriceSaveReadback = Vue.ref(null);
   const sandbox = {
     ...state, computed: Vue.computed, window: {}, URL, URLSearchParams, Headers, AbortController, DOMException, Date, Intl,
     setTimeout, clearTimeout, console: { error() {}, warn() {} }, API_BASE: 'https://synthetic.invalid/api',
@@ -203,9 +204,9 @@ const fill = async (h, draft) => {
   assert.deepEqual(clone(h.state.competitorPriceForm.value), draft);
 };
 const assertControls = (snapshot, expectedDisabled) => {
-  assert.equal(snapshot.length, 8, 'Six original editable fields plus refresh/save, no user clear control');
+  assert.equal(snapshot.length, 9, 'Six editable fields plus refresh/save/explicit clear');
   assert.equal(snapshot.filter(n => ['input', 'select'].includes(n.tag)).length, 6);
-  assert.deepEqual(snapshot.filter(n => n.tag === 'button').map(n => n.label), ['刷新', '保存样本']);
+  assert.deepEqual(snapshot.filter(n => n.tag === 'button').map(n => n.label), ['刷新', '保存样本', '清空并重新录入']);
   assert.ok(snapshot.every(n => n.disabled === expectedDisabled), 'All original controls inherit the correct busy state');
 };
 const assertPayload = (payload, draft) => {
@@ -216,7 +217,7 @@ const assertPayload = (payload, draft) => {
   assert.equal(payload.competitor_data.auto_write_ota, false);
 };
 
-test('HTTP500 retains submitted A and unlocks every original control for explicit later B edits', async () => {
+test('HTTP500 retains submitted A and requires explicit clear before a later B save', async () => {
   const h = await harness();
   assert.equal(h.state.revenueAgentTab.value, 'suggestions');
   assert.deepEqual(cardAncestors.map(n => n.tag), ['div', 'div', 'div', 'div', 'div', 'div']);
@@ -232,10 +233,13 @@ test('HTTP500 retains submitted A and unlocks every original control for explici
   await pending; await tick(); await h.html();
   assertControls(duringPost, true);
   assert.deepEqual(clone(h.state.competitorPriceForm.value), A);
-  assert.equal(h.state.competitorPriceSaving.value, false); assertControls(h.controls(), false);
+  assert.equal(h.state.competitorPriceSaving.value, false);
+  assert.equal(h.state.competitorPriceSaveReadback.value.status, 'unknown');
+  assert.ok(h.controls().every(n => n.disabled === (n.label === '保存样本')));
   assert.equal(h.notices.length, 1); assert.equal(h.notices[0].type, 'error');
   assert.match(h.notices[0].message, /Synthetic write response failure/);
   assert.equal(h.requests.length, 1, 'Failure does not issue an automatic POST or GET');
+  await h.click('清空并重新录入');
   await fill(h, B); assertControls(h.controls(), false);
   assert.equal(h.requests.length, 1, 'Editing after failure does not save implicitly');
 });
@@ -248,14 +252,18 @@ test('success keeps the card locked through original confirmation GETs and permi
   // Real controller POST contract is only {id}; do not invent strict flags.
   h.reply(post, { code: 200, message: '记录成功', data: { id: 79002 } });
   await tick(); await h.html(); const duringRead = h.controls();
-  assert.equal(h.state.competitorPriceSaving.value, true, 'Original save awaits both read requests');
+  assert.equal(h.state.competitorPriceSaving.value, true, 'Save awaits independent exact readback before refreshing both sources');
+  const saved = manual({ id: 79002, competitor_name: A.competitor_name, competitor_data: submitted.competitor_data });
+  const exactGet = h.latest('GET');
+  assert.equal(h.requests.filter(r => !r.settled && (r.options.method || 'GET') === 'GET').length, 1);
+  assert.equal(new URL(exactGet.url).pathname, '/api/agent/competitor-analysis');
+  h.reply(exactGet, { code: 200, data: response([saved]) }); await tick();
   const gets = h.requests.filter(r => !r.settled && (r.options.method || 'GET') === 'GET');
   assert.equal(gets.length, 2);
   for (const get of gets) {
     const url = new URL(get.url); assert.equal(url.searchParams.get('hotel_id'), '80');
     assert.equal(url.searchParams.get(url.pathname === '/api/agent/competitor-analysis' ? 'date' : 'target_date'), A.analysis_date);
   }
-  const saved = manual({ id: 79002, competitor_name: A.competitor_name, competitor_data: submitted.competitor_data });
   const ctripGet = gets.find(r => new URL(r.url).pathname === '/api/agent/competitor-analysis');
   const meituanGet = gets.find(r => new URL(r.url).pathname === '/api/online-data/competitor-summary');
   h.reply(ctripGet, { code: 200, data: response([saved]) }); await tick(); await h.html();
@@ -269,8 +277,8 @@ test('success keeps the card locked through original confirmation GETs and permi
   assert.equal(h.rows().length, 1);
   assert.deepEqual(h.fields(h.rows()[0]), { date: A.analysis_date, room: 'Synthetic room A', name: A.competitor_name, 'our-price': '¥291', 'competitor-price': '¥287', source: '携程 · 人工录入' });
   assert.equal(h.notices.filter(n => n.type === 'error').length, 0);
-  assert.equal(h.requests.length, 3, 'One explicit synthetic POST and its two original GETs only');
+  assert.equal(h.requests.length, 4, 'One explicit POST, independent exact readback, then two source refresh GETs');
   await fill(h, B); assertControls(h.controls(), false);
   assert.equal(h.fields(h.rows()[0]).name, A.competitor_name, 'Later unsaved B never replaces the read A record');
-  assert.equal(h.requests.length, 3, 'Later explicit edits do not auto-save');
+  assert.equal(h.requests.length, 4, 'Later explicit edits do not auto-save');
 });

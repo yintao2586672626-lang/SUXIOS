@@ -328,10 +328,9 @@ test('history panel exposes an actionable retry and lets a newer row supersede a
   const ui = { state: { value: state }, form: { value: form },
     selectedHotel: { value: { name: '合成酒店' } }, hotels: { value: [] },
     loadHistory: options => calls.push(options), ensureScope: () => 7 };
-  const componentContext = { window: { SUXI_HOTEL_DATA_ANALYST_COMPONENTS: {
-    create: () => ({ suggestions: [], createFeedbackUi: () => ({}),
-      renderQualityReceipt: () => null, hotelDataAnalystProfile: {} }),
-  } } };
+  const componentContext = { window: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(root,
+    'public/components/system/hotel-data-analyst-components.js'), 'utf8'), componentContext);
   vm.runInNewContext(componentSource, componentContext);
   const factory = componentContext.window.SUXI_OPERATING_INTELLIGENCE_COMPONENTS_FULL;
   const h = (type, props, children) => ({ type, props: props || {}, children });

@@ -5,6 +5,7 @@ namespace Tests;
 
 use app\middleware\Auth;
 use app\model\User;
+use app\service\ProtectedCapabilityService;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ReflectionHelper;
 
@@ -166,5 +167,67 @@ final class AuthMiddlewareAuditTest extends TestCase
         self::assertStringContainsString('scope_protected_ai_decision', $key);
         self::assertStringContainsString('endpoint_', $key);
         self::assertStringEndsWith('_window', $key);
+    }
+
+    public function testCollectionReadAliasesKeepCanonicalPoliciesAndCacheBuckets(): void
+    {
+        $this->assertRateLimitAliases([
+            ['GET', '/api/online-data/auto-fetch-status', 'collection_status_read', 180, 60, true],
+            ['GET', '/api/online-data/collection-reliability', 'protected_collection_health', 60, 3600, true],
+            ['GET', '/api/daily-reports/export', 'protected_export', 10, 3600, true],
+        ]);
+    }
+
+    public function testProtectedWriteAliasesKeepCanonicalPoliciesAndCacheBuckets(): void
+    {
+        $this->assertRateLimitAliases([
+            ['POST', '/api/online-data/fetch-ctrip', 'protected_ota_manual_fetch', 600, 3600, true],
+            ['POST', '/api/online-data/fetch-meituan', 'protected_ota_manual_fetch', 600, 3600, true],
+            ['POST', '/api/agent/ota-diagnosis', 'protected_ai_decision', 30, 3600, true],
+        ]);
+    }
+
+    public function testUnrelatedReadLoginAndWriteAliasesRetainOriginalPolicies(): void
+    {
+        $this->assertRateLimitAliases([
+            ['GET', '/api/hotels', 'read', 180, 60, false],
+            ['POST', '/api/auth/login', 'write', 60, 60, false],
+            ['POST', '/api/online-data/save-daily-data', 'write', 60, 60, false],
+        ]);
+    }
+
+    private function assertRateLimitAliases(array $cases): void
+    {
+        $originalRoute = config('route', []);
+        app()->config->set(['url_html_suffix' => 'html'], 'route');
+        try {
+            $middleware = new Auth();
+            $service = new ProtectedCapabilityService(ProtectedCapabilityService::defaultPolicy());
+            foreach ($cases as [$method, $path, $scope, $limit, $window, $protected]) {
+                $capability = $service->classifyPath($method, $path);
+                if ($protected) self::assertIsArray($capability);
+                else self::assertNull($capability);
+                $canonical = $this->invokeNonPublic($middleware, 'resolveRateLimitPolicy', [$method, $path, $capability]);
+                self::assertSame($scope, $canonical['scope']);
+                self::assertSame($limit, $canonical['limit']);
+                self::assertSame($window, $canonical['window']);
+                $canonicalKey = $this->invokeNonPublic($middleware, 'buildRateLimitCacheKey', [7, 42, '127.0.0.1', $scope, $method, $canonical['path']]);
+                foreach (['', '?hotel_id=7', '.HTML', '.HTML?hotel_id=7', '.html?hotel_id=7&include_detail=0'] as $suffix) {
+                    $uri = $path . $suffix;
+                    $aliasCapability = $service->classifyPath($method, $uri);
+                    self::assertSame($capability, $aliasCapability, $uri);
+                    $alias = $this->invokeNonPublic($middleware, 'resolveRateLimitPolicy', [$method, $uri, $aliasCapability]);
+                    self::assertSame($canonical, $alias, $uri);
+                    self::assertSame($canonicalKey, $this->invokeNonPublic($middleware, 'buildRateLimitCacheKey', [7, 42, '127.0.0.1', $scope, $method, $alias['path']]), $uri);
+                }
+                $unsupportedPath = ltrim($path . '.json', '/');
+                self::assertSame($unsupportedPath, $service->normalizePath($path . '.json'), 'An unsupported suffix must retain its original path.');
+                $unsupportedCapability = $service->classifyPath($method, $path . '.json');
+                if ($unsupportedCapability !== null) self::assertSame($unsupportedPath, $unsupportedCapability['path']);
+                else self::assertNull($unsupportedCapability);
+            }
+        } finally {
+            app()->config->set($originalRoute, 'route');
+        }
     }
 }

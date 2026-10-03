@@ -558,7 +558,18 @@ class OtaRevenueMetricService
             }
         }
 
-        $priceRows = array_values(array_filter($daily, static fn(array $row): bool => ($row['our_price'] ?? null) !== null && ($row['competitor_price'] ?? null) !== null));
+        $priceRows = array_values(array_filter($daily, fn(array $row): bool =>
+            $this->hasNumericValue($row, 'our_price') && $this->hasNumericValue($row, 'competitor_price')));
+        // Compare the same observed pairs without changing collected facts.
+        $priceGaps = [];
+        $priceGapRates = [];
+        foreach ($priceRows as $row) {
+            $gap = round((float)$row['our_price'] - (float)$row['competitor_price'], 2);
+            $priceGaps[] = $gap;
+            if ((float)$row['competitor_price'] > 0) {
+                $priceGapRates[] = $this->finiteRatio($gap, (float)$row['competitor_price'], 100.0);
+            }
+        }
         if (!$priceRows) {
             $dataGaps[] = [
                 'code' => 'competitor_price_fields_missing',
@@ -713,8 +724,10 @@ class OtaRevenueMetricService
                 'rows' => count($priceRows),
                 'avg_our_price' => $this->average($priceRows, 'our_price'),
                 'avg_competitor_price' => $this->average($priceRows, 'competitor_price'),
-                'avg_price_gap' => $this->average($priceRows, 'price_gap'),
-                'avg_price_gap_rate' => $this->average($priceRows, 'price_gap_rate'),
+                // Keep a failed calculation in its aggregate so the existing
+                // finite guard invalidates it rather than dropping that pair.
+                'avg_price_gap' => $priceGaps !== [] ? round(array_sum($priceGaps) / count($priceGaps), 2) : null,
+                'avg_price_gap_rate' => $priceGapRates !== [] ? round(array_sum($priceGapRates) / count($priceGapRates), 2) : null,
             ],
             'booking_window_adr' => $bookingWindowAdr,
             'channel_booking_window_month' => $channelBookingWindowMonth,
@@ -2174,9 +2187,9 @@ class OtaRevenueMetricService
                     : null
             );
             $this->appendChannelMetric($metrics, $row, $resource, 'adr', $row['adr'] ?? null, $row['room_nights'] ?? null);
-            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'our_price', $row['our_price'] ?? null);
-            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'competitor_price', $row['competitor_price'] ?? null);
-            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'price_gap', $row['price_gap'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'our_price', $this->hasNumericValue($row, 'our_price') ? $row['our_price'] : null);
+            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'competitor_price', $this->hasNumericValue($row, 'competitor_price') ? $row['competitor_price'] : null);
+            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'price_gap', $this->hasNumericValue($row, 'price_gap') ? $row['price_gap'] : null);
         }
 
         foreach ($this->canonicalTrafficMetricRows(
@@ -2465,8 +2478,12 @@ class OtaRevenueMetricService
             'competitor_price.rows' => $this->trust($priceRows, 'count(fact_ota_daily rows with our_price and competitor_price)', $priceFailures),
             'competitor_price.avg_our_price' => $this->trust($priceRows, 'avg(fact_ota_daily.our_price)', $priceFailures),
             'competitor_price.avg_competitor_price' => $this->trust($priceRows, 'avg(fact_ota_daily.competitor_price)', $priceFailures),
-            'competitor_price.avg_price_gap' => $this->trust($priceRows, 'avg(fact_ota_daily.price_gap)', $priceFailures),
-            'competitor_price.avg_price_gap_rate' => $this->trust($priceRows, 'avg(fact_ota_daily.price_gap_rate)', $priceFailures),
+            'competitor_price.avg_price_gap' => $this->trust($priceRows, 'avg(fact_ota_daily.our_price - fact_ota_daily.competitor_price)', $priceFailures),
+            'competitor_price.avg_price_gap_rate' => $this->trust(
+                array_values(array_filter($priceRows, static fn(array $row): bool => (float)$row['competitor_price'] > 0)),
+                'avg((fact_ota_daily.our_price - fact_ota_daily.competitor_price) / fact_ota_daily.competitor_price * 100) for positive competitor prices',
+                $priceFailures
+            ),
         ];
 
         foreach ($this->groupRowsBy($daily, 'platform_key') as $key => $rows) {

@@ -42,10 +42,11 @@ for(const width of [1280,320])test(`actual forecast panel saves explicit zero, v
                     return {code:200,data:{id:501,readback_verified:true,forecast:{...payload,id:501,predicted_occupancy:window.receiptMode==='bad'?99:payload.predicted_occupancy}}};
                 }
             });
+            window.demandForecastReadState=Vue.computed(()=>revenueLoadState.value.forecasts);
             for(const name of ['loadDemandForecasts','loadRevenueAnalysis','loadRevenueDashboard','loadRevenueAiOverview'])window[name]=async()=>{};
         });
         await page.addScriptTag({content:compiledLogic});
-        await page.addScriptTag({content:`Vue.createApp({setup(){return {filterReportHotel,forecastFilter,revenueLoadState,demandForecasts,demandForecastSaving,demandForecastSaveReadback,demandForecastForm,roomTypeConfigList,loadDemandForecasts,resetDemandForecastForm:window.clearForecast,saveDemandForecastInput:window.saveForecast};},render:(function(Vue){${render}})(Vue)}).mount('#app');`});
+        await page.addScriptTag({content:`Vue.createApp({setup(){return {filterReportHotel,forecastFilter,revenueLoadState,demandForecastReadState,demandForecasts,demandForecastSaving,demandForecastSaveReadback,demandForecastForm,roomTypeConfigList,loadDemandForecasts,resetDemandForecastForm:window.clearForecast,saveDemandForecastInput:window.saveForecast};},render:(function(Vue){${render}})(Vue)}).mount('#app');`});
         assert.deepEqual(errors, [], 'Production panel mounts before any interaction');
         const input=page.getByLabel('人工预测入住率');
         await input.fill('0');await page.getByRole('button',{name:'保存预测',exact:true}).click();

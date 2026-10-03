@@ -218,6 +218,7 @@ final class CtripOrderAnalysisService
         $classificationAvailable = $contract === self::CONTRACT_V2;
         $distributionsAvailable = $contract === self::CONTRACT_V2;
         $roomTypesAvailable = $contract === self::CONTRACT_V2;
+        $roomTypesTruncated = false;
         $losBuckets = [];
         $leadBuckets = [];
         $roomTypes = [];
@@ -282,6 +283,7 @@ final class CtripOrderAnalysisService
             }
             if ($roomRows === null || ($detail['room_type_metrics_truncated'] ?? false) === true) {
                 $roomTypesAvailable = false;
+                $roomTypesTruncated = $roomTypesTruncated || ($detail['room_type_metrics_truncated'] ?? false) === true;
             } else {
                 $this->mergeRoomTypes($roomTypes, $roomRows, OtaStandardEtlService::monetaryUnitEvidence($canonical, $detail));
             }
@@ -300,6 +302,27 @@ final class CtripOrderAnalysisService
         $summary = $this->finalizeAccumulator($summaryAccumulator);
         unset($summary['key'], $summary['label']);
 
+        $classificationMissingReason = match ($contract) {
+            self::CONTRACT_V2 => 'V2 聚合缺少逐状态分类回执，已入住与未入住计数不可核验。',
+            self::CONTRACT_V1 => 'V1 聚合未保存逐状态分类回执。',
+            default => '旧版保存汇总未保存逐状态分类回执。',
+        };
+        $losMissingReason = $contract === self::CONTRACT_V2
+            ? 'V2 聚合的连住或提前预订分布回执缺失或不完整，无法核验完整连住分布。'
+            : '旧聚合仅保存平均连住与单晚占比';
+        $leadMissingReason = $contract === self::CONTRACT_V2
+            ? 'V2 聚合的连住或提前预订分布回执缺失或不完整，无法核验完整提前预订分布。'
+            : '旧聚合仅保存平均提前天数';
+        $roomTypesMissingReason = $contract !== self::CONTRACT_V2
+            ? '旧聚合仅保存每日 Top5，无法恢复完整排名'
+            : ($roomTypesTruncated
+                ? 'V2 房型聚合已截断，当前保存回执不含全部房型。'
+                : 'V2 聚合缺少完整房型回执，无法核验完整排名。');
+        $receiptNextAction = '重新导入同一门店的原始携程 XLS，并确认 V2 回执已保存且完成回读。';
+        $roomTypesNextAction = $contract === self::CONTRACT_V2 && $roomTypesTruncated
+            ? '核对原始文件与房型数量；当前导入每个日期和渠道最多保存 100 个房型，超出部分需扩展保存契约后再导入，同一文件重复上传无法补齐。'
+            : $receiptNextAction;
+
         if ($classificationAvailable) {
             $classification['status'] = 'available';
             $classification['cancelled_orders'] = $summary['cancelled_orders'];
@@ -315,7 +338,7 @@ final class CtripOrderAnalysisService
                 'active_not_stayed_orders' => null,
                 'cancelled_orders' => $summary['cancelled_orders'],
                 'unknown_status_orders' => $summary['unknown_status_orders'],
-                'reason' => 'V1 聚合未保存逐状态分类回执。',
+                'reason' => $classificationMissingReason,
             ];
             $summary['stayed_orders'] = null;
         }
@@ -335,14 +358,14 @@ final class CtripOrderAnalysisService
             );
         }
         if (!$classificationAvailable) {
-            $missingDimensions[] = $this->missingDimension('status_classification', '已入住与状态分类', '旧聚合未保存逐状态计数');
+            $missingDimensions[] = $this->missingDimension('status_classification', '已入住与状态分类', $classificationMissingReason, $receiptNextAction);
         }
         if (!$distributionsAvailable) {
-            $missingDimensions[] = $this->missingDimension('los_distribution', '连住分布', '旧聚合仅保存平均连住与单晚占比');
-            $missingDimensions[] = $this->missingDimension('lead_time_distribution', '提前预订分布', '旧聚合仅保存平均提前天数');
+            $missingDimensions[] = $this->missingDimension('los_distribution', '连住分布', $losMissingReason, $receiptNextAction);
+            $missingDimensions[] = $this->missingDimension('lead_time_distribution', '提前预订分布', $leadMissingReason, $receiptNextAction);
         }
         if (!$roomTypesAvailable) {
-            $missingDimensions[] = $this->missingDimension('room_type_metrics', '完整房型表现', '旧聚合仅保存每日 Top5，无法恢复完整排名');
+            $missingDimensions[] = $this->missingDimension('room_type_metrics', '完整房型表现', $roomTypesMissingReason, $roomTypesNextAction);
         }
 
         $exclusions = $this->exclusionResult($contract, $candidates[0]['detail']);
@@ -396,14 +419,14 @@ final class CtripOrderAnalysisService
             'distributions' => [
                 'los' => $distributionsAvailable
                     ? ['status' => 'available', 'buckets' => array_values($losBuckets)]
-                    : ['status' => 'evidence_missing', 'buckets' => [], 'reason' => '原始分布未保存'],
+                    : ['status' => 'evidence_missing', 'buckets' => [], 'reason' => $losMissingReason],
                 'lead_time' => $distributionsAvailable
                     ? ['status' => 'available', 'buckets' => array_values($leadBuckets)]
-                    : ['status' => 'evidence_missing', 'buckets' => [], 'reason' => '原始分布未保存'],
+                    : ['status' => 'evidence_missing', 'buckets' => [], 'reason' => $leadMissingReason],
             ],
             'room_types' => $roomTypesAvailable
                 ? ['status' => 'available', 'rows' => $this->finalizeRoomTypes($roomTypes)]
-                : ['status' => 'evidence_missing', 'rows' => [], 'reason' => '完整房型聚合不可恢复'],
+                : ['status' => 'evidence_missing', 'rows' => [], 'reason' => $roomTypesMissingReason],
             'missing_dimensions' => $missingDimensions,
             'amount_semantics' => 'reference_bottom_price_not_confirmed_revenue',
             'note' => $isLegacy
@@ -802,7 +825,7 @@ final class CtripOrderAnalysisService
         string $key,
         string $label,
         string $reason,
-        string $nextAction = '重新上传同一门店的原始携程 XLS 后自动补算'
+        string $nextAction
     ): array
     {
         return [

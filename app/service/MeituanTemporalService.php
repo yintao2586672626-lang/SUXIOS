@@ -263,7 +263,16 @@ final class MeituanTemporalService
         $yesterdayReference = $this->latestReadyReference($yesterdayReferences);
 
         $future = $this->buildFutureSection($futureRows, $asOfText, $futureEnd);
-        if ($asOfText === $now->format('Y-m-d') && (int)$now->format('H') < 9) {
+        $sourceBlocked = ($sourceState['status'] ?? '') === 'blocked';
+        if ($sourceBlocked && !$isHistoricalReplay) {
+            $blockedReason = (string)($sourceState['reason_code'] ?? 'meituan_source_blocked');
+            $todayCurrent['status'] = 'blocked';
+            $todayCurrent['reason_code'] = $blockedReason;
+            $yesterdayCurrent['status'] = 'blocked';
+            $yesterdayCurrent['reason_code'] = $blockedReason;
+            $future['status'] = 'blocked';
+            $future['reason_code'] = $blockedReason;
+        } elseif ($asOfText === $now->format('Y-m-d') && (int)$now->format('H') < 9) {
             $yesterdayCurrent['status'] = 'pending_source_update';
             $yesterdayCurrent['reason_code'] = 'before_platform_update_window';
             $yesterdayCurrent['metrics'] = $this->maskPendingMetrics(

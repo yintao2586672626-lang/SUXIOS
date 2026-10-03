@@ -41,7 +41,7 @@
             if (!paybackPromise) {
                 paybackPromise = loadScript('investment-scenario.min.js?v=investment-scenario-hc86a7b65ad').then(() => {
                     if (!registry.InvestmentScenarioWorkbench) throw new Error('投资经营测算组件未注册');
-                    return loadScript('investment-payback.min.js?v=investment-payback-h45b1d6bf5e');
+                    return loadScript('investment-payback.min.js?v=investment-payback-h65b4ed4269');
                 }).then(() => {
                     if (!registry.InvestmentPaybackBody) throw new Error('投资回本组件未注册');
                     return registry.InvestmentPaybackBody;

@@ -1047,12 +1047,6 @@ class Knowledge extends Base
             $this->permittedKnowledgeHotelIds(), (int)($this->currentUser->tenant_id ?? 0), $this->isSuperAdmin());
     }
 
-    /** Authentication supplies reference privileges; submitted flags are not authority. */
-    private function knowledgeReferenceAccessContext(): array
-    {
-        return ['tenant_id' => (int)($this->currentUser->tenant_id ?? 0), 'super_admin' => $this->isSuperAdmin()];
-    }
-
     private function canModifyOwnedRow(array $row): bool
     {
         if (!$this->isSuperAdmin() && (int)($row['tenant_id'] ?? 0) > 0 && (int)$row['tenant_id'] !== (int)($this->currentUser->tenant_id ?? 0)) return false;
@@ -1108,6 +1102,15 @@ class Knowledge extends Base
     {
         return strtolower(trim((string)($row['source'] ?? ''))) === 'formal_operating_sop'
             || trim((string)($row['stable_key'] ?? '')) !== '';
+    }
+
+    /** Only authenticated identity can grant privileged knowledge-reference access. */
+    private function knowledgeReferenceAccessContext(): array
+    {
+        return [
+            'tenant_id' => (int)($this->currentUser->tenant_id ?? 0),
+            'super_admin' => $this->isSuperAdmin(),
+        ];
     }
 
     private function currentUserId(): int

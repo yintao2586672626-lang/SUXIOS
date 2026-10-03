@@ -1344,6 +1344,12 @@ final class AiDailyReportPresentationSpecService
             && $sourceIdentityVerified
             && ($expectedJson === null || hash_equals(hash('sha256', $expectedJson), hash('sha256', $actualJson)));
         if (!$readbackVerified) {
+            if ($rowIdentityVerified && $expectedAudience !== 'training'
+                && (int)($spec['source_report']['tenant_id'] ?? 0) === $expectedTenantId
+                && (int)($spec['source_report']['report_id'] ?? 0) === $expectedReportId
+                && !in_array((int)($spec['source_report']['hotel_id'] ?? 0), $expectedHotelIds, true)) {
+                throw new RuntimeException('AI daily report presentation spec exact readback verification failed: hotel_identity_mapping_unverified_rebuild_current_spec', 409);
+            }
             throw new RuntimeException('AI daily report presentation spec exact readback verification failed');
         }
 

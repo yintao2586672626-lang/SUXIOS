@@ -36,7 +36,7 @@ function preflight(overrides = {}) {
 // Actual full helper and actual main computed, with reactive Vue inputs. No
 // fetch, clock, source-status implementation or template logic is mirrored.
 function harness(initialOverview = { pricing_generation_preflight: preflight() }) {
-  const refs = { revenueAiOverview: Vue.ref(initialOverview), revenueAiOverviewError: Vue.ref(''), revenueAiOverviewLoading: Vue.ref(false) };
+  const refs = { revenueAiOverview: Vue.ref(initialOverview), revenueAiOverviewError: Vue.ref(''), revenueAiOverviewLoading: Vue.ref(false), revenueAiStaticLoading: Vue.ref(false) };
   const context = vm.createContext({ window: {}, URLSearchParams, computed: Vue.computed, ...refs });
   vm.runInContext(contract, context);
   vm.runInContext(fullSource, context);
@@ -53,7 +53,7 @@ function assertUnavailableFacts(summary, status) {
   assert.equal(summary.status, status);
   assert.match(summary.title, /预检/);
   assert.ok(summary.className);
-  for (const key of countKeys) assert.equal(summary[key], undefined, `${key} must not turn unavailable evidence into stale counts or zero`);
+  for (const key of countKeys) assert.equal(summary[key], null, `${key} must not turn unavailable evidence into stale counts or zero`);
   assert.notEqual(summary.canGeneratePendingSuggestions, true);
   assert.equal(summary.autoWriteOta, false);
   if (status === 'loading') {
@@ -92,9 +92,10 @@ test('reactive retry transitions ready to loading to failed and back to verified
   h.refs.revenueAiOverview.value = { pricing_generation_preflight: preflight({
     target_hotel_ids: [], target_hotel_count: 0, target_date_rows: 0, room_type_count: 0,
     create_candidate_count: 0, skipped_candidate_count: 0, pending_suggestion_count: 0,
+    status: 'partial', can_generate_pending_suggestions: false,
   }) };
   h.refs.revenueAiOverviewError.value = ''; h.refs.revenueAiOverviewLoading.value = false;
-  assert.equal(h.summary().status, 'ready_for_manual_generation');
+  assert.equal(h.summary().status, 'partial');
   assert.notEqual(h.summary().factsAvailable, false);
   for (const key of countKeys) assert.equal(h.summary()[key], 0, key);
 });

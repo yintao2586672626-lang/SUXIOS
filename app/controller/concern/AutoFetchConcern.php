@@ -1184,8 +1184,13 @@ trait AutoFetchConcern
 
     private function autoFetchCtripNodeId(array $config): string
     {
-        $nodeId = trim((string)($config['node_id'] ?? $config['nodeId'] ?? '24588'));
-        return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $nodeId) === 1 ? $nodeId : '';
+        foreach (['node_id', 'nodeId'] as $key) {
+            $nodeId = trim((string)($config[$key] ?? ''));
+            if ($nodeId !== '') {
+                return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $nodeId) === 1 ? $nodeId : '';
+            }
+        }
+        return \app\service\CtripManualFetchRequestService::normalizeNodeId('');
     }
 
     private function hasAnyPlatformFetchConfigForHotel(int $hotelId): bool

@@ -1633,6 +1633,7 @@ trait AgentOtaDiagnosisPersistenceConcern
             }
         }
 
+        $summary = $this->guardOtaDiagnosisRevenueDateCoverage($summary, $startDate, $endDate);
         $summary['date_count'] = count($summary['daily']);
         $summary['hotel_names'] = array_values(array_keys($summary['hotel_names']));
         $summary['daily'] = array_values($summary['daily']);

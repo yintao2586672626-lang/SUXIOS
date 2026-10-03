@@ -778,7 +778,7 @@ test('Agent pricing suggestion workbench exposes manual room type pricing guard 
 test('Agent pricing suggestion workbench exposes manual Ctrip demand and competitor inputs', () => {
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
   assert.match(html, /agentPricingGenerationPreflightSummary/);
-  assert.match(html, /revenueAiBuildPricingGenerationPreflightSummary\(\{\s*overview: revenueAiOverview\.value,\s*overviewError: revenueAiOverviewError\.value,\s*overviewLoading: revenueAiOverviewLoading\.value,\s*\}\)/s);
+  assert.match(html, /revenueAiBuildPricingGenerationPreflightSummary\(\{\s*overview: revenueAiOverview\.value,\s*overviewError: revenueAiOverviewError\.value,\s*overviewLoading: revenueAiOverviewLoading\.value \|\| revenueAiStaticLoading\.value,\s*\}\)/s);
   assert.match(html, /agentPricingGenerationPreflightSummary\.autoWriteOta/);
   assert.match(html, /agentPricingGenerationPreflightSummary\.candidateSkipReasons/);
   assert.match(html, /agentPricingGenerationPreflightSummary\.candidateDataGaps/);

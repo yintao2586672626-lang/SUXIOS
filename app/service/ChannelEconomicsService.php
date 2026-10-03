@@ -18,6 +18,16 @@ final class ChannelEconomicsService
         $sourceRefs = array_values(array_unique(array_filter(
             array_map(fn($ref): string => $this->text($ref, 500), $sourceRefs), static fn(string $ref): bool => $ref !== ''
         )));
+        $metricRefs = $input['evidence_refs_by_metric'] ?? [];
+        if (!is_array($metricRefs)) throw new InvalidArgumentException('channel_metric_source_refs_invalid');
+        $normalizedRefs = [];
+        foreach (['effective_order_amount', 'refund_amount', 'net_revenue', 'advertising_spend', 'attributed_order_amount'] as $metric) {
+            $refs = $metricRefs[$metric] ?? [];
+            if (!is_array($refs) || count($refs) > 100) throw new InvalidArgumentException('channel_metric_source_refs_invalid');
+            $normalizedRefs[$metric] = array_values(array_unique(array_filter(array_map(fn($ref): string => $this->text($ref, 500), $refs), static fn(string $ref): bool => $ref !== '')));
+        }
+        $sourceRefs = array_values(array_unique(array_merge($sourceRefs, ...array_values($normalizedRefs))));
+        if (count($sourceRefs) > 100) throw new InvalidArgumentException('channel_source_refs_invalid');
         // Only service-owned receipts supply automatic facts. Browser values remain manual.
         $settlementUsed = false;
         $settlementEligible = ($sources['settlement']['readback_verified'] ?? false) === true
@@ -37,14 +47,14 @@ final class ChannelEconomicsService
         $refund = $this->number($input['refund_amount'] ?? null);
         $costs = $input['costs'] ?? [];
         if (!is_array($costs) || count($costs) > 100) throw new InvalidArgumentException('channel_costs_invalid');
-        $rows = []; $knownCosts = 0.0; $missing = []; $costsKnown = true;
+        $rows = []; $knownCosts = 0.0; $missing = []; $costsKnown = true; $hasKnownDeduction = false;
         foreach ($costs as $raw) {
             if (!is_array($raw) || !is_bool($raw['included_in_net_revenue'] ?? null)) throw new InvalidArgumentException('channel_cost_inclusion_required');
             $row = ['label' => $this->text($raw['label'] ?? '', 160), 'amount' => $this->number($raw['amount'] ?? null),
                 'included_in_net_revenue' => $raw['included_in_net_revenue'], 'source_ref' => $this->text($raw['source_ref'] ?? '', 500)];
             if (!$row['included_in_net_revenue']) {
                 if ($row['amount'] === null || $row['source_ref'] === '') { $costsKnown = false; $missing[] = 'cost:' . $row['label']; }
-                else $knownCosts += $row['amount'];
+                else { $knownCosts += $row['amount']; $hasKnownDeduction = true; }
             }
             $rows[] = $row;
         }
@@ -54,7 +64,7 @@ final class ChannelEconomicsService
         if (!is_bool($adIncluded) || !is_bool($adInCosts) || ($adIncluded && $adInCosts)) throw new InvalidArgumentException('channel_advertising_deduction_basis_required');
         if (!$adIncluded && !$adInCosts) {
             if ($spend === null) { $costsKnown = false; $missing[] = 'advertising_spend_missing'; }
-            else $knownCosts += $spend;
+            else { $knownCosts += $spend; $hasKnownDeduction = true; }
         }
         $coverage = ($input['cost_coverage_complete'] ?? false) === true;
         if (!$coverage) $missing[] = 'direct_cost_coverage_incomplete';
@@ -62,7 +72,8 @@ final class ChannelEconomicsService
         if ($orders === null) $missing[] = 'effective_order_amount_missing';
         if ($refund === null) $missing[] = 'refund_amount_missing';
         if ($sourceRefs === []) $missing[] = 'manual_source_refs_missing';
-        $knownContribution = $net !== null ? round($net - $knownCosts, 2) : null;
+        $knownDirectCost = $hasKnownDeduction || ($coverage && $costsKnown) ? round($knownCosts, 2) : null;
+        $knownContribution = $net !== null && $knownDirectCost !== null ? round($net - $knownCosts, 2) : null;
         $settlementDifference = $orders !== null && $net !== null ? round($orders - $net, 2) : null;
         foreach ([$knownCosts, $knownContribution, $settlementDifference] as $amount) {
             if ($amount !== null && (!is_finite($amount) || abs($amount) > 1e12)) throw new InvalidArgumentException('channel_calculated_amount_out_of_range');
@@ -74,13 +85,33 @@ final class ChannelEconomicsService
         $inputs = ['net_revenue' => $net, 'advertising_spend' => $spend, 'attributed_order_amount' => $attributed,
             'effective_order_amount' => $orders, 'refund_amount' => $refund, 'attribution_basis' => $basis,
             'advertising_included_in_net_revenue' => $adIncluded, 'advertising_in_direct_costs' => $adInCosts,
-            'cost_coverage_complete' => $coverage, 'operator_attested' => $attested, 'source_refs' => $sourceRefs, 'costs' => $rows];
+            'cost_coverage_complete' => $coverage, 'operator_attested' => $attested, 'source_refs' => $sourceRefs,
+            'evidence_refs_by_metric' => $normalizedRefs, 'costs' => $rows];
+        $checks = [];
+        foreach (['effective_order_amount' => $orders, 'refund_amount' => $refund, 'net_revenue' => $net, 'advertising_spend' => $spend, 'attributed_order_amount' => $attributed] as $metric => $value) {
+            $savedSource = ($metric === 'net_revenue' && $settlementUsed)
+                || (in_array($metric, ['advertising_spend', 'attributed_order_amount'], true) && ($sources['marketing']['complete'] ?? false) === true);
+            $checks[] = ['metric' => $metric, 'status' => $value === null ? 'amount_missing' : ($savedSource ? 'saved_source_readback' : ($normalizedRefs[$metric] === [] ? 'source_missing' : ($attested ? 'manual_attested' : 'manual_unverified'))),
+                'source_refs' => $normalizedRefs[$metric], 'origin' => $savedSource ? 'saved_same_scope_source' : 'manual_input'];
+        }
+        $checks[] = ['metric' => 'direct_costs', 'status' => !$coverage || !$costsKnown ? 'coverage_incomplete'
+            : (count(array_filter($rows, static fn(array $row): bool => $row['amount'] === null || $row['source_ref'] === '')) > 0 ? 'source_missing' : ($attested ? 'manual_attested' : 'manual_unverified')),
+            'source_refs' => array_values(array_unique(array_filter(array_column($rows, 'source_ref')))), 'origin' => 'manual_input'];
+        $checks[] = ['metric' => 'attribution_basis', 'status' => $basis === '' ? 'basis_missing'
+            : (($sources['marketing']['complete'] ?? false) === true ? 'saved_source_readback' : ($attested ? 'manual_attested' : 'manual_unverified')),
+            'source_refs' => [], 'origin' => ($sources['marketing']['complete'] ?? false) === true ? 'saved_same_scope_source' : 'manual_input'];
+        $evidenceComplete = count(array_filter($checks, static fn(array $check): bool => !in_array($check['status'], ['saved_source_readback', 'manual_attested'], true))) === 0;
+        $closedPeriod = ($sources['period_closed'] ?? null) === true;
         return ['status' => $fullContribution !== null && $missing === [] ? 'calculated' : 'partial', 'source_quality' => $attested ? 'operator_attested' : 'unverified',
-            'inputs' => $inputs, 'currency' => 'CNY', 'net_revenue' => $net, 'known_direct_cost' => round($knownCosts, 2),
+            'inputs' => $inputs, 'currency' => 'CNY', 'net_revenue' => $net, 'known_direct_cost' => $knownDirectCost,
             'channel_net_contribution_amount' => $fullContribution, 'known_costs_contribution_amount' => $knownContribution,
             'attributed_roas' => $roas,
             'order_to_settlement_difference' => $settlementDifference,
             'missing_items' => array_values(array_unique($missing)), 'source_receipts' => $sources,
+            'evidence_chain' => ['status' => $evidenceComplete && $closedPeriod ? 'ready_for_same_scope_review' : 'incomplete',
+                'period_status' => array_key_exists('period_closed', $sources) ? ($closedPeriod ? 'closed' : 'open') : 'unknown',
+                'scope' => $sources['scope'] ?? null, 'checks' => $checks,
+                'independently_verified' => false, 'accounting_close_verified' => false, 'whole_hotel_profit' => false],
             'input_origins' => ['net_revenue' => $settlementUsed ? 'saved_same_scope_settlement' : 'manual_input', 'marketing' => ($sources['marketing']['complete'] ?? false) === true ? 'saved_complete_same_basis_month' : 'manual_input'],
             'formulas' => ['channel_net_contribution_amount' => 'verified_or_manual_net_revenue - not_already_included_direct_costs',
                 'attributed_roas' => 'same_attribution_order_amount / advertising_spend'],
@@ -96,26 +127,55 @@ final class ChannelEconomicsService
             $spent = 0.0; $amount = 0.0; $basis = null;
             for ($date = $start; $date <= $start->modify('last day of this month'); $date = $date->modify('+1 day')) {
                 $day = $date->format('Y-m-d'); $projection = (new MeituanMarketingFactProjectionService())->project($tenant, $hotel, $day);
-                $ads = array_values(array_filter($projection['projections'] ?? [], static fn(array $r): bool => ($r['fact_type'] ?? '') === 'advertising' && ($r['scope']['object_type'] ?? '') !== 'keyword'));
-                $valid = $ads !== [] && ($projection['status'] ?? '') === 'ready';
-                $daySpent = 0.0; $dayAmount = 0.0;
-                foreach ($ads as $row) {
+                $projections = $projection['projections'] ?? [];
+                $ads = array_values(array_filter($projections, static fn(array $r): bool => ($r['fact_type'] ?? '') === 'advertising' && ($r['scope']['object_type'] ?? '') === 'campaign'));
+                // A verified zero amount can cover a day even though its ROAS is undefined.
+                $valid = $ads !== [] && in_array($projection['status'] ?? '', ['ready', 'partial'], true)
+                    && $this->marketingScopeMatches($projection['scope'] ?? [], $tenant, $hotel, $day)
+                    && ($projection['data_quality']['rejected_reason_counts'] ?? []) === []
+                    && array_diff($projection['data_quality']['gap_codes'] ?? [], ['spend_not_positive']) === []
+                    && count(array_filter($projections, static fn(array $row): bool => ($row['quality_status'] ?? '') !== 'verified')) === 0;
+                $daySpent = 0.0; $dayAmount = 0.0; $dayBasis = null; $dayRefs = [];
+                foreach ($valid ? $ads : [] as $row) {
                     $m = $row['metrics'];
-                    if ($m['spend'] === null || $m['attributed_order_amount'] === null || ($m['basis_status'] ?? '') !== 'aligned') { $valid = false; break; }
-                    $rowBasis = (string)$m['spend_basis'];
-                    if ($basis !== null && $basis !== $rowBasis) { $valid = false; break; }
-                    $basis = $rowBasis; $daySpent += $m['spend']; $dayAmount += $m['attributed_order_amount'];
-                    $marketing['evidence_refs'] = array_merge($marketing['evidence_refs'], $row['evidence_refs'] ?? []);
+                    $refs = $row['evidence_refs'] ?? [];
+                    if (!$this->marketingScopeMatches($row['scope'] ?? [], $tenant, $hotel, $day)
+                        || ($row['evidence_type'] ?? '') !== 'strict_readback_fact' || $refs === []
+                        || count(array_filter($refs, static fn($ref): bool => !is_string($ref) || !preg_match('/^online_daily_data#[1-9][0-9]*$/', $ref))) > 0
+                        || ($m['currency'] ?? '') !== 'CNY' || ($m['basis_status'] ?? '') !== 'aligned'
+                        || !$this->marketingAmountValid($m['spend'] ?? null) || !$this->marketingAmountValid($m['attributed_order_amount'] ?? null)) { $valid = false; break; }
+                    $rowBasis = trim((string)($m['spend_basis'] ?? ''));
+                    if ($rowBasis === '' || ($dayBasis !== null && $dayBasis !== $rowBasis) || ($basis !== null && $basis !== $rowBasis)) { $valid = false; break; }
+                    $dayBasis = $rowBasis; $daySpent += (float)$m['spend']; $dayAmount += (float)$m['attributed_order_amount'];
+                    $dayRefs = array_merge($dayRefs, $refs);
                 }
-                if ($valid) { $spent += $daySpent; $amount += $dayAmount; $marketing['covered_days'][] = $day; }
+                if ($valid) {
+                    $basis = $dayBasis; $spent += $daySpent; $amount += $dayAmount;
+                    if (!$this->marketingAmountValid($spent) || !$this->marketingAmountValid($amount)) throw new InvalidArgumentException('channel_calculated_amount_out_of_range');
+                    $marketing['covered_days'][] = $day;
+                    $marketing['evidence_refs'] = array_values(array_unique(array_merge($marketing['evidence_refs'], $dayRefs)));
+                }
                 else $marketing['missing_days'][] = $day;
             }
             $marketing['complete'] = $marketing['missing_days'] === [];
-            $marketing['known_advertising_spend'] = round($spent, 2); $marketing['known_attributed_order_amount'] = round($amount, 2);
+            $hasCoveredDay = $marketing['covered_days'] !== [];
+            $marketing['known_advertising_spend'] = $hasCoveredDay ? round($spent, 2) : null;
+            $marketing['known_attributed_order_amount'] = $hasCoveredDay ? round($amount, 2) : null;
             if ($marketing['complete']) { $marketing['advertising_spend'] = round($spent, 2); $marketing['attributed_order_amount'] = round($amount, 2); }
             $marketing['attribution_basis'] = $basis;
         } else $marketing['reason'] = 'ctrip_marketing_period_requires_manual_evidence';
-        return ['settlement' => $settlement, 'marketing' => $marketing];
+        return ['settlement' => $settlement, 'marketing' => $marketing,
+            'scope' => ['tenant_id' => $tenant, 'hotel_id' => $hotel, 'platform' => $platform, 'period_month' => $month],
+            'period_closed' => $start->modify('first day of next month') <= new DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'))];
+    }
+    private function marketingScopeMatches(array $scope, int $tenant, int $hotel, string $day): bool
+    {
+        return ($scope['tenant_id'] ?? null) === $tenant && ($scope['hotel_id'] ?? null) === $hotel
+            && ($scope['platform'] ?? '') === 'meituan' && ($scope['business_date'] ?? '') === $day;
+    }
+    private function marketingAmountValid(mixed $value): bool
+    {
+        return !is_bool($value) && is_numeric($value) && is_finite((float)$value) && (float)$value >= 0 && (float)$value <= 1e12;
     }
     private function number(mixed $v, bool $signed = false): ?float
     {

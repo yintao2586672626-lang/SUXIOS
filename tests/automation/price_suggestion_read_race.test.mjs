@@ -13,7 +13,7 @@ const declaration = name => {
   assert.ok(start >= 0 && end, `actual declaration: ${name}`);
   return main.slice(start, start + 1 + end.index);
 };
-const production = ['captureAuthSession', 'isAuthSessionCurrent', 'createPriceSuggestionPagination',
+const production = ['resolveDemandForecastListPayload','resolvePriceSuggestionListPayload','captureAuthSession', 'isAuthSessionCurrent', 'createPriceSuggestionPagination',
   ...['applyRevenueAiOverviewReadback', 'captureRevenueForecastRange', 'isRevenueForecastRangeCurrent'].filter(name => main.includes('            const ' + name + ' =')),
   ...['applyRevenueDashboardReadback', 'applyRevenueAnalysisReadback'].filter(name => main.includes('            const ' + name + ' =')),
   ...(main.includes('            const applyRoomTypeReadback =') ? ['applyRoomTypeReadback'] : []),
@@ -49,7 +49,7 @@ function harness() {
   for (const [name, value] of Object.entries(initial)) refs[name] = ref(name, value);
   const context = vm.createContext({ ...refs, URLSearchParams, console: { error() {} },
     authSessionEpoch: 1, agentRevenueStateEpoch: 1, priceSuggestionRequestSeq: 0, revenueAnalysisBundleRequestSeq: 0,
-    revenueAiOverviewRequestSeq: 0, revenueAiOverviewRequestPromises: new Map(),
+    roomTypesRequestSequence:0,demandForecastsRequestSequence:0,revenueAiOverviewRequestSeq: 0, revenueAiOverviewRequestPromises: new Map(),
     ensureRevenueAiStaticReady: async () => true, loadRevenueAiOverview: async () => null,
     resetCompetitorAnalysisView() {}, firstEnabledRoomTypeId: () => 0,
     formatDate: () => '2026-09-12',
@@ -83,7 +83,7 @@ function harness() {
       pagination: { total: 60, page: Number(params.get('page')), page_size: 20, total_page: 3 } };
     row.resolve({ code: 200, data: row.url.startsWith('/agent/revenue-bundle?') ? {
       overview: { marker }, analysis: { statistics: { marker } }, dashboard: { today_suggestions: [{ marker }] },
-      forecasts: { forecasts: [{ marker }], accuracy: {}, high_demand_dates: [] }, competitor: {},
+      forecasts: { forecasts: [{ marker, hotel_id: params.get('hotel_id'), forecast_date: params.get('start_date') }], accuracy: {}, high_demand_dates: [] }, competitor: {},
       room_types: { list: [{ id: marker, name: marker }] }, price_suggestions: pricing,
     } : pricing });
   };
@@ -169,7 +169,7 @@ for (const missing of ['hotel', 'range']) {
     const invalid = await begin(h, 'query'); await invalid.pending;
     assert.equal(invalid.index, -1);
     const expected = h.price();
-    assert.equal(expected.state.status, missing === 'hotel' ? 'empty' : 'failed');
+    assert.equal(expected.state.status, missing === 'hotel' ? 'not_loaded' : 'failed');
     h.settle(old.index, 'success', 'old-valid'); await old.pending;
     assert.deepEqual(h.price(), expected);
   });

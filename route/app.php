@@ -27,7 +27,6 @@ if (!function_exists('suxi_root_index_response')) {
             'CDN-Cache-Control' => 'public, max-age=60, stale-while-revalidate=30',
             'Cloudflare-CDN-Cache-Control' => 'public, max-age=60, stale-while-revalidate=30',
         ];
-
         $request = request();
         $requestHeaders = function_exists('getallheaders') ? (array)getallheaders() : [];
         $ifNoneMatch = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
@@ -40,7 +39,6 @@ if (!function_exists('suxi_root_index_response')) {
         if ($ifNoneMatch === '') {
             $ifNoneMatch = trim((string)($requestHeaders['If-None-Match'] ?? $requestHeaders['if-none-match'] ?? ''));
         }
-
         $ifModifiedSince = trim((string)($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? ''));
         if ($ifModifiedSince === '') {
             $ifModifiedSince = trim((string)$request->header('If-Modified-Since', ''));
@@ -64,7 +62,6 @@ if (!function_exists('suxi_root_index_response')) {
         if ($notModified) {
             return response('', 304, $headers);
         }
-
         $acceptEncoding = strtolower((string)($_SERVER['HTTP_ACCEPT_ENCODING'] ?? ''));
         if ($size > 1024 && function_exists('gzencode') && str_contains($acceptEncoding, 'gzip')) {
             $gzipRoot = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'runtime' . DIRECTORY_SEPARATOR . 'static-gzip';
@@ -458,6 +455,9 @@ Route::group('api/knowledge', function () {
     Route::get('/list', 'Knowledge/unitList');
     Route::post('/add', 'Knowledge/add');
     Route::post('/import', 'Knowledge/importMaterials');
+    Route::post('/document-text', 'Knowledge/extractDocumentText');
+    Route::get('/reference-sources/:chunk_id', 'Knowledge/referenceSource');
+    Route::post('/references', 'Knowledge/saveReference');
     Route::get('/promotions', 'KnowledgePromotion/candidates');
     Route::post('/promotions/from-sop-candidate', 'KnowledgePromotion/createCandidate');
     Route::get('/promotions/:id/events', 'KnowledgePromotion/events');

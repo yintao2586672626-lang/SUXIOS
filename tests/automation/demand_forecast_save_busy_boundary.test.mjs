@@ -30,7 +30,7 @@ const requestSource = [
 const names = [
   ...['captureRevenueForecastRange', 'isRevenueForecastRangeCurrent'].filter(name => main.includes('            const ' + name + ' =')),
   ...(main.includes('            const applyDemandForecastReadback =') ? ['applyDemandForecastReadback'] : []),
-  'manualCtripPricingInputMeta', 'firstEnabledRoomTypeId', 'createDemandForecastForm',
+  'resolveDemandForecastListPayload', 'manualCtripPricingInputMeta', 'firstEnabledRoomTypeId', 'createDemandForecastForm',
   'captureAgentRevenueRequestContext', 'isAgentRevenueRequestCurrent', 'setRevenueLoadState',
   'syncRevenuePricingInputDate', 'resetDemandForecastForm', 'demandForecastInputNumber', 'demandForecastSavedReceiptMatches', 'saveDemandForecastInput', 'loadDemandForecasts',
 ];
@@ -80,6 +80,7 @@ async function harness() {
     ...state, window: {}, URL, URLSearchParams, Headers, AbortController, DOMException, Date, Intl,
     setTimeout, clearTimeout, console: { error() {}, warn() {} }, API_BASE: 'https://synthetic.invalid/api',
     authSessionEpoch: 1, pageRequestGeneration: 0, agentRevenueStateEpoch: 1,
+    demandForecastsRequestSequence: 0,
     user: Vue.ref({ id: 11, tenant_id: 7 }), token: Vue.ref(''),
     authContext: Vue.ref({ tenantId: 7, hotelId: 80, permissionStatus: 'allowed', platform: 'all' }),
     revenueAiBusinessDate: Vue.ref('2026-09-15'), coreOperationsTargetDate: Vue.ref('2026-09-15'),
@@ -101,7 +102,7 @@ async function harness() {
   sandbox.requireAppSystemStatic = key => sandbox.appSystemStatic[key];
   vm.runInContext(requestSource + '\n' + names.map(declaration).join('\n') + '\nglobalThis.methods={' + names.join(',') + '};', sandbox);
   state.demandForecastForm.value = sandbox.methods.createDemandForecastForm();
-  const context = { ...state, ...sandbox.methods, loadPriceSuggestionWorkbench: async () => {} };
+  const context = { ...state, ...sandbox.methods, demandForecastReadState: Vue.computed(() => state.revenueLoadState.value.forecasts), loadPriceSuggestionWorkbench: async () => {} };
   let tree;
   const html = async () => renderToString(Vue.createSSRApp({ setup: () => context, render() { tree = render.call(this, this, []); return tree; } }));
   const entries = (node = tree, result = [], parents = []) => {

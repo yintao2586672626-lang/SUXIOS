@@ -204,6 +204,13 @@ final class RouteDomainManifestContractTest extends TestCase
             'api/operation|post|/execution-tasks/:id/workflow|OperationManagement/mutateTaskWorkflow',
         ];
         self::assertSame($workflowRoutes, array_values(array_filter($tuples, static fn(string $tuple): bool => in_array($tuple, $workflowRoutes, true))));
+        $additions = [
+            'api/operation|get|/manager-capability/coaching|ManagerCapability/coachingList',
+            'api/operation|post|/manager-capability/coaching|ManagerCapability/coachingCreate',
+            'api/operation|get|/manager-capability/coaching/:id|ManagerCapability/coachingRead',
+            'api/operation|post|/manager-capability/coaching/:id/:action|ManagerCapability/coachingAction',
+        ];
+        self::assertSame($additions, array_values(array_filter($tuples, static fn(string $tuple): bool => in_array($tuple, $additions, true))));
         $legacyTuples = array_values(array_filter($tuples, static fn(string $tuple): bool => !in_array($tuple, $workflowRoutes, true)));
         self::assertCount(self::EXTRACTED_ROUTE_SURFACE_COUNT + count($workflowRoutes), $tuples);
         self::assertCount(self::EXTRACTED_ROUTE_SURFACE_COUNT, $legacyTuples);

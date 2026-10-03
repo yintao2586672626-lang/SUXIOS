@@ -31,6 +31,52 @@ const projectReadback = (id, input, changes = {}) => {
     return { ...projectDetail(id, input.as_of ?? fixtureToday), project: { ...project, ...changes } };
 };
 
+test('complete write replies require an independent exact project reread before clearing any draft', async () => {
+    for (const mode of ['project', 'edit', 'forecast', 'entry', 'entry-edit']) {
+        for (const failure of ['old', 'tenant', 'hotel', 'project', 'cutoff', 'unavailable']) {
+            let writes = 0, reads = 0, input;
+            const state = create(async (path, options) => {
+                if (options.method === 'POST') {
+                    writes++; input = JSON.parse(options.body);
+                    return ok(mode.startsWith('entry') ? entryReadback(5, input) : projectReadback(5, input));
+                }
+                if (path.includes('/projects/5?')) {
+                    reads++;
+                    if (failure === 'unavailable') throw new Error('独立读取失败');
+                    const data = mode.startsWith('entry') ? entryReadback(5, input) : projectReadback(5, input);
+                    if (failure === 'old') mode.startsWith('entry') ? data.entries = [] : data.project.project_name = '旧名称';
+                    if (failure === 'tenant') data.project.tenant_id = 3;
+                    if (failure === 'hotel') data.project.hotel_id = 81;
+                    if (failure === 'project') data.project.id = 6;
+                    if (failure === 'cutoff') data.summary.as_of = '2026-09-30';
+                    return ok(data);
+                }
+                return ok({ list: [] });
+            });
+            state.asOf.value = '2026-10-01';
+            const existing = { ...projectDetail(5, state.asOf.value), project: { ...projectReadback(5, { project_name: '当前名称', tenant_id: 2, hotel_id: 80, basis: 'investor_cash', currency: 'CNY' }).project } };
+            if (mode !== 'project') state.detail.value = existing;
+            if (mode === 'project' || mode === 'edit') {
+                state.beginProject(mode === 'edit' ? existing.project : undefined);
+                Object.assign(state.projectForm.value, { project_name: '提交名称', tenant_id: 2, hotel_id: 80 });
+            } else if (mode === 'forecast') {
+                state.forecastForm.amount = '123.45'; state.forecastForm.source = '本次假设';
+            } else {
+                state.beginEntry('recovery', mode === 'entry-edit' ? { id: 7, version: 1, kind: 'recovery', amount: '1.00', date: '2026-10-01', precision: 'day', source: '人工', category: '', notes: '', is_planned: false, confirmed_zero: false } : undefined);
+                state.entryForm.value.amount = '123.45';
+            }
+            const draft = state.projectForm.value || state.entryForm.value;
+            const nonce = draft?.client_request_id;
+            const before = state.detail.value;
+            await (mode.startsWith('entry') ? state.saveEntry() : mode === 'forecast' ? state.saveForecast() : state.saveProject());
+            assert.equal(reads, 1, `${mode}/${failure} must independently read`);
+            assert.equal(writes, 1); assert.equal(state.detail.value, before); assert.equal(state.notice.value, '');
+            if (mode === 'forecast') { assert.equal(state.forecastForm.amount, '123.45'); assert.equal(state.forecastForm.source, '本次假设'); assert.ok(state.detailError.value); }
+            else { assert.equal(state.projectForm.value || state.entryForm.value, draft); assert.equal(draft.client_request_id, nonce); assert.ok(state.formError.value); }
+        }
+    }
+});
+
 test('different saved forecast values cannot replace the project or erase the forecast draft', async () => {
     for (const changes of [{ expected_monthly_amount: '123.46' }, { expected_source: '其他假设' }, { forecast_as_of: '2026-09-30' }]) {
         let input;
@@ -103,6 +149,7 @@ test('forecast clearing preserves explicit null and server text normalization in
     let input;
     const state = create(async (path, options) => {
         if (options.method === 'POST') { input = JSON.parse(options.body); return ok(projectReadback(5, input, { expected_monthly_amount: null, expected_source: source })); }
+        if (path.includes('/projects/5?')) return ok(projectReadback(5, input, { expected_monthly_amount: null, expected_source: source }));
         return ok({ list: [] });
     });
     state.asOf.value = '2026-10-01'; state.detail.value = projectDetail(5, '2026-10-01');
@@ -115,9 +162,10 @@ test('forecast clearing preserves explicit null and server text normalization in
 
 test('unlinked creation and a permitted draft unlink normalize hotel identity without accepting zero or bad IDs', async () => {
     for (const editing of [false, true]) {
-        let writes = 0;
+        let writes = 0, input;
         const state = create(async (path, options) => {
-            if (options.method === 'POST') { writes++; const input = JSON.parse(options.body); return ok(projectReadback(5, input, { hotel_id: null, history_complete_through: null })); }
+            if (options.method === 'POST') { writes++; input = JSON.parse(options.body); return ok(projectReadback(5, input, { hotel_id: null, history_complete_through: null })); }
+            if (path.includes('/projects/5?')) return ok(projectReadback(5, input, { hotel_id: null, history_complete_through: null }));
             return ok({ list: [] });
         });
         state.asOf.value = '2026-10-01';
@@ -145,7 +193,11 @@ test('a legacy blank hotel scope agrees with a normalized null on a readonly res
 
 test('normalizing a legacy opening source can legitimately clear its old history confirmation', async () => {
     const existing = { ...projectReadback(5, { id: 5, project_name: '旧项目', investor_name: '本人', hotel_id: null, basis: 'investor_cash', currency: 'CNY', status: 'operating', forecast_as_of: '2026-10-01', opening_as_of: '2026-09-01', opening_invested: '1000.00', opening_recovered: '0.00', opening_source: '原凭据', history_complete_through: '2026-10-01' }).project, opening_source: ' 原凭据 ' };
-    const state = create(async (path, options) => options.method === 'POST' ? ok(projectReadback(5, JSON.parse(options.body), { history_complete_through: null })) : ok({ list: [] }));
+    let input;
+    const state = create(async (path, options) => {
+        if (options.method === 'POST') input = JSON.parse(options.body);
+        return options.method === 'POST' || path.includes('/projects/5?') ? ok(projectReadback(5, input, { history_complete_through: null })) : ok({ list: [] });
+    });
     state.asOf.value = '2026-10-01'; state.beginProject(existing); state.projectForm.value.project_name = '更正名称';
     await state.saveProject();
     assert.equal(state.projectForm.value, null); assert.equal(state.detail.value.project.opening_source, '原凭据');
@@ -182,7 +234,8 @@ test('an incomplete post response can confirm one exact record through a scoped 
 
 test('matching record identity cannot confirm a different amount, date, type or provenance', async () => {
     for (const changes of [{ amount: '123.46' }, { date: '2026-09-30' }, { precision: 'month' }, { kind: 'investment' }, { source: '其他来源' }, { category: '其他类别' }, { notes: '其他原因' }, { is_planned: true }, { confirmed_zero: true }, { original_entry_id: 8 }, { voided_at: '2026-10-01' }]) {
-        const state = create(async (path, options) => ok(entryReadback(5, JSON.parse(options.body), changes)));
+        let input;
+        const state = create(async (path, options) => { if (options.method === 'POST') input = JSON.parse(options.body); return ok(entryReadback(5, input, changes)); });
         state.asOf.value = '2026-10-01'; state.detail.value = projectDetail(5); state.beginEntry('refund');
         Object.assign(state.entryForm.value, { amount: '123.45', original_entry_id: 7, notes: '退款核对', source: '人工来源', category: '冲回' });
         await state.saveEntry();
@@ -193,7 +246,8 @@ test('matching record identity cannot confirm a different amount, date, type or 
 });
 
 test('an edited record is confirmed by its ID, with cents normalized exactly', async () => {
-    const state = create(async (path, options) => ok(entryReadback(5, JSON.parse(options.body), { amount: '0.00', version: 4 })));
+    let input;
+    const state = create(async (path, options) => { if (options.method === 'POST') input = JSON.parse(options.body); return path.includes('/projects?') ? ok({ list: [] }) : ok(entryReadback(5, input, { amount: '0.00', version: 4 })); });
     state.asOf.value = '2026-10-01'; state.detail.value = projectDetail(5);
     state.beginEntry('recovery', { id: 7, version: 3, kind: 'recovery', amount: '0', confirmed_zero: true, date: '2026-10-01', precision: 'day', source: '人工核对', notes: '', category: '', is_planned: false });
     await state.saveEntry();
@@ -370,7 +424,7 @@ test('an unresponsive save retains inputs and request identity, then retries onc
     const clock = deadlineClock(), writes = [];
     let resolveLate;
     const state = create((path, options) => {
-        if (options.method !== 'POST') return Promise.resolve(ok({list:[]}));
+        if (options.method !== 'POST') return Promise.resolve(path.includes('/projects/5?') ? ok(entryReadback(5, writes.at(-1))) : ok({list:[]}));
         writes.push(JSON.parse(options.body));
         return writes.length === 1 ? new Promise(resolve => { resolveLate = resolve; }) : Promise.resolve(ok(entryReadback(5, writes.at(-1))));
     }, clock);
@@ -409,8 +463,10 @@ test('an unexpected project response cannot replace the requested ledger', async
 
 test('all ledger writes retain the selected accounting cutoff, including retry and void', async () => {
     const writes = [];
+    let persisted;
     const state = create(async (path, options) => {
-        if (options.method === 'POST') { const input = JSON.parse(options.body); writes.push(input); return ok(path.endsWith('/entries') ? entryReadback(5, input) : path === '/investment-payback/projects' ? projectReadback(5, input) : projectDetail(5, input.as_of)); }
+        if (options.method === 'POST') { const input = JSON.parse(options.body); writes.push(input); persisted = path.endsWith('/entries') ? entryReadback(5, input) : path === '/investment-payback/projects' ? projectReadback(5, input) : projectDetail(5, input.as_of); return ok(persisted); }
+        if (path.includes('/projects/5?')) return ok(persisted);
         return ok({ list: [] });
     });
     state.asOf.value = '2026-08-31';
@@ -613,6 +669,7 @@ test('failed project save preserves values and request identity for safe retry',
             if (++attempts === 1) throw new Error('测试保存失败');
             return ok(projectReadback(3, inputs.at(-1)));
         }
+        if (path.includes('/projects/3?')) return ok(projectReadback(3, inputs.at(-1)));
         return ok({ list: [], pagination: { total: 0 } });
     });
     state.beginProject();
@@ -633,6 +690,7 @@ test('new project can save current cumulative balances in one request without in
     const saved = [];
     const state = create(async (path, options) => {
         if (options.method === 'POST') { const input = JSON.parse(options.body); saved.push({ path, input }); return ok(projectReadback(3, input)); }
+        if (path.includes('/projects/3?')) return ok(projectReadback(3, saved.at(-1).input));
         return ok({ list: [] });
     });
     state.beginProject();
@@ -656,6 +714,7 @@ test('name-only creation keeps missing amounts missing and rejects a half-filled
     const saved = [];
     const state = create(async (path, options) => {
         if (options.method === 'POST') { const input = JSON.parse(options.body); saved.push(input); return ok(projectReadback(1, input)); }
+        if (path.includes('/projects/1?')) return ok(projectReadback(1, saved.at(-1)));
         return ok({ list: [] });
     });
     state.beginProject();
@@ -681,6 +740,7 @@ test('collapsed project metadata and existing opening balances survive a simple 
     let saved;
     const state = create(async (path, options) => {
         if (options.method === 'POST') { saved = JSON.parse(options.body); return ok(projectReadback(7, saved)); }
+        if (path.includes('/projects/7?')) return ok(projectReadback(7, saved));
         return ok({list: []});
     });
     const existing = { id: 7, version: 4, project_name: '编辑前', investor_name: '测试投资公司', hotel_id: 12, opening_as_of: '2026-09-01', opening_invested: '15000.10', opening_recovered: '-50.20', opening_source: '测试核对表', expected_monthly_amount: '2500.01', expected_source: '测试预测', forecast_as_of: '2026-08-31', history_complete_through: '2026-09-30', first_invested_on: '2026-01-02', notes: '保留测试备注' };
@@ -866,10 +926,11 @@ test('a cutoff refresh cannot reopen the old project after the user selects anot
 });
 
 test('a late project read cannot overwrite a newly created project', async () => {
-    let resolveRead;
+    let resolveRead, input;
     const state = create(async (path, options) => {
         if (path.includes('/projects/1?')) return new Promise(resolve => { resolveRead = resolve; });
-        if (options.method === 'POST') return ok(projectReadback(3, JSON.parse(options.body)));
+        if (options.method === 'POST') { input = JSON.parse(options.body); return ok(projectReadback(3, input)); }
+        if (path.includes('/projects/3?')) return ok(projectReadback(3, input));
         return ok({list: []});
     });
     const pending = state.selectProject(1);
@@ -886,6 +947,7 @@ test('refund and confirmed-zero inputs preserve explicit types and precision', a
     const saved = [];
     const state = create(async (path, options) => {
         if (options.method === 'POST') { const input = JSON.parse(options.body); saved.push(input); return ok(entryReadback(1, input)); }
+        if (path.includes('/projects/1?')) return ok(entryReadback(1, saved.at(-1)));
         return ok({ list: [] });
     });
     state.detail.value = projectDetail(1);
