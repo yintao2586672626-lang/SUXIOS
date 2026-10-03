@@ -44,8 +44,10 @@ final class OperatingEvidenceSnapshotStore
         if ($actor <= 0 || !preg_match('/^[A-Za-z0-9_-]{8,100}$/D', $key)) throw new InvalidArgumentException('operating_evidence_actor_or_request_invalid');
         $payload = ['contract_version' => 'operating_evidence.v1', 'scope' => $scope] + $payload;
         if ($requestInput !== null) $payload['request_digest'] = $this->requestDigest($requestInput);
-        $json = $this->json($payload);
-        if (strlen($json) > 200000) throw new InvalidArgumentException('operating_evidence_payload_too_large');
+        $json = $this->json($this->compactPayload($payload));
+        // 100 accepted rows can include four-byte Unicode references and missing-item labels.
+        $limit = $scope['kind'] === 'consumables_actual' ? 1000000 : 200000;
+        if (strlen($json) > $limit) throw new InvalidArgumentException('operating_evidence_payload_too_large');
         $digest = hash('sha256', $json);
         $transaction = function () use ($scope, $payload, $json, $digest, $key, $actor): array {
             $existing = Db::name(self::TABLE)->where($scope)->where('idempotency_key', $key)->lock(true)->find();
@@ -91,6 +93,18 @@ final class OperatingEvidenceSnapshotStore
             $boundValue = $key === 'hotel_id' ? ($row['source_hotel_id'] ?? $row['hotel_id']) : $row[$key];
             if ((string)($payload['scope'][$key] ?? '') !== (string)$boundValue) throw new RuntimeException('operating_evidence_scope_mismatch', 409);
         }
+        if (isset($payload['_storage_encoding'])) {
+            if ($payload['_storage_encoding'] !== 'consumables_inputs_once.v1'
+                || $payload['scope']['kind'] !== 'consumables_actual'
+                || !is_array($payload['inputs']['items'] ?? null)
+                || ($payload['result']['inputs'] ?? null) !== ['$ref'=>'inputs']
+                || ($payload['result']['items'] ?? null) !== ['$ref'=>'inputs.items']) {
+                throw new RuntimeException('operating_evidence_integrity_failed', 409);
+            }
+            $payload['result']['inputs'] = $payload['inputs'];
+            $payload['result']['items'] = $payload['inputs']['items'];
+            unset($payload['_storage_encoding']);
+        }
         $currentScope = $payload['scope'];
         $currentScope['hotel_id'] = (int)$row['hotel_id'];
         return ['scope' => $currentScope, 'source_scope' => $payload['scope']] + $payload + ['snapshot_id' => (int)$row['id'], 'content_digest' => (string)$row['content_digest'],
@@ -110,11 +124,24 @@ final class OperatingEvidenceSnapshotStore
         $saved = $this->decode($row);
         if (!hash_equals((string)$row['content_digest'], $digest)) {
             unset($payload['request_digest']);
-            if (isset($saved['request_digest']) || !hash_equals((string)$row['content_digest'], hash('sha256', $this->json($payload)))) {
+            if (isset($saved['request_digest']) || (!hash_equals((string)$row['content_digest'], hash('sha256', $this->json($payload)))
+                && !hash_equals((string)$row['content_digest'], hash('sha256', $this->json($this->compactPayload($payload)))))) {
                 throw new RuntimeException('operating_evidence_idempotency_conflict', 409);
             }
         }
         return $saved + ['idempotent' => true];
+    }
+    private function compactPayload(array $payload): array
+    {
+        if (($payload['scope']['kind'] ?? '') === 'consumables_actual'
+            && is_array($payload['inputs']['items'] ?? null)
+            && ($payload['result']['inputs'] ?? null) === $payload['inputs']
+            && ($payload['result']['items'] ?? null) === $payload['inputs']['items']) {
+            $payload['result']['inputs'] = ['$ref'=>'inputs'];
+            $payload['result']['items'] = ['$ref'=>'inputs.items'];
+            $payload['_storage_encoding'] = 'consumables_inputs_once.v1';
+        }
+        return $payload;
     }
     private function json(array $value): string { return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR); }
 }

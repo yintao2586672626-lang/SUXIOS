@@ -7,14 +7,22 @@ import { compile } from '@vue/compiler-dom';
 import { renderToString } from '@vue/server-renderer';
 const source = readFileSync(new URL('../../public/components/system/operating-economics-workbench.js', import.meta.url), 'utf8');
 const scopedReceipt = () => ({scope:{tenant_id:7,hotel_id:80,period_month:'2026-10',platform:'ctrip',kind:'channel_economics'},snapshot_id:9,content_digest:'a'.repeat(64),readback_verified:true,source_quality:'unverified',inputs:{source_refs:[],net_revenue:0},result:{net_revenue:0}});
-function component(request = async () => ({ code:200,data:{} }), code = source) {
+function component(request = async () => ({ code:200,data:{} }), code = source, browser = {}) {
     const window = { confirm:()=>true, dispatchEvent:event=>window.event=event };
-    new Function('window','crypto','CustomEvent','Vue',code)(window,{randomUUID},class { constructor(type,opts){this.type=type;this.detail=opts.detail;} },new Proxy({}, {get:()=>()=>({})}));
+    new Function('window','crypto','CustomEvent','Vue','document','URL','setTimeout',code)(window,{randomUUID},class { constructor(type,opts){this.type=type;this.detail=opts.detail;} },new Proxy({}, {get:()=>()=>({})}),browser.document,browser.URL || globalThis.URL,browser.setTimeout || globalThis.setTimeout);
     const definition = window.SUXI_SYSTEM_COMPONENTS.OperatingEconomicsWorkbench;
     const ctx = {...definition.data(),hotelId:80,periodMonth:'2026-10',platform:'ctrip',canExecute:true,request};
     for(const [key,fn] of Object.entries(definition.methods))ctx[key]=fn.bind(ctx);
     for(const [key,fn] of Object.entries(definition.computed))Object.defineProperty(ctx,key,{get:()=>fn.call(ctx)});
     return {ctx,window,definition};
+}
+
+function exportComponent(request) {
+    const blobs=[];const downloads=[];const revoked=[];
+    const browser={document:{createElement(){return {click(){downloads.push({href:this.href,name:this.download});}};}},
+        URL:{createObjectURL(blob){blobs.push(blob);return 'test-only:operating-export';},revokeObjectURL(url){revoked.push(url);}},
+        setTimeout(callback){callback();}};
+    return {...component(request,source,browser),blobs,downloads,revoked};
 }
 
 const scopedOverview = path => ({code:200,data:{scope:Object.fromEntries(new URLSearchParams(path.split('?')[1])),history:[]}});
@@ -123,6 +131,33 @@ for (const save of [false,true]) test('server normalized input replaces stale dr
 test('failed fresh preview removes a prior successful result and adoption receipt',async()=>{
     const {ctx}=component(async()=>{throw new Error('TEST-ONLY-source-unavailable');});ctx.kind='consumables_actual';ctx.saved={readback_verified:true,source_quality:'operator_attested'};ctx.result={status:'calculated',inputs:{occupied_room_nights_source_ref:'TEST-ONLY'},actual_consumables_cost_per_room_night:2};
     await ctx.calculate(false);assert.equal(ctx.result,null);assert.equal(ctx.saved,null);assert.equal(ctx.resultCurrent,null);assert.equal(ctx.canAdopt,false);assert.equal(ctx.dirty,true);
+});
+
+for(const quality of ['operator_attested','unverified']) test('exported '+quality+' preview retains its current result quality and remains unsaved',async()=>{
+    const receipt=scopedReceipt();receipt.result={source_quality:quality,net_revenue:1000,evidence_chain:{independently_verified:false}};
+    const {ctx,blobs,downloads,revoked}=exportComponent(async()=>({code:200,data:{scope:receipt.scope,inputs:receipt.inputs,result:receipt.result}}));
+    await ctx.calculate(false);assert.equal(ctx.saved,null);ctx.exportSnapshot();
+    assert.equal(blobs.length,1);assert.equal(downloads.length,1);assert.deepEqual(revoked,['test-only:operating-export']);
+    const exported=JSON.parse(await blobs[0].text());
+    assert.equal(exported.source_quality,quality);assert.equal(exported.source_quality,exported.result.source_quality);
+    assert.equal(exported.snapshot_id,null);assert.equal(exported.snapshot_status,'preview');assert.equal(exported.readback_verified,false);
+    assert.equal(exported.result.evidence_chain.independently_verified,false);assert.deepEqual(exported.scope,{...ctx.scope});
+});
+
+test('exported saved version keeps its exact snapshot identity and current result quality',async()=>{
+    const receipt=scopedReceipt();receipt.source_quality='operator_attested';receipt.result={source_quality:'operator_attested',net_revenue:1000,evidence_chain:{independently_verified:false}};
+    const {ctx,blobs}=exportComponent(async path=>({code:200,data:path.includes('/overview?')?{scope:receipt.scope,history:[]}:receipt}));
+    await ctx.calculate(true);ctx.exportSnapshot();const exported=JSON.parse(await blobs[0].text());
+    assert.equal(exported.snapshot_id,9);assert.equal(exported.snapshot_status,'saved');assert.equal(exported.readback_verified,true);
+    assert.equal(exported.source_quality,'operator_attested');assert.deepEqual(exported.result,receipt.result);
+    assert.equal(exported.result.evidence_chain.independently_verified,false);
+});
+
+test('no-result and edited result states do not produce any export',()=>{
+    const {ctx,blobs,downloads}=exportComponent();ctx.exportSnapshot();
+    assert.equal(blobs.length,0);assert.equal(downloads.length,0);
+    ctx.result={source_quality:'operator_attested',net_revenue:1000};ctx.edit();ctx.exportSnapshot();
+    assert.equal(blobs.length,0);assert.equal(downloads.length,0);
 });
 
 test('metric references survive input serialization and old snapshots have no invented provenance',async()=>{

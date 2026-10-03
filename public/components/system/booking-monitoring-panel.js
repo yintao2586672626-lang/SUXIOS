@@ -20,11 +20,20 @@
         previous_cumulative_cancel_room_nights_exceeds_gross_booking_room_nights: '基线累计取消超过毛预订，须核对',
     };
     const formatNumber = value => value === null || value === undefined ? '未取得' : Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
-    const parseNumber = value => {
+    // Match BookingDemandPlanningService's save/readback boundary, including
+    // revenue's conservative float/PDO limit rather than all DECIMAL(18,4) capacity.
+    const metricLimits = { on_books_room_nights: 9999999999.9999, on_books_room_revenue: 9999999999.9999,
+        cumulative_cancel_room_nights: 9999999999.9999, gross_booking_room_nights: 9999999999.9999 };
+    const metricLabels = { on_books_room_nights: '在手间夜', on_books_room_revenue: '房费',
+        cumulative_cancel_room_nights: '累计取消间夜', gross_booking_room_nights: '累计毛预订间夜' };
+    const parseNumber = (value, field) => {
+        if (value !== null && value !== undefined && !['number', 'string'].includes(typeof value)) throw new Error('间夜和金额须为非负数，最多四位小数；未知请留空。');
         const text = String(value ?? '').trim();
         if (text === '') return null;
         if (!/^\d+(?:\.\d{1,4})?$/.test(text)) throw new Error('间夜和金额须为非负数，最多四位小数；未知请留空。');
-        return Number(text);
+        const number = Number(text);
+        if (!Number.isFinite(number) || number > metricLimits[field]) throw new Error(`${metricLabels[field]}超过可保存上限9,999,999,999.9999，请核对数值和单位。`);
+        return number;
     };
     const metricFields = ['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'];
     const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -44,17 +53,14 @@
         const match = /^(\d{4})-(\d{1,2})-(\d{1,2}) (\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?$/.exec(String(value ?? '').trim().replace('T', ' '));
         return match ? `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')} ${match[4].padStart(2, '0')}:${match[5]}:${match[6] || '00'}.${(match[7] || '').padEnd(6, '0')}` : null;
     };
-    const normalizedMetric = value => value === null || value === undefined || value === '' ? null
-        : ['number', 'string'].includes(typeof value) && /^\d+(?:\.\d{1,4})?$/.test(String(value).trim())
-            && Number.isFinite(Number(value)) ? Number(value) : NaN;
+    const normalizedMetric = (value, field) => { try { return parseNumber(value, field); } catch { return NaN; } };
     const expectedSnapshot = async row => {
         if (!window.crypto?.subtle) throw new Error('来源指纹核对不可用，请在本机安全页面重试。');
         // This source fingerprint contract is authored by BookingDemandPlanningService; content digests are read back from the server.
         const sourceRef = String(row.source_ref ?? '').replace(/^[\x00\t\n\v\r ]+|[\x00\t\n\v\r ]+$/g, '');
         const source = new TextEncoder().encode('on-books-source-v1|' + sourceRef);
         const hash = await window.crypto.subtle.digest('SHA-256', source);
-        const metrics = Object.fromEntries(metricFields.map(field => [field, normalizedMetric(row[field])]));
-        if (Object.values(metrics).some(Number.isNaN)) throw new Error('间夜和金额须为非负数，最多四位小数；未知请留空或null。');
+        const metrics = Object.fromEntries(metricFields.map(field => [field, parseNumber(row[field], field)]));
         if (metrics.on_books_room_nights === null) throw new Error('请填写实际在手间夜，未知不能按0保存。');
         return { hotel_id: Number(row.hotel_id), source_hotel_id: Number(row.hotel_id), room_type_id: Number(row.room_type_id || 0),
             platform: String(row.platform ?? '').trim().toLowerCase(), fact_scope: String(row.fact_scope ?? '').trim().toLowerCase(),
@@ -70,7 +76,7 @@
         && sha256(snapshot.content_digest) && sha256(snapshot.source_ref_hash) && sha256(snapshot.idempotency_key)
         && typeof snapshot.room_type_name === 'string' && expected.captured_at !== null
         && Object.entries(expected).every(([field, value]) => Object.hasOwn(snapshot, field)
-            && (metricFields.includes(field) ? normalizedMetric(snapshot[field]) === value
+            && (metricFields.includes(field) ? normalizedMetric(snapshot[field], field) === value
                 : ['hotel_id', 'source_hotel_id', 'room_type_id'].includes(field) ? Number(snapshot[field]) === value
                     : field === 'supersedes_snapshot_id' ? (Number(snapshot[field] || 0) || null) === value
                         : field === 'captured_at' ? normalizedCapture(snapshot[field]) === value : snapshot[field] === value));
@@ -183,9 +189,9 @@
                     if (!f.capturedAt || !f.sourceRef.trim()) throw new Error('请填写实际捕获时间和来源引用；固定观察时点不能代填采集时间。');
                     const row = { hotel_id: Number(f.hotelId), room_type_id: Number(f.roomTypeId), platform: this.platform,
                         fact_scope: ['ctrip', 'meituan'].includes(this.platform) ? 'ota_channel' : 'accommodation_room_fee',
-                        stay_date: f.stayDate, captured_at: f.correctionId && f.correctionCapturedAt ? f.correctionCapturedAt : f.capturedAt.replace('T', ' '), on_books_room_nights: parseNumber(f.rooms),
-                        on_books_room_revenue: parseNumber(f.revenue), cumulative_cancel_room_nights: parseNumber(f.cancelled),
-                        gross_booking_room_nights: parseNumber(f.gross), source_ref: f.sourceRef.trim(), operator_attested: f.attested,
+                        stay_date: f.stayDate, captured_at: f.correctionId && f.correctionCapturedAt ? f.correctionCapturedAt : f.capturedAt.replace('T', ' '), on_books_room_nights: parseNumber(f.rooms, 'on_books_room_nights'),
+                        on_books_room_revenue: parseNumber(f.revenue, 'on_books_room_revenue'), cumulative_cancel_room_nights: parseNumber(f.cancelled, 'cumulative_cancel_room_nights'),
+                        gross_booking_room_nights: parseNumber(f.gross, 'gross_booking_room_nights'), source_ref: f.sourceRef.trim(), operator_attested: f.attested,
                         supersedes_snapshot_id: f.correctionId ? Number(f.correctionId) : null };
                     if (row.on_books_room_nights === null) throw new Error('请填写实际在手间夜，未知不能按0保存。');
                     await this.saveRows([row], 'manual_entry');

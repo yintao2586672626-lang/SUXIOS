@@ -128,6 +128,54 @@ test('bulk overprecision in every metric is rejected before POST and positive ti
     }
 });
 
+test('each metric at the compatible maximum is posted and independently read without rounding', async () => {
+    let saved;
+    const posts = [];
+    const { ctx } = component(async (url, options) => {
+        if (options?.method === 'POST') { posts.push(JSON.parse(options.body)); saved = receipt(posts[0].rows[0]); return saved; }
+        return url.includes('/snapshots/') ? snapshotRead(saved) : fixture();
+    });
+    const row = { ...submittedRow(), on_books_room_nights: '9999999999.9999', on_books_room_revenue: '9999999999.9999',
+        cumulative_cancel_room_nights: '9999999999.9999', gross_booking_room_nights: '9999999999.9999' };
+    await ctx.saveRows([row]);
+    assert.equal(ctx.error, '');
+    assert.match(ctx.notice, /精确回读1条/);
+    for (const field of ['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights']) {
+        assert.equal(posts[0].rows[0][field], '9999999999.9999');
+        assert.equal(Number(ctx.receipt.snapshots[0][field]), 9999999999.9999);
+    }
+});
+
+test('out-of-range form and file metrics show a field limit before any POST', async () => {
+    for (const [field, formField, label] of [['on_books_room_nights', 'rooms', '在手间夜'], ['on_books_room_revenue', 'revenue', '房费'],
+        ['cumulative_cancel_room_nights', 'cancelled', '累计取消间夜'], ['gross_booking_room_nights', 'gross', '累计毛预订间夜']]) {
+        for (const kind of ['form', 'file']) {
+            let calls = 0;
+            const { ctx } = component(async () => { calls++; return receipt(); });
+            if (kind === 'form') {
+                Object.assign(ctx.form, { hotelId: '80', roomTypeId: '1', stayDate: '2026-10-03', capturedAt: '2026-10-02T09:00',
+                    rooms: '1', sourceRef: 'TEST-ONLY limit source', [formField]: '10000000000' });
+                await ctx.saveForm();
+            } else {
+                ctx.importText = JSON.stringify([{ ...submittedRow(), [field]: 1e10 }]);
+                await ctx.saveImport();
+            }
+            assert.equal(calls, 0, `${field} ${kind}`);
+            assert.ok(ctx.error.includes(label), `${field}: ${ctx.error}`);
+            assert.match(ctx.error, /9,999,999,999\.9999/);
+        }
+    }
+});
+
+test('a receipt beyond a field limit cannot claim exact readback', async () => {
+    const saved = receipt(); saved.data.snapshots[0].on_books_room_revenue = 1e14;
+    const { ctx } = component(async () => saved);
+    await ctx.saveRows([submittedRow()]);
+    assert.equal(ctx.receipt, null);
+    assert.equal(ctx.pendingReceipt, null);
+    assert.match(ctx.error, /回读.*不匹配/);
+});
+
 test('single form submission is manual entry while a one-row file stays manual file import', async () => {
     for (const kind of ['form', 'file']) {
         let saved;

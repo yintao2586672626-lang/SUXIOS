@@ -874,8 +874,8 @@
     };
     const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-hfe87dee23c';
     const OperatingFinanceControlCenterAsync = systemComponents.OperatingFinanceControlCenterBody || Vue.defineAsyncComponent({
-        loader: () => loadOnlineDataComponentScript('components/system/operating-economics-workbench.min.js?v=economics-h772bea2b45')
-            .then(() => loadOnlineDataComponentScript('components/system/booking-monitoring-panel.js?v=booking-ha14d973a1f'))
+        loader: () => loadOnlineDataComponentScript('components/system/operating-economics-workbench.min.js?v=economics-hd41f49b03f')
+            .then(() => loadOnlineDataComponentScript('components/system/booking-monitoring-panel.js?v=booking-h6baa4fc039'))
             .then(() => loadOnlineDataComponentScript(operatingFinanceControlCenterScript))
             .then(() => requireSystemComponent('OperatingFinanceControlCenterBody')),
         delay: 0,

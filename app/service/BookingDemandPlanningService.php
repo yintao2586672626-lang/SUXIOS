@@ -1005,6 +1005,18 @@ final class BookingDemandPlanningService
         if (!is_finite($number) || $number < 0) {
             throw new InvalidArgumentException($field . '_invalid');
         }
+        // Room metrics fit DECIMAL(14,4). Revenue's DECIMAL(18,4) has more
+        // capacity, but the existing float/PDO conversion uses 14 significant
+        // digits. Keep ten integer plus four fraction digits for exact readback.
+        $maximums = [
+            'on_books_room_nights' => 9999999999.9999,
+            'on_books_room_revenue' => 9999999999.9999,
+            'cumulative_cancel_room_nights' => 9999999999.9999,
+            'gross_booking_room_nights' => 9999999999.9999,
+        ];
+        if (isset($maximums[$field]) && $number > $maximums[$field]) {
+            throw new InvalidArgumentException($field . '_out_of_range');
+        }
         $parts = preg_split('/[eE]/', trim((string)$value));
         $fraction = explode('.', $parts[0], 2)[1] ?? '';
         $exponent = isset($parts[1]) ? (int)$parts[1] : 0;

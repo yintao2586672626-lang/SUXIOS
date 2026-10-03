@@ -102,6 +102,10 @@ final class BookingMonitoring extends Base
             'on_books_snapshot_captured_at_future' => '捕获时间不能晚于当前上海时间',
             'on_books_snapshot_after_stay_date' => '快照不能晚于目标入住日',
             'on_books_room_nights_required' => '在手间夜缺失，不能按0保存',
+            'on_books_room_nights_out_of_range' => '在手间夜超出可精确保存上限（9,999,999,999.9999），请检查单位和数量',
+            'on_books_room_revenue_out_of_range' => '在手房费超出可精确保存上限（9,999,999,999.9999元），请检查金额单位',
+            'cumulative_cancel_room_nights_out_of_range' => '累计取消间夜超出可精确保存上限（9,999,999,999.9999），请检查单位和数量',
+            'gross_booking_room_nights_out_of_range' => '累计毛预订间夜超出可精确保存上限（9,999,999,999.9999），请检查单位和数量',
             'on_books_snapshot_source_ref_invalid' => '请填写来源引用或文件指纹',
         ];
         $safeReason = preg_match('/^[a-z][a-z0-9_]{3,100}$/D', $reason) ? $reason : 'booking_monitor_request_failed';

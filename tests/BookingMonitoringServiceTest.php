@@ -236,6 +236,41 @@ final class BookingMonitoringServiceTest extends TestCase
         }
     }
 
+    public function testManualMetricsAtCompatibleMaximumSaveReadAndReplayExactly(): void
+    {
+        $row = $this->row('2026-10-02 09:00:00', 1);
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            $row[$field] = '9999999999.9999';
+        }
+        $saved = $this->service()->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            self::assertSame(9999999999.9999, $saved[$field]);
+        }
+        self::assertSame($saved, $this->service()->readSnapshot(7, [80], 80, $saved['id']) + ['idempotent' => false]);
+        $replayed = $this->service()->saveSnapshots(7, [80], [$row], 9)['snapshots'][0];
+        self::assertSame($saved['id'], $replayed['id']);
+        self::assertSame($saved['content_digest'], $replayed['content_digest']);
+        self::assertTrue($replayed['idempotent']);
+    }
+
+    public function testOutOfRangeMetricsReturn422AndDoNotPartiallySaveBatch(): void
+    {
+        $user = new class {
+            public int $id = 9;
+            public function getPermittedHotelIds(): array { return [80]; }
+            public function hasHotelPermission(int $hotelId, string $capability): bool { return $hotelId === 80; }
+        };
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            $invalid = array_replace($this->row('2026-10-02 09:00:00', 10), [$field => 1e10]);
+            $response = $this->controller(['rows' => [$this->row('2026-10-01 09:00:00', 8), $invalid]], $user, 'POST')->saveSnapshots();
+            self::assertSame(422, $response->getCode());
+            self::assertSame(422, $response->getData()['code']);
+            self::assertSame($field . '_out_of_range', $response->getData()['data']['reason_code']);
+            self::assertFalse($response->getData()['data']['readback_verified']);
+            self::assertSame(0, Db::name(BookingMonitoringService::TABLE)->count());
+        }
+    }
+
     public function testSelectableHotelsAreSameTenantIntersectionWithExplicitPermissions(): void
     {
         $view = $this->service()->overview(7, [80, 81, 82], [80], $this->query());

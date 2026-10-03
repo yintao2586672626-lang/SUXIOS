@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-hc4da3344b7';
+    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-h78672e3dfe';
     const fullScriptAsset = fullScript.split('?', 1)[0];
     let fullScriptPromise = null;
 

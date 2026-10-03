@@ -102,4 +102,19 @@ final class BookingMonitoringRoutingTest extends TestCase
         return (new Request())->setMethod($method)->setUrl($path)->setBaseUrl($path)
             ->setPathinfo(ltrim($path, '/'))->withHeader(['accept' => 'application/json', 'authorization' => '']);
     }
+
+    public function testOutOfRangeSnapshotMetricsReturnAnActionableValidationError(): void
+    {
+        $class = new \ReflectionClass(\app\controller\BookingMonitoring::class);
+        $controller = $class->newInstanceWithoutConstructor();
+        foreach (['on_books_room_nights'=>'在手间夜','on_books_room_revenue'=>'在手房费',
+            'cumulative_cancel_room_nights'=>'累计取消间夜','gross_booking_room_nights'=>'累计毛预订间夜'] as $field=>$label) {
+            $response = $class->getMethod('failure')->invoke($controller,new \InvalidArgumentException($field.'_out_of_range'),'预订快照保存失败，整批未完成');
+            self::assertSame(422,$response->getCode());
+            self::assertStringContainsString($label,$response->getData()['message']);
+            self::assertStringContainsString('9,999,999,999.9999',$response->getData()['message']);
+            self::assertSame($field.'_out_of_range',$response->getData()['data']['reason_code']);
+            self::assertFalse($response->getData()['data']['readback_verified']);
+        }
+    }
 }

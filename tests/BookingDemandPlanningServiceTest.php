@@ -293,6 +293,34 @@ final class BookingDemandPlanningServiceTest extends TestCase
         self::assertSame(0, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
     }
 
+    public function testSnapshotMetricsAtCompatibleMaximumSaveAndReadBackExactly(): void
+    {
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            foreach ([9999999999.9999, '9999999999.9999'] as $index => $value) {
+                $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-at-limit-' . $field . '-' . $index), [$field => $value]);
+                $saved = $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+                self::assertSame(9999999999.9999, $saved[$field]);
+                self::assertSame($saved, $this->service()->readSnapshot(7, 80, $saved['id']) + ['idempotent' => false]);
+            }
+        }
+    }
+
+    public function testSnapshotMetricsOverCompatibleMaximumAreRejectedBeforePersistence(): void
+    {
+        foreach (['on_books_room_nights', 'on_books_room_revenue', 'cumulative_cancel_room_nights', 'gross_booking_room_nights'] as $field) {
+            foreach ([1e10, '10000000000', 1e14, '99999999999999.9999'] as $index => $value) {
+                $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-over-limit-' . $field . '-' . $index), [$field => $value]);
+                try {
+                    $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+                    self::fail('out-of-range ' . $field . ' must not reach storage');
+                } catch (InvalidArgumentException $error) {
+                    self::assertSame($field . '_out_of_range', $error->getMessage());
+                }
+                self::assertSame(0, (int)Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+            }
+        }
+    }
+
     public function testSnapshotDeadlockRetriesTheWholeTransactionWithinTheBoundedBudget(): void
     {
         $attempts = 0;

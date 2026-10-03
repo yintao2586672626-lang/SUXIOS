@@ -297,6 +297,43 @@ final class OperatingEvidenceRoutingTest extends TestCase
         self::assertNull($response->getData()['data']);
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('hundredItemTextCases')]
+    public function testAcceptedHundredItemPreviewSavesAndReadsExactly(string $character, bool $partial): void
+    {
+        $this->database();
+        $request = $this->input();
+        $base = $request['inputs']['items'][0];
+        $request['inputs']['items'] = [];
+        for ($i = 0; $i < 100; ++$i) {
+            $item = array_replace($base, ['id'=>str_repeat($character, 97).sprintf('%03d', $i),
+                'name'=>str_repeat($character, 160), 'source_ref'=>str_repeat($character, 500)]);
+            if ($partial) foreach (['opening_quantity','purchased_quantity','transfer_in_quantity','closing_quantity','transfer_out_quantity','returned_quantity','written_off_quantity','unit_price'] as $key) $item[$key] = null;
+            $request['inputs']['items'][] = $item;
+        }
+        $preview = $this->call('previewEvidence', $request, $this->user());
+        self::assertSame(200, $preview->getCode(), $preview->getContent());
+        $saved = $this->call('saveEvidence', $request, $this->user());
+        self::assertSame(200, $saved->getCode(), $saved->getContent());
+        $data = $saved->getData()['data'];
+        $read = $this->call('readEvidence', $request, $this->user(), ['id'=>$data['snapshot_id']]);
+        self::assertSame(200, $read->getCode(), $read->getContent());
+        self::assertEquals($preview->getData()['data']['result'], $read->getData()['data']['result']);
+        self::assertSame($data, $read->getData()['data'] + ['idempotent'=>false]);
+        self::assertCount(100, $data['inputs']['items']);
+        $json = (string)Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$data['snapshot_id'])->value('payload_json');
+        self::assertSame(100, substr_count($json, '"name":'));
+        self::assertLessThan(1000000, strlen($json));
+        self::assertSame(hash('sha256',$json), $data['content_digest']);
+        $retry = $this->call('saveEvidence', $request, $this->user())->getData()['data'];
+        self::assertSame($data['snapshot_id'], $retry['snapshot_id']);
+        self::assertTrue($retry['idempotent']);
+        self::assertSame(1, Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
+    }
+    public static function hundredItemTextCases(): array
+    {
+        return ['ascii complete'=>['A',false], 'unicode complete'=>['🧴',false], 'unicode missing quantities'=>['🧴',true]];
+    }
+
     public function testReplayReturnsTheOriginalVersionAfterSourceFactsChangeAndRejectsChangedInputs(): void
     {
         $this->database();
@@ -326,7 +363,8 @@ final class OperatingEvidenceRoutingTest extends TestCase
         self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
     }
 
-    public function testLegacyVersionWithoutRequestDigestRetainsItsOriginalReplayContract(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('legacyStorageFormats')]
+    public function testLegacyVersionWithoutRequestDigestRetainsItsOriginalReplayContract(bool $uncompacted): void
     {
         $this->database();
         $request = $this->input();
@@ -335,6 +373,11 @@ final class OperatingEvidenceRoutingTest extends TestCase
         $scope = $store->scope(10,[80],80,'2026-09','whole_hotel','consumables_actual');
         $payload = ['inputs'=>$result['inputs'],'result'=>$result,'status'=>$result['status'],'source_quality'=>$result['source_quality']];
         $original = $store->save($scope,$payload,$request['idempotency_key'],7);
+        if ($uncompacted) {
+            $json = json_encode(['contract_version'=>'operating_evidence.v1','scope'=>$scope] + $payload,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
+            Db::name(OperatingEvidenceSnapshotStore::TABLE)->where('id',$original['snapshot_id'])->update(['payload_json'=>$json,'content_digest'=>hash('sha256',$json)]);
+            $original = $store->read($scope,$original['snapshot_id']);
+        }
         self::assertNull($store->replayRequest($scope,$request['idempotency_key'],$request['inputs']));
         $legacyReplay = $store->save($scope,$payload,$request['idempotency_key'],7);
         self::assertSame($original['snapshot_id'],$legacyReplay['snapshot_id']);
@@ -346,6 +389,7 @@ final class OperatingEvidenceRoutingTest extends TestCase
         self::assertTrue($controllerReplay->getData()['data']['idempotent']);
         self::assertSame(1,Db::name(OperatingEvidenceSnapshotStore::TABLE)->count());
     }
+    public static function legacyStorageFormats(): array { return ['original full format'=>[true],'compact format without request digest'=>[false]]; }
 
     public function testFutureActualAccountingMonthAndInventoryDateCannotPreviewOrSave(): void
     {
