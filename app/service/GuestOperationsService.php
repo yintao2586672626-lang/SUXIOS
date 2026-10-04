@@ -16,12 +16,14 @@ final class GuestOperationsService
     private const RECORDS = 'guest_operation_records';
     private const HEADS = 'guest_operation_heads';
     private const REQUESTS = 'guest_operation_requests';
-    private const KINDS = ['stay_event', 'coverage', 'feedback', 'feedback_entry'];
+    private const KINDS = ['stay_event', 'coverage', 'feedback', 'feedback_entry', 'room', 'stay_import'];
 
     public function importStays(int $tenantId, array $hotelIds, int $hotelId, int $actorId, array $input): array
     {
         $tenantId = $this->scope($tenantId, $hotelIds, $hotelId, $actorId);
-        $this->only($input, ['idempotency_key', 'platform', 'source_reference', 'events']);
+        $this->only($input, ['idempotency_key', 'platform', 'source_reference', 'events', 'import_method']);
+        $method = $input['import_method'] ?? 'manual_anonymous_import';
+        if (!in_array($method, ['manual_anonymous_import', 'jd06_file_import'], true)) throw new InvalidArgumentException('import_method 无效');
         $platform = $this->platform($input['platform'] ?? '');
         $source = $this->text($input['source_reference'] ?? '', 180, 'source_reference');
         $events = $input['events'] ?? null;
@@ -45,7 +47,7 @@ final class GuestOperationsService
                 'document' => [
                     'event_key' => $key, 'guest_hash' => $hash, 'stay_date' => $this->date($event['stay_date'] ?? ''),
                     'status' => $status, 'platform' => $platform, 'source_reference' => $source,
-                    'source_method' => 'manual_anonymous_import',
+                    'source_method' => $method,
                     'correction_reason' => $this->optionalText($event['correction_reason'] ?? '', 300),
                 ],
             ];
@@ -54,7 +56,7 @@ final class GuestOperationsService
             $ids = [];
             foreach ($normalized as $event) {
                 $current = $this->latest($tenantId, $hotelId, 'stay_event', $event['key']);
-                if ($current && $this->json($current['document']) === $this->json($event['document'])) { $ids[] = $current['id']; continue; }
+                if ($current && (new GuestStayEventDedupService())->identical($current['document'], $event['document'])) { $ids[] = $current['id']; continue; }
                 if ($current && $event['document']['correction_reason'] === '') throw new InvalidArgumentException('更正已有入住事件必须填写 correction_reason');
                 $ids[] = $this->append($tenantId, $hotelId, $actorId, 'stay_event', $event['key'], $event['expected'], $event['document'], $event['document']['stay_date'], $event['document']['platform']);
             }
@@ -108,8 +110,8 @@ final class GuestOperationsService
             'summary' => $this->text($input['summary'] ?? '', 1500, 'summary'), 'owner_user_id' => $owner,
             'due_at' => $this->datetime($input['due_at'] ?? ''), 'source_reference' => $this->text($input['source_reference'] ?? '', 180, 'source_reference'),
             'evidence_refs' => $this->evidence($input['evidence_refs'] ?? []), 'status' => $existing['status'] ?? 'open',
-            'facts' => $existing['facts'] ?? [], 'edit_reason' => $editReason, 'source_method' => 'manual_guest_feedback',
-        ];
+            'facts' => $existing['facts'] ?? [], 'edit_reason' => $editReason, 'source_method' => $existing['source_method'] ?? 'manual_guest_feedback',
+        ] + array_intersect_key($existing, array_flip(['room_id', 'room_label', 'guest_submission']));
         if (substr($document['due_at'], 0, 10) < $document['incident_date']) throw new InvalidArgumentException('期限不能早于发生日期');
         return $this->write($tenantId, $hotelId, $actorId, $input, 'feedback', [$key], function () use ($tenantId, $hotelId, $actorId, $input, $document, $key, $current, $editReason): array {
             if ($current && $editReason === '') throw new InvalidArgumentException('编辑必须记录 edit_reason');
@@ -176,6 +178,7 @@ final class GuestOperationsService
         $tenantId = $this->scope($tenantId, $hotelIds, $hotelId);
         $row = Db::name(self::RECORDS)->where('id', $recordId)->where('tenant_id', $tenantId)->where('hotel_id', $hotelId)->find();
         if (!$row) throw new RuntimeException('guest_record_not_found', 404);
+        if (!in_array($row['kind'], self::KINDS, true)) throw new RuntimeException('guest_record_not_found', 404);
         return $this->verify($row);
     }
 
@@ -219,11 +222,20 @@ final class GuestOperationsService
                 'evidence_boundary' => '来源人工声明与匿名导入；不证明全酒店、跨期终身复购或经营改善',
             ],
             'stay_events' => $stays,
+            'stay_imports' => $this->currentRecords($tenantId, $hotelId, 'stay_import', $start, $end, $platform),
             'owners' => $this->feedbackOwners($tenantId, $hotelId),
             'feedback' => $this->currentRecords($tenantId, $hotelId, 'feedback', $start, $end),
-            'feedback_entries' => $this->currentRecords($tenantId, $hotelId, 'feedback_entry'),
-            'boundaries' => ['external_write_count' => 0, 'guest_identity_stored' => false, 'anonymous_submission_enabled' => false],
+            'feedback_entries' => $entries = $this->currentRecords($tenantId, $hotelId, 'feedback_entry'),
+            'rooms' => (new GuestRoomRegistryService())->list($tenantId, $hotelId),
+            'boundaries' => ['external_write_count' => 0, 'guest_identity_stored' => false, 'anonymous_submission_enabled' => (bool)array_filter($entries, static fn(array $entry): bool => ($entry['document']['access_mode'] ?? '') === 'guest_submission_only' && $entry['document']['enabled'])],
         ];
+    }
+
+    public function feedbackOwnerAvailable(int $tenantId, int $hotelId, int $ownerId): bool
+    {
+        $assignee = Db::name('users')->where('id', $ownerId)->where('tenant_id', $tenantId)->where('status', 1)
+            ->field('id,tenant_id,status,hotel_id,role_id')->find();
+        return $assignee && $this->feedbackOwnerAllows($assignee, $hotelId, new HotelScopeService());
     }
 
     private function feedbackOwners(int $tenantId, int $hotelId): array

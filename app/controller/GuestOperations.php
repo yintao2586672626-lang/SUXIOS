@@ -22,6 +22,14 @@ final class GuestOperations extends Base
     public function saveCoverage(): Response { return $this->save('saveCoverage'); }
     public function saveFeedback(): Response { return $this->save('saveFeedback'); }
     public function saveEntry(): Response { return $this->save('saveEntry'); }
+    public function saveRooms(): Response
+    {
+        return $this->run(true, fn($service, $tenant, $ids, $hotel): array => (new \app\service\GuestRoomRegistryService())->save($tenant, $ids, $hotel, (int)$this->currentUser->id, $this->payload()));
+    }
+    public function savePublicEntries(): Response
+    {
+        return $this->run(true, fn($service, $tenant, $ids, $hotel): array => (new \app\service\GuestPublicFeedbackService())->configure($tenant, $ids, $hotel, (int)$this->currentUser->id, $this->payload()));
+    }
     public function appendFact(string $caseKey): Response
     {
         return $this->run(true, fn($service, $tenant, $ids, $hotel): array => $service->appendFeedbackFact($tenant, $ids, $hotel, (int)$this->currentUser->id, $caseKey, $this->payload()));

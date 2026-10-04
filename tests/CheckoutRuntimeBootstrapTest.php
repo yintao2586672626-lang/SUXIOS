@@ -42,6 +42,11 @@ final class CheckoutRuntimeBootstrapTest extends TestCase
         $this->assertCurrentCheckout(true, true, false, false, true, true);
     }
 
+    public function testStaleMappingsAndMultipleClassesRemainLocalWithAuthoritativeClassmap(): void
+    {
+        $this->assertCurrentCheckout(true, true, true, true, true, true);
+    }
+
     private function assertCurrentCheckout(bool $foreignMapping, bool $optimizedMapping = false, bool $authoritative = false, bool $multipleClasses = false, bool $staleMapping = false, bool $outdatedExistingFile = false): void
     {
         $root = dirname(__DIR__);

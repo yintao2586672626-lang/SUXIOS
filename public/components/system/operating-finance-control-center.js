@@ -187,11 +187,11 @@
             selectedHotelId: { type: [String, Number], default: '' },
             canExecute: { type: Boolean, default: false },
         },
-        components: { OperatingEconomicsWorkbench: components.OperatingEconomicsWorkbench, BookingMonitoringPanel: components.BookingMonitoringPanel, InvestmentOperatingBridgePanel: components.InvestmentOperatingBridgePanel, BusinessFeatureWorkspace: components.BusinessFeatureWorkspace },
+        components: { OperatingEconomicsWorkbench: components.OperatingEconomicsWorkbench, BookingMonitoringPanel: components.BookingMonitoringPanel, InvestmentOperatingBridgePanel: components.InvestmentOperatingBridgePanel, BusinessFeatureWorkspace: components.BusinessFeatureWorkspace, OperatingWorkbenchPanel: components.OperatingWorkbenchPanel },
         emits: ['update:selected-hotel-id', 'open-investment-ledger', 'business-navigate'],
         data: () => ({
             hotelId: '', businessDate: shanghaiDate(), periodMonth: currentMonth(), stayDate: shanghaiDate(1), platform: 'ctrip',
-            activeTab: 'settlement', loading: false, error: '', overview: null, requestSeq: 0, businessWorkspaceSettings: null,
+            activeTab: 'settlement', loading: false, error: '', overview: null, requestSeq: 0, businessWorkspaceSettings: null, workbenchInitialTab: 'budget',
             feedbackEntryRequest: feedbackEntryRequest(), feedbackEntryResolved: false, feedbackEntryError: '',
             settlementText: '', settlementUploadFile: null, settlementFileName: '', settlementVerified: false,
             settlementInputKey: 0, settlementParserVersion: 'canonical_settlement_json.v1', savingSettlement: false,
@@ -361,8 +361,9 @@
                 return `¥${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
             },
             openWorkspaceFinance(event) {
-                if (!['booking', 'portfolio', 'economics', 'finance'].includes(event?.tab)) return;
+                if (!['booking', 'portfolio', 'economics', 'finance', 'workspace'].includes(event?.tab)) return;
                 this.businessWorkspaceSettings = event.settings || null;
+                this.workbenchInitialTab = event.workbench_tab || (event.tab === 'booking' ? 'booking' : event.tab === 'portfolio' ? 'table' : 'budget');
                 this.activeTab = event.tab;
                 if (event.settings?.preferred_platform) this.platform = event.settings.preferred_platform;
             },
@@ -932,6 +933,7 @@
 
                 <p v-if="feedbackEntryError" role="alert" class="rounded-xl bg-red-50 p-3 text-sm text-red-700">{{ feedbackEntryError }}</p>
                 <business-feature-workspace v-if="activeTab === 'workspace' && hotelId && !feedbackEntryError" :key="hotelId" :request="request" :hotels="hotels" :hotel-id="hotelId" :can-execute="canExecute" :initial-section="feedbackEntryKey ? 'guests' : 'configuration'" :entry-key="feedbackEntryKey" @navigate="$emit('business-navigate', $event)" @finance-tab="openWorkspaceFinance" @settings-applied="businessWorkspaceSettings = $event" @update:selected-hotel-id="hotelId = String($event); $emit('update:selected-hotel-id', String($event))"></business-feature-workspace>
+                <operating-workbench-panel v-if="['workspace', 'finance', 'portfolio', 'booking'].includes(activeTab) && hotelId && !feedbackEntryKey" :request="request" :hotels="hotels" :hotel-id="hotelId" :period-month="periodMonth" :business-date="businessDate" :can-execute="canExecute" :initial-tab="activeTab === 'booking' ? 'booking' : activeTab === 'portfolio' ? 'table' : workbenchInitialTab"></operating-workbench-panel>
 
                 <section v-if="activeTab === 'settlement'" class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,.75fr)]" data-testid="operating-finance-settlement">
                     <div class="min-w-0 rounded-2xl border border-slate-200 bg-white p-5">

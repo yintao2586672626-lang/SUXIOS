@@ -122,6 +122,7 @@ final class CampaignOperationsServiceTest extends TestCase
         ]);
         $legacyRead = $this->service->read(101, 11, $saved['id']);
         self::assertSame($legacy, $legacyRead['content_sha256']); self::assertSame('legacy_content_only', $legacyRead['integrity_status']);
+        self::assertSame([$legacyRead], $this->service->readHeads(101, [['hotel_id'=>11,'latest_id'=>$saved['id']]]));
         Db::name(CampaignOperationsService::TABLE)->where('id', $saved['id'])->update(['created_by' => 10000]);
         $legacyMetadata = $this->service->read(101, 11, $saved['id']);
         self::assertSame(10000, $legacyMetadata['created_by']); self::assertSame('legacy_content_only', $legacyMetadata['integrity_status']);

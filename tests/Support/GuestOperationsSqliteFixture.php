@@ -9,7 +9,8 @@ final class GuestOperationsSqliteFixture
 {
     public static function create(): void
     {
-        foreach (['guest_operation_requests', 'guest_operation_heads', 'guest_operation_records', 'user_hotel_permissions', 'users', 'roles', 'hotels'] as $table) Db::execute('DROP TABLE IF EXISTS ' . $table);
+        foreach (['operation_logs', 'guest_operation_requests', 'guest_operation_heads', 'guest_operation_records', 'user_hotel_permissions', 'users', 'roles', 'hotels'] as $table) Db::execute('DROP TABLE IF EXISTS ' . $table);
+        Db::execute('CREATE TABLE operation_logs(id INTEGER PRIMARY KEY AUTOINCREMENT,tenant_id INTEGER,user_id INTEGER,hotel_id INTEGER,module TEXT,action TEXT,description TEXT,error_info TEXT,extra_data TEXT,ip TEXT,user_agent TEXT,create_time TEXT)');
         Db::execute('CREATE TABLE hotels(id INTEGER PRIMARY KEY, tenant_id INTEGER, status INTEGER, name TEXT)');
         Db::execute("INSERT INTO hotels VALUES(80,10,1,'Test Hotel'),(81,20,1,'Other Hotel'),(82,10,1,'Second Hotel')");
         Db::execute('CREATE TABLE users(id INTEGER PRIMARY KEY,tenant_id INTEGER,status INTEGER,hotel_id INTEGER,role_id INTEGER)');

@@ -22,9 +22,13 @@ const names = {
     finance: 'components/system/operating-finance-control-center.js',
     bridgePanel: 'components/system/investment-operating-bridge-panel.js',
     guestQr: 'components/system/guest-feedback-qr.js',
+    guestTools: 'components/system/guest-operations-tools.js',
     guest: 'components/system/guest-operations-panel.js',
+    campaignWeekly: 'components/system/campaign-marketing-weekly.js',
+    campaignMedia: 'components/system/campaign-local-media.js',
     campaign: 'components/system/campaign-operations-panel.js',
     workspace: 'components/system/business-feature-workspace.js',
+    operatingWorkbench: 'components/system/operating-workbench-panel.js',
     artifact: 'components/system/operating-finance-control-center.min.js',
     lab: 'components/system/operating-opportunity-lab.js',
     economics: 'components/system/operating-economics-workbench.min.js',
@@ -42,9 +46,13 @@ function fixture({ realMinifier = false } = {}) {
         finance: 'x = {\n        template: ' + tick + '内容\n        ' + tick + ',\n    };',
         bridgePanel: '// synthetic bridge panel source\n',
         guestQr: '// synthetic guest QR source\n',
+        guestTools: '// synthetic guest tools source\n',
         guest: '// synthetic guest panel source\n',
+        campaignWeekly: '// synthetic weekly marketing source\n',
+        campaignMedia: '// synthetic local media source\n',
         campaign: '// synthetic campaign panel source\n',
         workspace: '// synthetic workspace source\n',
+        operatingWorkbench: '// synthetic operating workbench source\n',
         artifact: 'compiled-finance;\n',
         lab: '// synthetic 今日事项 A\n',
         economics: '// synthetic 渠道贡献与耗材\n',
@@ -232,7 +240,7 @@ test('bridge source content changes propagate through the real minified finance 
     assert.deepEqual(f.writes, [], 'an identical bridge bundle does not republish assets');
 });
 
-for (const dependency of ['guestQr', 'guest', 'campaign', 'workspace']) test(dependency + ' content reaches the finance bundle and entry without rewriting business sources', async () => {
+for (const dependency of ['guestQr', 'guestTools', 'guest', 'campaignWeekly', 'campaignMedia', 'campaign', 'workspace', 'operatingWorkbench']) test(dependency + ' content reaches the finance bundle and entry without rewriting business sources', async () => {
     const f = fixture({ realMinifier: true });
     const finance = f.get('finance');
     f.set(dependency, 'window.TEST_ONLY_' + dependency + ' = "before";\n');

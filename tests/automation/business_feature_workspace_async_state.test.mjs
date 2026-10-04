@@ -172,12 +172,14 @@ test('all native directory destinations retain menu, finance and OTA-specific na
     const handler = /@business-navigate="([^"]+)"/.exec(readFileSync('resources/frontend/templates/fragments/19c-page-operating-finance.html', 'utf8'))[1].replaceAll('&amp;', '&');
     const dispatch = new Function('$event', `with(this){${handler}}`);
     const native = rows.filter(row => !['guests', 'campaigns', 'review', 'source'].includes(row.target));
-    assert.equal(native.length, 16);
+    assert.equal(native.length, 18, 'monthly budget and both automatic weekly reports dispatch to native finance tools');
     for (const row of native) {
         const events = [], calls = [], state = workspace(async () => {});
         state.applied = { preferred_platform: 'ctrip' }; state.$emit = (name, event) => events.push([name, plain(event)]);
         state.execute(row);
-        if (row.target === 'finance') { assert.equal(events[0][0], 'finance-tab'); assert.equal(events[0][1].tab, row.tab); continue; }
+        if (row.target === 'finance') { assert.equal(events[0][0], 'finance-tab'); assert.equal(events[0][1].tab, row.tab);
+            if ([6,7,10,12].includes(row.module_id)) assert.equal(events[0][1].workbench_tab, [10,12].includes(row.module_id) ? 'report' : row.module_id === 7 ? 'table' : 'budget');
+            continue; }
         const parent = { currentPage: 'operating-finance', handleMenuClick: item => calls.push(['menu', item]), openCtripManualTab: tab => calls.push(['ctrip', tab]), openMeituanManualTab: tab => calls.push(['meituan', tab]), openMeituanStoredDataTab: tab => calls.push(['meituan_stored', tab]) };
         dispatch.call(parent, events[0][1]);
         row.target === 'ctrip-ebooking' ? assert.deepEqual(calls, [['ctrip', row.tab]]) : assert.deepEqual(calls, [['menu', { path: row.target, tab: row.tab }]]);
