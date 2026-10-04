@@ -11,6 +11,7 @@ think\facade\Config::set(['default' => 'workbench_browser', 'connections' => ['w
 think\facade\Db::connect(null, true);
 if ($fresh) {
     Tests\Support\OperatingWorkbenchSqliteFixture::create();
+    foreach ([80=>12,81=>9] as $hotel=>$rooms) (new app\service\BookingMonitoringService())->saveSnapshots(10,[80,81],[['hotel_id'=>$hotel,'platform'=>'ctrip','fact_scope'=>'ota_channel','stay_date'=>'2026-10-04','captured_at'=>'2026-10-03 09:00:00','on_books_room_nights'=>$rooms,'source_ref'=>'synthetic booking scope','source_method'=>'manual_entry','operator_attested'=>true]],7);
     for ($date = new DateTimeImmutable('2026-09-27'); $date->format('Y-m-d') <= '2026-10-03'; $date = $date->modify('+1 day')) {
         $day = $date->format('Y-m-d');
         think\facade\Db::name('daily_reports')->insert(['tenant_id' => 10, 'hotel_id' => 80, 'report_date' => $day, 'status' => 2,

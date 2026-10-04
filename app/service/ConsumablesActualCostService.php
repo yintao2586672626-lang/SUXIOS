@@ -87,11 +87,12 @@ final class ConsumablesActualCostService
             $sum = $next;
         }
         $balance = $sum + $correction;
-        // Noise is zero only if the normalized decimal inputs cancel exactly; a tolerance cannot erase a real deficit.
+        // Near cancellation, binary rounding can reverse a real movement's sign.
+        // Recover the normalized decimal balance instead of guessing zero or retaining that noise.
         $noise = PHP_FLOAT_EPSILON * array_sum(array_map('abs', $terms)) * count($terms);
-        return $balance !== 0.0 && abs($balance) <= $noise && $this->decimalBalanceIsZero($terms) ? 0.0 : $balance;
+        return abs($balance) <= $noise ? $this->decimalBalance($terms) : $balance;
     }
-    private function decimalBalanceIsZero(array $terms): bool
+    private function decimalBalance(array $terms): float
     {
         $columns = [];
         foreach ($terms as $term) {
@@ -106,14 +107,22 @@ final class ConsumablesActualCostService
                 $columns[$power] = ($columns[$power] ?? 0) + $sign * (int)$digits[$index];
             }
         }
-        if ($columns === []) return true;
+        if ($columns === []) return 0.0;
+        $first = min(array_keys($columns)); $last = max(array_keys($columns));
         $carry = 0;
-        for ($power = min(array_keys($columns)), $last = max(array_keys($columns)); $power <= $last; ++$power) {
+        for ($power = $first; $power <= $last; ++$power) {
             $value = ($columns[$power] ?? 0) + $carry;
             $carry = (int)floor($value / 10);
-            if ($value - $carry * 10 !== 0) return false;
         }
-        return $carry === 0;
+        $sign = $carry < 0 ? -1 : 1;
+        $carry = 0; $digits = '';
+        for ($power = $first; $power <= $last || $carry > 0; ++$power) {
+            $value = $sign * ($columns[$power] ?? 0) + $carry;
+            $carry = (int)floor($value / 10);
+            $digits .= (string)($value - $carry * 10);
+        }
+        $digits = ltrim(strrev($digits), '0');
+        return $digits === '' ? 0.0 : (float)(($sign < 0 ? '-' : '') . $digits . 'e' . $first);
     }
     private function number(mixed $value): ?float
     {

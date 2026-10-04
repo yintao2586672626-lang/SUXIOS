@@ -26,7 +26,7 @@ test('operating workbench performs budget/report/appeal save-readback through re
         await page.exposeFunction('__workbenchRpc',rpc);
         await page.route('http://workbench.test/**',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><meta charset="utf-8"><div id="app"></div>'}));
         await page.goto('http://workbench.test/');await page.addStyleTag({content:source('public/tailwind.min.css')});
-        await page.addScriptTag({content:source('public/vue.runtime.global.prod.js')});await page.addScriptTag({content:source('public/components/system/operating-workbench-panel.js')});
+        await page.addScriptTag({content:source('public/vue.runtime.global.prod.js')});await page.addScriptTag({content:source('public/components/system/operating-finance-control-center.min.js')});
         await page.evaluate(()=>{const h=Vue.h;window.vm=Vue.createApp({data:()=>({hotel:80}),render(){return h(window.SUXI_SYSTEM_COMPONENTS.OperatingWorkbenchPanel,{ref:'panel',request:window.__workbenchRpc,hotelId:this.hotel,hotels:[{id:80,name:'合成A'},{id:81,name:'合成B'}],periodMonth:'2026-10',businessDate:'2026-10-03',canExecute:true});}}).mount('#app');});
         await page.waitForFunction(()=>window.vm.$refs.panel.overview&&!window.vm.$refs.panel.busy);
         await page.getByLabel('月总营收预算',{exact:true}).fill('1000');await page.getByLabel('月线上房费目标',{exact:true}).fill('600');
@@ -55,6 +55,14 @@ test('operating workbench performs budget/report/appeal save-readback through re
         assert.match(await page.locator('pre').innerText(),/未自动发送/);
         await page.getByLabel('处理阶段',{exact:true}).selectOption('submitted');await page.getByLabel('在平台手工提交后的凭据',{exact:true}).fill('synthetic-platform');
         await page.getByTestId('workbench-save').click();await page.waitForFunction(()=>!window.vm.$refs.panel.busy);assert.match(await page.getByRole('alert').innerText(),/版本或证据/);
+        await page.getByTestId('workbench-tab-booking').click();await page.waitForFunction(()=>window.vm.$refs.panel.booking&&!window.vm.$refs.panel.busy);
+        const groups = await page.evaluate(()=>window.vm.$refs.panel.booking.group_rollup.filter(row=>row.stay_date==='2026-10-04'));
+        assert.equal(groups.length,2); assert.deepEqual(groups.map(row=>row.observed_room_nights),[12,9]);
+        assert.ok(groups.every(row=>row.status==='partial'&&row.room_nights===null&&row.hotels.length===1));
+        for (const name of ['synthetic A','synthetic B']) {
+            const row = page.getByRole('row').filter({hasText:`${name}（分组未配置）`}).filter({hasText:'2026-10-04'});
+            assert.equal(await row.count(),1); assert.match(await row.innerText(),/未配置.*未配置/); assert.match(await row.innerText(),/未取得.*partial/);
+        }
         await page.setViewportSize({width:320,height:900});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
         assert.equal((await rpc(`/operating-workbench/snapshots/${budgetId}?hotel_id=82&kind=budget_2026-10`)).code,403);
         assert.equal((await rpc('/operating-workbench/overview?hotel_ids=80&period_month=2026-10&business_date=2026-10-03',{}, {anonymous:true})).code,401);

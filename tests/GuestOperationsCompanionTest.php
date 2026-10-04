@@ -54,6 +54,92 @@ final class GuestOperationsCompanionTest extends TestCase
     }
     private function token(array $saved): string { return explode('#', $saved['entry_links'][0]['entry_path'])[1]; }
     private function submission(string $key = 'a'): array { return ['request_key' => str_repeat($key, 32), 'summary' => '合成反馈：请检查空调', 'category' => 'complaint']; }
+    public function testCompanionRecordsRemainReadableAfterHotelRenumberWithoutRewritingSource(): void
+    {
+        $rooms = $this->rooms(); $saved = $this->entry([], $rooms); $token = $this->token($saved);
+        $import = (new GuestStayFileImportService())->import(10, [80], 80, 11, $this->file('csv'), 'csv', $this->options());
+        $public = new GuestPublicFeedbackService(); $public->submit($token, 'synthetic-client', $this->submission());
+        $before = Db::name('guest_operation_records')->select()->toArray();
+        foreach (['guest_operation_records', 'guest_operation_heads', 'guest_operation_requests'] as $table) Db::name($table)->where('hotel_id', 80)->update(['hotel_id' => 82]);
+        $store = new GuestOperationRecordStore();
+        foreach ($before as $row) {
+            $read = $store->read((int)$row['id']);
+            self::assertSame(82, $read['hotel_id']); self::assertSame(80, $read['source_hotel_id']);
+            self::assertSame(['tenant_id' => 10, 'hotel_id' => 82], $read['scope']);
+            self::assertSame(['tenant_id' => 10, 'hotel_id' => 80], $read['source_scope']);
+            $after = Db::name('guest_operation_records')->where('id', $row['id'])->find();
+            self::assertSame($row['content_json'], $after['content_json']); self::assertSame($row['content_digest'], $after['content_digest']);
+        }
+        self::assertCount(2, (new GuestRoomRegistryService())->list(10, 82));
+        self::assertSame('Second Hotel', $public->entry($token)['hotel_name']);
+        self::assertSame('readback_verified', $public->submit($token, 'synthetic-client', $this->submission('b'))['submission_status']);
+        self::assertCount(1, (new GuestOperationsService())->overview(10, [82], 82, '2026-10-01', '2026-10-03', 'pms')['stay_imports']);
+        $this->fails(fn() => (new GuestRoomRegistryService())->requireActive(10, 80, $rooms[0]['room_id']), '当前租户酒店', 404);
+        $this->fails(fn() => (new GuestOperationsService())->read(20, [81], 81, $import['records'][0]['id']), 'record_not_found', 404);
+        Db::name('guest_operation_records')->where('id', $rooms[0]['id'])->update(['source_hotel_id' => 82]);
+        $this->fails(fn() => $store->read($rooms[0]['id']), 'source_scope_drift', 409);
+    }
+    public function testPublicEntryAuditTracksIssuanceRotationEnableDisableWithoutTokensAndRollsBack(): void
+    {
+        $rooms = $this->rooms(); $saved = $this->entry([], $rooms);
+        $this->entry([], $rooms); self::assertSame(1, Db::name('operation_logs')->count());
+        foreach ([['disable', false, false, 1], ['enable', true, false, 2], ['rotate', true, true, 3]] as [$request, $enabled, $rotate, $revision]) {
+            $this->entry(['idempotency_key' => $request, 'enabled' => $enabled, 'rotate_tokens' => $rotate, 'expected_revisions' => array_fill_keys(array_column($rooms, 'room_id'), $revision)], $rooms);
+        }
+        $logs = Db::name('operation_logs')->order('id')->select()->toArray(); self::assertCount(4, $logs);
+        foreach ($logs as $index => $log) {
+            self::assertSame(11, (int)$log['user_id']); self::assertSame(10, (int)$log['tenant_id']); self::assertSame(80, (int)$log['hotel_id']);
+            $extra = json_decode($log['extra_data'], true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame(array_column($rooms, 'room_id'), $extra['room_ids']);
+            foreach ($extra['room_actions'] as $action) self::assertContains(['issue', 'disable', 'enable', 'rotate'][$index], $action['actions']);
+        }
+        $serialized = json_encode($logs, JSON_THROW_ON_ERROR);
+        foreach ($saved['entry_links'] as $link) self::assertStringNotContainsString(explode('#', $link['entry_path'])[1], $serialized);
+        self::assertStringNotContainsString('token_digest', $serialized); self::assertStringNotContainsString('guest-feedback.html', $serialized);
+        $before = Db::name('guest_operation_records')->count();
+        Db::execute("CREATE TRIGGER reject_guest_audit BEFORE INSERT ON operation_logs BEGIN SELECT RAISE(ABORT, 'synthetic audit failure'); END");
+        $this->fails(fn() => $this->entry(['idempotency_key' => 'failed-audit', 'rotate_tokens' => true, 'expected_revisions' => array_fill_keys(array_column($rooms, 'room_id'), 4)], $rooms), 'synthetic audit failure');
+        self::assertSame($before, Db::name('guest_operation_records')->count());
+        self::assertSame(0, Db::name('guest_operation_requests')->where('request_key', 'failed-audit')->count());
+    }
+    public function testJd06HotelNamesRequireTenantWideUniquenessAndIdsRemainAuthoritative(): void
+    {
+        $service = new GuestStayFileImportService(); $headers = ['订单号', '手机号', '离店日期', '状态', '酒店'];
+        $path = $this->file('csv', [$headers, ['synthetic-A', '13800000000', '2026-10-01', '已离店', 'Test Hotel']]);
+        Db::name('hotels')->where('id', 81)->update(['name' => 'Test Hotel']);
+        self::assertSame('ready', $service->preview(10, [80], 80, 11, $path, 'csv', $this->options())['preview_status']);
+        Db::name('hotels')->where('id', 82)->update(['name' => ' Test Hotel ', 'status' => 0]);
+        $preview = $service->preview(10, [80], 80, 11, $path, 'csv', $this->options());
+        self::assertSame('blocked', $preview['preview_status']); self::assertStringContainsString('重名', $preview['errors'][0]['message']);
+        $this->fails(fn() => $service->import(10, [80], 80, 11, $path, 'csv', $this->options()), '预览未通过');
+        self::assertSame(0, Db::name('guest_operation_heads')->where('kind', 'stay_event')->count());
+        self::assertSame('ready', $service->preview(10, [80], 80, 11, $this->file('csv'), 'csv', $this->options())['preview_status']);
+        $declared = $this->options(['mapping' => ['event' => 0, 'identity' => 1, 'stay_date' => 2, 'status' => 3, 'hotel' => null], 'confirmed_single_hotel' => true, 'confirmed_hotel_id' => 80]);
+        self::assertSame('staff_declared_single_hotel', $service->preview(10, [80], 80, 11, $path, 'csv', $declared)['scope_evidence']);
+        Db::name('hotels')->where('id', 80)->update(['name' => '82']);
+        $numericName = $this->file('csv', [$headers, ['synthetic-A', '13800000000', '2026-10-01', '已离店', 82]]);
+        self::assertSame('blocked', $service->preview(10, [80], 80, 11, $numericName, 'csv', $this->options())['preview_status']);
+    }
+    public function testPublicSubmissionDoesNotLoadUnrelatedCorruptFeedbackHistory(): void
+    {
+        $token = $this->token($this->entry()); $store = new GuestOperationRecordStore();
+        $unrelated = $store->append(10,80,11,'feedback','unrelated-history',0,['incident_date'=>'2020-01-01'], 'manual', '2020-01-01');
+        Db::name('guest_operation_records')->where('id',$unrelated['id'])->update(['content_digest'=>str_repeat('0',64)]);
+        $this->fails(fn() => (new GuestOperationsService())->overview(10,[80],80,'2026-10-01','2026-10-03','pms'), 'digest_drift', 409);
+        self::assertSame('readback_verified', (new GuestPublicFeedbackService())->submit($token,'synthetic-client',$this->submission())['submission_status']);
+    }
+    public function testPublicOwnerRevocationRetains503AndRollsBackRateCounters(): void
+    {
+        $token = $this->token($this->entry(['owner_user_id'=>15])); $public = new GuestPublicFeedbackService();
+        $before = Db::name('guest_operation_records')->count();
+        foreach ([['user_hotel_permissions','id',2,['can_operation'=>0],['can_operation'=>1]], ['users','id',15,['tenant_id'=>20],['tenant_id'=>10]], ['users','id',15,['status'=>0],['status'=>1]]] as [$table,$field,$id,$invalid,$valid]) {
+            Db::name($table)->where($field,$id)->update($invalid);
+            $this->fails(fn() => $public->submit($token,'synthetic-client',$this->submission()), '责任人', 503);
+            self::assertSame($before, Db::name('guest_operation_records')->count());
+            Db::name($table)->where($field,$id)->update($valid);
+        }
+        self::assertSame('readback_verified', $public->submit($token,'synthetic-client',$this->submission())['submission_status']);
+    }
     public function testRoomsAreRealScopedStableRecordsWithAtomicBatchAndDisabledLookup(): void
     {
         $rooms = $this->rooms(); self::assertCount(2, $rooms); self::assertNotSame($rooms[0]['room_id'], $rooms[1]['room_id']);

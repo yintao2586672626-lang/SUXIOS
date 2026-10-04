@@ -43,13 +43,23 @@ final class GuestStayFileImportService
         $hotelColumn = $mapping['hotel'] ?? null;
         if ($hotelColumn === null && (($input['confirmed_single_hotel'] ?? false) !== true || ($input['confirmed_hotel_id'] ?? null) !== $hotel)) throw new InvalidArgumentException('缺酒店列时必须人工确认文件仅包含当前酒店');
         $hotelRow = Db::name('hotels')->where('id', $hotel)->find(); $secret = $this->key($tenant, $hotel, $actor, $store);
+        $hotelName = trim((string)$hotelRow['name']); $nameMatches = 0;
+        if ($hotelColumn !== null) foreach (Db::name('hotels')->where('tenant_id', $tenant)->field('id,name')->select()->toArray() as $candidate) {
+            if (trim((string)$candidate['name']) === $hotelName) $nameMatches++;
+        }
         $events = []; $errors = []; $duplicates = 0; $skipped = 0; $today = substr($store->now(), 0, 10);
         foreach ($rows as $index => $row) {
             if (array_filter($row, static fn($v): bool => $v !== null && trim((string)$v) !== '') === []) continue;
             $line = $index + 2;
             try {
                 foreach ($mapping as $column) if ($column !== null && str_starts_with(trim((string)($row[$column] ?? '')), '=')) throw new InvalidArgumentException('业务映射列不能包含公式，请导出静态值');
-                if ($hotelColumn !== null && !in_array(trim((string)($row[$hotelColumn] ?? '')), [(string)$hotel, trim((string)$hotelRow['name'])], true)) throw new InvalidArgumentException('酒店列与当前酒店不一致');
+                if ($hotelColumn !== null) {
+                    $identityHotel = trim((string)($row[$hotelColumn] ?? ''));
+                    if ($identityHotel !== (string)$hotel) {
+                        if ($identityHotel === '' || ctype_digit($identityHotel) || $identityHotel !== $hotelName) throw new InvalidArgumentException('酒店列与当前酒店不一致');
+                        if ($nameMatches !== 1) throw new InvalidArgumentException('租户内存在重名酒店，请映射稳定酒店ID，或取消酒店列映射并明确声明单酒店文件');
+                    }
+                }
                 if (!in_array(trim((string)($row[$mapping['status']] ?? '')), $completed, true)) { $skipped++; continue; }
                 $identity = trim((string)($row[$mapping['identity']] ?? '')); $event = trim((string)($row[$mapping['event']] ?? ''));
                 if ($identity === '' || $event === '' || mb_strlen($identity) > 256 || mb_strlen($event) > 256) throw new InvalidArgumentException('完成入住的事件键或客人标识缺失/过长');

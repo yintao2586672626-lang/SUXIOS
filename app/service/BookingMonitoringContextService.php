@@ -75,8 +75,10 @@ final class BookingMonitoringContextService
             foreach ($context['prices'] ?? [] as $row) if ($row['stay_date'] === $cell['stay_date'] && $row['room_type_id'] === $cell['room_type_id']) $price = $row;
             $cell['ctrip_starting_price'] = $price;
             if ($cell['room_type_id'] !== 0) continue; // Never double count a hotel aggregate and its room types.
-            $groupKey = $cell['region'] . '|' . $cell['area_manager'] . '|' . $cell['stay_date'];
+            $configured = trim((string)$cell['region']) !== '' && trim((string)$cell['area_manager']) !== '';
+            $groupKey = json_encode($configured ? ['assignment', $cell['region'], $cell['area_manager'], $cell['stay_date']] : ['hotel', $cell['hotel_id'], $cell['stay_date']], JSON_THROW_ON_ERROR);
             $groups[$groupKey] ??= ['region' => $cell['region'], 'area_manager' => $cell['area_manager'], 'stay_date' => $cell['stay_date'],
+                'assignment_status' => $configured ? 'configured' : 'missing', 'hotel_name' => $configured ? null : $cell['hotel_name'],
                 'hotels' => [], 'covered_hotels' => 0, 'room_nights' => 0.0, 'fact_scopes' => []];
             $groups[$groupKey]['hotels'][] = $cell['hotel_id'];
             if ($cell['current']['status'] === 'ready' && $cell['current']['on_books_room_nights'] !== null) {
@@ -88,7 +90,7 @@ final class BookingMonitoringContextService
         unset($cell);
         foreach ($groups as &$group) {
             $group['expected_hotels'] = count($group['hotels']);
-            $group['status'] = $group['covered_hotels'] === $group['expected_hotels'] && count(array_unique($group['fact_scopes'])) === 1 ? 'ready' : 'partial';
+            $group['status'] = $group['assignment_status'] === 'configured' && $group['covered_hotels'] === $group['expected_hotels'] && count(array_unique($group['fact_scopes'])) === 1 ? 'ready' : 'partial';
             $group['observed_room_nights'] = $group['covered_hotels'] ? $group['room_nights'] : null;
             if ($group['status'] !== 'ready') $group['room_nights'] = null;
         }

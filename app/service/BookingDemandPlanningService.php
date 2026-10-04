@@ -52,7 +52,7 @@ final class BookingDemandPlanningService
     }
 
     /** Internal batch normalization; scope cache is created from this call's permissions only. */
-    public function validatedSnapshotBatchContent(int $tenantId, array $permittedHotelIds, array $rows): array
+    public function validatedSnapshotBatchContent(int $tenantId, array $permittedHotelIds, array $rows, bool $requireEnabledHotels = false, bool $allowLegacySourceReferences = false): array
     {
         $tenants = [];
         $contents = [];
@@ -61,8 +61,8 @@ final class BookingDemandPlanningService
             if (!is_int($hotelValue) && !(is_string($hotelValue) && preg_match('/^\d+$/D', $hotelValue))) throw new InvalidArgumentException('hotel_scope_required');
             $hotelId = filter_var($hotelValue, FILTER_VALIDATE_INT);
             if ($hotelId === false || $hotelId <= 0) throw new InvalidArgumentException('hotel_scope_required');
-            $tenants[$hotelId] ??= $this->resolveScope($tenantId, $permittedHotelIds, $hotelId);
-            $contents[] = $this->normalizeSnapshot($tenants[$hotelId], $hotelId, $row);
+            $tenants[$hotelId] ??= $this->resolveScope($tenantId, $permittedHotelIds, $hotelId, $requireEnabledHotels);
+            $contents[] = $this->normalizeSnapshot($tenants[$hotelId], $hotelId, $row, $allowLegacySourceReferences);
         }
         return $contents;
     }
@@ -85,7 +85,8 @@ final class BookingDemandPlanningService
         if ($actorId <= 0) {
             throw new InvalidArgumentException('on_books_snapshot_actor_required');
         }
-        $content = $this->normalizeSnapshot($tenantId, $hotelId, $input);
+        $replayOnly = !is_string($input['source_ref'] ?? null);
+        $content = $this->normalizeSnapshot($tenantId, $hotelId, $input, true);
         $contentDigest = $this->contentDigest($content);
         $idempotencyKey = $this->idempotencyKey($input['idempotency_key'] ?? null);
         $now = $this->now();
@@ -97,7 +98,8 @@ final class BookingDemandPlanningService
             $content,
             $contentDigest,
             $idempotencyKey,
-            $now
+            $now,
+            $replayOnly
         ): array {
             $existing = Db::name(self::SNAPSHOT_TABLE)
                 ->where('tenant_id', $tenantId)
@@ -110,6 +112,7 @@ final class BookingDemandPlanningService
             if ($existing) {
                 return $this->verifiedSnapshotReplay($existing, $contentDigest);
             }
+            if ($replayOnly) throw new InvalidArgumentException('on_books_snapshot_source_ref_invalid');
 
             $id = (int)Db::name(self::SNAPSHOT_TABLE)->insertGetId([
                 ...$content,
@@ -819,7 +822,7 @@ final class BookingDemandPlanningService
     }
 
     /** @return array<string,mixed> */
-    private function normalizeSnapshot(int $tenantId, int $hotelId, array $input): array
+    private function normalizeSnapshot(int $tenantId, int $hotelId, array $input, bool $allowLegacySourceReference = false): array
     {
         $platform = $this->enum((string)($input['platform'] ?? ''), self::PLATFORMS, 'on_books_snapshot_platform_invalid');
         $factScope = $this->enum((string)($input['fact_scope'] ?? ''), self::FACT_SCOPES, 'on_books_snapshot_fact_scope_invalid');
@@ -827,7 +830,13 @@ final class BookingDemandPlanningService
             throw new InvalidArgumentException('ota_on_books_snapshot_must_keep_channel_scope');
         }
         $quality = $this->enum((string)($input['quality_status'] ?? ''), self::QUALITY_STATUSES, 'on_books_snapshot_quality_invalid');
-        $sourceRef = trim((string)($input['source_ref'] ?? ''));
+        $sourceValue = $input['source_ref'] ?? null;
+        // Former scalar coercion is only a candidate for an exact immutable replay.
+        // Writers must reject it when no matching saved receipt exists.
+        if (!is_string($sourceValue) && !($allowLegacySourceReference && (is_int($sourceValue) || is_float($sourceValue) || is_bool($sourceValue)))) {
+            throw new InvalidArgumentException('on_books_snapshot_source_ref_invalid');
+        }
+        $sourceRef = trim((string)$sourceValue);
         if ($sourceRef === '' || strlen($sourceRef) > 500) {
             throw new InvalidArgumentException('on_books_snapshot_source_ref_invalid');
         }
@@ -980,7 +989,7 @@ final class BookingDemandPlanningService
     }
 
     /** @param list<int> $permittedHotelIds */
-    private function resolveScope(int $tenantId, array $permittedHotelIds, int $hotelId): int
+    private function resolveScope(int $tenantId, array $permittedHotelIds, int $hotelId, bool $requireEnabledHotel = false): int
     {
         if ($hotelId <= 0) {
             throw new InvalidArgumentException('hotel_scope_required');
@@ -989,13 +998,16 @@ final class BookingDemandPlanningService
         if (!in_array($hotelId, $permitted, true)) {
             throw new RuntimeException('hotel_outside_permitted_scope', 403);
         }
-        $row = Db::name('hotels')->where('id', $hotelId)->field('id,tenant_id')->find();
+        $row = Db::name('hotels')->where('id', $hotelId)->field($requireEnabledHotel ? 'id,tenant_id,status' : 'id,tenant_id')->find();
         if (!$row) {
             throw new RuntimeException('hotel_not_found', 404);
         }
         $actualTenant = (int)($row['tenant_id'] ?? 0);
         if ($actualTenant <= 0 || ($tenantId > 0 && $tenantId !== $actualTenant)) {
             throw new RuntimeException('hotel_tenant_scope_mismatch', 403);
+        }
+        if ($requireEnabledHotel && (int)$row['status'] !== \app\model\Hotel::STATUS_ENABLED) {
+            throw new RuntimeException('hotel_disabled', 403);
         }
         return $actualTenant;
     }

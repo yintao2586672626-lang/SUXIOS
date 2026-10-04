@@ -12,6 +12,7 @@ param(
     [int]$MySqlWaitSeconds = 20,
     [int]$PhpWaitSeconds = 15,
     [switch]$DatabaseOnly,
+    [switch]$CoreOnly,
     [switch]$NoBrowser
 )
 
@@ -576,9 +577,9 @@ Write-Host "[IDENTITY] repo=$($ProjectIdentity.RepoRealPath) head=$($ProjectIden
 if (-not (Test-Path -LiteralPath $OriginServerPath)) {
     throw "Concurrent local origin server is missing: $OriginServerPath"
 }
-Invoke-OtaRetentionPreview
+if (-not $CoreOnly) { Invoke-OtaRetentionPreview }
 Start-ThinkPhp
-Start-WecomAibot
+if (-not $CoreOnly) { Start-WecomAibot }
 
 if (-not $NoBrowser) {
     Start-Process $BaseUrl | Out-Null

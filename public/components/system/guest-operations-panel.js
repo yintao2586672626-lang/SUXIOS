@@ -69,7 +69,7 @@
                     const record = data.repeat_guest?.coverage;
                     if (record) this.coverage = { ...record.document, expected_revision: record.revision, expected_guests: record.document.expected_guests ?? '' };
                     this.$emit('update:selected-hotel-id', this.hotelId);
-                } catch (error) { if (seq === this.sequence) { this.overview = null; this.error = error.message || '宾客运营读取失败'; } }
+                } catch (error) { if (seq === this.sequence) { if (!preserveCurrent) this.overview = null; this.error = error.message || '宾客运营读取失败'; } }
                 finally { if (seq === this.sequence) this.loading = false; }
             },
             async write(path, payload) {

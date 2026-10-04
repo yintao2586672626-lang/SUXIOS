@@ -231,6 +231,13 @@ final class GuestOperationsService
         ];
     }
 
+    public function feedbackOwnerAvailable(int $tenantId, int $hotelId, int $ownerId): bool
+    {
+        $assignee = Db::name('users')->where('id', $ownerId)->where('tenant_id', $tenantId)->where('status', 1)
+            ->field('id,tenant_id,status,hotel_id,role_id')->find();
+        return $assignee && $this->feedbackOwnerAllows($assignee, $hotelId, new HotelScopeService());
+    }
+
     private function feedbackOwners(int $tenantId, int $hotelId): array
     {
         $scope = new HotelScopeService(); $owners = [];

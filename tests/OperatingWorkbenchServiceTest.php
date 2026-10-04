@@ -139,6 +139,8 @@ final class OperatingWorkbenchServiceTest extends TestCase
     public function testBookingPriorYearAndAreaRollupNeverDoubleCountRoomTypes(): void
     {
         $monitor=new BookingMonitoringService();
+        $store = new OperatingWorkbenchSnapshotService();
+        foreach ([80,81] as $hotel) $store->save($store->scope(10,[80,81],$hotel,'booking_2026-10-01'), ['business_date'=>'2026-10-01','region'=>'合成区域','area_manager'=>'合成负责人','prices'=>[]], 7, 'synthetic-booking-context-'.$hotel, 0);
         foreach([['2026-10-01','2026-10-02',12],['2025-10-01','2025-10-02',8]]as[$date,$stay,$rooms]){
             $monitor->saveSnapshots(10,[80],[[ 'hotel_id'=>80,'platform'=>'ctrip','fact_scope'=>'ota_channel','stay_date'=>$stay,'captured_at'=>$date.' 09:00:00','on_books_room_nights'=>$rooms,'source_ref'=>'synthetic monitor','source_method'=>'manual_entry','operator_attested'=>true]],7);
         }
@@ -148,6 +150,36 @@ final class OperatingWorkbenchServiceTest extends TestCase
         self::assertSame(12.0,$result['group_rollup'][0]['room_nights']);self::assertSame(1,$result['group_rollup'][0]['expected_hotels']);
         $result=$service->overview(10,[80,81],[80,81],['platform'=>'ctrip','business_date'=>'2026-10-01','fixed_time'=>'09:00','horizon_days'=>1]);
         self::assertNull($result['group_rollup'][0]['room_nights']);self::assertSame('partial',$result['group_rollup'][0]['status']);
+    }
+    public function testBookingMissingAssignmentsKeepHotelFactsButNeverFormReadyRegionalTotals(): void
+    {
+        $monitor = new BookingMonitoringService(); $store = new OperatingWorkbenchSnapshotService();
+        foreach ([80 => 12, 81 => 9] as $hotel => $rooms) $monitor->saveSnapshots(10, [80,81], [['hotel_id'=>$hotel,'platform'=>'ctrip','fact_scope'=>'ota_channel','stay_date'=>'2026-10-02','captured_at'=>'2026-10-01 09:00:00','on_books_room_nights'=>$rooms,'source_ref'=>'synthetic monitor','source_method'=>'manual_entry','operator_attested'=>true]], 7);
+        $service = new BookingMonitoringContextService(); $query = ['platform'=>'ctrip','business_date'=>'2026-10-01','fixed_time'=>'09:00','horizon_days'=>1];
+        $cases = [[], ['region'=>'区域'], ['area_manager'=>'负责人'], ['region'=>'  ','area_manager'=>'负责人'], ['prices'=>[]]];
+        foreach ($cases as $index => $context) {
+            if ($index > 0) foreach ([80,81] as $hotel) {
+                $scope = $store->scope(10,[80,81],$hotel,'booking_2026-10-01');
+                $store->save($scope, $context, 7, 'synthetic-missing-'.$index.'-'.$hotel, $store->latest($scope)['snapshot_id'] ?? 0);
+            }
+            $result = $service->overview(10,[80,81],[80,81],$query);
+            self::assertCount(2, $result['group_rollup']);
+            foreach ($result['group_rollup'] as $group) {
+                self::assertCount(1, $group['hotels']); self::assertSame('partial', $group['status']);
+                self::assertSame('missing', $group['assignment_status']); self::assertNull($group['room_nights']);
+                self::assertSame($group['hotels'][0] === 80 ? 12.0 : 9.0, $group['observed_room_nights']);
+            }
+            foreach ($result['cells'] as $cell) if ($cell['room_type_id'] === 0) {
+                self::assertSame('ready', $cell['current']['status']); self::assertSame($cell['hotel_id'] === 80 ? 12.0 : 9.0, $cell['current']['on_books_room_nights']);
+            }
+        }
+        foreach ([80,81] as $hotel) {
+            $scope = $store->scope(10,[80,81],$hotel,'booking_2026-10-01');
+            $store->save($scope, ['region'=>'区域','area_manager'=>'负责人','prices'=>[]], 7, 'synthetic-configured-'.$hotel, $store->latest($scope)['snapshot_id']);
+        }
+        $result = $service->overview(10,[80,81],[80,81],$query);
+        self::assertCount(1, $result['group_rollup']); self::assertSame('ready', $result['group_rollup'][0]['status']);
+        self::assertSame(21.0, $result['group_rollup'][0]['room_nights']); self::assertSame('configured', $result['group_rollup'][0]['assignment_status']);
     }
     public function testBookingPriceHasRealSourceDateAndForeignRoomRejection(): void
     {

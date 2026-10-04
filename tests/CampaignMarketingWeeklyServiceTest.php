@@ -27,7 +27,7 @@ final class CampaignMarketingWeeklyServiceTest extends TestCase
         self::$app = new App(dirname(__DIR__)); self::$app->initialize(); self::$previous = Config::get('database');
         self::$path = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'campaign_weekly_' . getmypid() . '_' . bin2hex(random_bytes(5)) . '.sqlite';
         $config = self::$previous; $config['default'] = 'sqlite';
-        $config['connections']['sqlite'] = ['type' => 'sqlite', 'database' => self::$path, 'prefix' => 'wm_', 'fields_strict' => false];
+        $config['connections']['sqlite'] = ['type' => 'sqlite', 'database' => self::$path, 'prefix' => 'wm_', 'fields_strict' => false, 'debug' => true];
         Config::set($config, 'database'); Db::connect(null, true);
     }
 
@@ -146,6 +146,55 @@ final class CampaignMarketingWeeklyServiceTest extends TestCase
     private function rule(): array
     {
         return $this->save(11, 'marketing_score_rule', ['name' => 'synthetic测试周规则', 'metric_definition' => 'synthetic周日累计指标', 'weights' => ['posts' => 20, 'views' => 30, 'likes' => 10, 'reposts' => 40], 'targets' => ['posts' => 1, 'views' => 100, 'likes' => 10, 'reposts' => 5]], '2026-09-28', 'score_fixture_001');
+    }
+
+    public function testWeeklySelectCountDoesNotGrowWithHeadsAndOverflowStillFails(): void
+    {
+        $saved = $this->work(11,'synthetic-batch-0');
+        $template = Db::name(CampaignOperationsService::TABLE)->where('id',$saved['id'])->find(); unset($template['id']);
+        $seal = new \ReflectionMethod($this->campaign,'sealedRow'); $inserted = 1;
+        $counting = false; $selects = 0; $counts = [];
+        Db::listen(static function (string $sql) use (&$counting, &$selects): void { if ($counting && preg_match('/^SELECT\b/i',ltrim($sql))) $selects++; });
+        foreach ([1,100,5000] as $size) {
+            $batch = [];
+            for (; $inserted < $size; $inserted++) {
+                $row = array_replace($template,['record_key'=>'synthetic-batch-'.$inserted]);
+                $payload = array_replace($saved['payload'],['work_id'=>'synthetic-batch-'.$inserted]);
+                $batch[] = $seal->invoke($this->campaign,$row,$payload);
+                if (count($batch) === 100) { Db::name(CampaignOperationsService::TABLE)->insertAll($batch); $batch = []; }
+            }
+            if ($batch) Db::name(CampaignOperationsService::TABLE)->insertAll($batch);
+            $selects = 0; $counting = true;
+            try { $result = $this->weekly->overview(101,[11],'2026-09-28',null); } finally { $counting = false; }
+            self::assertSame($size, $result['rows'][0]['observed_posts']); self::assertGreaterThan(0,$selects);
+            $counts[] = $selects; self::assertLessThanOrEqual(6,$selects);
+        }
+        self::assertSame([6,6,6], $counts);
+        Db::name(CampaignOperationsService::TABLE)->insert($seal->invoke($this->campaign,array_replace($template,['record_key'=>'synthetic-overflow']),$saved['payload']));
+        $this->expectException(RuntimeException::class); $this->expectExceptionCode(503);
+        $this->weekly->overview(101,[11],'2026-09-28',null);
+    }
+
+    public function testBatchReadsKeepOrderIsolationMissingAndIntegrityFailures(): void
+    {
+        $a = $this->work(11,'synthetic-a'); $b = $this->work(13,'synthetic-b');
+        $heads = [['hotel_id'=>13,'latest_id'=>$b['id']],['hotel_id'=>11,'latest_id'=>$a['id']],['hotel_id'=>13,'latest_id'=>$b['id']]];
+        self::assertSame([$b,$a,$b],$this->campaign->readHeads(101,$heads));
+        foreach ([[['hotel_id'=>11,'latest_id'=>$b['id']],$heads[0]], [['hotel_id'=>11,'latest_id'=>99999]], [['hotel_id'=>12,'latest_id'=>$a['id']]]] as $bad) {
+            try { $this->campaign->readHeads(101,$bad); self::fail('invalid batch scope accepted'); }
+            catch (RuntimeException $e) { self::assertContains($e->getCode(),[403,404]); }
+        }
+        $row = Db::name(CampaignOperationsService::TABLE)->where('id',$a['id'])->find();
+        $envelope = json_decode($row['payload_json'],true,512,JSON_THROW_ON_ERROR); $envelope['payload']['views'] = 999;
+        foreach ([['content_sha256'=>str_repeat('0',64)], ['created_by'=>999], ['payload_json'=>json_encode($envelope,JSON_THROW_ON_ERROR)]] as $tamper) {
+            Db::name(CampaignOperationsService::TABLE)->where('id',$a['id'])->update($tamper);
+            foreach ([fn() => $this->campaign->readHeads(101,$heads), fn() => $this->weekly->overview(101,[11,13],'2026-09-28',null)] as $read) {
+                try { $read(); self::fail('tampered version accepted'); } catch (RuntimeException $e) { self::assertSame(503,$e->getCode()); }
+            }
+            Db::name(CampaignOperationsService::TABLE)->where('id',$a['id'])->update($row);
+        }
+        Db::execute('DROP TABLE wm_campaign_operation_versions');
+        $this->expectException(RuntimeException::class); $this->expectExceptionCode(503); $this->campaign->readHeads(101,$heads);
     }
 
     private function cover(int $hotel, bool $hasWork = true): void

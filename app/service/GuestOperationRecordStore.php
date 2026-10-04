@@ -24,15 +24,21 @@ final class GuestOperationRecordStore
         $json = (string)$row['content_json'];
         if (!hash_equals((string)$row['content_digest'], hash('sha256', $json))) throw new RuntimeException('guest_readback_digest_drift', 409);
         $payload = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-        foreach (['tenant_id', 'hotel_id', 'source_hotel_id', 'revision', 'created_by'] as $field) {
+        foreach (['tenant_id', 'revision', 'created_by'] as $field) {
             if ((int)($row[$field] ?? 0) !== ($payload[$field] ?? null)) throw new RuntimeException('guest_readback_scope_drift', 409);
         }
-        if ((int)$row['source_hotel_id'] !== (int)$row['hotel_id']) throw new RuntimeException('guest_readback_source_scope_drift', 409);
+        $sourceHotel = (int)($row['source_hotel_id'] ?? $row['hotel_id']);
+        if ($sourceHotel !== (int)($payload['hotel_id'] ?? 0) || $sourceHotel !== (int)($payload['source_hotel_id'] ?? $payload['hotel_id'] ?? 0)) throw new RuntimeException('guest_readback_source_scope_drift', 409);
         foreach (['kind', 'record_key', 'business_date', 'platform', 'created_at'] as $field) {
             if ($row[$field] !== ($payload[$field] ?? null)) throw new RuntimeException('guest_readback_scope_drift', 409);
         }
         if (($payload['contract_version'] ?? '') !== GuestOperationsService::VERSION) throw new RuntimeException('guest_contract_unsupported', 409);
-        return $payload + ['id' => (int)$row['id'], 'content_digest' => $row['content_digest'], 'readback_verified' => true];
+        return array_replace($payload, [
+            'hotel_id' => (int)$row['hotel_id'], 'source_hotel_id' => $sourceHotel,
+            'scope' => ['tenant_id' => (int)$row['tenant_id'], 'hotel_id' => (int)$row['hotel_id']],
+            'source_scope' => ['tenant_id' => (int)$payload['tenant_id'], 'hotel_id' => $sourceHotel],
+            'id' => (int)$row['id'], 'content_digest' => $row['content_digest'], 'readback_verified' => true,
+        ]);
     }
     public function latest(int $tenant, int $hotel, string $kind, string $key): ?array
     {

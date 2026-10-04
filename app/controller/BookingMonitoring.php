@@ -117,6 +117,7 @@ final class BookingMonitoring extends Base
             'booking_monitor_horizon_invalid' => '展示天数必须是1至30的整数',
             'booking_monitor_hotel_outside_permitted_scope' => '选择或导入的酒店超出当前账号权限',
             'booking_monitor_hotel_tenant_scope_mismatch' => '请选择同一租户内的授权酒店',
+            'hotel_disabled' => '酒店已停用，请刷新酒店目录后重试',
             'booking_monitor_room_type_outside_hotel' => '房型不属于当前酒店，请检查房型ID',
             'booking_monitor_snapshot_not_found' => '当前酒店没有这条快照',
             'booking_monitor_idempotency_conflict' => '导入标识已用于不同内容，请更正标识或追加更正快照',

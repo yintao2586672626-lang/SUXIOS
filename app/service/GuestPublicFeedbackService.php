@@ -5,6 +5,7 @@ namespace app\service;
 use DateTimeImmutable;
 use InvalidArgumentException;
 use RuntimeException;
+use app\model\OperationLog;
 use think\facade\Db;
 
 /** Dedicated guest capabilities grant submission only, never staff/admin access. */
@@ -21,8 +22,7 @@ final class GuestPublicFeedbackService
         if ($label === '' || mb_strlen($label) > 100) throw new InvalidArgumentException('入口名称必须为1至100个字符');
         if (!is_bool($input['enabled'] ?? null) || !is_bool($input['rotate_tokens'] ?? null)) throw new InvalidArgumentException('启停和重新生成参数必须为布尔值');
         $owner = $input['owner_user_id'] ?? null;
-        $overview = (new GuestOperationsService())->overview($tenant, [$hotel], $hotel, substr($store->now(), 0, 10), substr($store->now(), 0, 10), 'pms');
-        if (!is_int($owner) || !in_array($owner, array_column($overview['owners'], 'id'), true)) throw new InvalidArgumentException('请选择本店有运营权限的有效责任人');
+        if (!is_int($owner) || !(new GuestOperationsService())->feedbackOwnerAvailable($tenant, $hotel, $owner)) throw new InvalidArgumentException('请选择本店有运营权限的有效责任人');
         $request = (string)($input['idempotency_key'] ?? '');
         if (!preg_match('/^[A-Za-z0-9_.:-]{1,140}$/D', $request)) throw new InvalidArgumentException('幂等键无效');
         $digest = hash('sha256', json_encode($input, JSON_THROW_ON_ERROR));
@@ -34,7 +34,7 @@ final class GuestPublicFeedbackService
                 foreach ($records as $record) if ($record['kind'] !== 'feedback_entry' || $record['tenant_id'] !== $tenant || $record['hotel_id'] !== $hotel) throw new RuntimeException('guest_idempotency_conflict', 409);
                 return $store->receipt($tenant, $hotel, $records) + ['entry_links' => [], 'token_delivery' => 'already_issued_regenerate_if_lost'];
             }
-            $records = []; $links = []; $rooms = new GuestRoomRegistryService();
+            $records = []; $links = []; $roomActions = []; $rooms = new GuestRoomRegistryService();
             foreach ($roomIds as $roomId) {
                 if (!is_int($roomId) || $roomId <= 0) throw new InvalidArgumentException('room_id 必须为实际房间ID');
                 $room = $rooms->requireActive($tenant, $hotel, $roomId); $key = 'room-' . $roomId;
@@ -47,11 +47,18 @@ final class GuestPublicFeedbackService
                 $tokenDigest = $token ? hash('sha256', $token) : $current['document']['token_digest'];
                 $document = ['entry_key' => $key, 'room_id' => $roomId, 'room_label' => $room['document']['room_number'], 'label' => $label, 'enabled' => $input['enabled'], 'owner_user_id' => $owner, 'access_mode' => 'guest_submission_only', 'anonymous_submission_enabled' => $input['enabled'], 'token_digest' => $tokenDigest, 'source_method' => 'staff_confirmed_public_room_entry'];
                 $records[] = $store->append($tenant, $hotel, $actor, 'feedback_entry', $key, $expected, $document);
+                $actions = [];
+                if ($token) $actions[] = $current ? 'rotate' : 'issue';
+                if (!$current || $current['document']['enabled'] !== $input['enabled']) $actions[] = $input['enabled'] ? 'enable' : 'disable';
+                $roomActions[] = ['room_id' => $roomId, 'actions' => $actions ?: ['update']];
                 if ($token) {
                     $store->append($tenant, $hotel, $actor, 'guest_public_pointer', $tokenDigest, 0, ['entry_key' => $key]);
                     $links[] = ['entry_key' => $key, 'room_id' => $roomId, 'room_label' => $document['room_label'], 'label' => $label, 'entry_path' => '/guest-feedback.html#' . $token];
                 }
             }
+            OperationLog::record('guest_operations', 'configure_public_feedback', '配置房间公开反馈入口', $actor, $hotel, null, [
+                'tenant_id' => $tenant, 'room_ids' => $roomIds, 'room_actions' => $roomActions, 'owner_user_id' => $owner, 'enabled' => $input['enabled'],
+            ]);
             Db::name('guest_operation_requests')->insert(['tenant_id' => $tenant, 'hotel_id' => $hotel, 'source_hotel_id' => $hotel, 'request_key' => $request, 'input_digest' => $digest, 'record_ids_json' => json_encode(array_column($records, 'id'), JSON_THROW_ON_ERROR), 'created_by' => $actor, 'created_at' => $store->now()]);
             return $store->receipt($tenant, $hotel, $records) + ['entry_links' => $links, 'token_delivery' => $links ? 'issued_once' : 'existing_token_preserved'];
         });
@@ -91,8 +98,7 @@ final class GuestPublicFeedbackService
             }
             $today = substr($store->now(), 0, 10);
             // Validate assigned owner at submission time; deactivated employees do not silently receive cases.
-            $owners = (new GuestOperationsService())->overview($tenant, [$hotel], $hotel, $today, $today, 'pms')['owners'];
-            if (!in_array($document['owner_user_id'], array_column($owners, 'id'), true)) throw new RuntimeException('反馈责任人暂不可用，请联系前台', 503);
+            if (!(new GuestOperationsService())->feedbackOwnerAvailable($tenant, $hotel, $document['owner_user_id'])) throw new RuntimeException('反馈责任人暂不可用，请联系前台', 503);
             $case = ['case_key' => $key, 'incident_date' => $today, 'category' => $category, 'summary' => $summary, 'owner_user_id' => $document['owner_user_id'], 'due_at' => (new DateTimeImmutable($store->now()))->modify('+24 hours')->format('Y-m-d H:i:s'), 'source_reference' => 'guest_public_entry:' . $entry['record_key'], 'evidence_refs' => [], 'status' => 'open', 'facts' => [], 'edit_reason' => '', 'source_method' => 'guest_public_submission', 'room_id' => $document['room_id'], 'room_label' => $document['room_label'], 'guest_submission' => ['entry_key' => $entry['record_key'], 'input_digest' => hash('sha256', $category . '\n' . $summary), 'submitted_at' => $store->now()]];
             $saved = $store->append($tenant, $hotel, 0, 'feedback', $key, 0, $case, 'manual', $today);
             if (!$saved['readback_verified']) throw new RuntimeException('反馈保存回读失败', 503);

@@ -55,6 +55,27 @@ final class CampaignOperationsService
         return $this->stored($row);
     }
 
+    /** Read selected versions in head order, retaining per-head scope and immutable verification. */
+    public function readHeads(int $tenantId, array $heads): array
+    {
+        if ($heads === []) return [];
+        if (count($heads) > 5000) throw new RuntimeException('营销周榜记录超出单次处理上限，请缩小酒店范围；未输出不完整排行', 503);
+        $hotelIds = array_values(array_unique(array_map(static fn(array $head): int => (int)$head['hotel_id'], $heads)));
+        $ids = array_values(array_unique(array_map(static fn(array $head): int => (int)$head['latest_id'], $heads)));
+        foreach ($hotelIds as $hotelId) $this->scope($tenantId, $hotelId);
+        $this->ready();
+        $rows = Db::name(self::TABLE)->where('tenant_id', $tenantId)->whereIn('hotel_id', $hotelIds)->whereIn('id', $ids)->select()->toArray();
+        $byId = []; foreach ($rows as $row) $byId[(int)$row['id']] = $row;
+        $records = []; $verified = [];
+        foreach ($heads as $head) {
+            $id = (int)$head['latest_id']; $row = $byId[$id] ?? null;
+            if (!is_array($row) || (int)$row['hotel_id'] !== (int)$head['hotel_id']) throw new RuntimeException('当前酒店未找到该记录版本', 404);
+            $verified[$id] ??= $this->stored($row);
+            $records[] = $verified[$id];
+        }
+        return $records;
+    }
+
     /** Repeated identical imports reuse a saved version; edits require its exact current ID. */
     public function save(int $tenantId, int $hotelId, int $actorId, array $input): array
     {

@@ -33,7 +33,7 @@ final class CampaignMarketingWeeklyService
                 ->group('hotel_id,kind,record_key')->limit(5001)->select()->toArray());
         } catch (Throwable $e) { throw new RuntimeException('营销周榜数据表未就绪，未确认覆盖或评分', 503, $e); }
         if (count($heads) > 5000) throw new RuntimeException('营销周榜记录超出单次处理上限，请缩小酒店范围；未输出不完整排行', 503);
-        $records = []; foreach ($heads as $head) $records[] = $campaign->read($tenantId, (int)$head['hotel_id'], (int)$head['latest_id']);
+        $records = $campaign->readHeads($tenantId, $heads);
         $rule = null; $rules = [];
         foreach ($records as $record) {
             if ($record['kind'] !== 'marketing_score_rule') continue;

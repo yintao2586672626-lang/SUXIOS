@@ -710,6 +710,81 @@ final class BookingDemandPlanningServiceTest extends TestCase
         $service->bookingOverview(7, [], 80, 'ctrip', '2026-09-10');
     }
 
+    public function testLegacySnapshotSourceReferenceRequiresTextBeforePersistence(): void
+    {
+        $service = $this->service();
+        foreach ([true, 9, 9.5, [], ['export' => 'TEST-ONLY-report'], false, new \stdClass()] as $invalid) {
+            $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-invalid-source'), ['source_ref' => $invalid]);
+            $failure = null;
+            try { $service->saveOnBooksSnapshot(7, [80], 80, $input, 11); }
+            catch (InvalidArgumentException $error) { $failure = $error; }
+            self::assertInstanceOf(InvalidArgumentException::class, $failure);
+            self::assertSame('on_books_snapshot_source_ref_invalid', $failure->getMessage());
+            self::assertSame(0, Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+        }
+        $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-valid-source'), ['source_ref' => '  TEST-ONLY-export-fingerprint  ']);
+        $saved = $service->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+        $input['source_ref'] = trim($input['source_ref']);
+        $replay = $service->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+        self::assertTrue($replay['idempotent']);
+        self::assertSame($saved['id'], $replay['id']);
+        self::assertSame(hash('sha256', 'on-books-source-v1|TEST-ONLY-export-fingerprint'), $saved['source_ref_hash']);
+    }
+
+    public function testLegacyScalarSourceReferenceReplaysOnlyExactSavedSnapshot(): void
+    {
+        foreach ([9, 9.5, true] as $index => $source) {
+            $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-legacy-source-' . $index), ['source_ref' => (string)$source]);
+            // Pre-upgrade normalization persisted this exact text/hash for a scalar request.
+            $saved = $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+            $input['source_ref'] = $source;
+            $replay = $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+            self::assertSame(array_replace($saved, ['idempotent' => true]), $replay);
+            $recovery = $this->service(static function (callable $callback): array {
+                throw new RuntimeException('SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry');
+            })->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+            self::assertSame($replay, $recovery);
+            self::assertSame($saved, $this->service()->readSnapshot(7, 80, $saved['id']) + ['idempotent' => false]);
+            try {
+                $this->service()->validatedSnapshotContent(7, [80], 80, $input);
+                self::fail('the ordinary normalization contract must still require text');
+            } catch (InvalidArgumentException $error) {
+                self::assertSame('on_books_snapshot_source_ref_invalid', $error->getMessage());
+            }
+            foreach ([['on_books_room_nights' => 11], ['source_ref' => 77]] as $change) {
+                try {
+                    $this->service()->saveOnBooksSnapshot(7, [80], 80, array_replace($input, $change), 11);
+                    self::fail('a changed legacy request must not replay');
+                } catch (RuntimeException $error) {
+                    self::assertSame('on_books_snapshot_idempotency_conflict', $error->getMessage());
+                }
+            }
+            try {
+                $this->service()->saveOnBooksSnapshot(7, [80], 80, array_replace($input, ['idempotency_key' => 'TEST-ONLY-new-scalar-' . $index]), 11);
+                self::fail('legacy normalization cannot authorize a new insert');
+            } catch (InvalidArgumentException $error) {
+                self::assertSame('on_books_snapshot_source_ref_invalid', $error->getMessage());
+            }
+            self::assertSame($index + 1, Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->count());
+        }
+    }
+
+    public function testLegacyScalarReplayStillChecksScopeAndSavedDigest(): void
+    {
+        $input = array_replace($this->concurrentSnapshotInput('TEST-ONLY-legacy-source-guards'), ['source_ref' => '9']);
+        $saved = $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+        $input['source_ref'] = 9;
+        foreach ([[7, [], 80, 'hotel_outside_permitted_scope'], [8, [80], 80, 'hotel_tenant_scope_mismatch']] as [$tenant, $permitted, $hotel, $reason]) {
+            try {
+                $this->service()->saveOnBooksSnapshot($tenant, $permitted, $hotel, $input, 11);
+                self::fail('legacy replay must retain the current scope guard');
+            } catch (RuntimeException $error) { self::assertSame($reason, $error->getMessage()); }
+        }
+        Db::name(BookingDemandPlanningService::SNAPSHOT_TABLE)->where('id', $saved['id'])->update(['on_books_room_nights' => 99]);
+        $this->expectExceptionMessage('on_books_snapshot_content_digest_mismatch');
+        $this->service()->saveOnBooksSnapshot(7, [80], 80, $input, 11);
+    }
+
     private function service(?callable $transactionRunner = null): BookingDemandPlanningService
     {
         return new BookingDemandPlanningService(

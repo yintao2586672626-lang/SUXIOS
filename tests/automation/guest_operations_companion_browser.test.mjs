@@ -13,8 +13,8 @@ assert.ok(php, 'guest companion browser acceptance requires PHP');
 const bridge = resolve('tests/fixtures/guest_operations_http_bridge.php');
 test('room registry QR bulk download anonymous guest submission and JD06 mapping save through actual controllers', { timeout: 120000 }, async () => {
     const directory = mkdtempSync(join(tmpdir(), 'suxios-guest-operations-test-')), database = join(directory, 'guest.sqlite');
-    const scripts = ['node_modules/vue/dist/vue.runtime.global.prod.js', 'public/components/system/guest-feedback-qr.js', 'public/components/system/guest-operations-tools.js', 'public/components/system/guest-operations-panel.js'].map(path => `<script>${readFileSync(path, 'utf8')}</script>`).join('');
-    let failUploadOnce = false, failEntryReadOnce = false; const previewResults = [];
+    const scripts = ['node_modules/vue/dist/vue.runtime.global.prod.js', 'public/components/system/operating-finance-control-center.min.js'].map(path => `<script>${readFileSync(path, 'utf8')}</script>`).join('');
+    let failUploadOnce = false, failEntryReadOnce = false, failOverviewOnce = false; const previewResults = [];
     const run = input => new Promise((resolveResult, reject) => { const child = execFile(php, [bridge], { cwd: root, maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => { if (error) reject(new Error(stderr || error.message)); else try { resolveResult(JSON.parse(stdout)); } catch { reject(new Error('synthetic fixture malformed result')); } }); child.stdin.end(JSON.stringify({ database, ...input })); });
     const server = createServer(async (request, response) => {
         const url = new URL(request.url, 'http://fixture');
@@ -34,6 +34,7 @@ test('room registry QR bulk download anonymous guest submission and JD06 mapping
             if (url.pathname === '/api/guest-feedback/entry') action = 'publicEntry';
             if (url.pathname === '/api/guest-feedback/submit') action = 'publicSubmit';
             if (!action) { response.writeHead(404); response.end(); return; }
+            if (action === 'overview' && failOverviewOnce) { failOverviewOnce = false; response.writeHead(503, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ code: 503, message: 'synthetic overview refresh failure', data: null })); return; }
             if ((action === 'filePreview' && failUploadOnce) || (action === 'read' && failEntryReadOnce)) { failUploadOnce = false; failEntryReadOnce = false; response.writeHead(503, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ code: 503, message: 'synthetic forced read/upload failure', data: null })); return; }
             const result = await run({ action, args, params, body, file_path: filePath, actor: action.startsWith('public') ? 0 : 11 }); if (action === 'filePreview') previewResults.push({ code: result.body.code, message: result.body.message }); response.writeHead(result.status, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(result.body));
         } catch { response.writeHead(500, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ code: 500, message: 'synthetic controller fixture failed', data: null })); }
@@ -48,10 +49,15 @@ test('room registry QR bulk download anonymous guest submission and JD06 mapping
         failEntryReadOnce = true; await page.getByRole('button', { name: '保存所选房间入口（保留已有链接）', exact: true }).click();
         await page.getByRole('alert').waitFor(); assert.match(await page.getByRole('alert').innerText(), /回读失败/);
         await page.getByRole('img', { name: '房间101宾客反馈二维码', exact: true }).waitFor();
+        const originalGuestPath = await page.getByRole('link', { name: '打开本房间宾客提交页', exact: true }).first().getAttribute('href');
         // Retry retains the same request; one-time capability delivery stays in panel memory.
+        failOverviewOnce = true;
         await page.getByRole('button', { name: '保存所选房间入口（保留已有链接）', exact: true }).click();
-        await page.getByText('已保存并精确回读', { exact: true }).waitFor();
+        await page.waitForFunction(() => !window.app.$refs.panel.loading && window.app.$refs.panel.error.includes('synthetic overview refresh failure'));
+        assert.match(await page.getByRole('alert').innerText(), /synthetic overview refresh failure/);
+        assert.equal(await page.getByRole('img', { name: '房间101宾客反馈二维码', exact: true }).count(), 1);
         const guestPath = await page.getByRole('link', { name: '打开本房间宾客提交页', exact: true }).first().getAttribute('href'); assert.match(guestPath, /^\/guest-feedback\.html#[a-f0-9]{64}$/);
+        assert.equal(guestPath, originalGuestPath);
         const downloadPromise = page.waitForEvent('download'); await page.getByRole('button', { name: '批量下载房间二维码打印文件', exact: true }).click();
         const downloaded = await downloadPromise; assert.equal(downloaded.suggestedFilename(), 'hotel-80-room-feedback-qr.html'); const downloadedPath = await downloaded.path(); const printable = readFileSync(downloadedPath, 'utf8'); assert.equal((printable.match(/<svg/g) || []).length, 2); assert.match(printable, /101/); assert.match(printable, /102/);
         const guest = await browser.newPage({ viewport: { width: 390, height: 844 } }); guest.on('pageerror', error => errors.push(error.message)); await guest.goto(base + guestPath);
@@ -73,6 +79,7 @@ test('room registry QR bulk download anonymous guest submission and JD06 mapping
         await page.waitForFunction(() => window.app.$refs.panel.overview?.stay_events?.length === 2); assert.match(await page.locator('body').innerText(), /复购率：未具备计算条件/);
         await page.setViewportSize({ width: 390, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
         await page.getByLabel('酒店', { exact: true }).selectOption('82'); await page.waitForFunction(() => window.app.$refs.panel.overview?.hotel_id === 82); assert.equal(await page.getByLabel('JD06文件', { exact: true }).inputValue(), ''); assert.doesNotMatch(await page.locator('body').innerText(), /jd06-[a-f0-9]{64}/);
+        assert.equal(await page.getByRole('link', { name: '打开本房间宾客提交页', exact: true }).count(),0);
         assert.deepEqual(errors, []);
     } finally { await browser.close(); await new Promise(resolveClosed => server.close(resolveClosed)); rmSync(directory, { recursive: true, force: true }); }
 });
