@@ -1,13 +1,15 @@
+export const FROZEN_AI_WORKBENCH_SOURCE = 'tests/fixtures/frontend-retired-20261002.zip#23b-page-ai-workbench.html';
+
 export function verifyFrozenAiWorkbenchContract({
   requireText,
   requirePattern,
   requireNoText,
   requireOrder,
 }) {
-  const template = 'resources/frontend/templates/fragments/23b-page-ai-workbench.html';
+  const template = FROZEN_AI_WORKBENCH_SOURCE;
 
-  requireText('resources/frontend/templates/manifest.json', '"id": "page-ai-workbench",', 'frozen AI workbench remains registered in the template manifest');
-  requirePattern('resources/frontend/templates/manifest.json', /"id": "page-ai-workbench",[\s\S]*?"runtime": false/, 'frozen AI workbench is explicitly excluded from the runtime template');
+  requireNoText('resources/frontend/templates/manifest.json', '"id": "page-ai-workbench",', 'retired AI workbench is absent from the active template manifest');
+  requirePattern('tests/fixtures/frontend-retired-20261002.json', /"id": "page-ai-workbench",[\s\S]*?"runtime": false/, 'historical AI workbench fixture remains explicitly retired');
   requireNoText('resources/frontend/app-template.html', 'data-testid="home-ai-workbench"', 'runtime template does not ship the frozen AI workbench page');
   requireText(template, '<span class="dual-ota-context-item dual-ota-context-item-store">', 'frozen AI workbench source retains the current-hotel selector in the platform scope row');
   requireOrder(template, '<span class="dual-ota-context-item dual-ota-context-item-store">', '<div class="dual-ota-store-scope-list" role="list" aria-label="经营数据源选择">', 'frozen AI workbench source aligns current-hotel selector before the data-source switch buttons');

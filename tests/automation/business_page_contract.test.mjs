@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { readFrontendTestSource, retiredFrontendManifest } from './helpers/retired_frontend_source.mjs';
 
-const read = (file) => readFileSync(file, 'utf8');
+const read = readFrontendTestSource;
 
 const agents = read('AGENTS.md');
 const rule = read('rules/business-page-contract.md');
 const registry = JSON.parse(read('rules/business-page-contract-registry.json'));
 const templateManifest = JSON.parse(read(registry.source_manifest));
+const contractFragments = [...templateManifest.fragments, ...retiredFrontendManifest.fragments];
 const absorption = read('docs/capability-absorption/2026-08-22-business-page-contract.md');
 const baseController = read('app/controller/Base.php');
 const appMain = read('public/app-main.js');
@@ -18,7 +20,7 @@ const businessPageVerifier = read('scripts/verify_business_page_contract.mjs');
 const packageJson = JSON.parse(read('package.json'));
 
 const registryFragmentIds = registry.surfaces.flatMap((surface) => surface.fragment_ids);
-const includedManifestFragments = templateManifest.fragments.filter((fragment) =>
+const includedManifestFragments = contractFragments.filter((fragment) =>
   registry.included_manifest_domains.includes(fragment.domain),
 );
 
@@ -75,7 +77,7 @@ test('registry classifies every manifest domain and covers every included fragme
 
   const includedDomains = registry.included_manifest_domains;
   const excludedDomains = registry.excluded_manifest_domains.map((item) => item.domain);
-  const manifestDomains = [...new Set(templateManifest.fragments.map((fragment) => fragment.domain))].sort();
+  const manifestDomains = [...new Set(contractFragments.map((fragment) => fragment.domain))].sort();
   assert.equal(new Set(includedDomains).size, includedDomains.length, 'included domains must be unique');
   assert.equal(new Set(excludedDomains).size, excludedDomains.length, 'excluded domains must be unique');
   assert.deepEqual(
@@ -110,6 +112,10 @@ test('registry classifies every manifest domain and covers every included fragme
     assert.ok(source.trim().length > 0, `${fragment.id} points to an empty template fragment`);
     assert.equal(typeof fragment.anchor, 'string', `${fragment.id} must retain a manifest anchor description`);
     assert.ok(fragment.anchor.trim().length > 0, `${fragment.id} has an empty manifest anchor description`);
+    if (retiredFrontendManifest.fragments.some(retired => retired.id === fragment.id)) {
+      assert.equal(fragment.runtime, false, `${fragment.id} historical fixture must remain retired`);
+      assert.equal(templateManifest.fragments.some(active => active.id === fragment.id), false);
+    }
   }
 });
 

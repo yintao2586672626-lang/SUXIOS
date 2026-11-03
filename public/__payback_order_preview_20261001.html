@@ -1,0 +1,56 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>卡片排序独立模拟验证</title><link rel="stylesheet" href="/tailwind.min.css"><style>body{margin:0;background:#f4f6f4;color:#1c3028;font-family:"Microsoft YaHei",sans-serif}#app{padding:16px;max-width:1100px;margin:auto}button:disabled{opacity:.45}.mock-banner{background:#fff8df;padding:10px 16px;font-size:12px;border-bottom:1px solid #dcc591}.test-controls{padding:12px 16px;display:flex;gap:20px;align-items:center;font-size:12px}iframe{border:1px solid #ddd;display:block;width:320px;height:950px;margin:16px}</style>
+<style>.test-controls{flex-wrap:wrap}#app{min-width:0}</style><div class="mock-banner">合成测试 · 回本后盈余展示 · 不连接真实项目或账务</div>
+<div id="narrow"></div><div id="app"></div>
+<script src="/vue.runtime.global.prod.js"></script><script src="/components/system/investment-payback.min.js?v=surplus-preview-1"></script>
+<script>
+if(new URLSearchParams(location.search).has('narrow')){
+ document.querySelector('#narrow').innerHTML='<iframe title="320px 合成测试" src="__payback_order_preview_20261001.html?frame=1"></iframe>';
+}else{
+ const sample=[['合成盈余项目',480000,493490],['合成未回本项目',1200000,300000],['合成已回本项目',100000,100000],['合成待录入项目',null,null]].map((values,index)=>({id:index+1,project_name:values[0],investor_name:'模拟主体',version:1,summary:{state:values[1]===null?'draft':'recorded_only',invested_amount:values[1]?.toFixed(2)??null,net_recovered_amount:values[2]?.toFixed(2)??null,unrecovered_amount:values[1]===null?null:Math.max(values[1]-values[2],0).toFixed(2),excess_recovered_amount:values[1]===null?null:Math.max(values[2]-values[1],0).toFixed(2),recovery_percent:values[1]===null?null:Math.round(values[2]/values[1]*10000)/100,data_quality:{history_complete:false}}}));
+ let savedOrder=[];
+ let mockEntries=[
+  {id:31,version:1,kind:'investment',amount:'480000.00',date:'2026-08-01',precision:'day',source:'合成投入',is_planned:false},
+  {id:32,version:1,kind:'recovery',amount:'493490.00',date:'2026-09-01',precision:'day',source:'合成收回',is_planned:false},
+  {id:33,version:2,kind:'recovery',amount:'20000.00',date:'2026-08-28',precision:'day',source:'合成误录',is_planned:false,voided_at:'2026-09-30 09:00:00',void_reason:'模拟误操作'}
+ ];
+ const audits=[];
+ const mockDetail=()=>({project:sample[0],summary:{...sample[0].summary,as_of:'2026-10-01'},entries:mockEntries.map(row=>({...row})),can_delete_entries:true,audit_history:audits.map(row=>({...row})),audit_history_limit:100});
+ const component=window.SUXI_SYSTEM_COMPONENTS.InvestmentPaybackBody;
+ Vue.createApp({
+   setup(){const version=Vue.ref(1),fail=Vue.ref(false),serverText=Vue.ref('尚未保存');
+   const request=async(path,options)=>{
+    if(options.method==='POST'){
+     if(fail.value)throw new Error('模拟排序保存失败');
+     const deleteMatch=path.match(/^\/investment-payback\/projects\/1\/entries\/(\d+)\/delete$/);
+     if(deleteMatch){
+      const id=Number(deleteMatch[1]),input=JSON.parse(options.body),entry=mockEntries.find(row=>row.id===id);
+      if(!entry||entry.version!==input.expected_version)throw new Error('模拟记录版本冲突');
+      const summaryBefore={...sample[0].summary,as_of:'2026-10-01'};
+      mockEntries=mockEntries.filter(row=>row.id!==id);sample[0].version++;
+      if(!entry.voided_at){
+       const key=entry.kind==='investment'?'invested_amount':'net_recovered_amount';
+       sample[0].summary[key]=(Number(sample[0].summary[key])-Number(entry.amount)).toFixed(2);
+       sample[0].summary.unrecovered_amount=(Number(sample[0].summary.invested_amount)-Number(sample[0].summary.net_recovered_amount)).toFixed(2);
+       sample[0].summary.recovery_percent=Number(sample[0].summary.net_recovered_amount)/Number(sample[0].summary.invested_amount)*100;
+      }
+      audits.unshift({id:audits.length+1,event_type:'entry_deleted',entry_id:id,project_version:sample[0].version,created_at:'2026-10-01 10:00:00',payload:{before:{...entry},after:{id,deleted:true,delete_reason:input.reason},summary_before:summaryBefore,summary_after:{...sample[0].summary,as_of:'2026-10-01'}}});
+      serverText.value='模拟后台：记录 '+id+' 已删除并重算';return{code:200,data:mockDetail()};
+     }
+     if(path!=='/investment-payback/layout')throw new Error('模拟页禁止其他账务写入');
+     const order=JSON.parse(options.body).order;await new Promise(resolve=>setTimeout(resolve,160));
+     savedOrder=order;serverText.value='模拟后台保存顺序：'+order.join('、');return{code:200,data:{order:[...savedOrder]}};
+    }
+    if(path.startsWith('/investment-payback/projects/1?'))return{code:200,data:mockDetail()};
+    if(!path.startsWith('/investment-payback/projects?'))throw new Error('模拟页仅开放项目甲合成台账');
+    return{code:200,data:{list:sample,layout:{order:[...savedOrder]},pagination:{total:4}}};
+   };return()=>Vue.h('div',[
+    Vue.h('div',{class:'test-controls'},[
+     Vue.h('button',{type:'button',onClick:()=>version.value++},'重新打开模拟工作台'),
+     Vue.h('label',[Vue.h('input',{type:'checkbox',checked:fail.value,onChange:event=>fail.value=event.target.checked}),'模拟保存失败']),
+     Vue.h('span',{role:'status'},serverText.value)
+    ]),
+    Vue.h(component,{key:version.value,request,hotels:[]})
+   ])}
+ }).mount('#app');
+}
+</script></html>

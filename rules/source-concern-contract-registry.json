@@ -12,6 +12,7 @@
       "app/controller/concern/AgentOtaDiagnosisReadbackConcern.php"
     ],
     "app/controller/concern/AutoFetchConcern.php": [
+      "app/controller/concern/AutoFetchRecordSummaryConcern.php",
       "app/controller/concern/AutoFetchProfileSyncConcern.php",
       "app/controller/concern/CtripAutoFetchExecutionConcern.php",
       "app/controller/concern/CtripAutoFetchBusinessConcern.php",
@@ -52,10 +53,20 @@
     ],
     "app/service/AiDailyReportService.php": [
       "app/service/concern/AiDailyReportReadinessConcern.php",
-      "app/service/concern/AiDailyReportExecutionReadConcern.php"
+      "app/service/concern/AiDailyReportExecutionReadConcern.php",
+      "app/service/concern/AiDailyReportEvidenceConcern.php"
     ],
     "app/service/RevenueAiOverviewService.php": [
-      "app/service/concern/RevenueAiOverviewLabelConcern.php"
+      "app/service/concern/RevenueAiOverviewLabelConcern.php",
+      "app/service/concern/RevenueAiOverviewManualOrderConcern.php",
+      "app/service/concern/RevenueAiOverviewOtaStructureSignalConcern.php",
+      "app/service/concern/RevenueAiOverviewCompetitorSignalConcern.php"
+    ],
+    "scripts/report_business_chain_status.php": [
+      "scripts/lib/business_chain_p0_scope.php"
+    ],
+    "scripts/verify_public_entry_guard.mjs": [
+      "scripts/lib/ctrip_profile_panel_contract.mjs"
     ],
     "tests/OnlineDataTest.php": [
       "tests/Support/OnlineData/CtripTestCases.php",

@@ -148,6 +148,41 @@ test('unconfigured manager scope renders one authorization empty state instead o
   assert.doesNotMatch(serialized, /最近评分案例/);
 });
 
+test('manager list read failure offers retry instead of misdirecting operators to authorization setup', async () => {
+  const runtimeWindow = {
+    SUXI_ONLINE_DATA_COMPONENTS: {},
+    SUXI_SYSTEM_COMPONENTS: {},
+  };
+  const h = (type, props, children) => ({ type, props: props || {}, children: children ?? null });
+  const Vue = {
+    h,
+    defineAsyncComponent: loader => ({ loader }),
+  };
+  new Function('window', components)(runtimeWindow);
+  const panel = runtimeWindow.SUXI_APP_MAIN_COMPONENTS_FULL.create({ Vue, h }).ManagerCapabilityPanel;
+  const tree = panel.render.call({
+    profile: null,
+    followupQueue: null,
+    dailySubmission: {
+      status: 'data_insufficient', attention_status: 'unknown', case_count: 0,
+      last_submission_date: null, consecutive_missing_days: null,
+    },
+    normalizedHotelId: 1,
+    managers: [],
+    loading: false,
+    error: '负责人服务暂时不可用',
+    load() {},
+    $root: { user: { is_super_admin: true }, openHomeQuickEntry() {} },
+  });
+  const serialized = JSON.stringify(tree);
+  assert.match(serialized, /系统读取异常/);
+  assert.match(serialized, /负责人范围读取失败/);
+  assert.match(serialized, /负责人服务暂时不可用/);
+  assert.match(serialized, /重新读取/);
+  assert.doesNotMatch(serialized, /配置用户授权/);
+  assert.doesNotMatch(serialized, /manager-capability-empty-dimensions/);
+});
+
 test('authenticated page dependency receives Vue ref and pins the repaired asset', () => {
   assert.ok(operatingComponents.includes('const create = ({ ref, computed, inject, h, nextTick, onMounted, onUnmounted })'));
   assert.match(

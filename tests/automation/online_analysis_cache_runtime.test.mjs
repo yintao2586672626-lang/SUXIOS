@@ -142,6 +142,7 @@ const createHarness = () => {
     currentPage,
     currentPageReadPolicy,
     debugLog() {},
+    ensureBusinessReadContext: async () => {}, // Scope hydration has separate production-helper tests.
     fetch,
     filterReportHotel,
     isAuthSessionCurrent,

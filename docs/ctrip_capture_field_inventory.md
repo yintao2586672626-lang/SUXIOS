@@ -287,7 +287,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -437,7 +438,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -598,7 +600,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -754,7 +757,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -841,7 +845,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -862,7 +867,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -883,7 +889,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -904,7 +911,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -925,7 +933,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -960,7 +969,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -1066,7 +1076,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -1224,7 +1235,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -1288,7 +1300,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -1636,7 +1649,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -1950,7 +1964,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -2549,7 +2564,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |
@@ -2578,7 +2594,8 @@
 | order_count | 预订订单数 | orderQuantity, synchronizationOrderQuantity, bookOrderNum, orderCount, orderNum, ordquantity, bookingCount | OTA预订订单量 |
 | room_nights | 间夜量 | quantity, bookQuantity, synchronizationBookQuantity, roomNights, nightNum, occupiedRooms, checkOutQuantity | OTA间夜或在店间夜 |
 | order_amount | 预订销售额 | amount, bookAmount, synchronizationBookAmount, orderAmount, saleAmount, ordamount, totalAmount, bookingAmount | OTA预订或离店销售额 |
-| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr, minPrice | OTA均价或起价 |
+| avg_price | 平均卖价 | averagePrice, synchronizationAveragePrice, avgPrice, adr | OTA已成交平均卖价 |
+| min_price | 实时起价 | minPrice | OTA当前展示起价；不得替代ADR或已成交平均卖价 |
 | conversion_rate | 成交/下单转化率 | orderConversionRate, closeRate, conversionRate, convertionRate, cvr | 从流量到订单的转化 |
 | occupancy_rate | 出租率 | rentalRate, occupancyRate | - |
 | tensity | 紧张度 | tensityScore, tensity, Tensity, nowTensityDetail | - |

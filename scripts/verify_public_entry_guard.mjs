@@ -8,6 +8,7 @@ import { inspectFrontendStartupHelpers } from './lib/frontend_startup_helpers_bu
 import { inspectTailwindRuntimeBuild } from './lib/frontend_tailwind_build.mjs';
 import { inspectFrontendTemplateBuild } from './lib/frontend_template_build.mjs';
 import { inspectPublicEntryRuntimeContracts } from './lib/public_entry_ast_contract.mjs';
+import { inspectCtripProfileFieldConfigPanel } from './lib/ctrip_profile_panel_contract.mjs';
 import {
   AUTHENTICATED_ASSET_PHASE_AFTER_FIRST_PAINT,
   AUTHENTICATED_ASSET_PHASE_STARTUP,
@@ -15,7 +16,6 @@ import {
   extractAuthenticatedAssetEntries,
   stripFrontendAssetQuery,
 } from './lib/frontend_authenticated_assets.mjs';
-
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const indexPath = path.join(repoRoot, 'public/index.html');
 const appBootstrapPath = path.join(repoRoot, 'public/app-bootstrap.js');
@@ -41,9 +41,7 @@ const loginBgPngPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.p
 const loginBgWebpPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.webp');
 const loginBgAvifPath = path.join(repoRoot, 'public/images/login-hotel-lobby-bg.avif');
 const failures = [];
-
 const lineNumberForOffset = (content, offset) => content.slice(0, offset).split(/\r?\n/).length;
-
 const openTagStackBefore = (content, endOffset) => {
   const voidTags = new Set([
     'area',
@@ -64,11 +62,9 @@ const openTagStackBefore = (content, endOffset) => {
   const stack = [];
   const tagPattern = /<!--[\s\S]*?-->|<![^>]*>|<\/?([a-zA-Z][\w:-]*)([^>]*)>/g;
   let match;
-
   while ((match = tagPattern.exec(content)) && match.index < endOffset) {
     const raw = match[0];
     if (raw.startsWith('<!--') || raw.startsWith('<!')) continue;
-
     const tag = match[1].toLowerCase();
     if (raw.startsWith('</')) {
       let matchingIndex = -1;
@@ -81,23 +77,18 @@ const openTagStackBefore = (content, endOffset) => {
       if (matchingIndex >= 0) stack.splice(matchingIndex);
       continue;
     }
-
     if (!voidTags.has(tag) && !/\/\s*>$/.test(raw)) {
       stack.push({ tag, raw });
     }
   }
-
   return stack;
 };
-
 const hasOpenVueRoot = (stack) => stack.some((entry) => entry.tag === 'div' && /\bid\s*=\s*["']app["']/.test(entry.raw));
-
 const coreFetchFlowFiles = [
   'public/auto-fetch-static.js',
   'public/ctrip-static.js',
   'public/meituan-static.js',
 ];
-
 if (!fs.existsSync(indexPath)) {
   failures.push('public/index.html is missing.');
 } else {
@@ -183,9 +174,14 @@ if (!fs.existsSync(indexPath)) {
   const platformAutoSettingsPanelsContent = fs.existsSync(platformAutoSettingsPanelsPath)
     ? fs.readFileSync(platformAutoSettingsPanelsPath, 'utf8')
     : '';
+  const platformAutoPanelsVersionedReference = `const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3-h${crypto.createHash('sha256').update(platformAutoSettingsPanelsContent).digest('hex').slice(0, 10)}';`;
   const ctripProfileFieldConfigPanelPath = path.join(repoRoot, 'public/components/online-data/ctrip-profile-field-config-panel.js');
   const ctripProfileFieldConfigPanelContent = fs.existsSync(ctripProfileFieldConfigPanelPath)
     ? fs.readFileSync(ctripProfileFieldConfigPanelPath, 'utf8')
+    : '';
+  const ctripProfileFieldConfigTemplatePath = path.join(repoRoot, 'resources/frontend/templates/components/ctrip-profile-field-config-panel.html');
+  const ctripProfileFieldConfigTemplateContent = fs.existsSync(ctripProfileFieldConfigTemplatePath)
+    ? fs.readFileSync(ctripProfileFieldConfigTemplatePath, 'utf8')
     : '';
   const dataConfigDialogsTemplateContent = fs.existsSync(dataConfigDialogsTemplatePath)
     ? fs.readFileSync(dataConfigDialogsTemplatePath, 'utf8')
@@ -193,7 +189,6 @@ if (!fs.existsSync(indexPath)) {
   const dataConfigDialogsComponentContent = fs.existsSync(dataConfigDialogsComponentPath)
     ? fs.readFileSync(dataConfigDialogsComponentPath, 'utf8')
     : '';
-
   if (stat.size < 5_000) {
     failures.push(`public/index.html is too small (${stat.size} bytes). It may have been overwritten by a frontend build.`);
   }
@@ -291,7 +286,6 @@ if (!fs.existsSync(indexPath)) {
     appBootstrapSource: appBootstrapContent,
     appMainSource: appMainContent,
   }).failures);
-
 if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !systemStaticContent.includes('const getHotelCodeNumber = (code) => {')
     || !systemStaticContent.includes('const formatHotelCode = (num) =>')
@@ -307,7 +301,6 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes('const formatHotelBindingDate = (value) => {')) {
     failures.push('public/index.html must delegate hotel code, OTA config hotel-name normalization, and binding-date formatting to public/system-static.js.');
   }
-
   const requiredMarkers = [
     { name: 'Vue mount root', pattern: /id=["']app["']/ },
     { name: 'local Vue runtime', pattern: /vue\.runtime\.global\.prod\.js/ },
@@ -315,7 +308,6 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     { name: 'application stylesheet', pattern: /style(?:\.min)?\.css/ },
     { name: 'Vue app bootstrap', pattern: /createApp|Vue\.createApp/ },
   ];
-
   for (const marker of requiredMarkers) {
     if (!marker.pattern.test(content)) {
       failures.push(`public/index.html missing marker: ${marker.name}`);
@@ -365,7 +357,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
       failures.push(`${file} must keep OTA authorization copy on account-owner local-computer authorization and must not contain legacy server/login-task wording: ${text}`);
     }
   }
-  if (!content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3';")
+  if (!content.includes(platformAutoPanelsVersionedReference)
     || !content.includes("const PlatformAutoSettingsPanels = {")
     || !content.includes("const PlatformAutoSecondaryPanels = {")
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
@@ -378,20 +370,11 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes('<script src="components/online-data/platform-auto-settings-panels.js')) {
     failures.push('public/index.html must lazy-load the platform-auto extension panels instead of loading them before Vue mount.');
   }
-  if (!content.includes('components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split')
-    || !content.includes("const CtripProfileFieldConfigPanel = {")
-    || !content.includes('const ensureCtripProfileFieldConfigPanelReady = async () => {')
-    || !content.includes("requireOnlineDataComponent('CtripProfileFieldConfigPanelBody')")
-    || !content.includes('void ensureCtripProfileFieldConfigPanelReady().catch')
-    || !content.includes('<ctrip-profile-field-config-panel')
-    || !content.includes('data-testid="ctrip-profile-field-config-loading"')
-    || !ctripProfileFieldConfigPanelContent.includes('components.CtripProfileFieldConfigPanelBody')
-    || !/data-testid=\\?"ctrip-profile-field-config-panel\\?"/.test(ctripProfileFieldConfigPanelContent)
-    || !ctripProfileFieldConfigPanelContent.includes('return new Proxy({}, {')
-    || !ctripProfileFieldConfigPanelContent.includes('return props.ctx?.[key] ?? target[key];')
-    || !ctripProfileFieldConfigPanelContent.includes('props.ctx[key] = value;')
-    || !ctripProfileFieldConfigPanelContent.includes('getOwnPropertyDescriptor() {')
-    || content.includes('携程登录会话字段配置')) {
+  if (!inspectCtripProfileFieldConfigPanel({
+    entry: content,
+    component: ctripProfileFieldConfigPanelContent,
+    template: ctripProfileFieldConfigTemplateContent,
+  })) {
     failures.push('public/index.html must lazy-load the admin-only Ctrip profile-field config panel from public/components/online-data/ctrip-profile-field-config-panel.js.');
   }
 
@@ -602,17 +585,26 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !revenueAiStaticContent.includes('actionLabel,')
     || !revenueAiStaticContent.includes('buildRevenueAiReviewQueueItems')
     || !revenueAiStaticContent.includes('nextActions: Array.isArray(action.next_actions)')
-    || !revenueAiStaticContent.includes('reviewQueueSummary: action.review_queue_summary || reviewQueue.display ||')
+    || !(revenueAiStaticContent.includes("const currentReadStatus = overviewLoading ? 'loading' : (overviewError ? 'failed' : 'ready');")
+      && revenueAiStaticContent.includes('const currentReadReason = overviewLoading')
+      && revenueAiStaticContent.includes("? '正在读取当前酒店和日期的建议；历史记录暂不可审核，请等待读取完成。'")
+      && revenueAiStaticContent.includes(": (overviewError ? `当前总览读取失败（${overviewError}）；历史记录尚未重新复核，请只读刷新后再审核。` : '');")
+      && revenueAiStaticContent.includes("reviewQueueSummary: currentReadStatus === 'ready' ? (action.review_queue_summary || reviewQueue.display || '') : currentReadReason,"))
     || !revenueAiStaticContent.includes('impactLine,')
-    || !revenueAiStaticContent.includes('decisionBasisDisplay: decisionBasis.display ||')
+    || !(revenueAiStaticContent.includes("decisionBasisDisplay: currentReadReason || decisionBasis.display || '',")
+      && revenueAiStaticContent.includes("decisionBasisStatusLabel: currentReadStatus === 'ready' ? (decisionBasisStatus ? revenueAiStatusLabel(decisionBasisStatus) : '') : (overviewLoading ? '正在读取' : '读取失败'),")
+      && revenueAiStaticContent.includes("decisionBasisClassName: currentReadStatus === 'ready' ? (decisionBasisStatus ? revenueAiStatusClass(decisionBasisStatus) : revenueAiStatusClass('unknown')) : revenueAiStatusClass(overviewLoading ? 'pending' : 'failed'),"))
     || !revenueAiStaticContent.includes('decisionBasisHiddenBlockedCount')
     || !revenueAiStaticContent.includes('decisionBasisHiddenDisplay:')
     || !revenueAiStaticContent.includes('revenueAiDecisionBasisPriority')
     || !revenueAiStaticContent.includes('.sort((left, right) =>')
-    || !revenueAiStaticContent.includes('decisionBasisItems,')
+    || !(revenueAiStaticContent.includes("decisionBasisItems: currentReadStatus === 'ready' ? decisionBasisItems : [],")
+      && revenueAiStaticContent.includes("decisionBasisReadyCount: currentReadStatus === 'ready' ? Number(decisionBasis.ready_count || 0) : null,")
+      && revenueAiStaticContent.includes("decisionBasisBlockedCount: currentReadStatus === 'ready' ? decisionBasisBlockedCount : null,")
+      && revenueAiStaticContent.includes("decisionBasisHiddenBlockedCount: currentReadStatus === 'ready' ? decisionBasisHiddenBlockedCount : null,"))
     || !revenueAiStaticContent.includes('targetPage: item.target_page ||')
     || !revenueAiStaticContent.includes('canOpenTarget: Boolean(item.target_page)')
-    || !revenueAiStaticContent.includes('const reviewQueueItems = buildRevenueAiReviewQueueItems(reviewQueue);')
+    || !(/const reviewQueueItems = buildRevenueAiReviewQueueItems\(reviewQueue\)\.map\(item => currentReadStatus === 'ready'\s*\? item\s*:\s*\{\s*\.\.\.item,\s*currentReadStatus,\s*currentReadReason,\s*canReview: false,\s*canApprove: false,\s*canApproveWithChanges: false,\s*canReject: false,\s*canCreateExecutionIntent: false,\s*actionButtons: \[\],\s*actionHelpText: currentReadReason,/.test(revenueAiStaticContent))
     || !revenueAiStaticContent.includes('approvedExecutionPendingCount')
     || !revenueAiStaticContent.includes('executionPendingDisplay')
     || !revenueAiStaticContent.includes('const actionEntry = item.action_entry && typeof item.action_entry ===')
@@ -668,7 +660,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !content.includes('const overviewRequest = revenueAiResolveOverviewRequest({')
     || !/await request\(overviewRequest\.endpoint(?:,\s*\{[\s\S]{0,240}?requestPolicy(?:\s*:|\s*[,}])[\s\S]{0,160}?\})?\);/.test(content)
     || !revenueAiStaticContent.includes('const resolveRevenueAiOverviewResponse =')
-    || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ response: res });')
+    || !/const overviewResult = revenueAiResolveOverviewResponse\(\{\s*response: res,\s*expectedScope: \{ hotelId, businessDate: requestPolicy\.businessDate \},\s*\}\);/.test(content)
+    || !content.includes('expectedScope: { hotelId: requestContext.hotelId, businessDate },')
     || !content.includes('const overviewResult = revenueAiResolveOverviewResponse({ error: e });')
     || content.includes("revenueAiOverviewError.value = res.message || 'Revenue AI 总览接口返回失败';")
     || content.includes("revenueAiOverviewError.value = e.message || 'Revenue AI 总览接口请求失败';")
@@ -703,7 +696,11 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || !revenueAiStaticContent.includes('const resolveRevenueAiDecisionBasisNavigation =')
     || content.includes('const targetPage = String(basis.targetPage || basis.target_page ||')
     || !content.includes("if (navigation.targetPage === 'ops-track') {")
-    || !content.includes('const openRevenueAiExecutionItem = async (row = {}) => {')
+    || !(content.includes('const openRevenueAiExecutionItem = async (row = {}, options = {}) => {')
+      && content.includes("if (typeof options.isCurrent === 'function' && !options.isCurrent()) return false;")
+      && content.includes('const openSession = captureAuthSession();')
+      && /const isDestinationCurrent = \(\) => isAuthSessionCurrent\(openSession\)\s*&& currentPage\.value === 'ops-track'\s*&& String\(operationFilters\.value\.hotel_id \|\| ''\) === openHotel\s*&& revenueAiExecutionFocus\.value === openFocus;/.test(content)
+      && /await nextTick\(\);\s*if \(!isDestinationCurrent\(\)\) return false;\s*const loaded = await loadOperationActions\(\{ focusIntentId: Number\(action\.focus\?\.intentId \|\| 0\) \}\);\s*if \(!isDestinationCurrent\(\) \|\| loaded !== true\) return false;/.test(content))
     || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionNavigation =')
     || !revenueAiStaticContent.includes('const resolveRevenueAiExecutionAction =')
     || content.includes("const revenueAiExecutionNeedsRoiEvidence = requireRevenueAiStatic('revenueAiExecutionNeedsRoiEvidence');")
@@ -729,7 +726,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
     || content.includes("approve: '批准该调价建议'")
     || content.includes("const endpoints = item.allowedEndpoints || {};")
     || !revenueAiStaticContent.includes('const resolveRevenueAiReviewActionDraft =')
-    || !content.includes('const draft = revenueAiResolveReviewActionDraft({ item, action });')
+    || !(/const currentItem = revenueAiActionRows\.value\.flatMap\(row => row\.reviewQueueItems \|\| \[\]\)\s*\.find\(row => Number\(row\.id\) === Number\(item\.id\)\s*&& String\(row\.hotelId \|\| ''\) === String\(item\.hotelId \|\| ''\)\s*&& String\(row\.suggestionDate \|\| ''\) === String\(item\.suggestionDate \|\| ''\)\);/.test(content)
+      && /const resolveCurrentDraft = \(\) => revenueAiResolveReviewActionDraft\(\{\s*item: currentItem \|\| item,\s*action,\s*overviewError: revenueAiOverviewError\.value,\s*overviewLoading: revenueAiOverviewLoading\.value,\s*currentActionAvailable: Boolean\(currentItem\)\s*&& overviewMatchesReviewScope\s*&& currentItem\.actionButtons\.some\(button => button\.key === action\)\s*&& revenueAiOverview\.value === reviewOverview\s*&& isAuthSessionCurrent\(reviewSession\)\s*&& currentPage\.value === reviewPage\s*&& String\(filterReportHotel\.value \|\| ''\)\.trim\(\) === reviewHotel\s*&& String\(currentPageReadPolicy\(reviewPage\)\.businessDate \|\| ''\) === reviewDate,\s*\}\);\s*const draft = resolveCurrentDraft\(\);/.test(content))
     || content.includes('const suggestionId = Number(item.id || 0);')
     || content.includes('item.autoWriteOta === true')
     || content.includes("!endpoint.startsWith('/revenue-ai/price-suggestions/')")
@@ -831,8 +829,9 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   if (!/const\s+revenueResearchStaticScript\s*=\s*["']revenue-research-static\.js["']/.test(content) || !/const\s+loadRevenueResearchStatic\s*=\s*\(\)\s*=>/.test(content)) {
     failures.push('public/index.html must keep an explicit lazy loader for revenue-research-static.js.');
   }
-  if (!/newPage === ['"]revenue-research-center['"]/.test(content) || !/ensureRevenueResearchReady\(\)/.test(content)) {
-    failures.push('public/index.html must load revenue research static data only when revenue-research-center is opened.');
+  if (!/watch\(\[currentPage, isLoggedIn\], \(\[page, loggedIn\]\) => \{\s*if \(page === ['"]revenue-research-center['"] && loggedIn && !revenueResearchProducts\.value\.length\) \{\s*void retryRevenueResearchCatalog\(\);\s*\}\s*\}, \{ immediate: true \}\)/.test(content)
+    || !/const retryRevenueResearchCatalog = \(\) => ensureRevenueResearchReady\(\)/.test(content)) {
+    failures.push('public entry must lazy-load revenue research for an authenticated research page, including a direct initial entry.');
   }
   if (/<script\s+src=["']ai-analysis-static\.js["']/.test(content)) {
     failures.push('public/index.html must lazy-load ai-analysis-static.js; the login and compass shell do not need OTA AI analysis helpers.');
@@ -2096,7 +2095,7 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   }
   if (!platformAutoTemplateSource.includes('<platform-auto-settings-panels')
     || !platformAutoTemplateSource.includes(':ctx="$root"')
-    || !content.includes("const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3';")
+    || !content.includes(platformAutoPanelsVersionedReference)
     || !content.includes('const ensurePlatformAutoPanelsReady = async () => {')
     || !content.includes("requireOnlineDataComponent('PlatformAutoSettingsPanelsBody')")
     || !content.includes("requireOnlineDataComponent('PlatformAutoSecondaryPanelsBody')")
@@ -3444,7 +3443,8 @@ if (!runtimeAssetPaths.includes('app-startup-helpers.min.js')
   if (!/const renderHomeTrendChart = \(retryCount = 0\) => \{\n\s+if \(!homeTrendHasSamples\.value\) \{\n\s+destroyHomeTrendChart\(\);\n\s+return;\n\s+\}\n\s+const ChartLib = window\.Chart;/.test(content)) {
     failures.push('public/index.html must not load Chart.js for the home trend chart before confirming there are usable trend samples.');
   }
-  if (!/data-testid=\\?"ctrip-profile-field-modal\\?"/.test(ctripProfileFieldConfigPanelContent)) {
+  if (!ctripProfileFieldConfigTemplateContent.includes('data-testid="ctrip-profile-field-modal"')
+    || !ctripProfileFieldConfigPanelContent.includes('"data-testid":"ctrip-profile-field-modal"')) {
     failures.push('public/components/online-data/ctrip-profile-field-config-panel.js must keep the Ctrip profile-field modal marker in the lazy component.');
   }
 

@@ -40,3 +40,25 @@ the user explicitly triggers the authorized action.
 
 - Professional, restrained, decision-oriented.
 - Prefer concise bullets and measurable conclusions.
+
+## Monthly Occupancy Analysis Format
+
+For monthly hotel occupancy/revenue analysis, intraday sales analysis, or the
+user's “吉店分析格式”, read `references/occupancy-analysis-format.md` and
+`references/occupancy-revenue-methods.md`, then use
+`docs/report-formats/occupancy-analysis-template.md` from the project root.
+Keep the decision summary, definitions, evidence, limitations, action cards,
+and acceptance criteria consistent. Include optional sections only when their
+inputs exist. Sample prices, thresholds, coefficients, and hotel figures are
+reference material, never defaults for another report. This authoring workflow
+does not change the application's automatic report generation or authorize
+operating actions.
+
+## Daily Operating Diagnosis Reference
+
+For daily operating diagnosis, booking-pace comparisons, diagnosis validation,
+or review of price-change claims, read `references/daily-operating-diagnosis.md`.
+Use its evidence, comparability, missing-input and label-conflict checks when
+writing the report. It is a traceable method reference; automated grading and
+pricing remain unintegrated candidates. Source thresholds and sample hotel
+figures must not become defaults or current operating facts.

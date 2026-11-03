@@ -1207,6 +1207,104 @@ final class AgentTenantMainlineTest extends TestCase
         ));
     }
 
+    public function testRoomTypePricingUpdateKeepsExistingFacilitiesThroughSaveAndReadback(): void
+    {
+        $facilities = ['wifi', 'desk', ['bed_count' => 1]];
+        Db::name('room_types')->where('id', 100)->update(['facilities' => json_encode($facilities, JSON_THROW_ON_ERROR)]);
+        $saved = $this->responseData($this->controller([], [
+            'id' => 100, 'hotel_id' => 20, 'name' => 'Updated Deluxe',
+            'base_price' => 328.5, 'min_price' => 218.2, 'max_price' => 588.8,
+            'room_count' => 0, 'sort_order' => 2, 'is_enabled' => 1,
+        ], 2)->saveRoomType());
+        self::assertSame($facilities, $saved['room_type']['facilities']);
+        self::assertSame(328.5, $saved['room_type']['base_price']);
+        self::assertSame(0, $saved['room_type']['room_count']);
+        self::assertFalse($saved['auto_write_ota']);
+        $stored = Db::name('room_types')->where('id', 100)->find();
+        self::assertSame($facilities, json_decode((string)$stored['facilities'], true, 512, JSON_THROW_ON_ERROR));
+        self::assertSame(10, (int)$stored['tenant_id']);
+        self::assertSame(20, (int)$stored['hotel_id']);
+        $readback = $this->responseData($this->controller(['hotel_id' => 20], [], 2)->roomTypes());
+        self::assertSame($facilities, $readback['list'][0]['facilities']);
+        self::assertSame(218.2, $readback['list'][0]['min_price']);
+
+        Db::name('room_types')->where('id', 100)->update(['facilities' => null]);
+        $this->responseData($this->controller([], [
+            'id' => 100, 'hotel_id' => 20, 'name' => 'Legacy room',
+            'base_price' => 320, 'min_price' => 260, 'max_price' => 420,
+        ], 2)->saveRoomType());
+        self::assertNull(Db::name('room_types')->where('id', 100)->value('facilities'));
+    }
+
+    public function testRoomTypeFacilitiesReplacementClearAndInvalidInputStayExplicitAndScoped(): void
+    {
+        $pricing = ['id' => 100, 'hotel_id' => 20, 'name' => 'Deluxe', 'base_price' => 320, 'min_price' => 260, 'max_price' => 420];
+        foreach ([['wifi', 'desk'], []] as $facilities) {
+            $saved = $this->responseData($this->controller([], $pricing + ['facilities' => $facilities], 2)->saveRoomType());
+            self::assertSame($facilities, $saved['room_type']['facilities']);
+            $readback = $this->responseData($this->controller(['hotel_id' => 20], [], 2)->roomTypes());
+            self::assertSame($facilities, $readback['list'][0]['facilities']);
+        }
+        foreach ([null, 'wifi', 0] as $invalid) {
+            $response = $this->controller([], $pricing + ['facilities' => $invalid], 2)->saveRoomType();
+            $decoded = json_decode((string)$response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame(422, $decoded['code']);
+            self::assertSame('facilities must be an array', $decoded['message']);
+            self::assertSame([], json_decode((string)Db::name('room_types')->where('id', 100)->value('facilities'), true, 512, JSON_THROW_ON_ERROR));
+        }
+        $foreign = $this->controller([], array_replace($pricing, ['id' => 200, 'facilities' => ['must not overwrite']]), 2)->saveRoomType();
+        self::assertSame(404, json_decode((string)$foreign->getContent(), true, 512, JSON_THROW_ON_ERROR)['code']);
+        self::assertSame('[]', Db::name('room_types')->where('id', 200)->value('facilities'));
+        self::assertSame(99, (int)Db::name('room_types')->where('id', 200)->value('tenant_id'));
+    }
+
+    public function testManualCompetitorPriceSaveReturnsExactScopedReadback(): void
+    {
+        $date = date('Y-m-d');
+        $payload = ['hotel_id' => 20, 'analysis_date' => $date, 'room_type_id' => 100,
+            'competitor_hotel_id' => 0, 'competitor_name' => '隔离人工竞品', 'our_price' => '328.50',
+            'competitor_price' => '298.20', 'ota_platform' => 1];
+        $saved = $this->responseData($this->controller([], $payload, 2)->recordCompetitorPrice());
+        self::assertTrue($saved['readback_verified'] ?? false);
+        $row = $saved['price_sample'];
+        self::assertSame((int)$saved['id'], (int)$row['id']);
+        self::assertSame(10, $row['tenant_id']);
+        self::assertSame(20, $row['hotel_id']);
+        self::assertSame(100, $row['room_type_id']);
+        self::assertSame($date, $row['analysis_date']);
+        self::assertSame(1, $row['ota_platform']);
+        self::assertSame(328.5, $row['our_price']);
+        self::assertSame(298.2, $row['competitor_price']);
+        self::assertSame('隔离人工竞品', $row['competitor_data']['competitor_name']);
+        self::assertSame('manual_ctrip_competitor_price_sample', $row['competitor_data']['input_type']);
+        $read = $this->responseData($this->controller(['hotel_id' => 20, 'date' => $date], [], 2)->competitorAnalysis());
+        $matches = [];
+        foreach ($read['price_matrix'] as $samples) foreach ($samples as $sample) {
+            if ((int)$sample['id'] === (int)$saved['id']) $matches[] = $sample;
+        }
+        self::assertCount(1, $matches);
+        self::assertSame(328.5, $matches[0]['our_price']);
+        self::assertSame(298.2, $matches[0]['competitor_price']);
+        self::assertSame(20, $matches[0]['hotel_id']);
+        self::assertFalse($saved['auto_write_ota']);
+    }
+
+    public function testManualCompetitorPriceReadbackMismatchRollsBackInsteadOfReportingSuccess(): void
+    {
+        $before = (int)Db::name('competitor_analysis')->count();
+        Db::execute("CREATE TRIGGER fixture_competitor_price_change AFTER INSERT ON competitor_analysis WHEN NEW.competitor_data LIKE '%manual_ctrip_competitor_price_sample%' BEGIN UPDATE competitor_analysis SET our_price = 1 WHERE id = NEW.id; END");
+        try {
+            $response = $this->controller([], ['hotel_id' => 20, 'analysis_date' => date('Y-m-d'),
+                'room_type_id' => 100, 'competitor_name' => '隔离回读差异', 'our_price' => 328.5,
+                'competitor_price' => 298.2, 'ota_platform' => 1], 2)->recordCompetitorPrice();
+            $decoded = json_decode((string)$response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+            self::assertSame(500, $decoded['code']);
+            self::assertSame($before, (int)Db::name('competitor_analysis')->count());
+        } finally {
+            Db::execute('DROP TRIGGER fixture_competitor_price_change');
+        }
+    }
+
     public function testScopedAiUserWritesTenantAndCannotUseAnotherHotelsRoomType(): void
     {
         $roomType = $this->responseData($this->controller([], [

@@ -44,6 +44,19 @@ final class BookingDemandPlanningService
             ?? static fn(callable $callback): array => Db::transaction($callback);
     }
 
+    /** Reuse the existing scope, source, date and missing-value contract for room-type snapshots. */
+    public function validatedSnapshotContent(int $tenantId, array $permittedHotelIds, int $hotelId, array $input): array
+    {
+        $tenantId = $this->resolveScope($tenantId, $permittedHotelIds, $hotelId);
+        return $this->normalizeSnapshot($tenantId, $hotelId, $input);
+    }
+
+    /** Internal readback validation for already scope-filtered bulk readers. */
+    public function validatedSnapshotReadback(array $row): array
+    {
+        return $this->hydrateSnapshot($row);
+    }
+
     /** @param list<int> $permittedHotelIds @return array<string,mixed> */
     public function saveOnBooksSnapshot(
         int $tenantId,
@@ -212,7 +225,8 @@ final class BookingDemandPlanningService
             $permittedHotelIds,
             $hotelId,
             $startDate,
-            $endDate
+            $endDate,
+            $asOf->format('Y-m-d H:i:s.u')
         );
         $definitions = [
             ['tomorrow', '明天', 1],
@@ -381,20 +395,29 @@ final class BookingDemandPlanningService
             $base['data_gaps'][] = 'previous_cumulative_cancel_room_nights_exceeds_gross_booking_room_nights';
             return $base;
         }
+        if ($grossBookings !== null && $previousGrossBookings !== null && $grossBookings < $previousGrossBookings) {
+            $base['status'] = 'rebaseline_required';
+            $base['data_gaps'][] = 'gross_booking_counter_reset_or_mismatch';
+            return $base;
+        }
         $previousRooms = $this->nullableNumber($previous['on_books_room_nights'] ?? null, 'previous_on_books_room_nights');
         if ($currentRooms === null || $previousRooms === null) {
             $base['data_gaps'][] = 'on_books_room_nights_missing';
         } else {
             $netPickup = $currentRooms - $previousRooms;
-            $base['net_pickup_room_nights'] = round($netPickup, 2);
-            $base['pickup_room_nights_per_hour'] = round($netPickup / $hours, 4);
+            $base['net_pickup_room_nights'] = round($netPickup, 4);
+            $base['pickup_room_nights_per_hour'] = $this->finiteCalculation(
+                $netPickup / $hours, 'pickup_room_nights_per_hour', $base['data_gaps']
+            );
         }
 
         $previousRevenue = $this->nullableNumber($previous['on_books_room_revenue'] ?? null, 'previous_on_books_room_revenue');
         if ($currentRevenue !== null && $previousRevenue !== null) {
             $delta = $currentRevenue - $previousRevenue;
-            $base['room_revenue_delta'] = round($delta, 2);
-            $base['room_revenue_per_hour'] = round($delta / $hours, 4);
+            $base['room_revenue_delta'] = round($delta, 4);
+            $base['room_revenue_per_hour'] = $this->finiteCalculation(
+                $delta / $hours, 'room_revenue_per_hour', $base['data_gaps']
+            );
         } else {
             $base['data_gaps'][] = 'on_books_room_revenue_missing';
         }
@@ -406,9 +429,10 @@ final class BookingDemandPlanningService
             $base['data_gaps'][] = 'cancellation_counter_reset_or_mismatch';
             return $base;
         } elseif ($base['net_pickup_room_nights'] !== null) {
-            $base['gross_pickup_room_nights'] = round(
+            $base['gross_pickup_room_nights'] = $this->finiteCalculation(
                 (float)$base['net_pickup_room_nights'] + ($currentCancel - $previousCancel),
-                2
+                'gross_pickup_room_nights',
+                $base['data_gaps']
             );
         }
 
@@ -419,6 +443,12 @@ final class BookingDemandPlanningService
         }
 
         $base['status'] = $base['net_pickup_room_nights'] === null ? 'partial' : 'ready';
+        foreach ($base['data_gaps'] as $gap) {
+            if (str_starts_with($gap, 'numeric_calculation_nonfinite:')) {
+                $base['status'] = 'partial';
+                break;
+            }
+        }
         $base['data_gaps'] = array_values(array_unique($base['data_gaps']));
         return $base;
     }
@@ -477,10 +507,14 @@ final class BookingDemandPlanningService
             static fn(array $event): bool => (string)($event['event_start_date'] ?? '') <= $endDate
                 && (string)($event['event_end_date'] ?? '') >= $startDate
         ));
-        $sum = static fn(array $rows, string $field): float => round(array_sum(array_map(
-            static fn(array $row): float => (float)$row[$field],
-            $rows
-        )), 2);
+        $sumGaps = [];
+        $sum = function (array $rows, string $field) use (&$sumGaps): ?float {
+            return $this->finiteCalculation(
+                array_sum(array_map(static fn(array $row): float => (float)$row[$field], $rows)),
+                'window_' . $field,
+                $sumGaps
+            );
+        };
         $dataGaps = [];
         if (count($withSnapshot) < $dayCount) $dataGaps[] = 'window_snapshot_coverage_incomplete';
         if ($withSnapshot !== [] && !$snapshotScopeComparable) $dataGaps[] = 'window_snapshot_fact_scope_mismatch';
@@ -494,6 +528,13 @@ final class BookingDemandPlanningService
                 $dataGaps[] = (string)($day['stay_date'] ?? 'unknown') . ':' . (string)$gap;
             }
         }
+        $observedRooms = $roomDays === [] || !$snapshotScopeComparable
+            ? null : $sum($roomDays, 'current_on_books_room_nights');
+        $observedRevenue = $revenueDays === [] || !$snapshotScopeComparable
+            ? null : $sum($revenueDays, 'current_on_books_room_revenue');
+        $observedPickup = !$pickupWindowComparable
+            ? null : $sum($withPickup, 'net_pickup_room_nights');
+        $dataGaps = array_merge($dataGaps, $sumGaps);
 
         return [
             'window_key' => $key,
@@ -506,29 +547,23 @@ final class BookingDemandPlanningService
                 : (count($withSnapshot) === $dayCount
                     && $snapshotScopeComparable
                     && count($withPickup) === $dayCount
-                    && $pickupWindowComparable ? 'ready' : 'partial'),
+                    && $pickupWindowComparable && $sumGaps === [] ? 'ready' : 'partial'),
             'snapshot_coverage_days' => count($withSnapshot),
             'pickup_coverage_days' => count($withPickup),
             'fact_scope' => $snapshotScopeComparable ? $snapshotScopes[0] : null,
-            'observed_on_books_room_nights' => $roomDays === [] || !$snapshotScopeComparable
-                ? null
-                : $sum($roomDays, 'current_on_books_room_nights'),
+            'observed_on_books_room_nights' => $observedRooms,
             'on_books_room_nights_total' => count($roomDays) === $dayCount && $snapshotScopeComparable
-                ? $sum($roomDays, 'current_on_books_room_nights')
+                ? $observedRooms
                 : null,
-            'observed_on_books_room_revenue' => $revenueDays === [] || !$snapshotScopeComparable
-                ? null
-                : $sum($revenueDays, 'current_on_books_room_revenue'),
+            'observed_on_books_room_revenue' => $observedRevenue,
             'on_books_room_revenue_total' => count($revenueDays) === $dayCount && $snapshotScopeComparable
-                ? $sum($revenueDays, 'current_on_books_room_revenue')
+                ? $observedRevenue
                 : null,
             'pickup_comparison_pair' => $pickupWindowComparable ? $pickupPairs[0] : null,
             'pickup_fact_scope' => $pickupWindowComparable ? $pickupScopes[0] : null,
-            'observed_net_pickup_room_nights' => !$pickupWindowComparable
-                ? null
-                : $sum($withPickup, 'net_pickup_room_nights'),
+            'observed_net_pickup_room_nights' => $observedPickup,
             'net_pickup_room_nights_total' => count($withPickup) === $dayCount && $pickupWindowComparable
-                ? $sum($withPickup, 'net_pickup_room_nights')
+                ? $observedPickup
                 : null,
             'event_count' => count($windowEvents),
             'events' => $windowEvents,
@@ -743,7 +778,8 @@ final class BookingDemandPlanningService
         array $permittedHotelIds,
         int $hotelId,
         string $startDate,
-        string $endDate
+        string $endDate,
+        ?string $asOfTime = null
     ): array {
         $tenantId = $this->resolveScope($tenantId, $permittedHotelIds, $hotelId);
         $startDate = $this->date($startDate, 'start_date');
@@ -751,11 +787,17 @@ final class BookingDemandPlanningService
         if ($startDate > $endDate) {
             throw new InvalidArgumentException('demand_calendar_date_range_invalid');
         }
+        $now = $this->clockNow();
+        $asOf = $asOfTime === null ? $now : $this->time($asOfTime, 'as_of_time');
+        if ($asOf > $now) {
+            $asOf = $now;
+        }
         $rows = Db::name(self::EVENT_TABLE)
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
             ->where('event_start_date', '<=', $endDate)
             ->where('event_end_date', '>=', $startDate)
+            ->where('observed_at', '<=', $asOf->format('Y-m-d H:i:s.u'))
             ->order('event_start_date', 'asc')
             ->order('id', 'asc')
             ->select()
@@ -767,6 +809,7 @@ final class BookingDemandPlanningService
             'hotel_id' => $hotelId,
             'start_date' => $startDate,
             'end_date' => $endDate,
+            'as_of_time' => $asOf->format('Y-m-d H:i:s.u'),
             'status' => $events === [] ? 'empty' : 'ready',
             'events' => $events,
             'event_count' => count($events),
@@ -979,6 +1022,16 @@ final class BookingDemandPlanningService
         $number = (float)$value;
         if (!is_finite($number) || $number < 0) {
             throw new InvalidArgumentException($field . '_invalid');
+        }
+        return round($number, 4);
+    }
+
+    /** @param list<string> $dataGaps */
+    private function finiteCalculation(float $number, string $field, array &$dataGaps): ?float
+    {
+        if (!is_finite($number)) {
+            $dataGaps[] = 'numeric_calculation_nonfinite:' . $field;
+            return null;
         }
         return round($number, 4);
     }

@@ -30,7 +30,11 @@ test('route bootstrap registers every domain manifest once and stays below the 8
     'route/domain/ai_daily_reports.php',
     'route/domain/online_data_order_analysis.php',
     'route/domain/ai_governance.php',
+    'route/domain/investment.php',
     'route/domain/operations.php',
+    'route/domain/business_workspace.php',
+    'route/domain/guest_operations.php',
+    'route/domain/campaign_operations.php',
     'route/domain/wecom_admin.php',
     'route/domain/wecom_api.php',
     'route/domain/agent_guidance.php',
@@ -51,7 +55,7 @@ test('extracted method, URL, handler, order and Auth middleware surface matches 
   for (const prefix of extractedPrefixes) {
     const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const group = effectiveSource.match(new RegExp(
-      `Route::group\\('${escapedPrefix}', function \\(\\) \\{([\\s\\S]*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\);`,
+      `Route::group\\('${escapedPrefix}', function \\(\\) \\{([\\s\\S]*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\)(?:->middleware\\(\\\\app\\\\middleware\\\\RetiredFeatureReadOnly::class, '[^']+'\\))?;`,
     ));
     assert.ok(group, `missing authenticated group ${prefix}`);
     for (const route of group[1].matchAll(/Route::(get|post|put|delete|patch|any|rule)\('([^']+)', '([^']+)'\);/g)) {
@@ -59,9 +63,17 @@ test('extracted method, URL, handler, order and Auth middleware surface matches 
     }
   }
 
-  assert.equal(tuples.length, 129);
+  const additions = [
+    'api/operation|get|/manager-capability/coaching|ManagerCapability/coachingList',
+    'api/operation|post|/manager-capability/coaching|ManagerCapability/coachingCreate',
+    'api/operation|get|/manager-capability/coaching/:id|ManagerCapability/coachingRead',
+    'api/operation|post|/manager-capability/coaching/:id/:action|ManagerCapability/coachingAction',
+  ];
+  assert.deepEqual(tuples.filter((tuple) => additions.includes(tuple)), additions);
+  const baseline = tuples.filter((tuple) => !additions.includes(tuple));
+  assert.equal(baseline.length, 129);
   assert.equal(
-    createHash('sha256').update(tuples.join('\n')).digest('hex'),
+    createHash('sha256').update(baseline.join('\n')).digest('hex'),
     '75d2a7a5a0105890c833715e65ccd584296b0f8fd8dc70e6ce93588f2652b550',
   );
 });

@@ -103,27 +103,33 @@ final class CloudOtaProfileLeaseService
                     'access_mode' => 'read_only',
                 ]
             );
-            if (($opened['status'] ?? '') !== 'collection_open'
+            $scopeMatches = (string)($opened['profile_id'] ?? '') === $profileId
+                && (string)($opened['platform'] ?? '') === $platform
+                && (int)($opened['tenant_id'] ?? 0) === $tenantId
+                && (int)($opened['hotel_id'] ?? 0) === $hotelId
+                && (int)($opened['owner_user_id'] ?? 0) === $ownerUserId
+                && (string)($opened['target_date'] ?? '') === $targetDate
+                && (string)($opened['collection_kind'] ?? '') === 'ota_target_date'
+                && (string)($opened['data_period'] ?? '') === 'realtime_snapshot'
+                && (string)($opened['access_mode'] ?? '') === 'read_only'
+                && ($opened['session_owner'] ?? '') === 'gateway_collection';
+            $openedSessionId = trim((string)($opened['collection_session_id'] ?? ''));
+            // Own the cleanup before checking readiness. A partially opened
+            // browser must be sealed even when its read-only proof is rejected.
+            // Never close a foreign scope or send a malformed id to the gateway.
+            if ($scopeMatches && preg_match('/^cbcs_[A-Za-z0-9_-]{16,64}$/D', $openedSessionId) === 1) {
+                $collectionSessionId = $openedSessionId;
+            }
+            if (!$scopeMatches || ($opened['status'] ?? '') !== 'collection_open'
                 || ($opened['browser_started'] ?? null) !== true
                 || ($opened['profile_restored'] ?? null) !== true
                 || ($opened['read_only_enforced'] ?? null) !== true
-                || ($opened['session_owner'] ?? '') !== 'gateway_collection'
                 || ($opened['external_browser_required'] ?? null) !== false
                 || ($opened['user_browser_closed'] ?? null) !== false
-                || (string)($opened['profile_id'] ?? '') !== $profileId
-                || (string)($opened['platform'] ?? '') !== $platform
-                || (int)($opened['tenant_id'] ?? 0) !== $tenantId
-                || (int)($opened['hotel_id'] ?? 0) !== $hotelId
-                || (int)($opened['owner_user_id'] ?? 0) !== $ownerUserId
-                || (string)($opened['target_date'] ?? '') !== $targetDate
-                || (string)($opened['collection_kind'] ?? '') !== 'ota_target_date'
-                || (string)($opened['data_period'] ?? '') !== 'realtime_snapshot'
-                || (string)($opened['access_mode'] ?? '') !== 'read_only'
             ) {
                 throw new RuntimeException('cloud_ota_profile_lease_open_unverified');
             }
-            $collectionSessionId = trim((string)($opened['collection_session_id'] ?? ''));
-            if (preg_match('/^cbcs_[A-Za-z0-9_-]{16,64}$/D', $collectionSessionId) !== 1) {
+            if ($collectionSessionId === '') {
                 throw new RuntimeException('cloud_ota_profile_lease_id_invalid');
             }
             $result = $collector(self::CDP_URL);

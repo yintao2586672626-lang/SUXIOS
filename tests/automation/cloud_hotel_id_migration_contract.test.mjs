@@ -397,6 +397,16 @@ test('JSON policy registry declarations exist in tracked SQL and active location
   ]);
   assert.deepEqual(platformConfig.non_system_keys, ['hotel_id']);
   assert.match(registry, /\['platform_data_raw_records', 'raw_payload'\]/);
+  for (const [table, column] of [
+    ['ai_report_presentation_specs', 'spec_json'],
+    ['ai_report_presentation_reviews', 'review_json'],
+    ['ai_report_presentation_artifacts', 'manifest_json'],
+  ]) {
+    const policy = policies.find((entry) => entry.table === table && entry.column === column);
+    assert.equal(policy?.policy, 'immutable_digest_bound_evidence', `${table}.${column}`);
+    assert.equal(policy.selector, 'all_rows_preserved');
+    assert.deepEqual(policy.identity_keys, []);
+  }
 });
 
 test('mutable JSON transform migrates canonical int/string IDs and preserves external IDs', () => {

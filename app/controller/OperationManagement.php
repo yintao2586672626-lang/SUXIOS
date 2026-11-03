@@ -33,7 +33,9 @@ class OperationManagement extends Base
                 ? $this->currentBusinessDate()
                 : $this->normalizeDate((string)$requestedDate);
 
-            return $this->success($this->service->fullData($hotelIds, $hotelId, $date));
+            $data = $this->service->fullData($hotelIds, $hotelId, $date);
+            $data['query_scope'] = ['hotel_id' => $hotelId ?? 0, 'business_date' => $date];
+            return $this->success($data);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '获取运营数据汇总失败'), 400);
         }
@@ -49,7 +51,9 @@ class OperationManagement extends Base
                 : $this->currentBusinessDate();
             $problemType = trim((string)($input['problem_type'] ?? ''));
 
-            return $this->success($this->service->rootCause($hotelIds, $hotelId, $date, $problemType));
+            $data = $this->service->rootCause($hotelIds, $hotelId, $date, $problemType);
+            $data['query_scope'] = ['hotel_id' => $hotelId ?? 0, 'business_date' => $date];
+            return $this->success($data);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '可能影响因素分析失败'), $this->operationThrowableStatus($e));
         }

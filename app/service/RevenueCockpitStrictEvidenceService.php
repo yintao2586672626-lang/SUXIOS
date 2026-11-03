@@ -97,6 +97,10 @@ final class RevenueCockpitStrictEvidenceService
                         'accepted_row_ids' => $ready ? $ids : [],
                         'rejected_row_ids' => $ready ? [] : $ids,
                         'strict_readback' => $ready,
+                        'quality_flags' => array_values(array_unique(array_filter(
+                            is_array($field['quality_flags'] ?? null) ? $field['quality_flags'] : [],
+                            static fn($flag): bool => is_string($flag) && $flag !== ''
+                        ))),
                         'closure_identity' => (string)($closure['page_identity'] ?? ''),
                     ];
                 }

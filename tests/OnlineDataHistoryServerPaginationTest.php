@@ -94,6 +94,26 @@ final class OnlineDataHistoryServerPaginationTest extends TestCase
         );
     }
 
+    public function testHashedDatabaseKeysPreserveSnapshotPageOrder(): void
+    {
+        $subject = new class { use OnlineDataHistoryConcern; };
+        $key = new ReflectionMethod($subject, 'buildOnlineHistoryMergeKey');
+        $order = new ReflectionMethod($subject, 'orderOnlineHistoryMergedGroups');
+        $old = [
+            'id' => 1, 'data_date' => '2026-08-01', 'platform' => 'meituan',
+            'data_type' => 'traffic', 'hotel_id' => 80, 'dimension' => 'funnel', 'compare_type' => 'self',
+            'data_period' => 'realtime_snapshot', 'sync_task_id' => 101,
+        ];
+        $new = array_replace($old, ['id' => 2, 'sync_task_id' => 102]);
+        $databaseKey = static function (string $text): string {
+            $parts = explode('|snapshot@', $text, 2);
+            return hash('sha256', $parts[0]) . '|snapshot@' . $parts[1];
+        };
+        $keys = [$databaseKey($key->invoke($subject, $new)), $databaseKey($key->invoke($subject, $old))];
+        $result = $order->invoke($subject, [$old, $new], $keys);
+        self::assertSame([2, 1], array_column($result, 'id'));
+    }
+
     public function testDateIndexMigrationIsReferencedByTheFullInitializer(): void
     {
         $migrationName = '20260716_add_online_data_history_pagination_index.sql';

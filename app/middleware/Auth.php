@@ -84,7 +84,7 @@ class Auth
         $request->request_id = $requestId;
 
         $protectedCapabilityService = $this->protectedCapabilityService();
-        $capability = $protectedCapabilityService->classifyPath($request->method(), $request->url());
+        $capability = $protectedCapabilityService->classifyPath($request->method(), '/' . ltrim($request->pathinfo(), '/'));
 
         $rateLimitResponse = $this->enforceRateLimit($request, $user, $capability, $requestId);
         if ($rateLimitResponse !== null) {

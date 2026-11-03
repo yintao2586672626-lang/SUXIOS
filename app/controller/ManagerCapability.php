@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\controller;
 
 use app\service\ManagerCapabilityScoringService;
+use app\service\ManagerCoachingService;
 use InvalidArgumentException;
 use RuntimeException;
 use think\Response;
@@ -38,6 +39,37 @@ final class ManagerCapability extends Base
             ]);
         } catch (Throwable $e) {
             return $this->error($this->safeErrorMessage($e, '获取店长列表失败'), $this->statusCode($e));
+        }
+    }
+
+    public function coachingList(): Response { return $this->coachingRequest('list'); }
+    public function coachingRead(int $id): Response { return $this->coachingRequest('read', $id); }
+    public function coachingCreate(): Response { return $this->coachingRequest('create'); }
+    public function coachingAction(int $id, string $action): Response { return $this->coachingRequest($action, $id); }
+
+    private function coachingRequest(string $action, int $id = 0): Response
+    {
+        try {
+            $write = !in_array($action, ['list', 'read'], true);
+            $input = $write ? $this->requestData() : [];
+            [$tenantId, $hotelId] = $this->resolveSingleHotelScope($write ? 'operation.execute' : 'operation.view', (int)($input['hotel_id'] ?? 0));
+            $managerId = (int)($input['manager_user_id'] ?? $this->request->param('manager_user_id', 0));
+            $permissions = $this->profilePermissions($hotelId, $managerId);
+            if ($managerId <= 0 || !$permissions['can_view_evidence_detail']) throw new RuntimeException('无权查看该负责人的带教明细');
+            $allowed = array_column($this->service->listManagers($tenantId, $hotelId), 'id');
+            if (!in_array($managerId, array_map('intval', $allowed), true)) throw new RuntimeException('所选店长不属于当前租户和酒店');
+            $service = new ManagerCoachingService();
+            $actorId = (int)$this->currentUser->id;
+            $result = match ($action) {
+                'list' => $service->listing($tenantId, $hotelId, $managerId),
+                'read' => $service->read($tenantId, $hotelId, $managerId, $id),
+                'create' => $service->create($tenantId, $hotelId, $managerId, $actorId, $input),
+                default => $service->mutate($tenantId, $hotelId, $managerId, $actorId, $id, $action, $input),
+            };
+            $result['permissions'] = $permissions;
+            return $this->success($result);
+        } catch (Throwable $e) {
+            return $this->error($this->safeErrorMessage($e, '带教请求失败，请稍后重试'), str_contains($e->getMessage(), '版本冲突') ? 409 : $this->statusCode($e));
         }
     }
 

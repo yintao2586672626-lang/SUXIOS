@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "purpose": "Historical regression fixtures only; excluded from runtime and active template definitions.",
+  "archive": "frontend-retired-20261002.zip",
+  "archive_sha256": "232e640a2355875e15d38bfd46f9e66620cfcd63dd9709488f225a55f8ce0e75",
+  "fragments": [
+    {
+      "id": "page-ai-strategy",
+      "domain": "ai-decision",
+      "path": "fragments/01-page-ai-strategy.html",
+      "anchor": "<div v-if=\"currentPage === 'ai-strategy'\">",
+      "runtime": false,
+      "fixture_entry": "01-page-ai-strategy.html",
+      "bytes": 26431,
+      "sha256": "32599db8333b734fcaadfcaa94f1763652734aa73d732c207c6fa381219003db"
+    },
+    {
+      "id": "page-ai-feasibility",
+      "domain": "investment",
+      "path": "fragments/03-page-ai-feasibility.html",
+      "anchor": "<div v-if=\"currentPage === 'ai-feasibility'\" class=\"feasibility-page\">",
+      "runtime": false,
+      "fixture_entry": "03-page-ai-feasibility.html",
+      "bytes": 32875,
+      "sha256": "7a111026b68882fdab5a0a9c4c5a2ca2128f59996d7b469b3d28e25d06d8bae2"
+    },
+    {
+      "id": "page-market-evaluation",
+      "domain": "investment",
+      "path": "fragments/04-page-market-evaluation.html",
+      "anchor": "<div v-if=\"currentPage === 'market-evaluation' || currentPage === 'market-eval'\">",
+      "runtime": false,
+      "fixture_entry": "04-page-market-evaluation.html",
+      "bytes": 26237,
+      "sha256": "6968cdee8fff4b39473826be6fc9eaccc6b9e1a4c4b1290d517f95bd7628cde5"
+    },
+    {
+      "id": "page-benchmark-model",
+      "domain": "investment",
+      "path": "fragments/05-page-benchmark-model.html",
+      "anchor": "<div v-if=\"currentPage === 'benchmark-model'\">",
+      "runtime": false,
+      "fixture_entry": "05-page-benchmark-model.html",
+      "bytes": 17980,
+      "sha256": "576bfd884237e00dc083264095bb81fef524e2815b5087393768300e9242b71f"
+    },
+    {
+      "id": "page-collaboration-efficiency",
+      "domain": "operations",
+      "path": "fragments/06-page-collaboration-efficiency.html",
+      "anchor": "<div v-if=\"currentPage === 'collaboration-efficiency' || currentPage === 'sync-efficiency'\">",
+      "runtime": false,
+      "fixture_entry": "06-page-collaboration-efficiency.html",
+      "bytes": 11696,
+      "sha256": "fd48adeed0befee7149176e541217c64073c33526611f8828e96daf7231cdc39"
+    },
+    {
+      "id": "shared-expansion-history",
+      "domain": "shared-investment",
+      "path": "fragments/07-shared-expansion-history.html",
+      "anchor": "<div v-if=\"['market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency'].includes(currentPage)\" class=\"mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-5\">",
+      "runtime": false,
+      "fixture_entry": "07-shared-expansion-history.html",
+      "bytes": 8908,
+      "sha256": "ffb758e6dab3745c1ec5afcc38cd96175cc1a299e52284f631ad5f06c5a1e2f6"
+    },
+    {
+      "id": "shared-transfer-context",
+      "domain": "shared-investment",
+      "path": "fragments/08-shared-transfer-context.html",
+      "anchor": "<div v-if=\"['asset-pricing', 'timing-strategy', 'decision-board'].includes(currentPage)\" class=\"mb-6 bg-white rounded-xl shadow-sm border border-gray-100 p-5\">",
+      "runtime": false,
+      "fixture_entry": "08-shared-transfer-context.html",
+      "bytes": 7118,
+      "sha256": "cf34c7a597f998172cd018799162fb47f7cd7818b1bfd333ec7023bfd871ace2"
+    },
+    {
+      "id": "page-asset-pricing",
+      "domain": "investment",
+      "path": "fragments/09-page-asset-pricing.html",
+      "anchor": "<div v-if=\"currentPage === 'asset-pricing'\">",
+      "runtime": false,
+      "fixture_entry": "09-page-asset-pricing.html",
+      "bytes": 16095,
+      "sha256": "ac39d6731753011f7a8e558f81b9bae61fb3db059f28c281ceba7a8da0df1a81"
+    },
+    {
+      "id": "page-timing-strategy",
+      "domain": "investment",
+      "path": "fragments/10-page-timing-strategy.html",
+      "anchor": "<div v-if=\"currentPage === 'timing-strategy'\">",
+      "runtime": false,
+      "fixture_entry": "10-page-timing-strategy.html",
+      "bytes": 12041,
+      "sha256": "1a04f719f95009e1b5b6ef83beec21a3dbf2f4e783e98533f85e88d32ea6ae4f"
+    },
+    {
+      "id": "page-decision-board",
+      "domain": "investment",
+      "path": "fragments/11-page-decision-board.html",
+      "anchor": "<div v-if=\"currentPage === 'decision-board'\">",
+      "runtime": false,
+      "fixture_entry": "11-page-decision-board.html",
+      "bytes": 5862,
+      "sha256": "060cf9c34c9ed918696fbd23725dc7576a77326682e5c2f681f06bbc071f4d5a"
+    },
+    {
+      "id": "shared-transfer-history",
+      "domain": "shared-investment",
+      "path": "fragments/12-shared-transfer-history.html",
+      "anchor": "<div v-if=\"['asset-pricing', 'timing-strategy', 'decision-board'].includes(currentPage)\" class=\"mt-6 bg-white rounded-xl shadow-sm border border-gray-100 p-5\">",
+      "runtime": false,
+      "fixture_entry": "12-shared-transfer-history.html",
+      "bytes": 5709,
+      "sha256": "4e9cb1d6c982a428fbb90a14ca3cf74dc3d9deae201d9b42eaa209ea6c3a4216"
+    },
+    {
+      "id": "page-ai-workbench",
+      "domain": "decision-workbench",
+      "path": "fragments/23b-page-ai-workbench.html",
+      "anchor": "<div v-if=\"currentPage === 'ai-workbench'\" class=\"dual-ota-home order-first\" data-testid=\"home-ai-workbench\">",
+      "runtime": false,
+      "fixture_entry": "23b-page-ai-workbench.html",
+      "bytes": 56176,
+      "sha256": "5f0ab393caccdd9abfe71dd3179f96864e1905fbceca473e128614b65a4fa457"
+    },
+    {
+      "id": "page-investment-decision",
+      "domain": "investment",
+      "path": "fragments/28-page-investment-decision.html",
+      "anchor": "<div v-if=\"currentPage === 'investment-decision'\" class=\"max-w-7xl mx-auto space-y-5\">",
+      "runtime": false,
+      "fixture_entry": "28-page-investment-decision.html",
+      "bytes": 27949,
+      "sha256": "db44dbd30f213d7a8d24dd298a5c242c43efe7f823fc8190629077b56c5d8505"
+    },
+    {
+      "id": "page-lifecycle",
+      "domain": "lifecycle",
+      "path": "fragments/29-page-lifecycle.html",
+      "anchor": "<div v-if=\"currentPage === 'lifecycle'\" class=\"suxi-lifecycle-view max-w-7xl mx-auto space-y-6\">",
+      "runtime": false,
+      "fixture_entry": "29-page-lifecycle.html",
+      "bytes": 66383,
+      "sha256": "6984808e1e953240426281d8a56ca9f4ddece063e7992f72b7b4d02c17fde9cd"
+    }
+  ]
+}

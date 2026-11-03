@@ -6,6 +6,7 @@ namespace app\controller;
 use app\service\AiDailyReportService;
 use app\service\AiDailyReportPresentationArtifactService;
 use app\service\AiDailyReportPresentationSpecService;
+use app\service\AiDailyReportPresentationReviewService;
 use app\service\AiReportGenerationTaskService;
 use app\service\ApiExceptionMapper;
 use app\service\OtaCompetitionAnalysisBundleService;
@@ -22,6 +23,10 @@ class AiDailyReport extends Base
         'flagship_generation_requires_admin' => 403,
         'AI daily report not found' => 404,
         'presentation spec stale; refresh the report and retry' => 409,
+        'presentation_review_stale' => 409,
+        'presentation_review_idempotency_conflict' => 409,
+        'presentation_review_required_before_formal_export' => 409,
+        'presentation_review_hotel_not_permitted' => 403,
     ];
 
     private AiDailyReportService $service;
@@ -42,7 +47,7 @@ class AiDailyReport extends Base
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
-            return $this->success($this->service->list($hotelIds, $hotelId, $this->request->get()));
+            return $this->reportReadResponse($this->service->list($hotelIds, $hotelId, $this->request->get()));
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily reports query failed', self::API_BUSINESS_EXCEPTIONS);
         }
@@ -52,7 +57,7 @@ class AiDailyReport extends Base
     {
         try {
             [$hotelIds, $hotelId] = $this->resolveHotelScope((int)$this->request->param('hotel_id', 0));
-            return $this->success($this->service->latest($hotelIds, $hotelId));
+            return $this->reportReadResponse($this->service->latest($hotelIds, $hotelId));
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily report query failed', self::API_BUSINESS_EXCEPTIONS);
         }
@@ -67,7 +72,7 @@ class AiDailyReport extends Base
                 return $this->error('AI daily report not found', 404);
             }
 
-            return $this->success($report);
+            return $this->reportReadResponse($report);
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily report read failed', self::API_BUSINESS_EXCEPTIONS);
         }
@@ -82,6 +87,7 @@ class AiDailyReport extends Base
             if ($date === '') {
                 $date = date('Y-m-d', strtotime('-1 day'));
             }
+            $date = AiDailyReportService::normalizeReportDate($date);
             $userId = (int)($this->currentUser->id ?? 0);
             $edition = OtaCompetitionAnalysisBundleService::normalizeEdition($input['edition'] ?? 'lite');
             $isAdmin = (bool)$this->currentUser->isSuperAdmin();
@@ -130,6 +136,14 @@ class AiDailyReport extends Base
         } catch (Throwable $e) {
             return ApiExceptionMapper::response($e, 'AI daily report generate failed', self::API_BUSINESS_EXCEPTIONS);
         }
+    }
+
+    private function reportReadResponse(array $report): Response
+    {
+        if (in_array($report['data_status'] ?? '', ['read_failed', 'missing_table'], true)) {
+            return $this->error('日报读取或证据校验未通过，请恢复数据读取后重试。', 503, $report);
+        }
+        return $this->success($report);
     }
 
     public function generationTask(string $taskId): Response
@@ -197,7 +211,7 @@ class AiDailyReport extends Base
                 $userId
             ));
         } catch (Throwable $e) {
-            return ApiExceptionMapper::response($e, 'AI daily report presentation spec save failed', self::API_BUSINESS_EXCEPTIONS);
+            return $this->presentationExceptionResponse($e, 'AI daily report presentation spec save failed');
         }
     }
 
@@ -234,7 +248,7 @@ class AiDailyReport extends Base
 
             return $this->success($stored);
         } catch (Throwable $e) {
-            return ApiExceptionMapper::response($e, 'AI daily report presentation spec read failed', self::API_BUSINESS_EXCEPTIONS);
+            return $this->presentationExceptionResponse($e, 'AI daily report presentation spec read failed');
         }
     }
 
@@ -279,11 +293,76 @@ class AiDailyReport extends Base
             return $this->success($this->presentationArtifactService->saveAndReadback(
                 $storedSpec,
                 $userId,
-                true
+                true,
+                trim((string)($input['export_mode'] ?? 'draft')),
+                strtolower(trim((string)($input['expected_review_fingerprint'] ?? '')))
             ));
         } catch (Throwable $e) {
-            return ApiExceptionMapper::response($e, 'AI daily report presentation artifact save failed', self::API_BUSINESS_EXCEPTIONS);
+            return $this->presentationExceptionResponse($e, 'AI daily report presentation artifact save failed');
         }
+    }
+
+    public function presentationReview(int $id): Response
+    {
+        try {
+            [$storedSpec, $hotelIds] = $this->presentationReviewScope($id, $this->request->get());
+            return $this->success((new AiDailyReportPresentationReviewService())->readForSpec($storedSpec, $hotelIds));
+        } catch (Throwable $e) {
+            return $this->presentationExceptionResponse($e, 'AI daily report presentation review read failed');
+        }
+    }
+
+    public function savePresentationReview(int $id): Response
+    {
+        try {
+            $input = $this->requestData();
+            [$storedSpec, $hotelIds] = $this->presentationReviewScope($id, $input);
+            return $this->success((new AiDailyReportPresentationReviewService())->saveAndReadback(
+                $storedSpec, $hotelIds, $input, (int)($this->currentUser->id ?? 0)
+            ));
+        } catch (Throwable $e) {
+            return $this->presentationExceptionResponse($e, 'AI daily report presentation review save failed');
+        }
+    }
+
+    private function presentationReviewScope(int $id, array $input): array
+    {
+        [$hotelIds] = $this->resolveHotelScope();
+        $report = $this->service->read($id, $hotelIds);
+        if (!is_array($report)) throw new \RuntimeException('AI daily report not found');
+        $hotelId = (int)($report['hotel_id'] ?? 0);
+        if (($denied = $this->hotelCapabilityDeniedResponse($hotelId, 'report.export', 'report.export permission is required for this hotel')) !== null) {
+            throw new \think\exception\HttpException(403, 'report.export permission is required for this hotel');
+        }
+        $audience = trim((string)($input['audience'] ?? 'owner'));
+        $stored = $this->presentationSpecService->readLatest($id, $hotelIds, $this->presentationSpecService->resolveTenantScope($report), $audience);
+        $currentFingerprint = $this->presentationSpecService->build($report, $audience)['spec_fingerprint'];
+        if (!$stored || (int)($input['presentation_spec_id'] ?? 0) !== (int)$stored['record_id']
+            || (string)($input['expected_spec_fingerprint'] ?? '') !== $stored['spec_fingerprint']
+            || !hash_equals($currentFingerprint, $stored['spec_fingerprint'])) {
+            throw new \RuntimeException('presentation spec stale; refresh the report and retry');
+        }
+        return [$stored, $hotelIds];
+    }
+
+    private function presentationExceptionResponse(Throwable $exception, string $fallback): Response
+    {
+        $identityMessages = [
+            'presentation_review_hotel_identity_mapping_unverified_rebuild_current_spec',
+            'presentation_review_scope_or_source_mismatch: hotel_identity_mapping_unverified_rebuild_current_spec',
+            'AI daily report presentation spec exact readback verification failed: hotel_identity_mapping_unverified_rebuild_current_spec',
+            'AI daily report presentation artifact exact readback verification failed: hotel_identity_mapping_unverified_rebuild_current_spec',
+        ];
+        $response = ApiExceptionMapper::response($exception, $fallback, $exception instanceof \RuntimeException
+            ? self::API_BUSINESS_EXCEPTIONS + array_fill_keys($identityMessages, 409) : self::API_BUSINESS_EXCEPTIONS);
+        $payload = $response->getData();
+        if ($response->getCode() === 409 && in_array((string)($payload['message'] ?? ''), $identityMessages, true)) {
+            return $this->error('酒店编号与旧报告证据不一致，编号对应关系尚未验证。请按当前酒店编号重新生成日报和报告规格，逐项人工复核后再导出正式版；旧复核不能用于当前正式导出。', 409, [
+                'error_code' => 'presentation_hotel_identity_mapping_unverified',
+                'reason' => 'hotel_identity_mapping_unverified_rebuild_current_spec',
+            ]);
+        }
+        return $response;
     }
 
     public function presentationArtifact(int $id): Response
@@ -327,6 +406,9 @@ class AiDailyReport extends Base
             }
             $currentSpecId = (int)($currentSpec['record_id'] ?? 0);
             $currentSpecFingerprint = strtolower(trim((string)($currentSpec['spec_fingerprint'] ?? '')));
+            if (!hash_equals($this->presentationSpecService->build($report, $audience)['spec_fingerprint'], $currentSpecFingerprint)) {
+                return $this->success($this->emptyPresentationArtifactState($report, $audience, 'presentation_spec_changed_review_pending'));
+            }
             $stored = $this->presentationArtifactService->readLatest(
                 $id,
                 $hotelIds,
@@ -347,7 +429,7 @@ class AiDailyReport extends Base
 
             return $this->success($stored);
         } catch (Throwable $e) {
-            return ApiExceptionMapper::response($e, 'AI daily report presentation artifact read failed', self::API_BUSINESS_EXCEPTIONS);
+            return $this->presentationExceptionResponse($e, 'AI daily report presentation artifact read failed');
         }
     }
 
@@ -389,7 +471,7 @@ class AiDailyReport extends Base
 
             return $this->success($stored);
         } catch (Throwable $e) {
-            return ApiExceptionMapper::response($e, 'AI daily report presentation artifact read failed', self::API_BUSINESS_EXCEPTIONS);
+            return $this->presentationExceptionResponse($e, 'AI daily report presentation artifact read failed');
         }
     }
 
@@ -469,6 +551,8 @@ class AiDailyReport extends Base
             'spec_fingerprint' => strtolower(trim((string)($spec['spec_fingerprint'] ?? ''))) ?: null,
             'artifact_id' => null,
             'artifact_readback_verified' => false,
+            'human_review_status' => 'pending',
+            'export_mode' => 'draft',
             'bundle_base64' => null,
         ];
     }

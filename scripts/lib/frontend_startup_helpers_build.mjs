@@ -10,6 +10,7 @@ import {
 } from './frontend_asset_version.mjs';
 import { FRONTEND_ENTRY_MINIFY_OPTIONS } from './frontend_entry_build.mjs';
 import { captureRuntimeAssetIdentity } from './runtime_asset_identity.mjs';
+import { syncStartupLazyComponentVersions } from './frontend_lazy_asset_versions.mjs';
 
 export const FRONTEND_BOOTSTRAP_SOURCE = 'app-bootstrap.js';
 export const FRONTEND_BOOTSTRAP_ARTIFACT = 'app-bootstrap.min.js';
@@ -285,6 +286,16 @@ export async function inspectFrontendStartupHelpers(repoRoot) {
   const expectedHelperArtifact = await buildFrontendStartupHelpers(helperSources);
   const expectedDeferredHelperArtifact = await buildFrontendDeferredHelpers(deferredHelperSources);
   const failures = [];
+  try {
+    const lazyPlan = syncStartupLazyComponentVersions(helperSources, name => fs.readFileSync(path.join(publicRoot, name)));
+    for (const entry of lazyPlan.sources) {
+      if (entry.source !== entry.originalSource) {
+        failures.push(`public/${entry.name} has a stale lazy component hash; run build:frontend-startup-helpers.`);
+      }
+    }
+  } catch (error) {
+    failures.push(error.message);
+  }
   const ctripFacadeInspection = inspectCtripStartupFacadeContract(
     helperSources.find(({ name }) => name === 'ctrip-static-loader.js')?.source || '',
     deferredHelperSources.find(({ name }) => name === 'ctrip-static.js')?.source || '',

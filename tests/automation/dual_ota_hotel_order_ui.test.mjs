@@ -4,11 +4,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { loadFrontendTemplateSource } from '../../scripts/lib/frontend_template_source.mjs';
+import { readFrontendTestFileSync } from './helpers/retired_frontend_source.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const appMain = fs.readFileSync('public/app-main.js', 'utf8');
 const template = loadFrontendTemplateSource(repoRoot).template;
-const frozenAiWorkbenchTemplate = fs.readFileSync(
+const frozenAiWorkbenchTemplate = readFrontendTestFileSync(
   path.join(repoRoot, 'resources/frontend/templates/fragments/23b-page-ai-workbench.html'),
   'utf8',
 );

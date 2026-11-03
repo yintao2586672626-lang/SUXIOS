@@ -1011,7 +1011,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                     })
                     .filter(sample => sampleValueText(sample));
             }
-            const value = String(field.latest_value || '').trim();
+            const value = String(field.latest_value ?? '').trim();
             if (!value) return [];
             return value.split(' / ').map(item => ({ value: item })).filter(sample => sampleValueText(sample));
         };
@@ -1907,7 +1907,36 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         raw: String(rawResponse || '').substring(0, limit),
         hint: '请检查: 1.Cookie是否过期 2.API地址是否正确',
     });
+    const canPreserveCtripRankingSnapshot = ({
+        selectedHotelId,
+        form = {},
+        meta = {},
+        rows = [],
+        displayActivated = false,
+        filterStartDate = '',
+        filterEndDate = '',
+    } = {}) => {
+        const hotelId = String(selectedHotelId || '').trim();
+        const range = buildCtripFetchDateRange(form);
+        const dataDate = String(meta?.data_date || '');
+        const fetchedAt = String(meta?.fetched_at || '');
+        return hotelId !== ''
+            && String(meta?.hotel_id || '') === hotelId
+            && meta?.platform === 'ctrip'
+            && isCtripVerifiedReportSource(meta || {})
+            && displayActivated === true
+            && range.startDate === range.endDate && range.endDate === dataDate
+            && filterStartDate === dataDate && filterEndDate === dataDate
+            && fetchedAt !== ''
+            && Array.isArray(rows) && rows.length > 0
+            && rows.every(row => row
+                && row._channelOrderDataDate === dataDate
+                && row._channelOrderTargetDataDate === dataDate
+                && row._channelOrderFetchedAt === fetchedAt);
+    };
+
     const runCtripFetchDataFlow = async ({
+        isActive = () => true,
         isLoggedIn = () => false,
         getSelectedCtripHotelId = () => '',
         notify = () => {},
@@ -1976,6 +2005,11 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             return { status: 'invalid_request', requestContext };
         }
         const { startDate, endDate } = requestContext;
+        const queryKey = () => JSON.stringify([getForm()?.startDate || '', getForm()?.endDate || '']);
+        const requestedQuery = queryKey();
+        const isCurrent = () => isActive()
+            && String(getSelectedCtripHotelId() || '') === selectedCtripHotelId
+            && queryKey() === requestedQuery;
 
         setFetching(true);
         setShowRawData(false);
@@ -1990,7 +2024,17 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             const fetchRequest = requestContext.temporaryCookieQuery && typeof requestTemporaryFetch === 'function'
                 ? requestTemporaryFetch
                 : requestFetch;
-            const res = await fetchRequest(requestBody);
+            const res = await fetchRequest(requestBody).catch(error => {
+                // The shared HTTP transport rejects 422, but this particular
+                // response contains displayable rows with a blocked save.
+                const response = error?.data;
+                if (error?.httpStatus === 422 && response?.code === 422
+                    && response.data?.save_status === 'target_date_unverified') {
+                    return response;
+                }
+                throw error;
+            });
+            if (!isCurrent()) return { status: 'stale' };
             debugLog('携程数据响应:', res);
 
             const responseStatus = String(res.data?.status || '').toLowerCase();
@@ -2018,14 +2062,32 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
 
             const unverifiedDateData = res.data && typeof res.data === 'object' ? res.data : {};
             if (res.code === 422 && unverifiedDateData.save_status === 'target_date_unverified') {
+                const sourceBusinessDate = /^\d{4}-\d{2}-\d{2}$/.test(String(unverifiedDateData.source_business_date || ''))
+                    ? String(unverifiedDateData.source_business_date) : '';
+                // This in-memory identity is never reconstructed from saved history.
+                const previewScope = selectedCtripHotelId !== ''
+                    && unverifiedDateData.saved_count === 0
+                    && unverifiedDateData.persisted === false
+                    && unverifiedDateData.readback_verified === false
+                    && unverifiedDateData.identity_check?.ok !== false ? {
+                    hotelId: selectedCtripHotelId,
+                    startDate,
+                    endDate,
+                    formStartDate: String(requestForm.startDate || ''),
+                    formEndDate: String(requestForm.endDate || ''),
+                    sourceBusinessDate,
+                    fetchedAt: String(unverifiedDateData.fetched_at || ''),
+                } : null;
                 setOnlineDataResult(selectCtripFetchResponsePayload(unverifiedDateData));
                 const allHotels = useDisplayHotels(
                     unverifiedDateData.display_hotels || [],
                     unverifiedDateData.display_summary || null,
                     {
-                        orderEstimateDataDate: endDate,
+                        orderEstimateDataDate: sourceBusinessDate,
                         orderEstimateTargetDataDate: endDate,
                         orderEstimateFetchedAt: unverifiedDateData.fetched_at || '',
+                        orderEstimatePreviewScope: previewScope,
+                        sourceReady: false,
                     },
                 );
                 setOnlineDataFilterDates({ startDate, endDate });
@@ -2044,6 +2106,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                     sourceBusinessDate: String(unverifiedDateData.source_business_date || ''),
                     responseDateStatus: String(unverifiedDateData.response_date_status || 'target_date_unverified'),
                 });
+                currentFetchMeta.order_estimate_preview_scope = previewScope;
                 setLatestMeta({ ...(getLatestMeta() || {}), ...currentFetchMeta });
                 setTableTab('sales');
                 notify(res.message || '携程接口有返回，但平台响应未证明业务日期；当前仅供审计查看，未入库。', 'warning');
@@ -2058,6 +2121,11 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             if (res.code === 200) {
                 const data = res.data || {};
                 const persistenceOutcome = buildCtripPersistenceOutcome(data);
+                if (persistenceOutcome.businessFailed) {
+                    await handleFetchFailure(res.message || '携程数据已返回，但本次保存或回读校验未完成');
+                    if (!isCurrent()) return { status: 'stale' };
+                    return { status: 'business_failed', response: res, requestBody };
+                }
                 const savedCount = persistenceOutcome.savedCount;
                 const saveBlocked = data.save_status === 'blocked';
                 const temporaryDisplayOnly = data.save_status === 'display_only';
@@ -2079,7 +2147,8 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 const sourceReady = isCtripVerifiedReportSource(provisionalFetchMeta);
                 setOnlineDataResult(selectCtripFetchResponsePayload(data));
                 const allHotels = useDisplayHotels(data.display_hotels || [], data.display_summary || null, {
-                    orderEstimateDataDate: endDate,
+                    orderEstimateDataDate: /^\d{4}-\d{2}-\d{2}$/.test(String(data.source_business_date || ''))
+                        ? String(data.source_business_date) : '',
                     orderEstimateTargetDataDate: endDate,
                     orderEstimateFetchedAt: data.fetched_at || '',
                     sourceReady,
@@ -2160,6 +2229,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             const errorMsg = res.message || '获取失败';
             const rawResponse = res.data?.raw_response || res.data?.raw || '';
             await handleFetchFailure(errorMsg);
+            if (!isCurrent()) return { status: 'stale' };
             if (rawResponse && !hasVisibleSnapshot()) {
                 setOnlineDataResult(buildCtripFetchRawFailureResult({
                     errorMsg,
@@ -2169,11 +2239,13 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             }
             return { status: 'failed', response: res };
         } catch (error) {
+            if (!isCurrent()) return { status: 'stale' };
             logError('携程数据请求异常:', error);
             await handleFetchFailure('请求失败: ' + error.message);
+            if (!isCurrent()) return { status: 'stale' };
             return { status: 'error', error };
         } finally {
-            setFetching(false);
+            if (isActive()) setFetching(false);
         }
     };
 
@@ -2286,6 +2358,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
     };
 
     const runCtripTrafficFetchFlow = async ({
+        isActive = () => true,
         getSelectedCtripHotelId = () => '',
         notify = () => {},
         getActiveCtripConfig = () => null,
@@ -2300,7 +2373,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         refreshOnlineData = () => {},
         handleFetchFailure = async () => {},
     } = {}) => {
-        const selectedCtripHotelId = getSelectedCtripHotelId();
+        const selectedCtripHotelId = String(getSelectedCtripHotelId() || '');
         if (!selectedCtripHotelId) {
             notify('请选择目标酒店', 'error');
             return { status: 'missing_hotel' };
@@ -2329,9 +2402,14 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             systemHotelId: selectedCtripHotelId || null,
         });
         const directRequestBody = { ...requestBody, async: false, background: false };
+        const queryKey = () => JSON.stringify([getForm()?.dateRange || '', getForm()?.startDate || '', getForm()?.endDate || '']);
+        const requestedQuery = queryKey();
+        const isCurrent = () => isActive()
+            && String(getSelectedCtripHotelId() || '') === selectedCtripHotelId
+            && queryKey() === requestedQuery;
         try {
             const res = await requestFetch(directRequestBody);
-            if (String(getSelectedCtripHotelId() || '') !== selectedCtripHotelId) {
+            if (!isCurrent()) {
                 return { status: 'stale' };
             }
             if (isCtripBackgroundAcceptedResponse(res)) {
@@ -2399,15 +2477,17 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             }
 
             await handleFetchFailure(res.message || '获取失败');
+            if (!isCurrent()) return { status: 'stale' };
             return { status: 'failed', response: res, requestBody: directRequestBody };
         } catch (error) {
-            if (String(getSelectedCtripHotelId() || '') !== selectedCtripHotelId) {
+            if (!isCurrent()) {
                 return { status: 'stale' };
             }
             await handleFetchFailure('请求失败: ' + error.message);
+            if (!isCurrent()) return { status: 'stale' };
             return { status: 'exception', error, requestBody: directRequestBody };
         } finally {
-            setFetching(false);
+            if (isActive()) setFetching(false);
         }
     };
 
@@ -3046,12 +3126,16 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         const fetchedAt = String(options.fetchedAt || row?._channelOrderFetchedAt || row?._fetch_time || '').trim();
         const fetched = fetchedAt ? ctripChannelOrderClockParts(fetchedAt, timeZone) : { dataDate: '', hour: null };
         const dataDate = normalizeCtripChannelOrderDate(
-            options.dataDate || row?._channelOrderDataDate || row?._data_date || row?.data_date || row?.dataDate || row?.date
+            Object.prototype.hasOwnProperty.call(options, 'dataDate')
+                ? options.dataDate : (row?._channelOrderDataDate || row?._data_date || row?.data_date || row?.dataDate || row?.date)
         );
         const targetDataDate = normalizeCtripChannelOrderDate(
             options.targetDataDate || row?._channelOrderTargetDataDate || row?.target_data_date || row?.targetDataDate
         );
-        const effectiveDataDate = targetDataDate || dataDate;
+        // An unproven request date cannot turn an early capture into ready traffic.
+        const effectiveDataDate = options.referenceOnly === true
+            ? (dataDate || current.dataDate)
+            : (targetDataDate || dataDate);
         const enforceUpdateWindow = options.enforceUpdateWindow === true;
         const isCurrentDate = effectiveDataDate !== '' && effectiveDataDate === current.dataDate;
         const currentWindowPending = isCurrentDate
@@ -3083,7 +3167,60 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         };
     };
 
+    const canEstimateCtripTemporaryPreview = (row = {}, options = {}) => {
+        const context = options.previewContext || {};
+        const meta = context.meta || {};
+        const scope = row?._channelOrderPreviewScope;
+        const hotelId = String(context.selectedHotelId || '').trim();
+        const currentRange = buildCtripFetchDateRange(context.form || {}, options.now);
+        const requestDate = scope?.startDate === scope?.endDate
+            ? scope?.startDate : `${scope?.startDate} 至 ${scope?.endDate}`;
+        return options.sourceReady === false
+            && !!scope && typeof scope === 'object'
+            && scope === meta.order_estimate_preview_scope
+            && meta.status === 'source_unverified'
+            && meta.platform === 'ctrip'
+            && meta.saved_count === 0
+            && meta.readback_verified === false
+            && hotelId !== '' && scope.hotelId === hotelId
+            && String(meta.hotel_id || '') === hotelId
+            && scope.formStartDate === String(context.form?.startDate || '')
+            && scope.formEndDate === String(context.form?.endDate || '')
+            && scope.startDate === currentRange.startDate
+            && scope.endDate === currentRange.endDate
+            && meta.request_date === requestDate
+            && scope.fetchedAt !== '' && scope.fetchedAt === String(meta.fetched_at || '')
+            && row._channelOrderFetchedAt === scope.fetchedAt
+            && row._channelOrderDataDate === scope.sourceBusinessDate
+            && row._channelOrderTargetDataDate === scope.endDate;
+    };
+
     const buildCtripChannelOrderBreakdown = (row = {}, options = {}) => {
+        const temporaryEstimate = canEstimateCtripTemporaryPreview(row, options);
+        const asReference = result => temporaryEstimate ? {
+            ...result,
+            referenceOnly: true,
+            validationStatus: 'unverified',
+            sourceLabel: `本次返回的同批字段临时估算；门店归属及来源业务日未完全核验，未入库，仅供参考。${result.sourceLabel}`,
+        } : result;
+        if (options.sourceReady === false && !temporaryEstimate) {
+            return {
+                totalOrdersIncludingCancelled: null,
+                totalOrderConversionRatio: null,
+                ctripOrders: null,
+                qunarOrders: null,
+                ctripUndistributedOrders: null,
+                ctripEstimateExcessOrders: null,
+                status: 'source_unverified',
+                displayLabel: '未核验',
+                sourceLabel: '当前门店、来源业务日期或回读证据未核验；仅保留已存字段供审计，不推算渠道订单。',
+                formulas: {},
+                inputs: {},
+                missingInputs: [],
+                provenance: {},
+                identity: ctripChannelOrderIdentity(row, options),
+            };
+        }
         const metricStatus = row?.metricSourceStatus && typeof row.metricSourceStatus === 'object'
             ? row.metricSourceStatus
             : {};
@@ -3097,7 +3234,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         const ctripRate = normalizeCtripChannelOrderInput(row?.convertionRate, metricStatus.convertionRate, hasOwn('convertionRate'));
         const qunarVisitors = normalizeCtripChannelOrderInput(row?.qunarDetailVisitors, metricStatus.qunarDetailVisitors, hasOwn('qunarDetailVisitors'));
         const qunarRate = normalizeCtripChannelOrderInput(row?.qunarDetailCR, metricStatus.qunarDetailCR, hasOwn('qunarDetailCR'));
-        const estimateAvailability = resolveCtripChannelOrderEstimateAvailability(row, options);
+        const estimateAvailability = resolveCtripChannelOrderEstimateAvailability(row, { ...options, referenceOnly: temporaryEstimate });
         const identity = ctripChannelOrderIdentity(row, options);
         const totalOrderConversionRatioText = () => String(totalOrderConversionRatio).replace(/0+$/, '').replace(/\.$/, '');
         const formulas = {
@@ -3166,7 +3303,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             : [];
         const usesHistoricalTraffic = historicalTrafficInputs.some(field => historicalAppliedFields.includes(field));
         if (usesHistoricalTraffic) {
-            return {
+            return asReference({
                 totalOrdersIncludingCancelled,
                 totalOrderConversionRatio,
                 ctripOrders: null,
@@ -3187,10 +3324,10 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                     pending: true,
                     reason: 'historical_traffic_reference_only',
                 },
-            };
+            });
         }
         if (estimateAvailability.pending) {
-            return {
+            return asReference({
                 totalOrdersIncludingCancelled,
                 totalOrderConversionRatio,
                 ctripOrders: null,
@@ -3206,7 +3343,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 provenance,
                 identity,
                 estimateAvailability,
-            };
+            });
         }
         const ctripOrders = ctripVisitors === null || ctripRate === null
             ? null
@@ -3240,7 +3377,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 ? `总订单（含取消）降至总平台订单÷${totalOrderConversionRatioText()} 后，仍小于携程APP与去哪儿估算订单之和；当前输入口径冲突，不输出其他渠道订单`
                 : `总订单（含取消）按总平台订单÷${totalOrderConversionRatioText()} 四舍五入推算${totalOrderConversionRatio === 0.75 ? '' : `；本行默认计算为负，已逐级改用${totalOrderConversionRatioText()}有效率`}；同程艺龙和携程小程序以及其他分销渠道（含取消）为该总数减去携程APP、去哪儿含取消推算订单的残差，非平台返回明细`);
 
-        return {
+        return asReference({
             totalOrdersIncludingCancelled,
             totalOrderConversionRatio,
             ctripOrders,
@@ -3258,7 +3395,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
             provenance,
             identity,
             estimateAvailability,
-        };
+        });
     };
 
     const attachCtripChannelOrderBreakdown = (row = {}, options = {}) => {
@@ -3987,12 +4124,12 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
                 : String(card.getAttribute?.('class') || ''),
         }));
         const sourceNoticeElement = root.querySelector('[data-testid="ctrip-business-source-notice"]');
+        const unverifiedNoticeElement = root.querySelector('[data-testid="ctrip-unverified-derivation-notice"]');
 
         return {
             cards,
-            sourceNotice: sourceNoticeElement
-                ? ctripVisibleDownloadNodeText(sourceNoticeElement, '')
-                : '',
+            sourceNotice: [unverifiedNoticeElement, sourceNoticeElement]
+                .filter(Boolean).map(element => ctripVisibleDownloadNodeText(element, '')).filter(Boolean).join('；'),
             table: {
                 title: normalizeCtripVisibleDownloadText(
                     tableElement.getAttribute?.('data-download-title') || '',
@@ -4298,6 +4435,7 @@ window.SUXI_CTRIP_STATIC = window.SUXI_CTRIP_STATIC_FULL = (() => {
         resolveCtripPlatformHotelIdFromConfig,
         buildCtripFetchMeta,
         isCtripVerifiedReportSource,
+        canPreserveCtripRankingSnapshot,
         buildCtripFetchRawFailureResult,
         runCtripFetchDataFlow,
         buildLatestCtripSnapshotModel,

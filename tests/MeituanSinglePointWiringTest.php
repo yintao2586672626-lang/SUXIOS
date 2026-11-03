@@ -6,6 +6,7 @@ namespace Tests;
 use app\service\OtaP0ScopeProjectionService;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use Tests\Support\SourceAggregate;
 
 final class MeituanSinglePointWiringTest extends TestCase
 {
@@ -44,9 +45,7 @@ final class MeituanSinglePointWiringTest extends TestCase
         $capture = (string)file_get_contents(
             dirname(__DIR__) . '/app/controller/concern/OnlineDataRequestConcern.php'
         );
-        $report = (string)file_get_contents(
-            dirname(__DIR__) . '/scripts/report_business_chain_status.php'
-        );
+        $report = SourceAggregate::read(dirname(__DIR__), 'scripts/report_business_chain_status.php');
 
         self::assertStringContainsString("'source' => 'meituan'", $capture);
         self::assertStringContainsString("'target_date' => \$targetDataDate", $capture);

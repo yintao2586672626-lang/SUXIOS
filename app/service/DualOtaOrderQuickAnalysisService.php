@@ -165,7 +165,7 @@ final class DualOtaOrderQuickAnalysisService
         );
         $meituan['order_flow'] = $this->meituanOrderFlow(
             (array)($meituan['_dataset']['fact_ota_order_flow'] ?? []),
-            $this->strictEvidence($meituanRows, 'order_flow')
+            $this->strictEvidence($this->withoutTestFixtures($meituanRows), 'order_flow')
         );
 
         $comparison = $this->comparison($ctrip, $meituan);
@@ -212,6 +212,9 @@ final class DualOtaOrderQuickAnalysisService
      */
     private function platformAnalysis(string $platform, array $rows): array
     {
+        $businessRows = $this->withoutTestFixtures($rows);
+        $excludedTestFixtures = count($rows) - count($businessRows);
+        $rows = $businessRows;
         $dataset = $this->etl->buildDatasetFromRows($rows);
         $metrics = $this->metricService->summarizeDataset($dataset);
         $dailyFacts = $this->arrayRows($dataset['fact_ota_daily'] ?? []);
@@ -236,6 +239,10 @@ final class DualOtaOrderQuickAnalysisService
                 'cancellation_rate' => 'OTA 订单取消率',
             };
             $metricRows[$key]['metric_scope'] = 'ota_channel';
+            if ($dailyFacts === [] && $excludedTestFixtures > 0) {
+                $metricRows[$key]['reason_code'] = 'test_fixture_excluded';
+                $metricRows[$key]['reason'] = '测试样例不参与经营快析；当前范围尚无可用的非测试订单事实。';
+            }
         }
 
         $allVerified = $metricRows !== [] && count(array_filter(
@@ -250,7 +257,7 @@ final class DualOtaOrderQuickAnalysisService
             'platform' => $platform,
             'metric_scope' => 'ota_channel',
             'status' => $status,
-            'quality_label' => 'OTA 渠道口径',
+            'quality_label' => $excludedTestFixtures > 0 ? '测试样例已排除' : 'OTA 渠道口径',
             'date_keys' => $dateKeys,
             'latest_data_date' => $dateKeys !== []
                 ? $dateKeys[count($dateKeys) - 1]
@@ -282,6 +289,7 @@ final class DualOtaOrderQuickAnalysisService
                 'accepted_rows' => (int)($dataset['data_quality']['accepted_rows'] ?? 0),
                 'trusted_rows' => (int)($dataset['data_quality']['trusted_rows'] ?? 0),
                 'untrusted_rows' => (int)($dataset['data_quality']['untrusted_rows'] ?? 0),
+                'excluded_test_fixture_rows' => $excludedTestFixtures,
                 'strict_order_evidence' => $strictOrderEvidence,
                 'representation_evidence' => $representationEvidence,
             ],
@@ -293,6 +301,39 @@ final class DualOtaOrderQuickAnalysisService
             '_dataset' => $dataset,
             '_metrics' => $metrics,
         ];
+    }
+
+    /**
+     * Stored test samples remain readable in history, never in operating totals.
+     * Inspect only the established canonical/raw wrappers and explicit marker;
+     * manual imports and hotel names containing “测试” are not fixture evidence.
+     * @param array<int, array<string, mixed>> $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function withoutTestFixtures(array $rows): array
+    {
+        return array_values(array_filter($rows, static function (array $row): bool {
+            $nodes = [$row];
+            for ($depth = 0; $depth < 5 && $nodes !== []; $depth++) {
+                $next = [];
+                foreach ($nodes as $node) {
+                    if (($node['fixture_status'] ?? '') === 'explicit_test_fixture') {
+                        return false;
+                    }
+                    foreach (['row', 'raw_data', 'detail'] as $key) {
+                        $child = $node[$key] ?? null;
+                        if (is_string($child)) {
+                            $child = json_decode($child, true);
+                        }
+                        if (is_array($child)) {
+                            $next[] = $child;
+                        }
+                    }
+                }
+                $nodes = $next;
+            }
+            return true;
+        }));
     }
 
     /**
@@ -1015,24 +1056,28 @@ final class DualOtaOrderQuickAnalysisService
                 ->where('system_hotel_id', $systemHotelId)
                 ->whereIn('data_type', ['order', 'order_flow']);
             $this->applyDualPlatformQueryScope($query);
-            $latestRow = $query
-                ->field('data_date')
-                ->order('data_date', 'desc')
-                ->find();
-            $latest = is_array($latestRow)
-                ? ($latestRow['data_date'] ?? null)
-                : null;
+            // Decode the same explicit markers as the in-memory path. A SQL
+            // substring exclusion would also discard unmarked business rows.
+            $batchSize = 200;
+            for ($page = 1; ; $page++) {
+                $rows = (clone $query)
+                    ->field('id,platform,source,data_date,raw_data')
+                    ->order('data_date', 'desc')
+                    ->order('id', 'desc')
+                    ->page($page, $batchSize)
+                    ->select()
+                    ->toArray();
+                $range = $this->latestThirtyDayRange($this->dualPlatformRows($rows));
+                if ($range[1] !== null) {
+                    return $range;
+                }
+                if (count($rows) < $batchSize) {
+                    return [null, null];
+                }
+            }
         } catch (\Throwable $error) {
             throw new RuntimeException('双平台订单数据日期回读失败。', 500, $error);
         }
-        $latestDate = trim((string)$latest);
-        if (!$this->validDate($latestDate)) {
-            return [null, null];
-        }
-        return [
-            (new DateTimeImmutable($latestDate))->modify('-29 days')->format('Y-m-d'),
-            $latestDate,
-        ];
     }
 
     /**
@@ -1042,7 +1087,7 @@ final class DualOtaOrderQuickAnalysisService
     private function latestThirtyDayRange(array $rows): array
     {
         $dates = [];
-        foreach ($rows as $row) {
+        foreach ($this->withoutTestFixtures($rows) as $row) {
             $date = trim((string)($row['data_date'] ?? ''));
             if ($this->validDate($date)) {
                 $dates[] = $date;

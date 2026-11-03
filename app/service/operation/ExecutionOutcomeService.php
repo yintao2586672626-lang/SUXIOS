@@ -500,12 +500,20 @@ final class ExecutionOutcomeService
      */
     public function buildExecutionOutcomeTruth(array $intent, array $task, array $evidenceRows): array
     {
+        return $this->finalizeExecutionOutcomeMetrics(
+            $this->calculateExecutionOutcomeTruth($intent, $task, $evidenceRows)
+        );
+    }
+
+    private function calculateExecutionOutcomeTruth(array $intent, array $task, array $evidenceRows): array
+    {
         $metric = strtolower(trim((string)($intent['expected_metric'] ?? '')));
         $base = [
             'status' => 'unverified',
             'outcome_verified' => false,
             'positive_outcome_verified' => false,
             'source_verified' => false,
+            'source_ref' => null,
             'metric_key' => $metric !== '' ? $metric : null,
             'direction' => null,
             'target_type' => null,
@@ -545,6 +553,7 @@ final class ExecutionOutcomeService
             }
             $beforeValue = (float)$candidateBefore;
             $afterValue = (float)$candidateAfter;
+            $base['source_ref'] = $assessment['source_ref'] ?? null;
             break;
         }
         if ($beforeValue === null || $afterValue === null) {
@@ -553,9 +562,9 @@ final class ExecutionOutcomeService
 
         $direction = $this->executionOutcomeDirection($intent, $metric);
         $base['source_verified'] = true;
-        $base['before_value'] = round($beforeValue, 4);
-        $base['after_value'] = round($afterValue, 4);
-        $base['actual_delta'] = round($afterValue - $beforeValue, 4);
+        $base['before_value'] = round($beforeValue, 6);
+        $base['after_value'] = round($afterValue, 6);
+        $base['actual_delta'] = round($afterValue - $beforeValue, 6);
         if ($direction === null) {
             $base['failure_reason'] = 'expected_direction_unknown';
             return $base;
@@ -594,19 +603,21 @@ final class ExecutionOutcomeService
             }
         }
 
+        // Frozen effect metrics and their persisted changes use six decimal
+        // places. Normalize subtraction before comparing the recorded target.
         $favorableDelta = $direction === 'increase'
-            ? $afterValue - $beforeValue
-            : $beforeValue - $afterValue;
+            ? $base['actual_delta']
+            : -$base['actual_delta'];
         $base['target_type'] = $targetType;
         $base['target_value'] = $targetValue;
         $base['expected_delta'] = $expectedDelta;
         $base['expected_delta_status'] = $expectedDeltaStatus !== '' ? $expectedDeltaStatus : 'quantified';
-        $base['favorable_delta'] = round($favorableDelta, 4);
+        $base['favorable_delta'] = round($favorableDelta, 6);
 
         if ($targetType === 'absolute') {
-            $targetFavorableDelta = $direction === 'increase'
+            $targetFavorableDelta = round($direction === 'increase'
                 ? (float)$targetValue - $beforeValue
-                : $beforeValue - (float)$targetValue;
+                : $beforeValue - (float)$targetValue, 6);
             $targetMet = $direction === 'increase'
                 ? $afterValue >= (float)$targetValue
                 : $afterValue <= (float)$targetValue;
@@ -626,6 +637,12 @@ final class ExecutionOutcomeService
                     'failure_reason' => 'metric_worsened',
                 ]);
             }
+            if (!is_finite($targetFavorableDelta)) {
+                return array_replace($base, [
+                    'failure_reason' => 'outcome_calculation_overflow',
+                    'metric_failures' => ['target_delta' => 'outcome_calculation_overflow'],
+                ]);
+            }
             if ($targetFavorableDelta <= 0) {
                 return array_replace($base, [
                     'status' => 'missed',
@@ -634,7 +651,7 @@ final class ExecutionOutcomeService
                 ]);
             }
             $progressRate = ($favorableDelta / $targetFavorableDelta) * 100;
-            return $this->finalizeExecutionOutcomeTruth($base, $progressRate);
+            return $this->finalizeExecutionOutcomeTruth($base, $progressRate, $targetFavorableDelta);
         }
 
         if ($expectedDelta === null) {
@@ -664,7 +681,41 @@ final class ExecutionOutcomeService
             ]);
         }
 
-        return $this->finalizeExecutionOutcomeTruth($base, ($favorableDelta / $expectedDelta) * 100);
+        return $this->finalizeExecutionOutcomeTruth($base, ($favorableDelta / $expectedDelta) * 100, $expectedDelta);
+    }
+
+    /** Keep independent finite values; a failed comparison cannot qualify success. */
+    private function finalizeExecutionOutcomeMetrics(array $outcome): array
+    {
+        $failures = $outcome['metric_failures'] ?? [];
+        $inputs = ['before_value', 'after_value', 'target_value', 'expected_delta'];
+        foreach (array_merge($inputs, ['actual_delta', 'favorable_delta', 'actual_change_rate', 'progress_rate']) as $key) {
+            $value = $outcome[$key] ?? null;
+            if (is_float($value) && !is_finite($value)) {
+                $outcome[$key] = null;
+                $failures[$key] = in_array($key, $inputs, true)
+                    ? 'outcome_input_non_finite' : 'outcome_calculation_overflow';
+            }
+        }
+        if ($failures === []) return $outcome;
+
+        $core = ['before_value', 'after_value', 'actual_delta', 'favorable_delta', 'target_delta'];
+        $core[] = ($outcome['target_type'] ?? null) === 'absolute' ? 'target_value' : 'expected_delta';
+        $coreFailures = array_intersect_key($failures, array_flip($core));
+        if ($coreFailures !== []) {
+            $outcome['status'] = 'unverified';
+            $outcome['outcome_verified'] = false;
+            $outcome['positive_outcome_verified'] = false;
+            $outcome['actual_change_rate'] = null;
+            $outcome['progress_rate'] = null;
+            $outcome['failure_reason'] = in_array('outcome_input_non_finite', $coreFailures, true)
+                ? 'outcome_input_non_finite' : 'outcome_calculation_overflow';
+        } elseif (($outcome['failure_reason'] ?? null) === null) {
+            // An auxiliary percentage can fail while the finite comparison remains valid.
+            $outcome['failure_reason'] = reset($failures);
+        }
+        $outcome['metric_failures'] = $failures;
+        return $outcome;
     }
 
     public function executionPositiveOutcomeAllowsStatus(array $outcomeTruth, string $reviewStatus): bool
@@ -677,9 +728,13 @@ final class ExecutionOutcomeService
         };
     }
 
-    private function finalizeExecutionOutcomeTruth(array $base, float $progressRate): array
+    private function finalizeExecutionOutcomeTruth(array $base, float $progressRate, float $requiredDelta): array
     {
-        $status = $progressRate >= 100.0 ? 'met' : ($progressRate >= 70.0 ? 'near' : 'missed');
+        $favorableDelta = (float)$base['favorable_delta'];
+        // A six-decimal target multiplied by 70% needs seven decimals. Do not
+        // classify from the rounded display percentage or round this to six.
+        $status = $favorableDelta >= $requiredDelta ? 'met'
+            : ($favorableDelta > 0.0 && $favorableDelta >= round($requiredDelta * 0.7, 7) ? 'near' : 'missed');
         return array_replace($base, [
             'status' => $status,
             'outcome_verified' => true,
@@ -898,26 +953,27 @@ final class ExecutionOutcomeService
         $after = $this->arrayValue($latestEvidence['after'] ?? []);
         $beforeRevenue = $this->firstNumericMetric($before, ['revenue', 'avg_revenue', 'amount', 'income']);
         $afterRevenue = $this->firstNumericMetric($after, ['revenue', 'avg_revenue', 'amount', 'income']);
+        [, $cost] = $this->resolveExecutionRoiCostInput($intent, $task, $latestEvidence);
         if ($beforeRevenue === null || $afterRevenue === null) {
-            return array_merge([
+            return $this->finalizeExecutionRoiMetrics(array_merge([
                 'status' => 'partial',
                 'message' => 'revenue evidence missing',
                 'failure_reason' => 'revenue_evidence_missing',
-            ], $emptyMetrics, ['evidence_truth' => $evidenceTruth], $operatorEvidenceSummary);
+            ], $emptyMetrics, [
+                'unit' => (string)($intent['object_type'] ?? '') === 'price'
+                    ? ($cost === null || (is_finite($cost) && $cost <= 0) ? 'amount' : (is_finite($cost) ? '%' : null))
+                    : '%',
+                'before_revenue' => $beforeRevenue === null ? null : round($beforeRevenue, 2),
+                'after_revenue' => $afterRevenue === null ? null : round($afterRevenue, 2),
+                'cost' => $cost === null ? null : round($cost, 2),
+                'evidence_truth' => $evidenceTruth,
+            ], $operatorEvidenceSummary));
         }
-
-        $targetValue = $this->arrayValue($task['target_value'] ?? []);
-        if (empty($targetValue)) {
-            $targetValue = $this->arrayValue($intent['target_value'] ?? []);
-        }
-        $cost = $this->firstNumericMetric($after, ['cost', 'ad_cost', 'spend', 'budget']);
-        $cost ??= $this->firstNumericMetric($platformResponse, ['cost', 'ad_cost', 'spend', 'budget']);
-        $cost ??= $this->firstNumericMetric($targetValue, ['cost', 'ad_cost', 'spend', 'budget']);
         if ($cost === null) {
             if ((string)($intent['object_type'] ?? '') === 'price') {
                 $incrementalRevenue = $afterRevenue - $beforeRevenue;
 
-                return [
+                return $this->finalizeExecutionRoiMetrics([
                     'status' => 'ready',
                     'value' => round($incrementalRevenue, 2),
                     'unit' => 'amount',
@@ -929,36 +985,38 @@ final class ExecutionOutcomeService
                     'formula' => 'after_revenue - before_revenue',
                     'failure_reason' => null,
                     'evidence_truth' => $evidenceTruth,
-                ] + $operatorEvidenceSummary;
+                ] + $operatorEvidenceSummary);
             }
 
-            return array_merge([
+            return $this->finalizeExecutionRoiMetrics(array_merge([
                 'status' => 'partial',
                 'message' => 'cost evidence missing',
                 'failure_reason' => 'cost_evidence_missing',
             ], $emptyMetrics, [
+                'unit' => '%',
                 'before_revenue' => round($beforeRevenue, 2),
                 'after_revenue' => round($afterRevenue, 2),
                 'incremental_revenue' => round($afterRevenue - $beforeRevenue, 2),
                 'evidence_truth' => $evidenceTruth,
-            ], $operatorEvidenceSummary);
+            ], $operatorEvidenceSummary));
         }
         if ($cost <= 0 && (string)($intent['object_type'] ?? '') !== 'price') {
-            return array_merge([
+            return $this->finalizeExecutionRoiMetrics(array_merge([
                 'status' => 'partial',
                 'message' => 'cost denominator must be greater than zero',
                 'failure_reason' => 'roi_cost_denominator_non_positive',
             ], $emptyMetrics, [
+                'unit' => '%',
                 'before_revenue' => round($beforeRevenue, 2),
                 'after_revenue' => round($afterRevenue, 2),
                 'incremental_revenue' => round($afterRevenue - $beforeRevenue, 2),
                 'cost' => round($cost, 2),
                 'evidence_truth' => $evidenceTruth,
-            ], $operatorEvidenceSummary);
+            ], $operatorEvidenceSummary));
         }
         if ($cost <= 0) {
             $incrementalRevenue = $afterRevenue - $beforeRevenue;
-            return [
+            return $this->finalizeExecutionRoiMetrics([
                 'status' => 'ready',
                 'value' => round($incrementalRevenue, 2),
                 'unit' => 'amount',
@@ -970,13 +1028,13 @@ final class ExecutionOutcomeService
                 'formula' => 'after_revenue - before_revenue',
                 'failure_reason' => null,
                 'evidence_truth' => $evidenceTruth,
-            ] + $operatorEvidenceSummary;
+            ] + $operatorEvidenceSummary);
         }
 
         $incrementalRevenue = $afterRevenue - $beforeRevenue;
         $profit = $incrementalRevenue - $cost;
 
-        return [
+        return $this->finalizeExecutionRoiMetrics([
             'status' => 'ready',
             'value' => round($profit / $cost * 100, 2),
             'unit' => '%',
@@ -988,7 +1046,89 @@ final class ExecutionOutcomeService
             'formula' => '(after_revenue - before_revenue - cost) / cost',
             'failure_reason' => null,
             'evidence_truth' => $evidenceTruth,
-        ] + $operatorEvidenceSummary;
+        ] + $operatorEvidenceSummary);
+    }
+
+    /** The effective input and its path are frozen together; budgets remain references. */
+    public function executionRoiCostBasis(array $intent, array $task, array $evidence): array
+    {
+        return $this->resolveExecutionRoiCostInput($intent, $task, $evidence)[0];
+    }
+
+    /** Keep the raw float for legacy calculations; only the JSON-safe basis is persisted. */
+    private function resolveExecutionRoiCostInput(array $intent, array $task, array $evidence): array
+    {
+        $taskTarget = $this->arrayValue($task['target_value'] ?? $task['target_value_json'] ?? []);
+        $targetPath = $taskTarget === [] ? 'intent.target_value' : 'task.target_value';
+        $target = $taskTarget === []
+            ? $this->arrayValue($intent['target_value'] ?? $intent['target_value_json'] ?? []) : $taskTarget;
+        $inputs = [
+            'after' => $this->arrayValue($evidence['after'] ?? $evidence['after_json'] ?? []),
+            'platform_response' => $this->arrayValue($evidence['platform_response'] ?? $evidence['platform_response_json'] ?? []),
+            $targetPath => $target,
+        ];
+        $basis = ['version' => 'operation_effect_roi_cost_basis.v1', 'status' => 'missing',
+            'value' => null, 'source_path' => null, 'measurement_kind' => null];
+        foreach ($inputs as $path => $data) {
+            foreach (['cost', 'ad_cost', 'spend', 'budget'] as $key) {
+                $value = $this->firstNumericMetric($data, [$key]);
+                if ($value === null) continue;
+                return [array_replace($basis, [
+                    'status' => is_finite($value) ? 'finite' : 'non_finite',
+                    'value' => is_finite($value) ? $value : null,
+                    'source_path' => $path . '.' . $key,
+                    'measurement_kind' => $key === 'budget' || str_contains($path, 'target_value')
+                        ? 'plan_reference' : 'source_reported_cost',
+                ]), $value];
+            }
+        }
+        return [$basis, null];
+    }
+
+    public function validExecutionRoiCostBasis(mixed $basis): bool
+    {
+        if (!is_array($basis) || count($basis) !== 5
+            || ($basis['version'] ?? '') !== 'operation_effect_roi_cost_basis.v1') return false;
+        $status = $basis['status'] ?? '';
+        if ($status === 'missing') {
+            return array_key_exists('value', $basis) && $basis['value'] === null
+                && array_key_exists('source_path', $basis) && $basis['source_path'] === null
+                && array_key_exists('measurement_kind', $basis) && $basis['measurement_kind'] === null;
+        }
+        $path = $basis['source_path'] ?? null;
+        if (!is_string($path)
+            || preg_match('/^(after|platform_response|task\.target_value|intent\.target_value)\.(cost|ad_cost|spend|budget)$/D', $path) !== 1) return false;
+        $kind = str_ends_with($path, '.budget') || str_contains($path, 'target_value')
+            ? 'plan_reference' : 'source_reported_cost';
+        if (($basis['measurement_kind'] ?? '') !== $kind) return false;
+        if ($status === 'non_finite') return array_key_exists('value', $basis) && $basis['value'] === null;
+        return $status === 'finite' && (is_int($basis['value'] ?? null) || is_float($basis['value'] ?? null))
+            && is_finite((float)$basis['value']);
+    }
+
+    private function finalizeExecutionRoiMetrics(array $metrics): array
+    {
+        $inputKeys = ['before_revenue', 'after_revenue', 'cost'];
+        $inputNonFinite = false;
+        foreach ($inputKeys as $key) {
+            if (isset($metrics[$key]) && !is_finite((float)$metrics[$key])) {
+                $inputNonFinite = true;
+            }
+        }
+        $failures = [];
+        foreach (['value', 'before_revenue', 'after_revenue', 'incremental_revenue', 'cost', 'profit'] as $key) {
+            if (isset($metrics[$key]) && !is_finite((float)$metrics[$key])) {
+                $metrics[$key] = null;
+                $failures[$key] = $inputNonFinite ? 'roi_input_non_finite' : 'roi_calculation_overflow';
+            }
+        }
+        if ($failures !== []) {
+            $metrics['status'] = 'partial';
+            $metrics['failure_reason'] ??= $inputNonFinite ? 'roi_input_non_finite' : 'roi_calculation_overflow';
+            $metrics['message'] = $inputNonFinite ? '收益输入不可计算' : '收益计算超出可计算范围';
+            $metrics['metric_failures'] = $failures;
+        }
+        return $metrics;
     }
 
     /**

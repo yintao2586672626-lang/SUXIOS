@@ -1162,6 +1162,7 @@ final class AiDailyReportPresentationSpecService
                 || str_contains($message, 'error 1062')
                 || str_contains($message, 'errno: 1062')
                 || str_contains($message, 'uk_ai_report_presentation_spec_identity')
+                || str_contains($message, 'unique constraint failed: ai_report_presentation_specs.report_id, ai_report_presentation_specs.audience, ai_report_presentation_specs.adapter_version, ai_report_presentation_specs.spec_fingerprint')
             ) {
                 return true;
             }
@@ -1332,6 +1333,12 @@ final class AiDailyReportPresentationSpecService
             && $sourceIdentityVerified
             && ($expectedJson === null || hash_equals(hash('sha256', $expectedJson), hash('sha256', $actualJson)));
         if (!$readbackVerified) {
+            if ($rowIdentityVerified && $expectedAudience !== 'training'
+                && (int)($spec['source_report']['tenant_id'] ?? 0) === $expectedTenantId
+                && (int)($spec['source_report']['report_id'] ?? 0) === $expectedReportId
+                && !in_array((int)($spec['source_report']['hotel_id'] ?? 0), $expectedHotelIds, true)) {
+                throw new RuntimeException('AI daily report presentation spec exact readback verification failed: hotel_identity_mapping_unverified_rebuild_current_spec', 409);
+            }
             throw new RuntimeException('AI daily report presentation spec exact readback verification failed');
         }
 

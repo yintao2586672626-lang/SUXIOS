@@ -1,0 +1,398 @@
+{
+  "version": "geo-repository-20261102-v1",
+  "source_ref": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7",
+  "status": "passed",
+  "source_files_verified": 36,
+  "source_function_cases": 25,
+  "reference_contract_cases": 49,
+  "knowledge_units": 8,
+  "classification": {
+    "store_only": 5,
+    "absorption_candidate": 3,
+    "absorb": 0
+  },
+  "task_mode": "classify",
+  "usage_policy": "reference_only",
+  "business_integrated": false,
+  "knowledge_center_database_written": false,
+  "external_model_called": false,
+  "upstream_full_test_suite_run": false,
+  "upstream_database_queue_replay": false,
+  "application_files_modified": false,
+  "git_committed": false,
+  "deployed": false,
+  "report_and_verifier_hashes": [
+    {
+      "path": "README.md",
+      "sha256": "d039c0d3226fb0464104f51e9df430b0c6e7fb0b85a2a8988ada8427210dc163"
+    },
+    {
+      "path": "knowledge-pack.json",
+      "sha256": "e5f563925dbf9a76a720d2f3e37e9f9d6e962b76f13412bf7ac0d26eb4d9e5d0"
+    },
+    {
+      "path": "source-manifest.json",
+      "sha256": "e029a7de540b0b00d06d23a763063f304519ab457116d294be7af9829de2c07a"
+    },
+    {
+      "path": "replay-source.mjs",
+      "sha256": "9414e91aa7c07c9de3c3859ecae9ef75828d5db9af8814caacf85fab46d88bec"
+    },
+    {
+      "path": "verify-reference.php",
+      "sha256": "f4a07f51c46b9c92e226ffb1726ae04df890968991f4284560f80117c3609916"
+    }
+  ],
+  "source_replay": {
+    "source_ref": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7",
+    "verified_at": "2026-11-02T13:53:09.935Z",
+    "source_files_verified": 36,
+    "status": "passed",
+    "passed_cases": 25,
+    "checks": [
+      {
+        "id": "ancestor_scope_excludes_sibling",
+        "origin": "source mechanism / synthetic",
+        "status": "passed"
+      },
+      {
+        "id": "profile_nearest_owner_and_rules_merged",
+        "origin": "source mechanism / synthetic",
+        "status": "passed"
+      },
+      {
+        "id": "operations_primary_supporting_case_method",
+        "origin": "docs/07 and docs/08 equivalent golden fixture",
+        "status": "passed"
+      },
+      {
+        "id": "unknown_question_is_needs_info",
+        "origin": "source boundary / synthetic",
+        "status": "passed"
+      },
+      {
+        "id": "explicit_negation_does_not_trigger_setup",
+        "origin": "source direct-negation boundary",
+        "status": "passed"
+      },
+      {
+        "id": "exclusion_beats_keyword",
+        "origin": "docs/07 equivalent exclusion",
+        "status": "passed"
+      },
+      {
+        "id": "customer_restriction_beats_exact_question",
+        "origin": "source failure boundary",
+        "status": "passed"
+      },
+      {
+        "id": "missing_proof_excludes_advantage",
+        "origin": "source failure boundary",
+        "status": "passed"
+      },
+      {
+        "id": "unrelated_case_not_dragged_by_advantage",
+        "origin": "docs/07 boundary",
+        "status": "passed"
+      },
+      {
+        "id": "strategy_valid_selection_and_owner",
+        "origin": "docs/09 equivalent golden fixture",
+        "status": "passed"
+      },
+      {
+        "id": "strategy_rejects_forged_reference",
+        "origin": "source failure boundary",
+        "status": "passed"
+      },
+      {
+        "id": "strategy_rejects_duplicate_reference",
+        "origin": "source failure boundary",
+        "status": "passed"
+      },
+      {
+        "id": "strategy_rejects_missing_core_business",
+        "origin": "source failure boundary",
+        "status": "passed"
+      },
+      {
+        "id": "changed_fact_rehydrates_number",
+        "origin": "docs/09 equivalent source-change fixture",
+        "status": "passed"
+      },
+      {
+        "id": "strategy_returns_no_article_outline",
+        "origin": "docs/09 boundary",
+        "status": "passed"
+      },
+      {
+        "id": "brand_room_range_in_and_out",
+        "origin": "docs/09 equivalent golden fixture",
+        "status": "passed"
+      },
+      {
+        "id": "unicode_forbidden_expression",
+        "origin": "source lexical-boundary fixture",
+        "status": "passed"
+      },
+      {
+        "id": "grade_cutoffs",
+        "origin": "tests/opportunities.test.ts boundary values",
+        "status": "passed"
+      },
+      {
+        "id": "retry_after_seconds_and_date",
+        "origin": "tests/model-retry.test.ts source samples",
+        "status": "passed"
+      },
+      {
+        "id": "retry_reset_window_and_invalid",
+        "origin": "tests/model-retry.test.ts source samples",
+        "status": "passed"
+      },
+      {
+        "id": "provider_long_delay_never_shortened",
+        "origin": "tests/model-retry.test.ts source samples",
+        "status": "passed"
+      },
+      {
+        "id": "exponential_retry_cap",
+        "origin": "tests/model-retry.test.ts source samples",
+        "status": "passed"
+      },
+      {
+        "id": "task_counts_success_reused_and_pending",
+        "origin": "queue pure-prefix boundary",
+        "status": "passed"
+      },
+      {
+        "id": "empty_failed_batch_reports_plan_twenty",
+        "origin": "observed source limitation, not desired SUXIOS semantics",
+        "status": "passed"
+      },
+      {
+        "id": "uncovered_negation_is_observed",
+        "origin": "observed source limitation, not desired behavior",
+        "status": "passed"
+      }
+    ],
+    "observed_limitations": [
+      {
+        "input": "并不打算筹建",
+        "actual": "matches 酒店筹建规划",
+        "meaning": "lexical negation patterns are incomplete; do not claim general semantic negation"
+      }
+    ],
+    "fixture_kind": "synthetic equivalents and selected original source assertions",
+    "evidence_ceiling": "Local source function replay only; not full upstream tests, PostgreSQL queue recovery, live model, GEO measurement, SUXIOS integration, account/field or business-effect validation"
+  },
+  "reference_contract": {
+    "status": "passed",
+    "source_ref": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7",
+    "pack_sha256": "e5f563925dbf9a76a720d2f3e37e9f9d6e962b76f13412bf7ac0d26eb4d9e5d0",
+    "entries": 8,
+    "passed_cases": 49,
+    "cases": [
+      {
+        "id": "scope_inheritance:reference_gate",
+        "status": "passed"
+      },
+      {
+        "id": "scope_inheritance:source_missing",
+        "status": "passed"
+      },
+      {
+        "id": "scope_inheritance:archived",
+        "status": "passed"
+      },
+      {
+        "id": "scope_inheritance:expired",
+        "status": "passed"
+      },
+      {
+        "id": "scope_inheritance:in_memory_existing_retrieval",
+        "status": "passed"
+      },
+      {
+        "id": "scope_inheritance:foreign_hotel_excluded",
+        "status": "passed"
+      },
+      {
+        "id": "exclusion_graph:reference_gate",
+        "status": "passed"
+      },
+      {
+        "id": "exclusion_graph:source_missing",
+        "status": "passed"
+      },
+      {
+        "id": "exclusion_graph:archived",
+        "status": "passed"
+      },
+      {
+        "id": "exclusion_graph:expired",
+        "status": "passed"
+      },
+      {
+        "id": "exclusion_graph:in_memory_existing_retrieval",
+        "status": "passed"
+      },
+      {
+        "id": "exclusion_graph:foreign_hotel_excluded",
+        "status": "passed"
+      },
+      {
+        "id": "source_constrained_strategy:reference_gate",
+        "status": "passed"
+      },
+      {
+        "id": "source_constrained_strategy:source_missing",
+        "status": "passed"
+      },
+      {
+        "id": "source_constrained_strategy:archived",
+        "status": "passed"
+      },
+      {
+        "id": "source_constrained_strategy:expired",
+        "status": "passed"
+      },
+      {
+        "id": "source_constrained_strategy:in_memory_existing_retrieval",
+        "status": "passed"
+      },
+      {
+        "id": "source_constrained_strategy:foreign_hotel_excluded",
+        "status": "passed"
+      },
+      {
+        "id": "snapshot_and_versions:reference_gate",
+        "status": "passed"
+      },
+      {
+        "id": "snapshot_and_versions:source_missing",
+        "status": "passed"
+      },
+      {
+        "id": "snapshot_and_versions:archived",
+        "status": "passed"
+      },
+      {
+        "id": "snapshot_and_versions:expired",
+        "status": "passed"
+      },
+      {
+        "id": "snapshot_and_versions:in_memory_existing_retrieval",
+        "status": "passed"
+      },
+      {
+        "id": "snapshot_and_versions:foreign_hotel_excluded",
+        "status": "passed"
+      },
+      {
+        "id": "scoring_semantics:reference_gate",
+        "status": "passed"
+      },
+      {
+        "id": "scoring_semantics:source_missing",
+        "status": "passed"
+      },
+      {
+        "id": "scoring_semantics:archived",
+        "status": "passed"
+      },
+      {
+        "id": "scoring_semantics:expired",
+        "status": "passed"
+      },
+      {
+        "id": "scoring_semantics:in_memory_existing_retrieval",
+        "status": "passed"
+      },
+      {
+        "id": "scoring_semantics:foreign_hotel_excluded",
+        "status": "passed"
+      },
+      {
+        "id": "durable_queue:reference_gate",
+        "status": "passed"
+      },
+      {
+        "id": "durable_queue:source_missing",
+        "status": "passed"
+      },
+      {
+        "id": "durable_queue:archived",
+        "status": "passed"
+      },
+      {
+        "id": "durable_queue:expired",
+        "status": "passed"
+      },
+      {
+        "id": "durable_queue:in_memory_existing_retrieval",
+        "status": "passed"
+      },
+      {
+        "id": "durable_queue:foreign_hotel_excluded",
+        "status": "passed"
+      },
+      {
+        "id": "candidate_generation:reference_gate",
+        "status": "passed"
+      },
+      {
+        "id": "candidate_generation:source_missing",
+        "status": "passed"
+      },
+      {
+        "id": "candidate_generation:archived",
+        "status": "passed"
+      },
+      {
+        "id": "candidate_generation:expired",
+        "status": "passed"
+      },
+      {
+        "id": "candidate_generation:in_memory_existing_retrieval",
+        "status": "passed"
+      },
+      {
+        "id": "candidate_generation:foreign_hotel_excluded",
+        "status": "passed"
+      },
+      {
+        "id": "measurement_boundaries:reference_gate",
+        "status": "passed"
+      },
+      {
+        "id": "measurement_boundaries:source_missing",
+        "status": "passed"
+      },
+      {
+        "id": "measurement_boundaries:archived",
+        "status": "passed"
+      },
+      {
+        "id": "measurement_boundaries:expired",
+        "status": "passed"
+      },
+      {
+        "id": "measurement_boundaries:in_memory_existing_retrieval",
+        "status": "passed"
+      },
+      {
+        "id": "measurement_boundaries:foreign_hotel_excluded",
+        "status": "passed"
+      },
+      {
+        "id": "pack_exact_readback_hash_unchanged",
+        "status": "passed"
+      }
+    ],
+    "database_written": false,
+    "database_readback_verified": false,
+    "business_integrated": false,
+    "evidence_ceiling": "Current KnowledgeDecisionGateService and OperatingQuestionKnowledgeRetrievalService exercised with in-memory synthetic rows; no database, UI, real hotel, model, or OTA actions"
+  }
+}

@@ -1,0 +1,177 @@
+{
+  "schema": "suxios.hotel_operating_knowledge.v1",
+  "version": "1.1",
+  "usage_policy": "reference_only",
+  "entries": [
+    {
+      "key": "autox_ad_quality",
+      "title": "广告质量分型与真实零值反例",
+      "summary": "区分缺失、失败、部分、未验证零与真零；14例广告纯函数重放保留非有限数与verified-zero反例。",
+      "content_path": "docs/knowledge/hotel-deliveries-20260730/versions/v1.1/autox-ad-quality.md",
+      "content_sha256": "21c978873f2c09eaa74533c22ed235cb6381b8a12ad752821bdf6fdd54ffb578",
+      "maturity": "understood",
+      "source_names": [
+        "hotel_auto_x_deliver_20260730.zip"
+      ],
+      "query": "广告质量分型与真实零值反例",
+      "source_section": "pipeline/ad_quality.py:L8-147; tests/test_ctrip_ad_api_quality.py:L72-105",
+      "canonical_content_path": "docs/knowledge/hotel-deliveries-20260730/autox-ad-quality.md",
+      "replay_submechanisms": [
+        {
+          "evidence_path": "output/absorption/20261006-hotel-deliveries/autox-replay.json",
+          "sha256": "3aba668ad7d4d10065d01510338826e34c0ed5219212a39e7066fe73ec8e7eca",
+          "scope": "isolated_synthetic_submechanism_only"
+        },
+        {
+          "evidence_path": "output/absorption/20261006-hotel-deliveries/five-pass/round-3-source.json",
+          "sha256": "bb447ef5f3dd09f1828d553f7c5216f8e258f4f175a9c9d9888f05ccd26299bb",
+          "scope": "isolated_synthetic_submechanism_only"
+        }
+      ],
+      "mechanism_gate": "pass_at_documented_scope",
+      "value_gate": "indeterminate_unique_business_gap_not_proved",
+      "reproduction_gate": "partial_named_submechanisms_only",
+      "version": "1.1"
+    },
+    {
+      "key": "autox_report_provenance",
+      "title": "字段来源审计与日报兜底反例",
+      "summary": "学习单元格来源、成熟窗口与范围合同；缺日期、旧值保护、assumed_zero、日报fallback不放行严格事实。",
+      "content_path": "docs/knowledge/hotel-deliveries-20260730/versions/v1.1/autox-report-provenance.md",
+      "content_sha256": "c81ba94aa05a6ea804ae90a19d2645b4dddaccb06be01a7ebd49707ecfd711e5",
+      "maturity": "understood",
+      "source_names": [
+        "hotel_auto_x_deliver_20260730.zip"
+      ],
+      "query": "字段来源审计与日报兜底反例",
+      "source_section": "pipeline/etl.py:L51-275; weekly_ota_source.py:L54-218; weekly_cell_audit.py:L341-908",
+      "canonical_content_path": "docs/knowledge/hotel-deliveries-20260730/autox-report-provenance.md",
+      "replay_submechanisms": [],
+      "mechanism_gate": "pass_at_documented_scope",
+      "value_gate": "indeterminate_unique_business_gap_not_proved",
+      "reproduction_gate": "partial_named_submechanisms_only",
+      "version": "1.1"
+    },
+    {
+      "key": "watchdog_strategy",
+      "title": "经营建议审批发送与执行回读边界",
+      "summary": "建议来源与可编辑卡片可参考；手动发送未强制批准、自动评分不能替代质量，sent不等于经营执行回读。",
+      "content_path": "docs/knowledge/hotel-deliveries-20260730/versions/v1.1/watchdog-strategy.md",
+      "content_sha256": "07c7af89a9fcc11a068627294334761b6c53261b073110596b9c930273c80ca7",
+      "maturity": "understood",
+      "source_names": [
+        "ota_watchdog_deliver_20260730.zip"
+      ],
+      "query": "经营建议审批发送与执行回读边界",
+      "source_section": "backend/app/api/v1/strategy.py:L191-297; strategy/compose.py:L817-1028; agents/tools/pms.py:L410-529",
+      "canonical_content_path": "docs/knowledge/hotel-deliveries-20260730/watchdog-strategy.md",
+      "replay_submechanisms": [
+        {
+          "evidence_path": "output/absorption/20261006-hotel-deliveries/five-pass/watchdog-challenge.json",
+          "sha256": "e0c981a588e7ecb5610ff156b247837e1970f8589c5398c7c941c1fa8f84b702",
+          "scope": "isolated_synthetic_submechanism_only"
+        }
+      ],
+      "mechanism_gate": "pass_at_documented_scope",
+      "value_gate": "indeterminate_unique_business_gap_not_proved",
+      "reproduction_gate": "partial_named_submechanisms_only",
+      "version": "1.1"
+    },
+    {
+      "key": "watchdog_events_learning",
+      "title": "事件关联去重与纠错候选学习",
+      "summary": "学习范围内事件关联、周期输出分型和证据绑定候选；保留去重派发中断、周期幂等、未来时间与审批范围反例。",
+      "content_path": "docs/knowledge/hotel-deliveries-20260730/versions/v1.1/watchdog-events-learning.md",
+      "content_sha256": "24567028912ad5be385821f1d7ada1f4b357c8051e4078497ccc59e6f73a70a9",
+      "maturity": "understood",
+      "source_names": [
+        "ota_watchdog_deliver_20260730.zip"
+      ],
+      "query": "事件关联去重与纠错候选学习",
+      "source_section": "backend/app/agents/relay_events.py:L23-220; agent_scheduled.py:L26-189; skill_miner.py:L31-192",
+      "canonical_content_path": "docs/knowledge/hotel-deliveries-20260730/watchdog-events-learning.md",
+      "replay_submechanisms": [
+        {
+          "evidence_path": "output/absorption/20261006-hotel-deliveries/five-pass/reference-gate-pass.php",
+          "sha256": "c9be1acb0729cbc11915d330da0ec28066f6048ee2f9d20d9e7e7470368b7333",
+          "scope": "isolated_synthetic_submechanism_only"
+        },
+        {
+          "evidence_path": "output/absorption/20261006-hotel-deliveries/five-pass/round-3-gate.json",
+          "sha256": "ed41e68cc6e8bdac4844359f3c71a4f9c74c60a3ba99e528524f8aa16c52f245",
+          "scope": "isolated_synthetic_submechanism_only"
+        }
+      ],
+      "mechanism_gate": "pass_at_documented_scope",
+      "value_gate": "indeterminate_unique_business_gap_not_proved",
+      "reproduction_gate": "partial_named_submechanisms_only",
+      "version": "1.1"
+    },
+    {
+      "key": "h5_collection_evidence",
+      "title": "前台采集身份与最小证据合同",
+      "summary": "管理员绑定与前台采集职责分开；7个身份、3个envelope纯函数样例通过，补采水位和持久化outbox仅静态参考。",
+      "content_path": "docs/knowledge/hotel-deliveries-20260730/versions/v1.1/h5-collection-evidence.md",
+      "content_sha256": "6641faf5e8b3948fb22206c53a5d7939aaf7592569b1bcc15e3743b2d5a22443",
+      "maturity": "understood",
+      "source_names": [
+        "hotel-ops-h5-no-data-20260730-155031.zip",
+        "使用手册.md",
+        "部署手册.md"
+      ],
+      "query": "前台采集身份与最小证据合同",
+      "source_section": "server/platformIdentity.js:L1-27; shared/orderEvidenceContract.js:L1-41; 使用手册.md:L54-106",
+      "canonical_content_path": "docs/knowledge/hotel-deliveries-20260730/h5-collection-evidence.md",
+      "replay_submechanisms": [
+        {
+          "evidence_path": "output/absorption/20261006-hotel-deliveries/h5-replay.json",
+          "sha256": "5d1f9726a578b28771030053a8f5be4e8ccefdf69fefae2d67fada8697ab78ff",
+          "scope": "isolated_synthetic_submechanism_only"
+        },
+        {
+          "evidence_path": "output/absorption/20261006-hotel-deliveries/five-pass/round-2.json",
+          "sha256": "246ebbe74859e26ccc0a9bd4adda5bdebaa5bf559a98ed2ce8359a7046281e6c",
+          "scope": "isolated_synthetic_submechanism_only"
+        }
+      ],
+      "mechanism_gate": "pass_at_documented_scope",
+      "value_gate": "indeterminate_unique_business_gap_not_proved",
+      "reproduction_gate": "partial_named_submechanisms_only",
+      "version": "1.1"
+    },
+    {
+      "key": "h5_review_metrics",
+      "title": "点评查单证据门与概览假零反例",
+      "summary": "学习候选、独立证据组与人工确认；原概览测试通过但追加样例复现4个来源/跨渠道指标合同失败。",
+      "content_path": "docs/knowledge/hotel-deliveries-20260730/versions/v1.1/h5-review-and-metrics.md",
+      "content_sha256": "bc7fbd793da9b69330292b660ac09240b452e017677ef7409d82254fa4f38437",
+      "maturity": "understood",
+      "source_names": [
+        "hotel-ops-h5-no-data-20260730-155031.zip",
+        "使用手册.md",
+        "部署手册.md"
+      ],
+      "query": "点评查单证据门与概览假零反例",
+      "source_section": "server/reviewMatchEngine.js:L547-658; operatingOverview.js:L98-135,L229-314; 使用手册.md:L119-141",
+      "canonical_content_path": "docs/knowledge/hotel-deliveries-20260730/h5-review-and-metrics.md",
+      "replay_submechanisms": [
+        {
+          "evidence_path": "output/absorption/20261006-hotel-deliveries/h5-replay.json",
+          "sha256": "5d1f9726a578b28771030053a8f5be4e8ccefdf69fefae2d67fada8697ab78ff",
+          "scope": "isolated_synthetic_submechanism_only"
+        },
+        {
+          "evidence_path": "output/absorption/20261006-hotel-deliveries/five-pass/round-2.json",
+          "sha256": "246ebbe74859e26ccc0a9bd4adda5bdebaa5bf559a98ed2ce8359a7046281e6c",
+          "scope": "isolated_synthetic_submechanism_only"
+        }
+      ],
+      "mechanism_gate": "pass_at_documented_scope",
+      "value_gate": "indeterminate_unique_business_gap_not_proved",
+      "reproduction_gate": "partial_named_submechanisms_only",
+      "version": "1.1"
+    }
+  ],
+  "refinement_run_id": "hotel_deliveries_20260730_five_pass_v11",
+  "maturity_rule": "whole unit understood; reproduced submechanisms must be named separately"
+}

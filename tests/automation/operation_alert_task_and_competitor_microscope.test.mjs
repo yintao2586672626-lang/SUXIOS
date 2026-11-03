@@ -36,7 +36,7 @@ test('threshold alerts expose an idempotent pending-task bridge without automati
   assert.match(service, /'auto_write_ota' => false/);
   assert.match(appMain, /apiRequest\(`\/operation\/alerts\/\$\{alertId\}\/execution-intent`/);
   assert.match(appMain, /loadOperationActions\(\{ focusIntentId: intentId \}\)/);
-  assert.match(appMain, /data-operation-execution-intent-id="\$\{intentId\}"/);
+  assert.match(appMain, /data-operation-execution-intent-id="\$\{Number\(intentId\)\}"/);
   assert.match(alertPage, /data-testid="operation-alert-create-task"/);
   assert.match(alertPage, /直接转任务/);
   assert.match(alertPage, /查看任务 #/);

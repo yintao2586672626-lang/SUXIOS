@@ -1634,10 +1634,16 @@ class RevenuePricingRecommendationService
             }
         }
 
-        $amount = $observations['amount'] > 0 ? round($sums['amount'], 2) : null;
+        $trustedFactCount = count($rows);
+        $amount = $trustedFactCount > 0 && $observations['amount'] === $trustedFactCount
+            ? round($sums['amount'], 2) : null;
         $quantity = $observations['quantity'] > 0 ? (int)round($sums['quantity']) : null;
         $orders = $observations['orders'] > 0 ? (int)round($sums['orders']) : null;
-        $trustedFactCount = count($rows);
+        $platforms = array_values(array_unique(array_filter(array_map(
+            static fn(array $row): string => strtolower(trim((string)($row['source'] ?? ''))),
+            $rows
+        ))));
+        sort($platforms);
         $historyStatus = strtolower(trim((string)($history['data_status'] ?? 'blocked')));
         $explainable = $trustedFactCount > 0 && array_sum($observations) > 0;
         $evidenceStatus = $historyStatus === 'ready' && $explainable
@@ -1658,6 +1664,8 @@ class RevenuePricingRecommendationService
         }
 
         return [
+            'system_hotel_id' => $hotelId,
+            'platforms' => $platforms,
             'start_date' => $startDate,
             'end_date' => $endDate,
             'source' => 'online_daily_data',
@@ -1676,7 +1684,8 @@ class RevenuePricingRecommendationService
             'amount' => $amount,
             'quantity' => $quantity,
             'orders' => $orders,
-            'adr' => $this->suggestionEffectAdr($amount, $quantity),
+            'adr' => $observations['quantity'] === $trustedFactCount
+                ? $this->suggestionEffectAdr($amount, $quantity) : null,
         ];
     }
 
@@ -1693,10 +1702,17 @@ class RevenuePricingRecommendationService
     public function suggestionEffectDelta(array $before, array $after): array
     {
         $delta = [];
+        $sameScope = $this->effectReviewPeriodsComparable($before, $after);
+        // Keep the numeric-only helper contract; scoped review periods must be trusted.
+        $incomeTrusted = (!array_key_exists('data_status', $before) || $this->effectReviewPeriodTrusted($before))
+            && (!array_key_exists('data_status', $after) || $this->effectReviewPeriodTrusted($after));
         foreach (['amount', 'quantity', 'orders', 'adr'] as $metric) {
             $beforeValue = $before[$metric] ?? null;
             $afterValue = $after[$metric] ?? null;
-            if (!is_numeric($beforeValue) || !is_numeric($afterValue)) {
+            if (!$sameScope
+                || (in_array($metric, ['amount', 'adr'], true) && !$incomeTrusted)
+                || !is_numeric($beforeValue) || !is_numeric($afterValue)
+            ) {
                 $delta[$metric] = null;
                 continue;
             }
@@ -1746,8 +1762,14 @@ class RevenuePricingRecommendationService
         }
 
         if (!$this->effectReviewPeriodTrusted($before) || !$this->effectReviewPeriodTrusted($after)) {
-            return $this->effectReviewReadiness('effect_review_evidence_untrusted', '证据未通过', 65, false, '仅使用可信、可解释、已去重的经营事实复盘', [
+            return $this->effectReviewReadiness('effect_review_evidence_untrusted', ($beforeStatus === 'partial' || $afterStatus === 'partial') ? '数据不全' : '证据未通过', 65, false, '仅使用可信、可解释、已去重的经营事实复盘', [
                 $this->missingEvidence('trusted_deduplicated_operating_facts', '可信去重经营事实', '通过 TrustedOtaFactRepository 回读并保留规范事实'),
+            ]);
+        }
+
+        if (!$this->effectReviewPeriodsComparable($before, $after)) {
+            return $this->effectReviewReadiness('effect_review_scope_mismatch', '口径不可比', 70, false, '使用同酒店、同渠道、相邻等长日期窗口复盘', [
+                $this->missingEvidence('comparable_review_scope', '一致的酒店、渠道与日期窗口', '核对酒店、渠道、指标口径及应用前后日期范围'),
             ]);
         }
 
@@ -1767,6 +1789,45 @@ class RevenuePricingRecommendationService
             [],
             ['comparable_metrics' => $comparableMetrics]
         );
+    }
+
+    private function effectReviewPeriodsComparable(array $before, array $after): bool
+    {
+        foreach (['system_hotel_id', 'source', 'scope', 'metric_scope', 'platforms'] as $key) {
+            if (!array_key_exists($key, $before) && !array_key_exists($key, $after)) {
+                continue;
+            }
+            if (!array_key_exists($key, $before) || !array_key_exists($key, $after)) {
+                return false;
+            }
+            if ($key === 'platforms') {
+                if (!is_array($before[$key]) || !is_array($after[$key]) || $before[$key] === [] || $after[$key] === []) {
+                    return false;
+                }
+                $first = array_values(array_unique($before[$key]));
+                $second = array_values(array_unique($after[$key]));
+                sort($first);
+                sort($second);
+                if ($first !== $second) return false;
+            } elseif (trim((string)$before[$key]) === '' || (string)$before[$key] !== (string)$after[$key]) {
+                return false;
+            }
+        }
+
+        if (!isset($before['start_date'], $before['end_date'], $after['start_date'], $after['end_date'])) {
+            return !array_key_exists('start_date', $before) && !array_key_exists('end_date', $before)
+                && !array_key_exists('start_date', $after) && !array_key_exists('end_date', $after);
+        }
+        $dates = [];
+        foreach ([$before['start_date'], $before['end_date'], $after['start_date'], $after['end_date']] as $value) {
+            $date = is_string($value) ? \DateTimeImmutable::createFromFormat('!Y-m-d', $value) : false;
+            if ($date === false || $date->format('Y-m-d') !== $value) return false;
+            $dates[] = $date;
+        }
+        [$beforeStart, $beforeEnd, $afterStart, $afterEnd] = $dates;
+        return $beforeStart <= $beforeEnd && $afterStart <= $afterEnd
+            && $beforeEnd->modify('+1 day') == $afterStart
+            && $beforeStart->diff($beforeEnd)->days === $afterStart->diff($afterEnd)->days;
     }
 
     private function effectReviewPeriodTrusted(array $period): bool

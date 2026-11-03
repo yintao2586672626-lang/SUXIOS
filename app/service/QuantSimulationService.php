@@ -257,7 +257,9 @@ class QuantSimulationService
             'revPAR' => round($revPAR, 2),
             'paybackMonths' => $paybackMonths === null ? null : round($paybackMonths, 2),
             'rentRatio' => $rentRatio === null ? null : round($rentRatio, 4),
-            'breakEvenOccupancy' => round($breakEvenOccupancy, 4),
+            'breakEvenOccupancy' => $breakEvenOccupancy === null ? null : round($breakEvenOccupancy, 4),
+            'breakEvenOccupancyStatus' => $breakEvenOccupancy === null || $breakEvenOccupancy > 1
+                ? 'unreachable' : 'reachable',
             'riskLevel' => $this->calculateRiskLevel($monthlyNetCashflow, $paybackMonths, $rentRatio, $breakEvenOccupancy),
         ];
 
@@ -291,10 +293,15 @@ class QuantSimulationService
         $valuationDate = (string)$input['valuation_date'];
         $baseDate = new \DateTimeImmutable($valuationDate);
         $series = [];
+        $anchorDay = (int)$baseDate->format('d');
+        $anchorMonth = $baseDate->modify('first day of this month');
         foreach ($values as $period => $value) {
+            $month = $anchorMonth->modify('+' . $period . ' months');
+            $periodDate = $month->setDate((int)$month->format('Y'), (int)$month->format('m'),
+                min($anchorDay, (int)$month->format('t')));
             $series[] = [
                 'period' => $period,
-                'date' => $baseDate->modify('+' . $period . ' months')->format('Y-m-d'),
+                'date' => $periodDate->format('Y-m-d'),
                 'value' => round((float)$value, 2),
             ];
         }
@@ -323,7 +330,7 @@ class QuantSimulationService
         float $availableRoomNights,
         float $adr,
         float $otaRate
-    ): float {
+    ): ?float {
         $requiredRoomMargin = max(0.0, $fixedMonthlyCost - $otherIncome);
         if ($requiredRoomMargin <= 0) {
             return 0.0;
@@ -331,7 +338,7 @@ class QuantSimulationService
 
         $netRoomRevenuePerFullOccupancy = $availableRoomNights * $adr * max(0.0, 1 - $otaRate);
         if ($netRoomRevenuePerFullOccupancy <= 0) {
-            return 1.0;
+            return null;
         }
 
         return $requiredRoomMargin / $netRoomRevenuePerFullOccupancy;
@@ -453,11 +460,13 @@ class QuantSimulationService
                     ? ['riskLevel' => '中风险', 'content' => '回本周期偏长，需关注现金流稳定性。', 'className' => 'bg-yellow-50 border-yellow-100 text-yellow-800']
                     : ['riskLevel' => '高风险', 'content' => '回本周期过长，需重新评估投资规模。', 'className' => 'bg-red-50 border-red-100 text-red-800']));
 
-        $breakEvenRisk = $result['breakEvenOccupancy'] >= 0.65
+        $breakEvenRisk = ($result['breakEvenOccupancy'] ?? null) === null || $result['breakEvenOccupancy'] > 1
+            ? ['riskLevel' => '高风险', 'content' => '当前成本与佣金条件下无法保本，满房仍不能覆盖成本。', 'className' => 'bg-red-50 border-red-100 text-red-800']
+            : ($result['breakEvenOccupancy'] >= 0.65
             ? ['riskLevel' => '高风险', 'content' => '保本入住率过高，需要长期高入住才能盈利。', 'className' => 'bg-red-50 border-red-100 text-red-800']
             : ($result['breakEvenOccupancy'] >= 0.55
                 ? ['riskLevel' => '中风险', 'content' => '保本入住率偏高，需持续跟踪淡季入住。', 'className' => 'bg-yellow-50 border-yellow-100 text-yellow-800']
-                : ['riskLevel' => '低风险', 'content' => '保本入住率处于相对安全区间。', 'className' => 'bg-green-50 border-green-100 text-green-800']);
+                : ['riskLevel' => '低风险', 'content' => '保本入住率处于相对安全区间。', 'className' => 'bg-green-50 border-green-100 text-green-800']));
 
         return [
             array_merge(['title' => '租金压力'], $rentRisk),
@@ -507,7 +516,7 @@ class QuantSimulationService
         $rentRatio = isset($result['rentRatio']) && is_numeric($result['rentRatio'])
             ? (float)$result['rentRatio']
             : null;
-        $breakEven = (float)($result['breakEvenOccupancy'] ?? 0);
+        $breakEven = isset($result['breakEvenOccupancy']) ? (float)$result['breakEvenOccupancy'] : null;
 
         $decision = ($riskLevel === '高风险' || $netCashflow <= 0)
             ? '暂缓推进，先复核租金、ADR、入住率和投资规模。'
@@ -554,7 +563,7 @@ class QuantSimulationService
                 ],
                 [
                     'metric' => '保本入住率',
-                    'threshold' => round($breakEven * 100, 1) . '%',
+                    'threshold' => $breakEven === null ? '当前条件无法保本' : round($breakEven * 100, 1) . '%',
                     'action' => '高于55%需补充淡季入住率和竞品供给验证。',
                 ],
             ],
@@ -915,9 +924,9 @@ class QuantSimulationService
         return $values;
     }
 
-    private function calculateRiskLevel(float $monthlyNetCashflow, ?float $paybackMonths, ?float $rentRatio, float $breakEvenOccupancy): string
+    private function calculateRiskLevel(float $monthlyNetCashflow, ?float $paybackMonths, ?float $rentRatio, ?float $breakEvenOccupancy): string
     {
-        if ($monthlyNetCashflow <= 0 || $paybackMonths === null || $rentRatio === null || $breakEvenOccupancy >= 0.65) {
+        if ($monthlyNetCashflow <= 0 || $paybackMonths === null || $rentRatio === null || $breakEvenOccupancy === null || $breakEvenOccupancy >= 0.65) {
             return '高风险';
         }
         if ($rentRatio >= 0.4 || $paybackMonths > 30) {
@@ -1093,9 +1102,11 @@ class QuantSimulationService
         ] as $metricKey) {
             $value = array_key_exists($metricKey, $result) ? $result[$metricKey] : null;
             $calculated = $value !== null && is_numeric($value) && is_finite((float)$value);
+            $unreachable = $metricKey === 'breakEvenOccupancy'
+                && ($result['breakEvenOccupancyStatus'] ?? '') === 'unreachable';
             $metrics[$metricKey] = array_merge($truthContext, [
                 'metric_key' => $metricKey,
-                'calculation_status' => $calculated ? 'calculated' : 'missing',
+                'calculation_status' => $unreachable ? 'unreachable' : ($calculated ? 'calculated' : 'missing'),
                 'value_observed' => $calculated,
                 'calculation_basis' => 'deterministic_formula_from_user_input',
             ]);

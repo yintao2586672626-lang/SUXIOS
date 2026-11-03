@@ -94,6 +94,37 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
         return refs.length ? refs.join('、') : '无正式记录';
     };
 
+    const localRecordRequirementText = code => ({
+        record_readback_required: '记录数据库精确回读待验证',
+        record_validation_required: '记录质量须为已验证',
+        history_finality_required: '历史最终态须为成功',
+        current_receipt_binding_required: '须匹配当前已接受回执、来源和任务',
+        exact_scope_readback_required: '同酒店、平台、日期整批精确回读待闭合',
+    }[code] || '要件未返回，请重新读取');
+
+    const localRecordStatusText = status => ({
+        verified: '已验证', unverified: '未验证', unknown: '未知',
+        success: '成功', partial: '部分验证', failed: '失败',
+        blocked: '阻断', invalid: '无效', mismatch: '不匹配',
+        quarantined: '隔离', rejected: '拒绝', rolled_back: '已回滚',
+        pending: '待处理', running: '处理中',
+    }[status] || '未知');
+
+    const localRecordOriginText = origin => origin?.type === 'manual_import' && origin?.method === 'manual_override'
+        ? '人工更正' : ({
+        manual_import: '人工录入/导入',
+        browser_assisted_import: '页面辅助导入',
+        collection_registered: '浏览器/本地采集登记',
+        interface_registered: '接口方式登记',
+    }[origin?.type] || '未知（来源登记缺失或未识别）');
+
+    const localRecordOriginRecoveryText = origin => ({
+        manual_import: '核对原始导入文件或人工记录、平台门店、业务日和字段口径；导入与数据库回读不能替代来源真实性校验',
+        browser_assisted_import: '核对页面辅助导入的门店与业务日；页面可见内容不能替代结构化响应及正式来源证据',
+        collection_registered: '核对采集回执、任务、Profile/账号、门店与业务日；采集方式登记不能替代同范围证据校验',
+        interface_registered: '核对接口来源、门店、业务日与响应证据；接口方式登记不能证明官方来源或真实性',
+    }[origin?.type] || '先补齐可核对的来源方式与原始证据；不能猜测为线上采集、人工导入或模拟数据');
+
     const fieldNoteText = field => {
         const note = String(field?.note || '').trim();
         const marker = note.indexOf('下一步：');
@@ -152,6 +183,10 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                     metric_key: String(field?.metric_key || field?.key || ''),
                     business_date: String(field?.business_date || closure?.business_date || ''),
                     next_action: String(field?.next_action || ''),
+                    tenant_id: String(closure?.tenant_id ?? ''),
+                    hotel_id: String(closure?.hotel_id ?? ''),
+                    closure_identity: String(closure?.page_identity ?? ''),
+                    closure_contract_version: String(closure?.contract_version ?? ''),
                     field,
                 };
             })
@@ -182,6 +217,10 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
             ['metric_key', '指标键'],
             ['business_date', '业务日期'],
             ['next_action', '下一步'],
+            ['tenant_id', '租户ID'],
+            ['hotel_id', '酒店ID'],
+            ['closure_identity', '字段闭环合同身份'],
+            ['closure_contract_version', '字段闭环合同版本'],
         ];
         const rows = buildClosureDownloadRows(closure);
         return `\uFEFF${[
@@ -227,6 +266,10 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
     const resolveClosureResponse = (response, { hotelId, businessDate } = {}) => {
         const expectedHotelId = Number(hotelId || 0);
         const expectedDate = String(businessDate || '').trim();
+        if (!Number.isInteger(expectedHotelId) || expectedHotelId <= 0
+            || !/^\d{4}-\d{2}-\d{2}$/.test(expectedDate)) {
+            return { ok: false, reason: 'dual_ota_field_closure_scope_mismatch', closure: null };
+        }
         const closure = response?.code === 200
             && response?.data
             && typeof response.data === 'object'
@@ -235,17 +278,46 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
         if (!closure || typeof closure !== 'object') {
             return { ok: false, reason: response?.message || 'dual_ota_field_closure_missing', closure: null };
         }
+        if (closure.status === 'unavailable'
+            && closure.reason === 'dual_ota_field_closure_read_failed'
+            && Number(closure.hotel_id || 0) === expectedHotelId
+            && String(closure.business_date || '') === expectedDate
+        ) {
+            return { ok: false, reason: closure.reason, closure: null };
+        }
         if (closure.contract_version !== 'dual_ota_field_closure.v1'
+            || !Number.isInteger(Number(closure.tenant_id))
+            || Number(closure.tenant_id) <= 0
             || Number(closure.hotel_id || 0) !== expectedHotelId
             || String(closure.business_date || '') !== expectedDate
-            || !closure.platforms?.ctrip
-            || !closure.platforms?.meituan
             || closure.sensitive_values_exposed === true
         ) {
             return { ok: false, reason: 'dual_ota_field_closure_scope_mismatch', closure: null };
         }
+        for (const key of ['ctrip', 'meituan']) {
+            const platform = closure.platforms?.[key];
+            if (!platform || typeof platform !== 'object' || Array.isArray(platform)
+                || (platform.platform !== undefined && platform.platform !== key)
+                || (platform.business_date !== undefined && platform.business_date !== expectedDate)
+                || (platform.fields !== undefined && !Array.isArray(platform.fields))
+                || (platform.fields || []).some(field => !field || typeof field !== 'object' || Array.isArray(field)
+                    || (field.tenant_id !== undefined && Number(field.tenant_id) !== Number(closure.tenant_id))
+                    || (field.system_hotel_id !== undefined && Number(field.system_hotel_id) !== expectedHotelId)
+                    || (field.platform !== undefined && field.platform !== key)
+                    || (field.business_date !== undefined && field.business_date !== expectedDate))
+            ) {
+                return { ok: false, reason: 'dual_ota_field_closure_scope_mismatch', closure: null };
+            }
+        }
         return { ok: true, reason: '', closure };
     };
+
+    const closureErrorText = reason => ({
+        dual_ota_field_closure_scope_mismatch: '字段闭环的租户、酒店、平台或营业日身份不一致，请重新读取。',
+        dual_ota_field_closure_missing: '尚未取得当前范围的字段闭环合同，请重新读取。',
+        dual_ota_field_closure_read_failed: '当前范围的字段闭环读取失败，请重新读取。',
+        'Authentication session changed': '登录会话已更新，请重新读取当前范围的字段闭环。',
+    }[String(reason || '')] || String(reason || '字段闭环读取失败'));
 
     const createPanel = ({ h } = {}) => {
         if (typeof h !== 'function') {
@@ -270,19 +342,21 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                 fetchedClosure: null,
                 closureLoading: false,
                 closureError: '',
+                closureDownloadError: '',
                 closureRequestSeq: 0,
                 closureRequestScope: '',
+                closureExplicitReadScope: '',
             }),
             computed: {
                 activeClosure() {
-                    const expectedHotelId = Number(this.hotelId || this.closure?.hotel_id || 0);
-                    const expectedDate = String(this.businessDate || this.closure?.business_date || '').trim();
+                    if (this.closureLoading || this.closureError) return null;
+                    const expectedHotelId = Number(this.hotelId || 0);
+                    const expectedDate = String(this.businessDate || '').trim();
                     const candidates = [this.fetchedClosure, this.closure];
-                    return candidates.find(candidate => candidate
-                        && typeof candidate === 'object'
-                        && Number(candidate.hotel_id || 0) === expectedHotelId
-                        && String(candidate.business_date || '') === expectedDate
-                    ) || null;
+                    return candidates.find(candidate => resolveClosureResponse(
+                        { code: 200, data: { dual_ota_field_closure: candidate } },
+                        { hotelId: expectedHotelId, businessDate: expectedDate },
+                    ).ok) || null;
                 },
             },
             watch: {
@@ -297,13 +371,27 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                 this.closureRequestSeq += 1;
             },
             methods: {
-                async refreshClosure() {
-                    const hotelId = Number(this.hotelId || this.closure?.hotel_id || 0);
-                    const businessDate = String(this.businessDate || this.closure?.business_date || '').trim();
-                    if (this.closure
-                        && Number(this.closure.hotel_id || 0) === hotelId
-                        && String(this.closure.business_date || '') === businessDate
-                    ) {
+                async refreshClosure(options = {}) {
+                    this.closureDownloadError = '';
+                    const hotelId = Number(this.hotelId || 0);
+                    const businessDate = String(this.businessDate || '').trim();
+                    const requestScope = `${hotelId}|${businessDate}|${this.forceRead === true ? 'force' : 'normal'}`;
+                    if (this.closureExplicitReadScope !== requestScope) {
+                        this.closureExplicitReadScope = '';
+                    }
+                    // A parent update must not cancel a current read or replace
+                    // the result/error of the user's explicit same-scope refresh.
+                    if (this.closureLoading && this.closureRequestScope === requestScope) {
+                        return this.fetchedClosure;
+                    }
+                    if (options.forceReload !== true && this.closureExplicitReadScope === requestScope) {
+                        return this.fetchedClosure;
+                    }
+                    const parent = resolveClosureResponse(
+                        { code: 200, data: { dual_ota_field_closure: this.closure } },
+                        { hotelId, businessDate },
+                    );
+                    if (options.forceReload !== true && parent.ok) {
                         this.closureRequestSeq += 1;
                         this.fetchedClosure = null;
                         this.closureLoading = false;
@@ -332,14 +420,12 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                         this.closureError = '请先确定酒店和营业日';
                         return null;
                     }
-                    const requestScope = `${hotelId}|${businessDate}|${this.forceRead === true ? 'force' : 'normal'}`;
-                    if (this.closureLoading && this.closureRequestScope === requestScope) {
-                        return this.fetchedClosure;
-                    }
                     const requestSeq = ++this.closureRequestSeq;
                     this.closureRequestScope = requestScope;
+                    if (options.forceReload === true) this.closureExplicitReadScope = requestScope;
                     this.closureLoading = true;
                     this.closureError = '';
+                    this.fetchedClosure = null;
                     try {
                         const response = await this.request(path, {
                             requestPolicy: {
@@ -351,15 +437,16 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                         const resolved = resolveClosureResponse(response, { hotelId, businessDate });
                         if (!resolved.ok) {
                             this.fetchedClosure = null;
-                            this.closureError = resolved.reason || '字段闭环读取失败';
+                            this.closureError = closureErrorText(resolved.reason);
                             return null;
                         }
                         this.fetchedClosure = resolved.closure;
+                        this.closureError = '';
                         return resolved.closure;
                     } catch (error) {
                         if (requestSeq !== this.closureRequestSeq) return null;
                         this.fetchedClosure = null;
-                        this.closureError = error?.message || '字段闭环读取失败';
+                        this.closureError = closureErrorText(error?.message);
                         return null;
                     } finally {
                         if (requestSeq === this.closureRequestSeq) {
@@ -369,21 +456,39 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                     }
                 },
                 downloadClosure() {
-                    const closure = this.activeClosure || this.closure;
+                    this.closureDownloadError = '';
+                    const closure = this.activeClosure;
+                    if (!closure) {
+                        return { ok: false, rows: [], csv: '', fileName: '', message: this.closureLoading
+                            ? '字段闭环正在读取，请等待当前范围读取完成'
+                            : (this.closureError || '当前没有通过范围核验的可见字段可下载') };
+                    }
                     const payload = buildClosureDownloadPayload(closure);
                     if (!payload.ok) {
-                        this.closureError = payload.message;
+                        this.closureDownloadError = payload.message;
                         return payload;
                     }
-                    const anchor = document.createElement('a');
-                    anchor.href = `data:text/csv;charset=utf-8,${encodeURIComponent(payload.csv)}`;
-                    anchor.download = payload.fileName;
-                    document.body.appendChild(anchor);
-                    anchor.click();
-                    window.setTimeout(() => {
-                        anchor.remove();
-                    }, 5000);
-                    return payload;
+                    let anchor = null;
+                    let url = '';
+                    const cleanup = () => {
+                        if (anchor?.isConnected) anchor.remove();
+                        if (url) URL.revokeObjectURL(url);
+                    };
+                    try {
+                        url = URL.createObjectURL(new Blob([payload.csv], { type: 'text/csv;charset=utf-8' }));
+                        anchor = document.createElement('a');
+                        anchor.href = url;
+                        anchor.download = payload.fileName;
+                        document.body.appendChild(anchor);
+                        anchor.click();
+                        // Match the app's existing downloadBlob lifetime for embedded browsers.
+                        window.setTimeout(cleanup, 60000);
+                        return payload;
+                    } catch (error) {
+                        cleanup();
+                        this.closureDownloadError = 'CSV下载未能启动，请重试。';
+                        return { ...payload, ok: false, message: this.closureDownloadError };
+                    }
                 },
             },
             render() {
@@ -392,15 +497,26 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                     ? candidate
                     : null;
                 const testId = `dual-ota-field-closure-${String(this.surface || 'unknown')}`;
+                const refreshControl = h('button', {
+                    type: 'button',
+                    class: 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-700 disabled:cursor-wait disabled:opacity-50',
+                    'data-testid': `dual-ota-field-refresh-${this.surface}`,
+                    disabled: this.closureLoading || typeof this.request !== 'function'
+                        || !Number.isInteger(Number(this.hotelId)) || !(Number(this.hotelId) > 0)
+                        || !/^\d{4}-\d{2}-\d{2}$/.test(String(this.businessDate || '').trim()),
+                    onClick: () => this.refreshClosure({ forceReload: true }),
+                }, this.closureLoading ? '读取中…' : (this.closureError ? '重新读取字段' : '刷新字段事实'));
                 if (!closure || !Array.isArray(platformRows(closure)) || platformRows(closure).length === 0) {
                     return h('section', {
                         class: 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm',
                         'data-testid': testId,
+                        'data-read-status': this.closureLoading ? 'loading' : (this.closureError ? 'error' : 'not_loaded'),
                     }, [
                         h('h3', { class: 'text-base font-semibold text-slate-900' }, '携程＋美团真实字段闭环'),
                         h('p', { class: 'mt-2 text-sm text-slate-500' }, this.closureLoading
                             ? '正在读取同酒店、同平台、同营业日的字段闭环合同…'
                             : (this.closureError || '尚未读取到同酒店、同平台、同营业日的字段闭环合同。')),
+                        refreshControl,
                     ]);
                 }
 
@@ -411,8 +527,16 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                     ? parsedConsumableCount
                     : null;
                 const visibleRows = buildVisibleRows(closure);
+                const csvPreview = visibleRows.length ? buildClosureDownloadPayload(closure) : null;
                 const platformSections = platformRows(closure).map(platform => {
                     const collection = platform.latest_collection || {};
+                    const localRecords = closure.local_source_records?.[platform.platform];
+                    const localDiagnosticsReady = localRecords?.diagnostic_only === true
+                        && Number.isInteger(localRecords.record_count)
+                        && localRecords.record_count >= 0
+                        && Array.isArray(localRecords.records)
+                        && localRecords.records.length === localRecords.record_count
+                        && localRecords.state === (localRecords.record_count ? 'local_records_present' : 'no_local_records');
                     const eligibleRecordRefs = normalizeRecordRefs(platform.current_receipt_record_refs);
                     const projectedAllRecordRefs = normalizeRecordRefs(platform.current_receipt_all_record_refs);
                     const receiptRecordRefs = normalizeRecordRefs(collection.receipt_record_ids);
@@ -502,6 +626,20 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                                 h('div', null, `目标日 ${collection.target_date_status === 'matched' ? '一致' : (collection.target_date_status || '未验证')} · ${exactScopeText(collection.exact_run_readback_status)}`),
                             ]),
                         ]),
+                        h('div', {
+                            class: 'border-b border-slate-200 bg-amber-50/50 px-4 py-3 text-xs leading-5 text-slate-700',
+                            'data-testid': `dual-ota-local-records-${this.surface}-${platform.platform}`,
+                        }, [
+                            h('p', { class: 'font-semibold' }, localDiagnosticsReady
+                                ? (localRecords.record_count ? `当前范围本地记录 ${localRecords.record_count} 条（仅质量诊断）` : '当前范围本地记录 0 条（读取成功，无本地记录）')
+                                : '当前范围本地记录诊断未返回，数量与质量未知，请重新读取'),
+                            ...(localDiagnosticsReady ? localRecords.records.map(record => h('div', { key: record.record_ref }, [
+                                h('p', null, `${record.record_ref || '记录引用未知'} · 来源登记：${localRecordOriginText(record.source_origin)} · 质量：${localRecordStatusText(record.validation_status)} · 历史：${localRecordStatusText(record.history_status)} · 数据库回读：${localRecordStatusText(record.readback_status)} · ${Array.isArray(record.requirements) && record.requirements.length
+                                    ? record.requirements.map(localRecordRequirementText).join('；') : '记录元数据要件已满足，字段口径及来源身份仍以正式闭环门禁为准'}`),
+                                h('p', { class: 'mt-1', 'data-testid': `dual-ota-origin-recovery-${this.surface}-${platform.platform}` }, `只读补证：${localRecordOriginRecoveryText(record.source_origin)}。先保留未验证状态，不手动改质量；可用下方刷新字段事实重新读取。`),
+                            ])) : []),
+                            h('p', { class: 'mt-1' }, '本地记录存在不代表字段事实可用。正式放行还须账号/Profile/门店身份一致、当前已接受回执与整批范围一致、历史成功、质量已验证和数据库回读通过。'),
+                        ]),
                         h('div', { class: 'overflow-x-auto' }, [
                             h('table', { class: 'min-w-full text-left' }, [
                                 h('thead', { class: 'bg-white text-[11px] font-medium uppercase tracking-wide text-slate-500' }, [
@@ -520,6 +658,7 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                     'data-testid': testId,
                     'data-closure-identity': identity,
                     'data-business-date': businessDate,
+                    'data-read-status': 'ready',
                 }, [
                     h('div', { class: 'mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between' }, [
                         h('div', null, [
@@ -530,20 +669,48 @@ window.SUXI_DUAL_OTA_FIELD_CLOSURE = (() => {
                                     : 'border-amber-200 bg-amber-50 text-amber-900'),
                             ]),
                             h('p', { class: 'mt-1 text-xs leading-5 text-slate-600' }, '同一合同同时供数据健康页与收益驾驶舱使用；缺失、失败、错日期和口径不确定不会显示成 0。'),
+                            h('p', { class: 'mt-1 text-xs leading-5 text-slate-600', 'data-testid': `dual-ota-readonly-recovery-${this.surface}` }, '刷新字段事实只重新读取当前范围记录，不发起采集、不改变质量状态；采集权限拒绝时仍可只读查看。读取失败请重新读取，登录或门店访问权限拒绝须先恢复授权。'),
                         ]),
                         h('div', { class: 'flex flex-col items-stretch gap-2 sm:items-end' }, [
                             h('div', { class: 'rounded-lg border border-[#dcc591]/40 bg-[#06110d] px-3 py-2 text-[11px] leading-5 text-slate-100' }, [
                                 h('div', { class: 'font-semibold text-[#dcc591]' }, `${businessDate} · Hotel #${closure.hotel_id || '—'}`),
                                 h('div', null, `合同 ${identity || '未生成'} · 收益可消费字段 ${consumableCount === null ? '—' : consumableCount}`),
                             ]),
+                            refreshControl,
                             h('button', {
                                 type: 'button',
                                 class: 'rounded-lg border border-[#a88a52] bg-[#fffaf0] px-3 py-2 text-xs font-semibold text-[#6f572f] transition hover:bg-[#f8edcf]',
+                                disabled: visibleRows.length === 0,
                                 'data-testid': `dual-ota-field-download-${this.surface}`,
                                 onClick: this.downloadClosure,
                             }, '按当前字段与顺序下载 CSV'),
+                            this.closureDownloadError ? h('p', {
+                                role: 'alert',
+                                class: 'text-xs text-red-700',
+                                'data-testid': `dual-ota-field-download-error-${this.surface}`,
+                            }, this.closureDownloadError) : null,
                         ]),
                     ]),
+                    closure.supplemental_evidence_read?.status === 'failed'
+                        ? h('p', {
+                            role: 'alert',
+                            class: 'mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900',
+                            'data-testid': `dual-ota-supplemental-read-error-${this.surface}`,
+                        }, '当前范围的补证记录读取失败。本地来源元数据已保留，收益消费仍被阻断；请刷新字段事实重新读取补证。')
+                        : null,
+                    csvPreview?.ok ? h('details', { class: 'mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3' }, [
+                        h('summary', { class: 'cursor-pointer text-xs font-medium text-slate-600' }, '下载未弹出？查看 CSV 文本'),
+                        h('p', { class: 'mt-2 text-xs leading-5 text-slate-600' }, `可选中下方全部文本，复制并以 UTF-8 保存为 ${csvPreview.fileName}；内容与当前字段及顺序一致。`),
+                        h('textarea', {
+                            readOnly: true,
+                            rows: 6,
+                            spellcheck: false,
+                            class: 'mt-2 w-full rounded-lg border border-slate-300 bg-white p-2 font-mono text-xs text-slate-700',
+                            'aria-label': '当前字段 CSV 文本',
+                            'data-testid': `dual-ota-field-csv-text-${this.surface}`,
+                            value: csvPreview.csv,
+                        }),
+                    ]) : null,
                     h('div', { class: 'space-y-4' }, platformSections),
                 ]);
             },

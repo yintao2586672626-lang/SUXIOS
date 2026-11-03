@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFrontendTestFileSync as readFileSync } from './helpers/retired_frontend_source.mjs';
 import vm from 'node:vm';
 
 const read = path => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8');

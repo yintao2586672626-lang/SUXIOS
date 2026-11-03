@@ -121,6 +121,7 @@ final class DingdandaoPmsIntegrationService
         string $businessDate = ''
     ): array {
         $this->assertScope($tenantId, $hotelId, $userId);
+        $businessDate = HotelPmsBindingService::validatedBusinessDate($businessDate, $input, 'dingdandao_pms_date_invalid');
         $this->assertTablesReady();
 
         $providerHotelId = $this->textOrNull($input['provider_hotel_id'] ?? null, 120);
@@ -148,7 +149,8 @@ final class DingdandaoPmsIntegrationService
         }
 
         $now = date('Y-m-d H:i:s');
-        Db::transaction(function () use (
+        (new HotelPmsBindingService())->writeIntegrationConfiguration($tenantId, $hotelId, $userId,
+            HotelPmsBindingService::PROVIDER_DINGDANDAO, $enabled, function () use (
             $tenantId,
             $hotelId,
             $userId,

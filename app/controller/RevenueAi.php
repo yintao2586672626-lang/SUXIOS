@@ -121,22 +121,28 @@ class RevenueAi extends Base
             $filters = $this->filters();
             $hotelId = (int)($filters['hotel_id'] ?? 0);
             $this->assertRevenueAiHotelCapability($hotelId, self::REVIEW_PERMISSION);
+            if ((string)$this->request->param('history', '') === '1') {
+                return $this->readCockpitSnapshotHistory($filters, $hotelId);
+            }
             $context = $this->strictCockpitContext($filters);
             $snapshotId = (int)$this->request->param('snapshot_id', 0);
             $service = new RevenueDecisionSnapshotService();
+            $comparisons = $this->currentCockpitComparisonContexts($context, $filters);
             $snapshot = $snapshotId > 0
                 ? $service->readExact(
                     $snapshotId,
                     $context['tenant_id'],
                     $context['hotel_id'],
-                    $context['overview']
+                    $context['overview'],
+                    $comparisons
                 )
                 : $service->readLatest(
                     $context['tenant_id'],
                     $context['hotel_id'],
                     $context['business_date'],
                     $context['platform'],
-                    $context['overview']
+                    $context['overview'],
+                    $comparisons
                 );
             return $this->success([
                 'found' => is_array($snapshot),
@@ -180,7 +186,8 @@ class RevenueAi extends Base
                 $context['hotel_id'],
                 (int)($this->currentUser->id ?? 0),
                 $opportunityKey,
-                $context['overview']
+                $context['overview'],
+                $this->currentCockpitComparisonContexts($context, $filters)
             );
             return $this->success(
                 $payload,
@@ -363,6 +370,16 @@ class RevenueAi extends Base
      * @param array<string,mixed> $filters
      * @return array{previous_date:string,same_weekday_date:string,previous_overview:array<string,mixed>,same_weekday_overview:array<string,mixed>,selected_platform_label:string,latest_verified_date:string,scope_notice:string}
      */
+    private function currentCockpitComparisonContexts(array $context, array $filters): array
+    {
+        try {
+            return $this->strictCockpitComparisonContexts($context, $filters);
+        } catch (Throwable) {
+            // Exact saved history remains readable; an unavailable current basis blocks new actions.
+            return ['current_read_failed' => true];
+        }
+    }
+
     private function strictCockpitComparisonContexts(array $context, array $filters): array
     {
         $scope = (new OperatingQuestionService())->scopeOptions(
@@ -641,6 +658,12 @@ class RevenueAi extends Base
             $existing = $this->existingPriceSuggestionExecutionIntent($id, $hotelIds, $service);
             if ($existing !== null) {
                 $intent = $service->readExecutionIntent((int)($existing['id'] ?? 0), $hotelIds);
+                $this->assertPriceSuggestionExecutionIntentScope($intent, $suggestion->toArray(), [
+                    'platform' => (string)($input['platform'] ?? $input['channel'] ?? $this->request->param('platform', $this->request->param('channel', ''))),
+                    'room_type_key' => (string)($input['room_type_key'] ?? $this->request->param('room_type_key', '')),
+                    'rate_plan_key' => (string)($input['rate_plan_key'] ?? $this->request->param('rate_plan_key', '')),
+                    'execution_date' => (string)($input['execution_date'] ?? $this->request->param('execution_date', '')),
+                ]);
                 if ($approveToTask) {
                     $intent = $this->ensureExecutionIntentOperationTask($service, $intent, $hotelIds);
                 }
@@ -701,6 +724,52 @@ class RevenueAi extends Base
     /**
      * @return array<string, mixed>
      */
+    private function readCockpitSnapshotHistory(array $filters, int $hotelId): Response
+    {
+        $hotel = Db::name('hotels')->field('id,tenant_id')->where('id', $hotelId)->find();
+        $tenantId = (int)($hotel['tenant_id'] ?? 0);
+        if ($tenantId <= 0) throw new RuntimeException('revenue_cockpit_fact_tenant_missing', 422);
+        if (!$this->currentUser->isSuperAdmin()
+            && (int)$this->currentUser->tenant_id !== $tenantId) {
+            throw new RuntimeException('revenue_cockpit_tenant_scope_mismatch', 403);
+        }
+        $positiveId = static function (mixed $value): int {
+            if (!is_scalar($value) || !ctype_digit((string)$value)
+                || filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]) === false) {
+                throw new InvalidArgumentException('revenue_decision_snapshot_history_id_invalid');
+            }
+            return (int)$value;
+        };
+        $service = new RevenueDecisionSnapshotService();
+        $hotelHistory = $this->request->param('hotel_history', null);
+        if ($hotelHistory !== null) {
+            if (!is_scalar($hotelHistory) || (string)$hotelHistory !== '1' || $this->request->param('snapshot_id', null) !== null) {
+                throw new InvalidArgumentException('revenue_decision_snapshot_hotel_history_mode_invalid');
+            }
+            foreach (['business_date', 'platform', 'date_start', 'date_end'] as $selector) {
+                if ($this->request->param($selector, null) !== null) {
+                    throw new InvalidArgumentException('revenue_decision_snapshot_hotel_history_selector_mixed');
+                }
+            }
+            $before = $this->request->param('before_id', null);
+            return $this->success($service->readHotelHistory($tenantId, $hotelId,
+                $before === null ? 0 : $positiveId($before), $positiveId($this->request->param('limit', 20))));
+        }
+        $date = (string)($filters['business_date'] ?? '');
+        $platform = (string)($filters['platform'] ?? '');
+        $id = $this->request->param('snapshot_id', null);
+        if ($id !== null) {
+            $snapshot = $service->readHistoricalExact($positiveId($id), $tenantId, $hotelId, $date, $platform);
+            return $this->success(['found' => $snapshot !== null, 'snapshot' => $snapshot,
+                'persistence_status' => $snapshot !== null ? 'readback_verified' : 'not_saved',
+                'read_only' => true, 'current_evidence_verified' => false]);
+        }
+        $before = $this->request->param('before_id', null);
+        $limit = $positiveId($this->request->param('limit', 20));
+        return $this->success($service->readHistory($tenantId, $hotelId, $date, $platform,
+            $before === null ? 0 : $positiveId($before), $limit));
+    }
+
     private function filters(): array
     {
         if (!$this->currentUser) {
@@ -1061,6 +1130,37 @@ class RevenueAi extends Base
             return true;
         }
         throw new InvalidArgumentException('price_suggestion_boolean_input_invalid');
+    }
+
+    /**
+     * @param array<string, mixed> $intent
+     * @param array<string, mixed> $suggestion
+     * @param array<string, mixed> $requested
+     */
+    private function assertPriceSuggestionExecutionIntentScope(array $intent, array $suggestion, array $requested): void
+    {
+        $target = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
+        $actual = [
+            'platform' => strtolower(trim((string)($intent['platform'] ?? ''))),
+            'execution_date' => trim((string)($intent['date_start'] ?? '')),
+            'room_type_key' => trim((string)($target['room_type_key'] ?? '')),
+            'rate_plan_key' => trim((string)($target['rate_plan_key'] ?? '')),
+        ];
+        if ((int)($intent['hotel_id'] ?? 0) !== (int)($suggestion['hotel_id'] ?? 0)
+            || ($intent['source_module'] ?? '') !== 'price_suggestion'
+            || (int)($intent['source_record_id'] ?? 0) !== (int)($suggestion['id'] ?? 0)
+        ) {
+            throw new RuntimeException('已有执行意图与本次填写的酒店、建议或执行范围不一致，请回读原执行单后重新确认', 409);
+        }
+        foreach ($actual as $key => $value) {
+            $expected = trim((string)($requested[$key] ?? ''));
+            if ($key === 'platform') $expected = strtolower($expected);
+            if ($expected !== '' && ($expected !== $value
+                || ($key === 'execution_date' && $expected !== trim((string)($intent['date_end'] ?? '')))
+            )) {
+                throw new RuntimeException('已有执行意图与本次填写的酒店、建议或执行范围不一致，请回读原执行单后重新确认', 409);
+            }
+        }
     }
 
     /**

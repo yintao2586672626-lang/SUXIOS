@@ -298,6 +298,7 @@ final class OtaExposureEstimationReferenceServiceTest extends TestCase
                 'row' => [
                     'endpoint_id' => $target ? 'business_visitor_title' : 'traffic_flow_transform',
                     '_capture_source' => $target ? 'xhr:business:visitor' : 'xhr:traffic:traffic',
+                    '_source_path' => $target ? '$.data.visitor' : '$.data.traffic',
                     'listExposure' => $target ? null : 1000,
                     'detailExposure' => 100,
                     'flowRate' => $target ? null : 10,

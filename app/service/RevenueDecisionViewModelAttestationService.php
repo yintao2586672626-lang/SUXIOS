@@ -294,6 +294,10 @@ final class RevenueDecisionViewModelAttestationService
             $asOfDate,
             $asOfDateContractVersion
         );
+        $this->assertComparisonIdentity($previousOverview, $previousDate, 'previous',
+            $tenantId, $hotelId, $businessDate, $platform, $asOfDate, $asOfDateContractVersion);
+        $this->assertComparisonIdentity($sameWeekdayOverview, $sameWeekdayDate, 'same_weekday',
+            $tenantId, $hotelId, $businessDate, $platform, $asOfDate, $asOfDateContractVersion);
         $this->assertNoForbiddenClaims($model);
         $this->assertOnlyKeys($model, self::TOP_LEVEL_KEYS, 'top');
 
@@ -329,7 +333,7 @@ final class RevenueDecisionViewModelAttestationService
             $sectionMap[$sectionKey] = $section['cards'];
         }
 
-        $trustedCurrentPms = $this->hasTrustedPmsRef($evidenceContext);
+        $trustedCurrentPms = $this->hasTrustedPmsRef($evidenceContext, $overview, $businessDate);
         $current = $this->factCards($overview, $businessDate, $platform, $trustedCurrentPms);
         $previous = $this->factCards(
             $previousOverview,
@@ -658,6 +662,48 @@ final class RevenueDecisionViewModelAttestationService
         }
     }
 
+    /** @param array<string,mixed> $overview */
+    private function assertComparisonIdentity(
+        array $overview,
+        string $date,
+        string $basis,
+        int $tenantId,
+        int $hotelId,
+        string $businessDate,
+        string $platform,
+        string $asOfDate,
+        string $asOfDateContractVersion
+    ): void {
+        if ($date === '' && $overview === []) return;
+        if (!$this->isIsoDate($date) || $date >= $businessDate
+            || ($basis === 'same_weekday'
+                && (new \DateTimeImmutable($date))->format('w')
+                    !== (new \DateTimeImmutable($businessDate))->format('w'))
+        ) {
+            $this->invalid('comparison_' . $basis . '_date');
+        }
+        // A legacy absent baseline stays unavailable; it must not acquire facts.
+        if ($overview === []) return;
+        $layer = (array)($overview['three_source_fact_layer'] ?? []);
+        $hotel = (array)($layer['hotel'] ?? []);
+        $strict = (array)($overview['cockpit_strict_evidence'] ?? []);
+        if ((isset($overview['hotel_id']) && (int)$overview['hotel_id'] !== $hotelId)
+            || (isset($overview['business_date']) && (string)$overview['business_date'] !== $date)
+            || (int)($hotel['tenant_id'] ?? 0) !== $tenantId
+            || (int)($hotel['system_hotel_id'] ?? 0) !== $hotelId
+            || (string)($layer['business_date'] ?? '') !== $date
+            || (string)($strict['contract_version'] ?? '') !== 'revenue_cockpit_strict_evidence.v1'
+            || (int)($strict['tenant_id'] ?? 0) !== $tenantId
+            || (int)($strict['hotel_id'] ?? 0) !== $hotelId
+            || (string)($strict['business_date'] ?? '') !== $date
+            || (array_key_exists('platform', $strict) && (string)$strict['platform'] !== $platform)
+            || (string)($overview['as_of_date'] ?? '') !== $asOfDate
+            || (string)($overview['as_of_date_contract_version'] ?? '') !== $asOfDateContractVersion
+        ) {
+            $this->invalid('comparison_' . $basis . '_identity');
+        }
+    }
+
     /** @param array<string,mixed> $overview @return array<string,mixed> */
     private function factCards(
         array $overview,
@@ -666,14 +712,20 @@ final class RevenueDecisionViewModelAttestationService
         bool $trustedPms
     ): array {
         $selectedPlatforms = $this->selectedPlatforms($platform);
-        $sourceKeys = array_merge(
-            ['dingdandao_pms'],
-            array_map(static fn(string $item): string => $item . '_ota', $selectedPlatforms)
-        );
         $factLayer = is_array($overview['three_source_fact_layer'] ?? null)
             ? $overview['three_source_fact_layer']
             : [];
+        $pmsSelection = (new RevenuePmsFactSelectorService())->select($factLayer);
+        $pmsSourceKey = (string)$pmsSelection['source_key'];
+        $sourceKeys = array_merge(
+            [$pmsSourceKey],
+            array_map(static fn(string $item): string => $item . '_ota', $selectedPlatforms)
+        );
         $sources = is_array($factLayer['sources'] ?? null) ? $factLayer['sources'] : [];
+        $sources[$pmsSourceKey] = array_replace((array)$pmsSelection['source'], [
+            'facts' => (array)$pmsSelection['facts'],
+            'data_status' => (string)$pmsSelection['data_status'],
+        ]);
         $strictPlatforms = is_array($overview['cockpit_strict_evidence']['platforms'] ?? null)
             ? $overview['cockpit_strict_evidence']['platforms']
             : [];
@@ -732,7 +784,8 @@ final class RevenueDecisionViewModelAttestationService
         $traffic = [];
         $metrics = [];
         foreach ($sourceKeys as $sourceKey) {
-            foreach (self::CORE_DEFINITIONS[$sourceKey] ?? [] as [$metricKey, $label, $unit]) {
+            $definitions = self::CORE_DEFINITIONS[$sourceKey === $pmsSourceKey ? 'dingdandao_pms' : $sourceKey] ?? [];
+            foreach ($definitions as [$metricKey, $label, $unit]) {
                 $card = $this->metricCard(
                     is_array($sources[$sourceKey] ?? null) ? $sources[$sourceKey] : [],
                     $sourceKey,
@@ -789,8 +842,8 @@ final class RevenueDecisionViewModelAttestationService
         $factStatus = is_array($statuses[$metricKey] ?? null) ? $statuses[$metricKey] : [];
         $status = (string)($factStatus['status'] ?? '');
         $raw = $this->number($facts[$metricKey] ?? null);
-        $canonicalReady = in_array($status, ['readback_verified', 'derived_verified', 'verified'], true)
-            && $raw !== null;
+        $verifiedStatus = in_array($status, ['readback_verified', 'derived_verified', 'verified'], true);
+        $canonicalReady = $verifiedStatus && $raw !== null;
         $otaPlatform = str_ends_with($sourceKey, '_ota') ? substr($sourceKey, 0, -4) : '';
         $strict = $otaPlatform !== '' && is_array($strictPlatforms[$otaPlatform] ?? null)
             ? $strictPlatforms[$otaPlatform]
@@ -803,14 +856,28 @@ final class RevenueDecisionViewModelAttestationService
             : $trustedPms;
         $ready = $canonicalReady && $strictReady;
         $strictMismatch = $canonicalReady && !$strictReady;
+        $metricFieldEvidenceMissing = $strictMismatch && in_array(
+            'metric_field_evidence_unverified',
+            (array)($strict['metrics'][$metricKey]['quality_flags'] ?? []),
+            true
+        );
         $displayStatus = $ready
             ? ($status !== '' ? $status : 'verified')
-            : ($strictMismatch ? 'not_verified' : ($factStatus !== [] ? $status : 'missing'));
+            : ($strictMismatch ? 'not_verified'
+                : ($verifiedStatus && $raw === null ? 'missing' : ($factStatus !== [] ? $status : 'missing')));
+        $reportedReason = trim((string)($factStatus['reason'] ?? ''));
+        $fallbackReason = match ($displayStatus) {
+            'not_verified', 'unknown' => 'metric_truth_unverified',
+            'missing' => 'metric_value_missing',
+            'partial' => 'metric_truth_partial',
+            'collection_failed' => 'metric_truth_collection_failed',
+            default => $raw === null ? 'metric_value_missing' : 'metric_truth_unverified',
+        };
         $reasonCode = $ready
             ? ''
             : ($strictMismatch
                 ? 'cockpit_strict_metric_readback_missing'
-                : (string)($factStatus['reason'] ?? ($sourceKey . '_' . $metricKey . '_missing')));
+                : ($reportedReason !== '' ? $reportedReason : $fallbackReason));
         $meta = $this->sourceMeta($sourceKey);
         $evidenceLines = $this->sourceEvidence($source, $sourceKey, $businessDate, $strict, $metricKey);
         $evidenceLines[] = '指标状态：' . $this->statusText($displayStatus)
@@ -842,7 +909,9 @@ final class RevenueDecisionViewModelAttestationService
             'reasonText' => $ready
                 ? '该指标命中同酒店、同来源、同业务日的验证状态。'
                 : ($strictMismatch
-                    ? '指标来源行未通过 history_status=success、validation_status=verified、readback_verified=1 的驾驶舱严格事实闸门，数值保持为空。'
+                    ? ($metricFieldEvidenceMissing
+                        ? '对应指标、入库字段与同来源回读证据尚未闭合，数值保持为空；补齐字段溯源后重新只读刷新。'
+                        : '指标来源行尚未满足驾驶舱严格事实闸门的全部条件，数值保持为空；请在来源补证页核对具体未闭合要件。')
                     : $this->reasonText($reasonCode)),
             'evidenceLines' => $evidenceLines,
         ];
@@ -951,19 +1020,20 @@ final class RevenueDecisionViewModelAttestationService
             && ($baseline['value'] ?? null) !== null
             && (string)$current['sourceKey'] === (string)$baseline['sourceKey']
             && (string)$current['unit'] === (string)$baseline['unit'];
-        $delta = $comparable
-            ? round((float)$current['value'] - (float)$baseline['value'], 2)
-            : null;
-        $ratio = $comparable && (float)$baseline['value'] !== 0.0
-            ? round(((float)$delta / abs((float)$baseline['value'])) * 100, 2)
-            : null;
+        $calculation = $comparable
+            ? $this->finiteComparison((float)$current['value'], (float)$baseline['value'], 2)
+            : ['delta' => null, 'percent' => null, 'reason' => ''];
+        $delta = $calculation['delta'];
+        $ratio = $calculation['percent'];
+        $reason = $calculation['reason'];
+        $comparable = $comparable && $delta !== null;
         $display = !$comparable
-            ? '—'
+            ? ($reason !== '' ? '—（差值不可计算）' : '—')
             : (($delta > 0 ? '+' : '') . $this->displayValue($delta, (string)$current['unit'])
-                . ($ratio === null
+                . ($reason !== '' ? '（百分比不可计算）' : ($ratio === null
                     ? '（基期为 0）'
-                    : '（' . ($ratio > 0 ? '+' : '') . number_format($ratio, 2, '.', '') . '%）'));
-        $status = $comparable ? 'verified' : 'not_calculable';
+                    : '（' . ($ratio > 0 ? '+' : '') . number_format($ratio, 2, '.', '') . '%）')));
+        $status = $comparable ? ($reason !== '' ? 'partial' : 'verified') : 'not_calculable';
         return [
             'key' => ($basis === 'previous_comparable' ? 'compare' : 'compare-' . $basis)
                 . ':' . (string)$current['key'],
@@ -977,15 +1047,21 @@ final class RevenueDecisionViewModelAttestationService
             'sourceLabel' => (string)$current['sourceLabel'],
             'businessDate' => (string)$current['businessDate'],
             'status' => $status,
-            'statusLabel' => $comparable ? '同来源同单位可比' : '不可同口径比较',
+            'statusLabel' => $reason !== ''
+                ? ($comparable ? '差值可用，百分比不可计算' : '差值不可计算')
+                : ($comparable ? '同来源同单位可比' : '不可同口径比较'),
             'statusClass' => $this->statusClass($status),
             'scope' => (string)$current['scope'],
             'scopeLabel' => (string)$current['scopeLabel'],
-            'missingState' => $comparable ? '有值' : '缺少同口径基期',
-            'reasonCode' => $comparable ? '' : 'same_source_comparison_missing',
-            'reasonText' => $comparable
+            'missingState' => $reason !== '' ? '比较计算超出有限数值范围' : ($comparable ? '有值' : '缺少同口径基期'),
+            'reasonCode' => $reason !== '' ? $reason : ($comparable ? '' : 'same_source_comparison_missing'),
+            'reasonText' => $reason !== ''
+                ? (string)$current['sourceLabel'] . '的当前与基期事实保持独立；'
+                    . ($comparable ? '差值有效，但百分比超出有限数值范围，百分比保持为空。' : '差值超出有限数值范围，变化保持为空。')
+                    . '修正同范围来源后刷新重新计算，不使用 0 或旧比较替代。'
+                : ($comparable
                 ? '只比较 ' . (string)$current['sourceLabel'] . ' 的同酒店、同平台、同一指标与同一单位，没有跨来源合并。'
-                : '当前值或' . $basisLabel . '的同来源、同单位指标缺失，变化保持为空。',
+                : '当前值或' . $basisLabel . '的同来源、同单位指标缺失，变化保持为空。'),
             'comparisonBasis' => $basis,
             'baselineDate' => $baselineDate,
             'formula' => $comparable ? 'current_value - baseline_value' : '',
@@ -1121,6 +1197,8 @@ final class RevenueDecisionViewModelAttestationService
                 'causalityStatus' => 'not_claimed',
                 'unknownStatePreserved' => !in_array($state, ['actionable', 'no_signal'], true),
                 'canCreatePendingApproval' => in_array($state, ['actionable', 'evidence_investigation'], true)
+                    && count(array_filter($reasonCodes, static fn(string $reason): bool =>
+                        str_starts_with($reason, 'numeric_comparison_'))) === 0
                     && count(array_filter(
                         $signals,
                         static fn(array $signal): bool => (string)$signal['evidenceLevel'] !== 'missing_required_fact'
@@ -1173,14 +1251,15 @@ final class RevenueDecisionViewModelAttestationService
     ): array {
         $sourceKey = $platform . '_ota';
         $sourceReady = ($current['source_ready'][$sourceKey] ?? false) === true;
-        $compare = fn(string $metric): array => $this->opportunityBaseline(
-            $sourceKey . ':' . $metric,
-            $current,
-            $previous,
-            $sameWeekday,
-            $previousDate,
-            $sameWeekdayDate
-        );
+        $calculationFailures = [];
+        $compare = function (string $metric) use ($sourceKey, $current, $previous, $sameWeekday, $previousDate, $sameWeekdayDate, &$calculationFailures): array {
+            $signal = $this->opportunityBaseline($sourceKey . ':' . $metric, $current, $previous, $sameWeekday, $previousDate, $sameWeekdayDate);
+            // Exposure uses a percentage threshold; the other signals use only a finite difference.
+            if ($signal['reason'] !== '' && ($metric === 'list_exposure' || $signal['delta'] === null)) {
+                $calculationFailures[] = $signal;
+            }
+            return $signal;
+        };
         $state = 'evidence_investigation';
         $score = null;
         $factChange = '缺少形成该判断所需的同口径事实或基期。';
@@ -1293,6 +1372,17 @@ final class RevenueDecisionViewModelAttestationService
                 ? '平台事实已严格回读；因果识别所需设计证据未提供。'
                 : '平台事实与因果识别证据均未达到门槛。';
         }
+        if ($calculationFailures !== []) {
+            $state = 'blocked';
+            $score = null;
+            $display = '比较不可计算，待修正同范围来源';
+            $factChange = '当前与基期事实保持独立；所需变化计算超出有限数值范围，不判断阈值。';
+            $evidenceSupport = implode('；', array_map(static fn(array $signal): string =>
+                '当前 ' . $signal['current']['display'] . '；基期 ' . $signal['baseline']['display']
+                    . '；原因 ' . $signal['reason'], $calculationFailures));
+            $reasonCodes = array_column($calculationFailures, 'reason');
+            $missing = ['有限、同口径的变化计算；修正同范围来源后只读刷新'];
+        }
         if (!$sourceReady) {
             $state = 'blocked';
             $score = null;
@@ -1363,22 +1453,37 @@ final class RevenueDecisionViewModelAttestationService
             && ($currentCard['value'] ?? null) !== null
             && is_array($baselineCard)
             && ($baselineCard['value'] ?? null) !== null;
-        $delta = $comparable
-            ? round((float)$currentCard['value'] - (float)$baselineCard['value'], 4)
-            : null;
-        $deltaPercent = $comparable && (float)$baselineCard['value'] !== 0.0
-            ? round(((float)$delta / abs((float)$baselineCard['value'])) * 100, 2)
-            : null;
+        $calculation = $comparable
+            ? $this->finiteComparison((float)$currentCard['value'], (float)$baselineCard['value'], 4)
+            : ['delta' => null, 'percent' => null, 'reason' => ''];
         return [
             'current' => $currentCard,
             'baseline' => $baselineCard,
             'basis' => (string)$baseline[1],
             'basis_label' => (string)$baseline[2],
             'baseline_date' => (string)$baseline[3],
-            'comparable' => $comparable,
-            'delta' => $delta,
-            'delta_percent' => $deltaPercent,
+            'comparable' => $comparable && $calculation['delta'] !== null,
+            'delta' => $calculation['delta'],
+            'delta_percent' => $calculation['percent'],
+            'reason' => $calculation['reason'],
         ];
+    }
+
+    /** @return array{delta:?float,percent:?float,reason:string} */
+    private function finiteComparison(float $current, float $baseline, int $precision): array
+    {
+        if (!is_finite($current) || !is_finite($baseline)) {
+            return ['delta' => null, 'percent' => null, 'reason' => 'numeric_comparison_input_nonfinite'];
+        }
+        $delta = round($current - $baseline, $precision);
+        if (!is_finite($delta)) {
+            return ['delta' => null, 'percent' => null, 'reason' => 'numeric_comparison_delta_nonfinite'];
+        }
+        $percent = $baseline !== 0.0 ? round(($delta / abs($baseline)) * 100, 2) : null;
+        if ($percent !== null && !is_finite($percent)) {
+            return ['delta' => $delta, 'percent' => null, 'reason' => 'numeric_comparison_percent_nonfinite'];
+        }
+        return ['delta' => $delta, 'percent' => $percent, 'reason' => ''];
     }
 
     /** @param list<array<string,mixed>> $rawGaps @param array<string,mixed> $current @return list<array<string,mixed>> */
@@ -1629,20 +1734,19 @@ final class RevenueDecisionViewModelAttestationService
                 'factScope' => 'ota_channel',
             ];
         }
-        $sources = is_array($overview['three_source_fact_layer']['sources'] ?? null)
-            ? $overview['three_source_fact_layer']['sources']
-            : [];
-        $pms = is_array($sources['dingdandao_pms'] ?? null) ? $sources['dingdandao_pms'] : [];
+        $selection = (new RevenuePmsFactSelectorService())->select((array)($overview['three_source_fact_layer'] ?? []));
+        $sourceKey = (string)$selection['source_key'];
+        $pms = (array)$selection['source'];
         $recordId = (int)($pms['source']['record_id'] ?? 0);
         $pmsCard = array_values(array_filter(
             $current['sources'],
-            static fn(array $card): bool => (string)$card['sourceKey'] === 'dingdandao_pms'
+            static fn(array $card): bool => (string)$card['sourceKey'] === $sourceKey
         ))[0] ?? [];
         if ((string)($pmsCard['status'] ?? '') === 'readback_verified' && $recordId > 0) {
             $records[] = [
-                'sourceKey' => 'dingdandao_pms',
-                'table' => 'dingdandao_operating_target_captures',
-                'platform' => 'dingdandao_pms',
+                'sourceKey' => $sourceKey,
+                'table' => (string)$selection['expected_table'],
+                'platform' => $sourceKey,
                 'businessDate' => $businessDate,
                 'rowIds' => [$recordId],
                 'readbackStatus' => 'readback_verified',
@@ -1860,11 +1964,19 @@ final class RevenueDecisionViewModelAttestationService
     }
 
     /** @param array<string,mixed> $context */
-    private function hasTrustedPmsRef(array $context): bool
+    private function hasTrustedPmsRef(array $context, array $overview, string $businessDate): bool
     {
+        if (!$this->trustedPmsSource($overview, $businessDate)) {
+            return false;
+        }
+        $selection = (new RevenuePmsFactSelectorService())->select((array)($overview['three_source_fact_layer'] ?? []));
+        $recordId = (int)($selection['source']['source']['record_id'] ?? 0);
         foreach ((array)($context['evidence_refs'] ?? []) as $ref) {
             if (is_array($ref)
-                && (string)($ref['table'] ?? '') === 'dingdandao_operating_target_captures'
+                && (string)($ref['table'] ?? '') === (string)$selection['expected_table']
+                && (string)($ref['platform'] ?? '') === (string)$selection['source_key']
+                && (string)($ref['business_date'] ?? '') === $businessDate
+                && in_array($recordId, $this->positiveIds($ref['row_ids'] ?? []), true)
                 && (string)($ref['fact_scope'] ?? '') === 'whole_hotel_accommodation'
                 && ($ref['readback_verified'] ?? false) === true
             ) {
@@ -1880,14 +1992,20 @@ final class RevenueDecisionViewModelAttestationService
         if ($businessDate === '') {
             return false;
         }
-        $pms = is_array($overview['three_source_fact_layer']['sources']['dingdandao_pms'] ?? null)
-            ? $overview['three_source_fact_layer']['sources']['dingdandao_pms']
-            : [];
+        $layer = (array)($overview['three_source_fact_layer'] ?? []);
+        $selection = (new RevenuePmsFactSelectorService())->select($layer);
+        $pms = (array)$selection['source'];
         $source = is_array($pms['source'] ?? null) ? $pms['source'] : [];
-        return (string)($pms['data_status'] ?? '') === 'readback_verified'
+        $provider = trim((string)($source['provider'] ?? ''));
+        return (string)$selection['data_status'] === 'readback_verified'
+            && $selection['provider'] !== null
+            && ($provider === (string)$selection['source_key']
+                || (($selection['legacy_fixture'] ?? false) === true && $provider === ''))
             && (string)($pms['business_date'] ?? '') === $businessDate
             && (string)($pms['actual_business_date'] ?? '') === $businessDate
-            && (string)($source['table'] ?? '') === 'dingdandao_operating_target_captures'
+            && (string)($source['table'] ?? '') === (string)$selection['expected_table']
+            && (int)($source['tenant_id'] ?? 0) === (int)($layer['hotel']['tenant_id'] ?? -1)
+            && (int)($source['system_hotel_id'] ?? 0) === (int)($layer['hotel']['system_hotel_id'] ?? -1)
             && (string)($source['data_date'] ?? '') === $businessDate
             && (string)($source['readback_status'] ?? '') === 'readback_verified'
             && (int)($source['record_id'] ?? 0) > 0;
@@ -1962,7 +2080,7 @@ final class RevenueDecisionViewModelAttestationService
         $rejected = is_array($strictMetric)
             ? $this->positiveIds($strictMetric['rejected_row_ids'] ?? [])
             : $this->positiveIds($strict['rejected_row_ids'] ?? []);
-        return [
+        $lines = [
             '来源：' . $meta['label'] . ' · ' . (string)($provenance['table'] ?? $meta['expected_table'] ?? '来源表待确认'),
             '业务日期：' . (string)($source['business_date'] ?? $provenance['data_date'] ?? $businessDate ?: '待确认')
                 . ' · 实际日期：' . (string)($source['actual_business_date'] ?? $provenance['data_date'] ?? '待确认'),
@@ -1979,6 +2097,13 @@ final class RevenueDecisionViewModelAttestationService
             '来源追踪：' . ($traceIds !== [] ? count($traceIds) . ' 条 trace' : '未返回 trace'),
             '口径：' . $meta['scope_label'],
         ];
+        if (is_array($strictMetric) && ($strictMetric['strict_readback'] ?? false) !== true
+            && in_array('metric_field_evidence_unverified', (array)($strictMetric['quality_flags'] ?? []), true)
+        ) {
+            $lines[] = '字段溯源：metric_field_evidence_unverified · 对应指标与入库字段证据未闭合';
+            $lines[] = '只读恢复：补齐对应指标、入库字段和同来源回读证据后重新刷新';
+        }
+        return $lines;
     }
 
     /** @return array{label:string,scope:string,scope_label:string,expected_table:string} */
@@ -1986,6 +2111,8 @@ final class RevenueDecisionViewModelAttestationService
     {
         return match ($sourceKey) {
             'dingdandao_pms' => ['label' => 'PMS（订单来了）', 'scope' => 'whole_hotel_accommodation', 'scope_label' => 'PMS 全酒店住宿口径', 'expected_table' => 'dingdandao_operating_target_captures'],
+            'meituan_cloud_pms' => ['label' => 'PMS（美团云）', 'scope' => 'whole_hotel_accommodation', 'scope_label' => 'PMS 全酒店住宿口径', 'expected_table' => 'meituan_cloud_pms_captures'],
+            'pms' => ['label' => 'PMS（有效来源待确认）', 'scope' => 'whole_hotel_accommodation', 'scope_label' => 'PMS 全酒店住宿口径', 'expected_table' => ''],
             'ctrip_ota' => ['label' => '携程 OTA', 'scope' => 'ota_channel', 'scope_label' => '携程 OTA 渠道口径', 'expected_table' => 'online_daily_data'],
             'meituan_ota' => ['label' => '美团 OTA', 'scope' => 'ota_channel', 'scope_label' => '美团 OTA 渠道口径', 'expected_table' => 'online_daily_data'],
             'cockpit_rule' => ['label' => '经营驾驶舱规则', 'scope' => 'advisory_only', 'scope_label' => '只读建议口径', 'expected_table' => ''],
@@ -2036,6 +2163,7 @@ final class RevenueDecisionViewModelAttestationService
     {
         return match ($reason) {
             '' => '数据已命中当前口径。',
+            'numeric_aggregate_nonfinite' => '同范围数值累计或计算超出可表示范围，当前指标不可计算；原始事实仍保留。',
             'online_daily_data_empty' => '目标经营日期没有可用 OTA 入库数据。',
             'source_not_loaded' => '未找到对应渠道的数据源或入库状态。',
             'metric_scope_mismatch' => '指标事实与当前酒店、平台或业务日期不一致。',
@@ -2142,7 +2270,7 @@ final class RevenueDecisionViewModelAttestationService
             return null;
         }
         $number = $value + 0;
-        return is_int($number) ? $number : (float)$number;
+        return is_int($number) ? $number : (is_finite((float)$number) ? (float)$number : null);
     }
 
     /** @return list<int> */
@@ -2206,7 +2334,12 @@ final class RevenueDecisionViewModelAttestationService
 
     private function canonicalize(mixed $value): mixed
     {
-        if (is_float($value) && is_finite($value) && floor($value) === $value) {
+        // Integral floats outside the native integer range must retain their
+        // value; casting them can wrap to an unrelated amount or to zero.
+        // PHP_INT_MAX rounds up when converted to float on 64-bit PHP.
+        if (is_float($value) && is_finite($value) && floor($value) === $value
+            && $value >= (float)PHP_INT_MIN && $value < (float)PHP_INT_MAX
+        ) {
             return (int)$value;
         }
         if (!is_array($value)) {

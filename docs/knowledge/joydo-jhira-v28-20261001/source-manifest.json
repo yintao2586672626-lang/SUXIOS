@@ -1,0 +1,43 @@
+{
+  "version": "joydo-jhira-v28-reference-20261001-v1",
+  "source_url": "https://joydo.us.ci/index.full",
+  "version_label": "V2.8 / JHIRA-100",
+  "observed_on": "2026-10-01",
+  "timezone": "Asia/Shanghai",
+  "visible_role": "合作伙伴",
+  "observation_method": "authorized_browser_ui_and_bounded_visible_dom",
+  "task_mode": "classify",
+  "disposition": "store_only",
+  "capability_disposition": "absorption_candidate",
+  "credential_retention": false,
+  "source_code_retention": false,
+  "upstream_commit": "unknown",
+  "upstream_content_hash": "not_obtained",
+  "fingerprint_scope": "local_paraphrased_observations_screenshot_and_derived_reference_pack_only",
+  "source_fact_import": false,
+  "source_input_mutation": false,
+  "source_report_export": "disabled_review_incomplete",
+  "rights_status": "source_reuse_and_training_permission_not_established_abstract_reference_only",
+  "retained_files": [
+    {
+      "file": "sources/observations.md",
+      "sha256": "1754E7D8C23AC2447236FF2E4CD157757F2CC92DADFB162C8E03F0F4F61FABD6",
+      "bytes": 4495
+    },
+    {
+      "file": "sources/visible-page.jpg",
+      "sha256": "02499BF3D113BD4F5A9DC455BFCF75209FB22CD3F553E9DACB711F0226346280",
+      "bytes": 153452
+    },
+    {
+      "file": "README.md",
+      "sha256": "6BFACAD56E723001A15D07E7AB0750B924B7376D6EA80FC6C99906FF06150E62",
+      "bytes": 4488
+    },
+    {
+      "file": "knowledge-pack.json",
+      "sha256": "84C7562A7A7ACEF6D1B2C9402037355A11303D8BD0AD3CA501B5CD67AABD3997",
+      "bytes": 4762
+    }
+  ]
+}

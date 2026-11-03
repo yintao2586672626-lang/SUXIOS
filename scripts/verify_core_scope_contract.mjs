@@ -1,13 +1,12 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import vm from 'node:vm';
 import { readRouteContractSource } from './lib/route_contract_source.mjs';
+import { readSourceAggregate } from './lib/source_aggregate.mjs';
 
 const root = process.cwd();
 const sourceCache = new Map();
 const readRaw = (file) => {
   if (!sourceCache.has(file)) {
-    sourceCache.set(file, fs.readFileSync(path.join(root, file), 'utf8'));
+    sourceCache.set(file, readSourceAggregate(file, { repoRoot: root }));
   }
   return sourceCache.get(file);
 };

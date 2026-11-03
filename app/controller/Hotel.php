@@ -866,6 +866,7 @@ class Hotel extends Base
             $message = match ($error->getMessage()) {
                 'hotel_pms_provider_invalid' => '请选择有效的 PMS，或选择暂不配置',
                 'hotel_pms_binding_required' => '启用 PMS 时必须填写该系统中的门店名称',
+                'hotel_pms_binding_date_invalid' => '经营日期格式无效，请核对后重试；本次未修改 PMS 配置',
                 default => 'PMS 门店配置无效',
             };
             return $this->error($message, 422);

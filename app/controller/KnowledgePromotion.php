@@ -168,6 +168,10 @@ final class KnowledgePromotion extends Base
     /** @return array{0:int,1:list<int>} */
     private function writeScopeForCandidate(int $candidateId): array
     {
+        $input = $this->requestData();
+        if ((int)($input['expected_row_version'] ?? 0) <= 0 || (int)($input['expected_revision_id'] ?? 0) <= 0) {
+            throw new InvalidArgumentException('请重新读取候选后提交，保存需要当前版本号');
+        }
         $hotelIds = $this->accessibleHotels('operation.execute');
         $candidate = $this->promotionService->readCandidate($candidateId, 0, $hotelIds);
         return [(int)$candidate['tenant_id'], $hotelIds];
@@ -226,6 +230,7 @@ final class KnowledgePromotion extends Base
 
     private function status(Throwable $e): int
     {
+        if (str_contains($e->getMessage(), '版本冲突')) return 409;
         if ($e->getMessage() === '未登录') {
             return 401;
         }

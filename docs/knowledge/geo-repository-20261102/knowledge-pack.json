@@ -1,0 +1,499 @@
+{
+  "version": "geo-repository-20261102-v1",
+  "task_mode": "classify",
+  "source_url": "https://github.com/lzy27272/GEO",
+  "source_ref": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7",
+  "reviewed_at": "2026-11-02 00:00:00",
+  "usage_policy": "reference_only",
+  "automatic_application_authorized": false,
+  "business_integration": false,
+  "knowledge_center_database_ingested": false,
+  "overall_disposition": "absorption_candidate",
+  "entries": [
+    {
+      "key": "scope_inheritance",
+      "title": "GEO 主体继承与证明归属",
+      "disposition": "store_only",
+      "summary": "门店沿品牌和集团向上取资料；字段优先最近主体，规则合并；集团证明保留集团归属。",
+      "method": [
+        "先校验租户与实体，再得到本级和祖先ID集合。",
+        "可引用范围与事实有效期是前置门槛；关键词命中不能扩大主体范围。",
+        "数字需连同所属主体和原事实ID一起呈现。"
+      ],
+      "counterexample": "集团经营经验不可改写成当前酒店的经营数据；纯函数祖先遍历不证明请求已经鉴权。",
+      "source_refs": [
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/brain-shared.ts#L39",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/brand-retrieval.ts#L11"
+      ],
+      "local_entry": "OperatingQuestionKnowledgeRetrievalService / KnowledgeDecisionGateService",
+      "local_gap": "已有酒店/用户/平台过滤；集团-品牌结构与本项目租户/酒店结构不同，不机械迁移。",
+      "replay": [
+        "ancestor_scope_excludes_sibling",
+        "profile_nearest_owner_and_rules_merged",
+        "brand_room_range_in_and_out"
+      ],
+      "gates": {
+        "mechanism": "pass",
+        "value": "no_verified_increment",
+        "reproduction": "pass_for_selected_functions"
+      },
+      "content": {
+        "type": "geo_source_reference",
+        "title": "GEO 主体继承与证明归属",
+        "summary": "门店沿品牌和集团向上取资料；字段优先最近主体，规则合并；集团证明保留集团归属。",
+        "method": [
+          "先校验租户与实体，再得到本级和祖先ID集合。",
+          "可引用范围与事实有效期是前置门槛；关键词命中不能扩大主体范围。",
+          "数字需连同所属主体和原事实ID一起呈现。"
+        ],
+        "counterexample": "集团经营经验不可改写成当前酒店的经营数据；纯函数祖先遍历不证明请求已经鉴权。",
+        "scope": "global_method_reference",
+        "evidence_level": "source_code_reviewed",
+        "source_refs": [
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/brain-shared.ts#L39",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/brand-retrieval.ts#L11"
+        ],
+        "reviewed_at": "2026-11-02 00:00:00",
+        "usage_policy": "reference_only",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "contains_current_hotel_fact": false,
+        "contains_current_ota_fact": false,
+        "external_write_authorized": false,
+        "capability_disposition": "store_only",
+        "known_unknowns": [
+          "已有酒店/用户/平台过滤；集团-品牌结构与本项目租户/酒店结构不同，不机械迁移。"
+        ],
+        "business_integration": false,
+        "source_version": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7"
+      }
+    },
+    {
+      "key": "exclusion_graph",
+      "title": "GEO 适用条件与排除原因优先",
+      "disposition": "absorption_candidate",
+      "summary": "先检验客户、场景、证明和业务适用性，再匹配优势、案例与方法，并记录排除依据。",
+      "method": [
+        "用需求识别词定位主业务和协同业务。",
+        "排除条件、客户不匹配、证明失效优先阻断；关系命中不能覆盖排除。",
+        "案例需自身命中业务或问题，不能被通用优势带入无关案例。",
+        "呈现输入约束、来源和命中/排除原因，别把规则解释说成模型内部推理。"
+      ],
+      "counterexample": "“并不打算筹建”仍触发筹建，离线已重现；不能依赖有限否定词表自动作业务决策。",
+      "source_refs": [
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/brain-matching.ts#L8",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/brain-matching.ts#L29",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/07-knowledge-relations.md"
+      ],
+      "local_entry": "经营问答 → OperatingQuestionKnowledgeRetrievalService → 证据说明",
+      "local_gap": "本地已有过滤/引用/排除计数；逐候选排除原因在实际页面的可见性尚未验证，故价值门未通过。",
+      "replay": [
+        "operations_primary_supporting_case_method",
+        "exclusion_beats_keyword",
+        "customer_restriction_beats_exact_question",
+        "missing_proof_excludes_advantage",
+        "unrelated_case_not_dragged_by_advantage",
+        "uncovered_negation_is_observed"
+      ],
+      "gates": {
+        "mechanism": "pass",
+        "value": "indeterminate",
+        "reproduction": "pass_for_selected_functions"
+      },
+      "content": {
+        "type": "geo_source_reference",
+        "title": "GEO 适用条件与排除原因优先",
+        "summary": "先检验客户、场景、证明和业务适用性，再匹配优势、案例与方法，并记录排除依据。",
+        "method": [
+          "用需求识别词定位主业务和协同业务。",
+          "排除条件、客户不匹配、证明失效优先阻断；关系命中不能覆盖排除。",
+          "案例需自身命中业务或问题，不能被通用优势带入无关案例。",
+          "呈现输入约束、来源和命中/排除原因，别把规则解释说成模型内部推理。"
+        ],
+        "counterexample": "“并不打算筹建”仍触发筹建，离线已重现；不能依赖有限否定词表自动作业务决策。",
+        "scope": "global_method_reference",
+        "evidence_level": "source_code_reviewed",
+        "source_refs": [
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/brain-matching.ts#L8",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/brain-matching.ts#L29",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/07-knowledge-relations.md"
+        ],
+        "reviewed_at": "2026-11-02 00:00:00",
+        "usage_policy": "reference_only",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "contains_current_hotel_fact": false,
+        "contains_current_ota_fact": false,
+        "external_write_authorized": false,
+        "capability_disposition": "absorption_candidate",
+        "known_unknowns": [
+          "本地已有过滤/引用/排除计数；逐候选排除原因在实际页面的可见性尚未验证，故价值门未通过。"
+        ],
+        "business_integration": false,
+        "source_version": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7"
+      }
+    },
+    {
+      "key": "source_constrained_strategy",
+      "title": "GEO 模型选ID与服务器回填事实",
+      "disposition": "absorption_candidate",
+      "summary": "检索先限定可用知识，模型只选候选ID，服务端拒绝越界引用并按当前快照回填事实。",
+      "method": [
+        "保存输入问题和候选快照；只把命中的最小知识投影送给模型。",
+        "输出结构禁止额外正文与自由数字，ID去重并校验归属和必需关联。",
+        "通过校验后按快照回填名称、数值、来源及主体；规则预览与真实模型生成分开。",
+        "引用合法不等于来源事实真实；使用前仍过本项目OTA身份、日期和回读门。"
+      ],
+      "counterexample": "source_validated=true只代表源项目候选/快照校验；不能等同携程或美团真实字段验证。",
+      "source_refs": [
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/strategy-provider.ts#L21",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/strategy-plan.ts#L29"
+      ],
+      "local_entry": "OperatingQuestionAiAnswerService / OperatingQuestionUnifiedEvidenceService",
+      "local_gap": "本地已有证据投影和知识门；未对同一经营问题完成当前/候选输出质量对比。",
+      "replay": [
+        "strategy_valid_selection_and_owner",
+        "strategy_rejects_forged_reference",
+        "strategy_rejects_duplicate_reference",
+        "strategy_rejects_missing_core_business",
+        "changed_fact_rehydrates_number"
+      ],
+      "gates": {
+        "mechanism": "pass",
+        "value": "indeterminate",
+        "reproduction": "pass_for_validation_and_rehydration_only"
+      },
+      "content": {
+        "type": "geo_source_reference",
+        "title": "GEO 模型选ID与服务器回填事实",
+        "summary": "检索先限定可用知识，模型只选候选ID，服务端拒绝越界引用并按当前快照回填事实。",
+        "method": [
+          "保存输入问题和候选快照；只把命中的最小知识投影送给模型。",
+          "输出结构禁止额外正文与自由数字，ID去重并校验归属和必需关联。",
+          "通过校验后按快照回填名称、数值、来源及主体；规则预览与真实模型生成分开。",
+          "引用合法不等于来源事实真实；使用前仍过本项目OTA身份、日期和回读门。"
+        ],
+        "counterexample": "source_validated=true只代表源项目候选/快照校验；不能等同携程或美团真实字段验证。",
+        "scope": "global_method_reference",
+        "evidence_level": "source_code_reviewed",
+        "source_refs": [
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/strategy-provider.ts#L21",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/strategy-plan.ts#L29"
+        ],
+        "reviewed_at": "2026-11-02 00:00:00",
+        "usage_policy": "reference_only",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "contains_current_hotel_fact": false,
+        "contains_current_ota_fact": false,
+        "external_write_authorized": false,
+        "capability_disposition": "absorption_candidate",
+        "known_unknowns": [
+          "本地已有证据投影和知识门；未对同一经营问题完成当前/候选输出质量对比。"
+        ],
+        "business_integration": false,
+        "source_version": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7"
+      }
+    },
+    {
+      "key": "snapshot_and_versions",
+      "title": "GEO 输入变化失效与稿件版本链",
+      "disposition": "store_only",
+      "summary": "模型调用后重核知识指纹；内容稿、运营修改稿与最终稿追加保存，父版本与预期版本限制覆盖。",
+      "method": [
+        "调用前后核对同一范围知识指纹，变化时返回失效而非保存成当前有效策略。",
+        "输出区分原始AI稿、人工修改和最终稿，记录父版本、创建人及引用。",
+        "历史结果保留，但不能凭历史成功把当前缺失伪装成成功。"
+      ],
+      "counterexample": "仅有内容版本表或界面截图不能证明保存、刷新回显和并发保护；本轮未运行其完整PostgreSQL内容流程。",
+      "source_refs": [
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/strategy-provider.ts#L45",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/production-source.ts#L10",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/10-content-agents.md"
+      ],
+      "local_entry": "OperationActionLifecycleService / 既有快照摘要与事件链",
+      "local_gap": "本项目已有行动来源快照、内容摘要与审批事件链；内容营销稿件链不是本次目标业务。",
+      "replay": [
+        "changed_fact_rehydrates_number",
+        "strategy_returns_no_article_outline"
+      ],
+      "gates": {
+        "mechanism": "pass",
+        "value": "no_verified_increment",
+        "reproduction": "partial_no_database_version_replay"
+      },
+      "content": {
+        "type": "geo_source_reference",
+        "title": "GEO 输入变化失效与稿件版本链",
+        "summary": "模型调用后重核知识指纹；内容稿、运营修改稿与最终稿追加保存，父版本与预期版本限制覆盖。",
+        "method": [
+          "调用前后核对同一范围知识指纹，变化时返回失效而非保存成当前有效策略。",
+          "输出区分原始AI稿、人工修改和最终稿，记录父版本、创建人及引用。",
+          "历史结果保留，但不能凭历史成功把当前缺失伪装成成功。"
+        ],
+        "counterexample": "仅有内容版本表或界面截图不能证明保存、刷新回显和并发保护；本轮未运行其完整PostgreSQL内容流程。",
+        "scope": "global_method_reference",
+        "evidence_level": "source_code_reviewed",
+        "source_refs": [
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/strategy-provider.ts#L45",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/production-source.ts#L10",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/10-content-agents.md"
+        ],
+        "reviewed_at": "2026-11-02 00:00:00",
+        "usage_policy": "reference_only",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "contains_current_hotel_fact": false,
+        "contains_current_ota_fact": false,
+        "external_write_authorized": false,
+        "capability_disposition": "store_only",
+        "known_unknowns": [
+          "本项目已有行动来源快照、内容摘要与审批事件链；内容营销稿件链不是本次目标业务。"
+        ],
+        "business_integration": false,
+        "source_version": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7"
+      }
+    },
+    {
+      "key": "scoring_semantics",
+      "title": "GEO 内容机会评分与经营收益分离",
+      "disposition": "store_only",
+      "summary": "模型给出意图与引用，服务端按版本计算内容机会分；30/30/20/20不是实测搜索量、收益或ROI。",
+      "method": [
+        "分数拆为商业意图、企业匹配、回答机会和内容资产，每项给依据。",
+        "保存算法版本、原问题、证据选择和每次评估历史。",
+        "将值得生产、资料完备、人工允许生产分别表达。",
+        "无市场数据明确not_connected，不用规则分替代排名、线索或订单事实。"
+      ],
+      "counterexample": "来源旧文档05仍是25/20/20/15/10/10；当前源码为30/30/20/20。两版不混合，S/A阈值不迁成经营默认。",
+      "source_refs": [
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/opportunity-scoring.ts#L26",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/11-geo-opportunities.md",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/05-content-engine.md"
+      ],
+      "local_entry": "DailyOneThingService（影响、紧迫、证据、执行成本排序）",
+      "local_gap": "评分目标不同；直接替换会改变现有经营事项优先级，无同题业务证据支持。",
+      "replay": [
+        "grade_cutoffs"
+      ],
+      "gates": {
+        "mechanism": "pass",
+        "value": "fail_for_operating_score_replacement",
+        "reproduction": "partial_grade_only"
+      },
+      "content": {
+        "type": "geo_source_reference",
+        "title": "GEO 内容机会评分与经营收益分离",
+        "summary": "模型给出意图与引用，服务端按版本计算内容机会分；30/30/20/20不是实测搜索量、收益或ROI。",
+        "method": [
+          "分数拆为商业意图、企业匹配、回答机会和内容资产，每项给依据。",
+          "保存算法版本、原问题、证据选择和每次评估历史。",
+          "将值得生产、资料完备、人工允许生产分别表达。",
+          "无市场数据明确not_connected，不用规则分替代排名、线索或订单事实。"
+        ],
+        "counterexample": "来源旧文档05仍是25/20/20/15/10/10；当前源码为30/30/20/20。两版不混合，S/A阈值不迁成经营默认。",
+        "scope": "global_method_reference",
+        "evidence_level": "source_code_reviewed",
+        "source_refs": [
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/opportunity-scoring.ts#L26",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/11-geo-opportunities.md",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/05-content-engine.md"
+        ],
+        "reviewed_at": "2026-11-02 00:00:00",
+        "usage_policy": "reference_only",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "contains_current_hotel_fact": false,
+        "contains_current_ota_fact": false,
+        "external_write_authorized": false,
+        "capability_disposition": "store_only",
+        "known_unknowns": [
+          "评分目标不同；直接替换会改变现有经营事项优先级，无同题业务证据支持。"
+        ],
+        "business_integration": false,
+        "source_version": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7"
+      }
+    },
+    {
+      "key": "durable_queue",
+      "title": "GEO 持久等待与逐项恢复",
+      "disposition": "absorption_candidate",
+      "summary": "生成候选与逐项评分分阶段，数据库保存进度、等待时间、租约和每次请求，成功项复用。",
+      "method": [
+        "短事务领取到期任务，持有租约令牌；网络请求不持有数据库长事务。",
+        "429按提供方等待窗口与本地退避取较晚时间，计费错误不盲目重试。",
+        "持久保存成功项和下一次到期时间，恢复仅处理未完成项。",
+        "区分计划数、已生成数、已评分数、失败样本数、未处理数；区分请求成功、结构有效、业务有效与保存成功。"
+      ],
+      "counterexample": "源taskCounts([],true)返回20失败，已离线复现；默认worker只处理一个配置工作空间，且租约不保证外部API恰好一次。",
+      "source_refs": [
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/ai-task-queue.ts#L7",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/ai-task-calls.ts#L22",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/model-errors.ts#L11",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/13-ai-task-queue.md"
+      ],
+      "local_entry": "AiEvaluationRunService / CloudThreeSourceCollectionQueueService",
+      "local_gap": "本地已有租约保留和队列服务；未证明有新的用户故障需要另一套队列。",
+      "replay": [
+        "retry_after_seconds_and_date",
+        "retry_reset_window_and_invalid",
+        "provider_long_delay_never_shortened",
+        "exponential_retry_cap",
+        "task_counts_success_reused_and_pending",
+        "empty_failed_batch_reports_plan_twenty"
+      ],
+      "gates": {
+        "mechanism": "pass",
+        "value": "indeterminate",
+        "reproduction": "partial_helpers_only"
+      },
+      "content": {
+        "type": "geo_source_reference",
+        "title": "GEO 持久等待与逐项恢复",
+        "summary": "生成候选与逐项评分分阶段，数据库保存进度、等待时间、租约和每次请求，成功项复用。",
+        "method": [
+          "短事务领取到期任务，持有租约令牌；网络请求不持有数据库长事务。",
+          "429按提供方等待窗口与本地退避取较晚时间，计费错误不盲目重试。",
+          "持久保存成功项和下一次到期时间，恢复仅处理未完成项。",
+          "区分计划数、已生成数、已评分数、失败样本数、未处理数；区分请求成功、结构有效、业务有效与保存成功。"
+        ],
+        "counterexample": "源taskCounts([],true)返回20失败，已离线复现；默认worker只处理一个配置工作空间，且租约不保证外部API恰好一次。",
+        "scope": "global_method_reference",
+        "evidence_level": "source_code_reviewed",
+        "source_refs": [
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/ai-task-queue.ts#L7",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/ai-task-calls.ts#L22",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/model-errors.ts#L11",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/13-ai-task-queue.md"
+        ],
+        "reviewed_at": "2026-11-02 00:00:00",
+        "usage_policy": "reference_only",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "contains_current_hotel_fact": false,
+        "contains_current_ota_fact": false,
+        "external_write_authorized": false,
+        "capability_disposition": "absorption_candidate",
+        "known_unknowns": [
+          "本地已有租约保留和队列服务；未证明有新的用户故障需要另一套队列。"
+        ],
+        "business_integration": false,
+        "source_version": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7"
+      }
+    },
+    {
+      "key": "candidate_generation",
+      "title": "GEO 候选生成复用原有验证链",
+      "disposition": "store_only",
+      "summary": "先生成带类别与来源ID的问题批次，再逐条走既有检索和评分，不绕过保存规则。",
+      "method": [
+        "批次和单条状态分开；先验证结构、数量、去重与类别内来源。",
+        "候选生成不直接形成经营待办；每条重新核对酒店、渠道、日期和资料质量。",
+        "去重键绑定任务类型与范围，不只靠可见标题。",
+        "固定五类各四条属于源企业营销业务规则，不能当单店经营需求量。"
+      ],
+      "counterexample": "20条全新问题通常需要1次生成+20次评分，重试另计；文本规范化去重不等于语义去重。",
+      "source_refs": [
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/opportunity-generation.ts#L48",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/opportunity-generation.ts#L96",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/12-ai-opportunity-engine.md"
+      ],
+      "local_entry": "既有经营问答与行动意图链",
+      "local_gap": "没有明确要求新增批量营销内容/发布模块；本轮只保留方法。",
+      "replay": [],
+      "gates": {
+        "mechanism": "pass",
+        "value": "no_current_target",
+        "reproduction": "not_run_database_and_model"
+      },
+      "content": {
+        "type": "geo_source_reference",
+        "title": "GEO 候选生成复用原有验证链",
+        "summary": "先生成带类别与来源ID的问题批次，再逐条走既有检索和评分，不绕过保存规则。",
+        "method": [
+          "批次和单条状态分开；先验证结构、数量、去重与类别内来源。",
+          "候选生成不直接形成经营待办；每条重新核对酒店、渠道、日期和资料质量。",
+          "去重键绑定任务类型与范围，不只靠可见标题。",
+          "固定五类各四条属于源企业营销业务规则，不能当单店经营需求量。"
+        ],
+        "counterexample": "20条全新问题通常需要1次生成+20次评分，重试另计；文本规范化去重不等于语义去重。",
+        "scope": "global_method_reference",
+        "evidence_level": "source_code_reviewed",
+        "source_refs": [
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/opportunity-generation.ts#L48",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/src/lib/opportunity-generation.ts#L96",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/12-ai-opportunity-engine.md"
+        ],
+        "reviewed_at": "2026-11-02 00:00:00",
+        "usage_policy": "reference_only",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "contains_current_hotel_fact": false,
+        "contains_current_ota_fact": false,
+        "external_write_authorized": false,
+        "capability_disposition": "store_only",
+        "known_unknowns": [
+          "没有明确要求新增批量营销内容/发布模块；本轮只保留方法。"
+        ],
+        "business_integration": false,
+        "source_version": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7"
+      }
+    },
+    {
+      "key": "measurement_boundaries",
+      "title": "GEO 可见度到业务效果的证据阶梯",
+      "disposition": "store_only",
+      "summary": "内容生成、人工确认、外部发布、AI提及/引用、访问线索和成交应分层观察，不能跨层声称收益。",
+      "method": [
+        "观测固定问题集、模型/平台、日期时间、地区/语言、重复采样次数、回答与引用证据。",
+        "发布需有真实URL和回执；AI回答提及需与引用位置分开。",
+        "访问与线索需独立来源和时间范围，成交需对应业务记录及归因等级。",
+        "这是本次适配建议；来源仓库没有证明该整条效果链已经运行。"
+      ],
+      "counterexample": "源docs/13明确真实20条生成尚未完成、遇到429；文档自述测试通过不是当前外部模型、AI排名或酒店营收证据。",
+      "source_refs": [
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/README.md",
+        "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/13-ai-task-queue.md#L34"
+      ],
+      "local_entry": "现有来源证据与运营效果回读合同",
+      "local_gap": "本次没有外部GEO监测、发布、线索和成交数据。",
+      "replay": [],
+      "gates": {
+        "mechanism": "partial_design_only",
+        "value": "reference_boundary",
+        "reproduction": "not_run_external_effects"
+      },
+      "content": {
+        "type": "geo_source_reference",
+        "title": "GEO 可见度到业务效果的证据阶梯",
+        "summary": "内容生成、人工确认、外部发布、AI提及/引用、访问线索和成交应分层观察，不能跨层声称收益。",
+        "method": [
+          "观测固定问题集、模型/平台、日期时间、地区/语言、重复采样次数、回答与引用证据。",
+          "发布需有真实URL和回执；AI回答提及需与引用位置分开。",
+          "访问与线索需独立来源和时间范围，成交需对应业务记录及归因等级。",
+          "这是本次适配建议；来源仓库没有证明该整条效果链已经运行。"
+        ],
+        "counterexample": "源docs/13明确真实20条生成尚未完成、遇到429；文档自述测试通过不是当前外部模型、AI排名或酒店营收证据。",
+        "scope": "global_method_reference",
+        "evidence_level": "source_code_reviewed",
+        "source_refs": [
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/README.md",
+          "https://github.com/lzy27272/GEO/blob/ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7/docs/13-ai-task-queue.md#L34"
+        ],
+        "reviewed_at": "2026-11-02 00:00:00",
+        "usage_policy": "reference_only",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "contains_current_hotel_fact": false,
+        "contains_current_ota_fact": false,
+        "external_write_authorized": false,
+        "capability_disposition": "store_only",
+        "known_unknowns": [
+          "本次没有外部GEO监测、发布、线索和成交数据。"
+        ],
+        "business_integration": false,
+        "source_version": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7"
+      }
+    }
+  ]
+}

@@ -10,6 +10,56 @@ use Tests\Support\RouteContractSource;
 
 final class DualOtaOrderQuickAnalysisServiceTest extends TestCase
 {
+    public function testExplicitTestSamplesNeverBecomeVerifiedOperatingMetrics(): void
+    {
+        $rows = [];
+        foreach (['ctrip', 'meituan'] as $index => $platform) {
+            $row = $this->orderRow($platform, $index + 1);
+            $detail = json_decode($row['raw_data'], true);
+            $detail['fixture_status'] = 'explicit_test_fixture';
+            $row['raw_data'] = json_encode(['row' => ['raw_data' => $detail]]);
+            $rows[] = $row;
+        }
+        $analysis = $this->service($rows)->analyze(80, 9, '2026-08-20', '2026-08-20');
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $result = $analysis['platforms'][$platform];
+            self::assertNull($result['metrics']['orders']['value']);
+            self::assertNull($result['metrics']['revenue']['value']);
+            self::assertSame('missing', $result['status']);
+            self::assertSame(1, $result['evidence']['excluded_test_fixture_rows']);
+            self::assertSame('test_fixture_excluded', $result['metrics']['orders']['reason_code']);
+            self::assertStringContainsString('测试', $result['quality_label']);
+        }
+        self::assertFalse($analysis['comparison']['can_compare']);
+    }
+
+    public function testRealRowsRemainUsableWhenTestRowsExistInTheSameRange(): void
+    {
+        $real = $this->orderRow('ctrip', 1);
+        $sample = $this->orderRow('ctrip', 2, ['amount' => 99999, 'room_revenue' => 99999, 'book_order_num' => 99]);
+        $sample['raw_data'] = json_encode(['fixture_status' => 'explicit_test_fixture']);
+        $rows = [$real, $sample];
+        $before = $rows;
+        $analysis = $this->service($rows)->analyze(80, 9, '2026-08-20', '2026-08-20');
+        self::assertSame(4, $analysis['platforms']['ctrip']['metrics']['orders']['value']);
+        self::assertSame(1000, $analysis['platforms']['ctrip']['metrics']['revenue']['value']);
+        self::assertSame('verified', $analysis['platforms']['ctrip']['metrics']['orders']['status']);
+        self::assertSame(1, $analysis['platforms']['ctrip']['evidence']['excluded_test_fixture_rows']);
+        self::assertSame($before, $rows, 'Filtering a consumer must not delete or rewrite saved samples.');
+    }
+
+    public function testTestOnlyMeituanOrderFlowIsNotAnOperatingLossSignal(): void
+    {
+        $row = $this->flowRow('loss', 3, 4, 7, 800);
+        $detail = json_decode($row['raw_data'], true);
+        $detail['fixture_status'] = 'explicit_test_fixture';
+        $row['raw_data'] = json_encode($detail);
+        $analysis = $this->service([$row])->analyze(80, 9, '2026-08-20', '2026-08-20');
+        self::assertSame('missing', $analysis['platforms']['meituan']['order_flow']['status']);
+        self::assertNull($analysis['platforms']['meituan']['order_flow']['loss']['orders']);
+        self::assertSame(1, $analysis['platforms']['meituan']['evidence']['excluded_test_fixture_rows']);
+    }
+
     public function testBothPlatformsProduceVerifiedMetricsAndComparableDeltas(): void
     {
         $rows = [

@@ -408,19 +408,28 @@ final class OperationInterventionJudgmentService
             $value = null;
             $lower = null;
             $upper = null;
+            $conditionResult = null;
 
             if (!is_array($definition)) {
                 $reasons[] = 'risk_metric_not_in_goal_guard_metrics:' . $metricKey;
             } else {
-                $lower = $definition['lower_bound'];
-                $upper = $definition['upper_bound'];
-                if ($lower === null && $upper === null) {
-                    $reasons[] = 'guard_metric_bound_missing:' . $metricKey;
+                $conditionResult = OperatingGoalInterventionMonitorService::evaluateGuardValue(
+                    $definition['condition'],
+                    $this->numeric($observation['value'] ?? null) ?? 0.0
+                );
+                $lower = $conditionResult['lower_bound'];
+                $upper = $conditionResult['upper_bound'];
+                if ($conditionResult['status'] === 'unavailable') {
+                    $reasons[] = ($conditionResult['reason_code'] === 'condition_bounds_invalid'
+                        ? 'guard_metric_bound_invalid:' : 'guard_metric_bound_missing:') . $metricKey;
                 }
             }
             if (!is_array($observation)) {
                 $reasons[] = 'guard_observation_missing:' . $metricKey;
             } else {
+                foreach ($this->guardObservationScopeReasons($goalContract, $intervention, $definition, $observation) as $reason) {
+                    $reasons[] = $reason . ':' . $metricKey;
+                }
                 $value = $this->numeric($observation['value'] ?? null);
                 if ($value === null) {
                     $reasons[] = 'guard_observation_value_missing:' . $metricKey;
@@ -469,9 +478,7 @@ final class OperationInterventionJudgmentService
             }
             $status = $reasons === [] ? 'within_bounds' : 'indeterminate';
             if ($reasons === [] && $value !== null) {
-                if (($lower !== null && $value + self::EPSILON < $lower)
-                    || ($upper !== null && $value - self::EPSILON > $upper)
-                ) {
+                if (($conditionResult['status'] ?? '') === 'breached') {
                     $status = 'breached';
                     $breachReasons[] = 'guard_metric_breached:' . $metricKey;
                 }
@@ -493,7 +500,7 @@ final class OperationInterventionJudgmentService
         ];
     }
 
-    /** @param mixed $raw @return array<string, array{lower_bound:?float,upper_bound:?float}> */
+    /** @param mixed $raw @return array<string, array<string,mixed>> */
     private function guardDefinitions(mixed $raw): array
     {
         $items = $this->decodeArray($raw);
@@ -508,26 +515,7 @@ final class OperationInterventionJudgmentService
             if ($metricKey === '') {
                 continue;
             }
-            $bounds = is_array($item['bounds'] ?? null) ? $item['bounds'] : [];
-            $lower = $this->firstNumeric([$item, $bounds], [
-                'lower_bound', 'minimum', 'min_value', 'min_allowed', 'min',
-            ]);
-            $upper = $this->firstNumeric([$item, $bounds], [
-                'upper_bound', 'maximum', 'max_value', 'max_allowed', 'max',
-            ]);
-            $threshold = $this->numeric($item['threshold'] ?? null);
-            $operator = strtolower(trim((string)($item['operator'] ?? $item['comparison'] ?? '')));
-            if ($threshold !== null && $lower === null && $upper === null) {
-                if (in_array($operator, ['>=', 'gte', 'minimum', 'not_below'], true)) {
-                    $lower = $threshold;
-                } elseif (in_array($operator, ['<=', 'lte', 'maximum', 'not_above'], true)) {
-                    $upper = $threshold;
-                }
-            }
-            $definitions[$metricKey] = [
-                'lower_bound' => $lower,
-                'upper_bound' => $upper,
-            ];
+            $definitions[$metricKey] = ['condition' => $item];
         }
         return $definitions;
     }
@@ -554,20 +542,85 @@ final class OperationInterventionJudgmentService
         return $observations;
     }
 
-    /** @param array<int, array<string, mixed>> $sources @param array<int, string> $keys */
-    private function firstNumeric(array $sources, array $keys): ?float
+    /** References identify records; they do not prove a missing observation identity. */
+    private function guardObservationScopeReasons(array $goal, array $intervention, ?array $definition, array $observation): array
     {
-        foreach ($sources as $source) {
-            foreach ($keys as $key) {
-                if (array_key_exists($key, $source)) {
-                    $value = $this->numeric($source[$key]);
-                    if ($value !== null) {
-                        return $value;
+        $reasons = [];
+        $scope = is_array($observation['scope'] ?? null) ? $observation['scope'] : [];
+        foreach ([['tenant', ['tenant_id']], ['hotel', ['hotel_id', 'system_hotel_id']]] as [$label, $keys]) {
+            $expected = (int)($goal[$label . '_id'] ?? $intervention[$label . '_id'] ?? 0);
+            $proven = false;
+            foreach ([$observation, $scope] as $source) {
+                foreach ($keys as $key) {
+                    if (!array_key_exists($key, $source) || $source[$key] === null) {
+                        continue;
+                    }
+                    $actual = filter_var($source[$key], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+                    if ($actual === false || $expected <= 0 || $actual !== $expected) {
+                        $reasons[] = 'guard_observation_' . $label . '_mismatch';
+                    } else {
+                        $proven = true;
                     }
                 }
             }
+            if (!$proven) {
+                $reasons[] = 'guard_observation_' . $label . '_unverified';
+            }
         }
-        return null;
+        $baseline = $this->arrayField($intervention, 'baseline_snapshot', 'baseline_snapshot_json');
+        $condition = is_array($definition['condition'] ?? null) ? $definition['condition'] : [];
+        $text = static fn(mixed $value): string => is_scalar($value) ? strtolower(trim((string)$value)) : '';
+        $factScope = static fn(string $value): string => match ($value) {
+            'whole_hotel', 'whole_hotel_accommodation', 'pms' => 'whole_hotel_accommodation',
+            'ota', 'ota_channel' => 'ota_channel', default => $value,
+        };
+        $platform = static fn(string $value): string => match ($value) {
+            'hotel', 'whole_hotel', 'pms', 'dingdandao_pms', 'meituan_pms' => 'whole_hotel', default => $value,
+        };
+        $expectedScope = $factScope($text($condition['fact_scope'] ?? $condition['metric_scope'] ?? $baseline['fact_scope'] ?? ''));
+        $expectedPlatform = $platform($text($condition['platform'] ?? ($expectedScope === 'whole_hotel_accommodation'
+            ? 'whole_hotel' : ($baseline['platform'] ?? ''))));
+        $wholeHotelScope = $expectedScope === 'whole_hotel_accommodation';
+        if ($wholeHotelScope && $expectedPlatform !== 'whole_hotel') {
+            $reasons[] = 'guard_definition_platform_scope_mismatch';
+        }
+        foreach ([
+            ['fact_scope', ['fact_scope', 'metric_scope'], $expectedScope, $factScope],
+            ['platform', ['platform'], $expectedPlatform, $platform],
+        ] as [$label, $keys, $expected, $normalize]) {
+            $proven = false;
+            foreach ([$observation, $scope] as $source) {
+                foreach ($keys as $key) {
+                    $actual = $normalize($text($source[$key] ?? ''));
+                    if ($actual === '') {
+                        continue;
+                    }
+                    if ($expected === '' || $actual !== $expected) {
+                        $reasons[] = 'guard_observation_' . $label . '_mismatch';
+                    } else {
+                        $proven = true;
+                    }
+                }
+            }
+            // Whole-hotel evidence has no OTA channel. A missing channel is
+            // N/A, while an explicitly conflicting channel remains a mismatch.
+            if (!$proven && !($label === 'platform' && $wholeHotelScope)) {
+                $reasons[] = 'guard_observation_' . $label . '_unverified';
+            }
+        }
+        $sameSource = $expectedScope === $factScope($text($baseline['fact_scope'] ?? ''))
+            && $expectedPlatform === $platform($text($baseline['platform'] ?? ''));
+        $expectedProviderHotel = trim((string)($condition['platform_hotel_id']
+            ?? ($sameSource ? ($baseline['platform_hotel_id'] ?? '') : '')));
+        if ($expectedProviderHotel !== '') {
+            $actualProviderHotel = trim((string)($observation['platform_hotel_id'] ?? $scope['platform_hotel_id'] ?? ''));
+            if ($actualProviderHotel === '') {
+                $reasons[] = 'guard_observation_platform_hotel_unverified';
+            } elseif ($actualProviderHotel !== $expectedProviderHotel) {
+                $reasons[] = 'guard_observation_platform_hotel_mismatch';
+            }
+        }
+        return $this->uniqueReasons($reasons);
     }
 
     /** @param array<string, mixed> $source @return array<string, mixed> */

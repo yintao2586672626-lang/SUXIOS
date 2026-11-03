@@ -174,6 +174,7 @@ final class HotelPmsBindingService
         string $businessDate = ''
     ): array {
         $this->assertScope($tenantId, $hotelId, $userId);
+        $businessDate = self::validatedBusinessDate($businessDate, $input);
         $provider = $this->provider(
             $input['provider'] ?? $input['pms_provider'] ?? self::PROVIDER_NONE
         );
@@ -184,7 +185,6 @@ final class HotelPmsBindingService
         }
 
         $this->assertTablesReady();
-        $this->ensureIntegrationRows($tenantId, $hotelId, $userId);
         $now = date('Y-m-d H:i:s');
 
         Db::transaction(function () use (
@@ -196,21 +196,8 @@ final class HotelPmsBindingService
             $providerHotelName,
             $now
         ): void {
-            $dingdandao = Db::name(self::DINGDANDAO_TABLE)
-                ->where('tenant_id', $tenantId)
-                ->where('hotel_id', $hotelId)
-                ->where('provider', self::PROVIDER_DINGDANDAO)
-                ->lock(true)
-                ->find();
-            $meituanCloud = Db::name(self::MEITUAN_CLOUD_TABLE)
-                ->where('tenant_id', $tenantId)
-                ->where('hotel_id', $hotelId)
-                ->where('provider', self::PROVIDER_MEITUAN_CLOUD)
-                ->lock(true)
-                ->find();
-            if (!is_array($dingdandao) || !is_array($meituanCloud)) {
-                throw new \RuntimeException('hotel_pms_binding_rows_missing');
-            }
+            $this->ensureIntegrationRows($tenantId, $hotelId, $userId);
+            [$dingdandao, $meituanCloud] = $this->lockedIntegrationRows($tenantId, $hotelId);
 
             $audit = [
                 'updated_by' => $userId,
@@ -245,6 +232,87 @@ final class HotelPmsBindingService
         });
 
         return $this->status($tenantId, $hotelId, $userId, $businessDate);
+    }
+
+    /** Validate every requested date before row creation or configuration writes. */
+    public static function validatedBusinessDate(
+        string $businessDate,
+        array $input = [],
+        string $errorCode = 'hotel_pms_binding_date_invalid'
+    ): string {
+        $targetDate = $input['target_date'] ?? '';
+        if (!is_string($targetDate)) {
+            throw new \InvalidArgumentException($errorCode);
+        }
+        $businessDate = trim($businessDate);
+        $targetDate = trim($targetDate);
+        foreach ([$businessDate, $targetDate] as $dateValue) {
+            if ($dateValue === '') {
+                continue;
+            }
+            $date = preg_match('/^\d{4}-\d{2}-\d{2}$/D', $dateValue) === 1
+                ? \DateTimeImmutable::createFromFormat('!Y-m-d', $dateValue)
+                : false;
+            if (!$date || $date->format('Y-m-d') !== $dateValue) {
+                throw new \InvalidArgumentException($errorCode);
+            }
+        }
+        if ($businessDate !== '' && $targetDate !== '' && $businessDate !== $targetDate) {
+            throw new \InvalidArgumentException($errorCode);
+        }
+        return $businessDate !== '' ? $businessDate : $targetDate;
+    }
+
+    /**
+     * Integration editors may configure one source, but changing the selected
+     * source is reserved for save(). Both entry paths lock rows in DD/MT order.
+     */
+    public function writeIntegrationConfiguration(
+        int $tenantId,
+        int $hotelId,
+        int $userId,
+        string $provider,
+        bool $enabled,
+        callable $write
+    ): void {
+        $this->assertScope($tenantId, $hotelId, $userId);
+        $provider = $this->provider($provider);
+        if ($provider === self::PROVIDER_NONE) {
+            throw new \InvalidArgumentException('hotel_pms_provider_invalid');
+        }
+        $this->assertTablesReady();
+        Db::transaction(function () use ($tenantId, $hotelId, $userId, $provider, $enabled, $write): void {
+            $this->ensureIntegrationRows($tenantId, $hotelId, $userId);
+            [$dingdandao, $meituanCloud] = $this->lockedIntegrationRows($tenantId, $hotelId);
+            $other = $provider === self::PROVIDER_DINGDANDAO ? $meituanCloud : $dingdandao;
+            if ($enabled && (int)$other['status'] === 1) {
+                throw new \InvalidArgumentException('hotel_pms_other_provider_enabled');
+            }
+            $write();
+            [$dingdandao, $meituanCloud] = $this->lockedIntegrationRows($tenantId, $hotelId);
+            $selected = $provider === self::PROVIDER_DINGDANDAO ? $dingdandao : $meituanCloud;
+            $other = $provider === self::PROVIDER_DINGDANDAO ? $meituanCloud : $dingdandao;
+            if ((int)$selected['status'] !== ($enabled ? 1 : 0)
+                || ($enabled && (int)$other['status'] === 1)
+            ) {
+                throw new \RuntimeException('hotel_pms_integration_write_readback_failed');
+            }
+        });
+    }
+
+    /** @return array{array<string,mixed>,array<string,mixed>} */
+    private function lockedIntegrationRows(int $tenantId, int $hotelId): array
+    {
+        $rows = [];
+        foreach ([self::DINGDANDAO_TABLE => self::PROVIDER_DINGDANDAO, self::MEITUAN_CLOUD_TABLE => self::PROVIDER_MEITUAN_CLOUD] as $table => $provider) {
+            $row = Db::name($table)->where('tenant_id', $tenantId)->where('hotel_id', $hotelId)
+                ->where('provider', $provider)->lock(true)->find();
+            if (!is_array($row)) {
+                throw new \RuntimeException('hotel_pms_binding_rows_missing');
+            }
+            $rows[] = $row;
+        }
+        return $rows;
     }
 
     /** @param array<string,mixed> $source @return array<string,mixed> */
@@ -297,22 +365,17 @@ final class HotelPmsBindingService
             ->where('tenant_id', $tenantId)
             ->where('hotel_id', $hotelId)
             ->where('provider', $provider);
-        if (is_array($query()->find())) {
+        if (is_array($query()->lock(true)->find())) {
             return;
         }
-        try {
-            $id = (int)Db::name($table)->insertGetId($values + [
-                'tenant_id' => $tenantId,
-                'hotel_id' => $hotelId,
-                'provider' => $provider,
-            ]);
-            if ($id <= 0) {
-                throw new \RuntimeException('hotel_pms_binding_row_create_failed');
-            }
-        } catch (\Throwable $error) {
-            if (!is_array($query()->find())) {
-                throw $error;
-            }
+        // Let database errors abort the transaction, including deadlock victims.
+        $id = (int)Db::name($table)->insertGetId($values + [
+            'tenant_id' => $tenantId,
+            'hotel_id' => $hotelId,
+            'provider' => $provider,
+        ]);
+        if ($id <= 0) {
+            throw new \RuntimeException('hotel_pms_binding_row_create_failed');
         }
     }
 

@@ -14,7 +14,10 @@ test('manual online-data edits become unverified overrides and preserve null val
   assert.match(controller, /'updated_fields' => \$updatedFields/);
   assert.match(controller, /复核前不进入可信收益/);
   assert.match(frontend, /amount: item\.amount \?\? null/);
-  assert.match(frontend, /const payload = \{ id: onlineDataEditForm\.value\.id \}/);
+  const saveEdit = frontend.slice(frontend.indexOf('const saveOnlineDataEdit'), frontend.indexOf('// 删除线上数据'));
+  assert.match(saveEdit, /const form = onlineDataEditForm\.value/);
+  assert.match(saveEdit, /const payload = \{ id: form\.id \}/);
+  assert.match(saveEdit, /value === '' \|\| value === undefined \? null : value/);
   assert.match(frontend, /if \(current !== original\) payload\[field\] = current/);
   assert.doesNotMatch(frontend.slice(frontend.indexOf('const saveOnlineDataEdit'), frontend.indexOf('// 删除线上数据')), /JSON\.stringify\(onlineDataEditForm\.value\)/);
 });

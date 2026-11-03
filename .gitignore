@@ -65,6 +65,8 @@ Desktop.ini
 # Archives / duplicate package content
 *.rar
 *.zip
+# Pinned historical UI fixture required by regression tests.
+!tests/fixtures/frontend-retired-20261002.zip
 *.7z
 /HOTEL/
 

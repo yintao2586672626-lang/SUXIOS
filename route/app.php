@@ -1,6 +1,5 @@
 <?php
 declare(strict_types=1);
-
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
@@ -13,7 +12,6 @@ if (!function_exists('suxi_root_index_response')) {
         if (!is_file($indexFile)) {
             return response('index.html missing', 500);
         }
-
         $mtime = (int)filemtime($indexFile);
         $size = (int)filesize($indexFile);
         $etag = '"' . md5($indexFile . '|' . $mtime . '|' . $size . '|root-index-gzip-v1') . '"';
@@ -27,7 +25,6 @@ if (!function_exists('suxi_root_index_response')) {
             'CDN-Cache-Control' => 'public, max-age=60, stale-while-revalidate=30',
             'Cloudflare-CDN-Cache-Control' => 'public, max-age=60, stale-while-revalidate=30',
         ];
-
         $request = request();
         $requestHeaders = function_exists('getallheaders') ? (array)getallheaders() : [];
         $ifNoneMatch = trim((string)($_SERVER['HTTP_IF_NONE_MATCH'] ?? ''));
@@ -221,19 +218,6 @@ Route::group('api/operating-targets', function () {
     Route::post('/', 'OperatingTarget/save');
 })->middleware(\app\middleware\Auth::class);
 
-// Hotel notification templates, formal schedules, test sends, and receipts.
-Route::group('api/manual-notifications', function () {
-    Route::get('/metadata', 'ManualNotification/metadata');
-    Route::get('/monitor', 'ManualNotification/monitor');
-    Route::get('/history', 'ManualNotification/history');
-    Route::get('/dispatch-history', 'ManualNotification/dispatchHistory');
-    Route::post('/preview', 'ManualNotification/preview');
-    Route::post('/dispatches/:dispatchId/retry', 'ManualNotification/retryDispatch');
-    Route::post('/:id/test-push', 'ManualNotification/testPush');
-    Route::get('/:id', 'ManualNotification/read');
-    Route::post('/', 'ManualNotification/save');
-})->middleware(\app\middleware\Auth::class);
-
 Route::group('api/ai-daily-reports', function () {
     require __DIR__ . '/domain/ai_daily_reports.php';
     Route::post('/:id/send-wecom', 'admin.CompetitorWechatRobotController/apiSendAiDailyReport');
@@ -343,6 +327,7 @@ Route::group('api/online-data', function () {
     Route::post('/profile-login-trigger/:platform', 'ota.ProfileController/triggerPlatformProfileLogin');
     Route::get('/profile-login-status/:platform', 'ota.ProfileController/platformProfileLoginStatus');
     Route::get('/local-collector/status', 'ota.LocalCollectorController/status');
+    Route::get('/local-collector/tasks/:taskId/evidence', 'ota.LocalCollectorController/evidence');
     Route::post('/local-collector/pair-code', 'ota.LocalCollectorController/pairCode');
     Route::post('/local-collector/accounts', 'ota.LocalCollectorController/createAccount');
     Route::post('/local-collector/accounts/:accountId/hotels', 'ota.LocalCollectorController/bindHotel');
@@ -451,6 +436,7 @@ Route::group('api/ota-local-collector', function () {
     Route::get('/tasks/next', 'ota.LocalCollectorController/nextTask');
     Route::post('/tasks/:taskId/progress', 'ota.LocalCollectorController/progress');
     Route::post('/tasks/:taskId/result', 'ota.LocalCollectorController/result');
+    Route::post('/tasks/:taskId/resume-upload', 'ota.LocalCollectorController/resumeUpload');
 });
 
 // ==================== 酒店数据驾驶舱 API ====================
@@ -469,6 +455,8 @@ Route::group('api/knowledge', function () {
     Route::post('/add', 'Knowledge/add');
     Route::post('/import', 'Knowledge/importMaterials');
     Route::post('/document-text', 'Knowledge/extractDocumentText');
+    Route::get('/reference-sources/:chunk_id', 'Knowledge/referenceSource');
+    Route::post('/references', 'Knowledge/saveReference');
     Route::get('/promotions', 'KnowledgePromotion/candidates');
     Route::post('/promotions/from-sop-candidate', 'KnowledgePromotion/createCandidate');
     Route::get('/promotions/:id/events', 'KnowledgePromotion/events');
@@ -549,9 +537,7 @@ Route::group('api/lifecycle', function () {
     Route::get('/overview', 'Lifecycle/overview');
 })->middleware(\app\middleware\Auth::class);
 // ==================== P4 投资决策辅助 API ====================
-Route::group('api/investment-decision', function () {
-    Route::get('/overview', 'InvestmentDecision/overview');
-})->middleware(\app\middleware\Auth::class);
+require __DIR__ . '/domain/investment.php';
 // ==================== 智略·战略推演 API ====================
 Route::group('api/strategy', function () {
     Route::post('/simulate', 'StrategySimulation/simulate');
@@ -559,7 +545,7 @@ Route::group('api/strategy', function () {
     Route::delete('/records/:id', 'StrategySimulation/archive');
     Route::get('/records/:id', 'StrategySimulation/detail');
     Route::get('/records', 'StrategySimulation/records');
-})->middleware(\app\middleware\Auth::class);
+})->middleware(\app\middleware\Auth::class)->middleware(\app\middleware\RetiredFeatureReadOnly::class, '战略推演');
 // ==================== 智算·量化模拟 API ====================
 Route::group('api/simulation', function () {
     Route::post('/calculate', 'Simulation/calculate');
@@ -571,6 +557,9 @@ Route::group('api/simulation', function () {
 // Operating loop, opportunity, action, opening, expansion and transfer routes.
 // The manifest is required here to preserve the original registration order.
 require __DIR__ . '/domain/operations.php';
+require __DIR__ . '/domain/business_workspace.php';
+require __DIR__ . '/domain/guest_operations.php';
+require __DIR__ . '/domain/campaign_operations.php';
 // ==================== 竞对价格监控 API ====================
 Route::get('api/competitor/events', 'CompetitorApi/events')->middleware(\app\middleware\Auth::class); Route::get('api/competitor/future-window', 'CompetitorApi/futureWindow')->middleware(\app\middleware\Auth::class);
 Route::get('api/competitor/targets', 'CompetitorApi/targets')->middleware(\app\middleware\Auth::class);
@@ -736,11 +725,11 @@ Route::group('api/agent', function () {
 
     // 智策·可行性报告
     // Feasibility report
-    Route::post('/feasibility-report/generate', 'Agent/feasibilityReportGenerate');
+    Route::post('/feasibility-report/generate', 'Agent/feasibilityReportGenerate')->middleware(\app\middleware\RetiredFeatureReadOnly::class, '可研报告');
     Route::get('/feasibility-report/detail/:id', 'Agent/feasibilityReportDetail');
-    Route::post('/feasibility-report/regenerate/:id', 'Agent/feasibilityReportRegenerate');
-    Route::post('/feasibility-report/:id/execution-intent', 'Agent/createFeasibilityExecutionIntent');
-    Route::delete('/feasibility-report/:id', 'Agent/feasibilityReportArchive');
+    Route::post('/feasibility-report/regenerate/:id', 'Agent/feasibilityReportRegenerate')->middleware(\app\middleware\RetiredFeatureReadOnly::class, '可研报告');
+    Route::post('/feasibility-report/:id/execution-intent', 'Agent/createFeasibilityExecutionIntent')->middleware(\app\middleware\RetiredFeatureReadOnly::class, '可研报告');
+    Route::delete('/feasibility-report/:id', 'Agent/feasibilityReportArchive')->middleware(\app\middleware\RetiredFeatureReadOnly::class, '可研报告');
     Route::get('/feasibility-report/list', 'Agent/feasibilityReportList');
     // 配置管理
     Route::get('/config', 'Agent/getConfig');

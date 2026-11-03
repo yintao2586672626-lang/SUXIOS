@@ -1,0 +1,95 @@
+{
+  "schema_version": "official-method-source-manifest.v1",
+  "source_kind": "official_and_first_party_method_reference",
+  "version_label": "consumables-measurement-reference-20261001-v1",
+  "extracted_on": "2026-10-01",
+  "sources": [
+    {
+      "title": "NIST HB133 2026 第2章净重量与皮重",
+      "url": "https://www.nist.gov/document/2026-hb-133-chapter-2",
+      "extracted_on": "2026-10-01",
+      "access": "public_first_party_document_or_resource_page",
+      "retention": "authored_chinese_method_and_url_only"
+    },
+    {
+      "title": "NIST HB133 2026 第3章体积与密度",
+      "url": "https://www.nist.gov/document/2026-hb-133-chapter-3",
+      "extracted_on": "2026-10-01",
+      "access": "public_first_party_document_or_resource_page",
+      "retention": "authored_chinese_method_and_url_only"
+    },
+    {
+      "title": "EPA ECE清洁培训：浓缩产品稀释",
+      "url": "https://www.epa.gov/sites/default/files/2013-08/documents/ece_curriculum_final.pdf",
+      "extracted_on": "2026-10-01",
+      "access": "public_first_party_document_or_resource_page",
+      "retention": "authored_chinese_method_and_url_only"
+    },
+    {
+      "title": "NIST计量不确定度Type A",
+      "url": "https://physics.nist.gov/cuu/Uncertainty/typea.html",
+      "extracted_on": "2026-10-01",
+      "access": "public_first_party_document_or_resource_page",
+      "retention": "authored_chinese_method_and_url_only"
+    },
+    {
+      "title": "NIST时间依赖计量效应",
+      "url": "https://www.itl.nist.gov/div898/handbook/mpc/section5/mpc5311.htm",
+      "extracted_on": "2026-10-01",
+      "access": "public_first_party_document_or_resource_page",
+      "retention": "authored_chinese_method_and_url_only"
+    },
+    {
+      "title": "酒店联盟HWMI v1.1",
+      "url": "https://sustainablehospitalityalliance.org/wp-content/uploads/2020/02/HWMIME1.pdf",
+      "extracted_on": "2026-10-01",
+      "access": "public_first_party_document_or_resource_page",
+      "retention": "authored_chinese_method_and_url_only"
+    },
+    {
+      "title": "酒店联盟废弃物计量方法",
+      "url": "https://sustainablehospitalityalliance.org/resource/hwmm/",
+      "extracted_on": "2026-10-01",
+      "access": "public_first_party_document_or_resource_page",
+      "retention": "authored_chinese_method_and_url_only"
+    },
+    {
+      "title": "EPA废弃物评估工具",
+      "url": "https://www.epa.gov/sustainable-management-food/resources-assessing-wasted-food",
+      "extracted_on": "2026-10-01",
+      "access": "public_first_party_document_or_resource_page",
+      "retention": "authored_chinese_method_and_url_only"
+    }
+  ],
+  "retained_files": [
+    {
+      "file": "sources/method-review.md",
+      "sha256": "498CA83836F7CAED501FCAE04705BE90197C13BD38B3B6AC94B0CF1CA90B5F40"
+    },
+    {
+      "file": "README.md",
+      "sha256": "3CC019F8CD90C24CB301F8DF152BF0E3588BDA6331FC2291FB51586EB7E1C20B"
+    },
+    {
+      "file": "knowledge-pack.json",
+      "sha256": "86374755CEF6434BBD77485C8CCB84659EF7B59E5640D33B6DBBA5E6BC1FEEDF"
+    }
+  ],
+  "upstream_content_retained": false,
+  "upstream_bytes_sha256": "not_retained_not_claimed",
+  "contains_current_hotel_fact": false,
+  "contains_current_ota_fact": false,
+  "source_attribution": "official_sources_and_explicit_application_inference_not_joydo",
+  "verification_receipt": {
+    "file": "verification.json",
+    "included_in_source_hashes": false,
+    "reason": "generated_after_source_validation_not_source_material"
+  },
+  "storage_boundary": {
+    "reference_only": true,
+    "decision_safe": false,
+    "task_draft_safe": false,
+    "undefined_coefficients_defaulted": false,
+    "financial_or_tax_policy_decision": false
+  }
+}

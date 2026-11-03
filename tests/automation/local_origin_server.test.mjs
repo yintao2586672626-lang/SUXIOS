@@ -6,6 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { gunzipSync } from 'node:zlib';
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createLocalOriginServer } from '../../scripts/local_origin_server.mjs';
 
 function listen(server) {
@@ -64,7 +67,7 @@ test('local origin serves static files concurrently and proxies dynamic requests
     const chunks = [];
     request.on('data', (chunk) => chunks.push(chunk));
     request.on('end', () => {
-      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      response.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'X-SUXIOS-Origin-Code-SHA256': 'fixture-wrong-origin' });
       response.end(JSON.stringify({
         method: request.method,
         path: request.url,
@@ -83,6 +86,8 @@ test('local origin serves static files concurrently and proxies dynamic requests
   try {
     const staticResponse = await fetch(`http://127.0.0.1:${originPort}/app.js`);
     assert.equal(staticResponse.status, 200);
+    const expectedOriginHash = createHash('sha256').update(await fs.readFile(new URL('../../scripts/local_origin_server.mjs', import.meta.url))).digest('hex');
+    assert.equal(staticResponse.headers.get('x-suxios-origin-code-sha256'), expectedOriginHash);
     assert.match(staticResponse.headers.get('content-type') || '', /javascript/);
     assert.equal(await staticResponse.text(), 'window.SUXIOS_TEST = true;');
 
@@ -91,6 +96,7 @@ test('local origin serves static files concurrently and proxies dynamic requests
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ probe: true }),
     });
+    assert.equal(apiResponse.headers.get('x-suxios-origin-code-sha256'), expectedOriginHash);
     assert.deepEqual(await apiResponse.json(), {
       method: 'POST',
       path: '/api/auth/probe',
@@ -127,6 +133,40 @@ test('local origin serves static files concurrently and proxies dynamic requests
     await close(backend);
     await fs.rm(temporaryRoot, { recursive: true, force: true });
   }
+});
+
+test('local startup rejects a healthy gateway with missing or stale origin code identity', { skip: process.platform !== 'win32' }, () => {
+  const script = `
+$ErrorActionPreference = 'Stop'
+$startupPath = Join-Path (Get-Location).Path 'scripts/start_local_stack.ps1'
+$tokens = $null; $parseErrors = $null
+$ast = [System.Management.Automation.Language.Parser]::ParseFile($startupPath, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count -ne 0) { throw 'Startup PowerShell syntax failed.' }
+$functionAst = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Test-OriginCodeIdentity' }, $true)
+if ($null -eq $functionAst) { throw 'Origin identity check is missing.' }
+Invoke-Expression $functionAst.Extent.Text
+$ProjectIdentity = [pscustomobject]@{ OriginCodeSha256 = 'fixture-current-code' }
+$HealthUrl = 'http://127.0.0.1:1/api/health'
+function Invoke-WebRequest { param([switch]$UseBasicParsing, $Uri, $TimeoutSec) if ($script:fixtureThrows) { throw 'fixture-unavailable' }; return $script:fixtureResponse }
+foreach ($fixture in @(
+    @{ Status=200; Hash='fixture-current-code'; Expected=$true; Throws=$false },
+    @{ Status=200; Hash='fixture-old-code'; Expected=$false; Throws=$false },
+    @{ Status=200; Hash=$null; Expected=$false; Throws=$false },
+    @{ Status=503; Hash='fixture-current-code'; Expected=$false; Throws=$false },
+    @{ Status=200; Hash='fixture-current-code'; Expected=$false; Throws=$true }
+)) {
+    $script:fixtureThrows = $fixture.Throws
+    $script:fixtureResponse = [pscustomobject]@{ StatusCode=$fixture.Status; Headers=@{ 'X-SUXIOS-Origin-Code-SHA256'=$fixture.Hash } }
+    if ((Test-OriginCodeIdentity) -ne $fixture.Expected) { throw 'Origin identity acceptance mismatch.' }
+}
+Write-Output 'origin identity cases passed'
+`;
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', script], {
+    cwd: fileURLToPath(new URL('../..', import.meta.url)),
+    encoding: 'utf8', windowsHide: true,
+  });
+  assert.equal(result.status, 0, result.error?.message || result.stderr || result.stdout);
+  assert.match(result.stdout, /origin identity cases passed/);
 });
 
 test('local origin serves versioned text assets with negotiated gzip and representation validators', async () => {

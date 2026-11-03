@@ -1,0 +1,56 @@
+# 商业版快速上手
+
+商业版默认路线是：发布方仅向用户发送短 HKOS 激活码，用户在“设置 → 裕生老师·酒店经营 Knowledge OS → 商业版授权”粘贴它；首次联网时由服务端自动绑定当前电脑，之后本地离线校验。用户无需查看、复制或发送安装码。
+
+首次联网仅传短 HKOS 激活码、`hkos-device` 本机摘要和插件版本；不传 Vault、路径、笔记或附件。本插件不是账号服务或 SaaS，不会把知识库内容回传给发布方。
+
+同机重装或清除插件数据后，需联网再次粘贴同一码恢复。其他电脑会固定提示“已绑定其他设备”，同一短码不能用于两台电脑；换机请走支持流程。
+
+`.txt` 文件或完整 `HKOS1.` 长序列是历史或明确完全离线的特殊路径，可能由发布方预先按设备签发；它不替代默认在线激活路线。**本安装包已内置固定的 HKOS 联网激活服务。** 用户只需粘贴短 HKOS 激活码，不需要配置服务器地址。
+
+1. 打开“培训与 SOP”中的六段式内容工作室，检索并选择内置原创示例或当前 Vault 已批准的本机知识来源。
+2. 输入主题，生成选题卡、证据卡、脚本主版、平台改编、素材与拍摄简报、发布包与复盘六段。
+3. 逐段编辑。脚本主版须保留来源编号；点“保存并回读”，确认当前 Vault 中出现 Markdown 文件及版本号。
+4. 有实际审核人员时填写审核人和意见，点“记录本地人工审核”。此记录只说明本地有人核对，不自动获得对外发布许可。
+5. 可重新载入已保存草稿继续编辑、打开笔记并复制六段内容；“知识治理”可回看草稿来源、状态、版本和审核记录。笔记正文若被其他位置修改，工作室会拒绝覆盖并提示人工合并。
+
+生成六段草稿时，证据卡会复制所选来源的正文；保存草稿会把这份正文写入**当前知识库**，请先核对和去除不应进入草稿的个人资料、订单或商业敏感信息。插件不会把内容回传给发布方；若你的知识库启用了 Obsidian Sync、iCloud 或其他同步，同步范围由你的配置决定，并非“仅留在这台电脑”。
+
+要使用自己的知识，先在当前 Vault 的 `Hotel KnowledgeOS/Approved Knowledge/` 放入一篇 Markdown 笔记。由有权负责人核实原文和用途后，在笔记顶部填写下列信息（日期和版本请加引号）：
+
+```yaml
+---
+title: 入住交接规范
+version: "1.0"
+approved: true
+approvedBy: "酒店经理"
+approvedAt: "2026-09-14"
+reviewDueAt: "2027-03-14"
+rightsEvidenceId: "本酒店内部批准记录编号"
+distributionRight: CUSTOMER_PRIVATE
+allowLocalContentStudio: true
+publish_scope: customer_local
+module_id: FRONT_OFFICE
+---
+```
+
+日期与批准记录编号是格式示例，须换成真实记录。`module_id` 使笔记出现在对应酒店模块；前厅示例为 `FRONT_OFFICE`，其他岗位要用实际模块编号。已批准笔记也可在商业版本地检索中找到。上述字段只授权在本客户本机选择、检索并制作草稿，**不代表已获公开发布、跨客户分发或使用人像/图片的许可**。复审日期到期、撤销批准或来源正文变化后，不再自动用于新稿；已保存草稿和原笔记不会被删除。原始笔记由用户编辑，插件不会自动改写。
+
+在笔记顶部的 `module_id` 一行填入对应编号；不会编程也可以直接复制下表的值。没有填写模块编号时，笔记仍可用于商业版检索和内容工作室，但不会出现在某个酒店模块：
+
+| 导航中的模块 | 填入的编号 | 导航中的模块 | 填入的编号 |
+| --- | --- | --- | --- |
+| 前厅 | `FRONT_OFFICE` | 客房 | `HOUSEKEEPING` |
+| OTA运营 | `OTA_OPERATIONS` | 收益管理 | `REVENUE_MANAGEMENT` |
+| 客户服务 | `GUEST_SERVICE` | 人事培训 | `HR_TRAINING` |
+| 证件证照 | `LICENSES_CERTIFICATES` | 质检整改 | `QUALITY_RECTIFICATION` |
+| 餐饮 | `FOOD_BEVERAGE` | 厨房 | `KITCHEN` |
+| 工程维修 | `ENGINEERING` | 财务成本 | `FINANCE_COST` |
+| 采购库管 | `PROCUREMENT_INVENTORY` | 营销销售 | `SALES_MARKETING` |
+| 会议宴会 | `MEETING_BANQUET` | 安全应急 | `SAFETY_EMERGENCY` |
+| 供应商合同 | `SUPPLIER_CONTRACT` | 康乐 / Spa | `SPA` |
+| 洗衣房 | `LAUNDRY` | 茶 / 酒 / 大堂吧 | `LOBBY_BAR` |
+| 园区 | `SCENIC_AREA` | 车队 / 接驳 | `FLEET_SHUTTLE` |
+| 休闲娱乐 | `RECREATION` | 集团 / 重要接待 | `GROUP_RECEPTION` |
+
+Owner 内部工作流和第三方酒店手册不随插件交付。其他知识只有在来源、审核与权利字段明确时才进入默认受控展示。商业授权失效时，商业入口关闭；自己的 Vault 笔记仍可用 Obsidian 打开。

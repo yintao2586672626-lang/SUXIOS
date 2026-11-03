@@ -12,7 +12,7 @@ final class RevenueForecastReadinessServiceTest extends TestCase
     {
         $readiness = (new RevenueForecastReadinessService())->buildForecastReadiness([
             'forecast_date' => date('Y-m-d', strtotime('+1 day')),
-            'predicted_occupancy' => 0,
+            'predicted_occupancy' => null,
             'confidence_score' => 0.8,
         ]);
 
@@ -42,7 +42,7 @@ final class RevenueForecastReadinessServiceTest extends TestCase
             'predicted_occupancy' => 72,
             'predicted_demand' => 24,
             'confidence_score' => 0.82,
-            'actual_occupancy' => 0,
+            'actual_occupancy' => null,
         ]);
 
         self::assertSame('forecast_backtest_missing', $readiness['stage']);

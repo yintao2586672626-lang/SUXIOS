@@ -1,0 +1,217 @@
+{
+  "version": "joydo-jhira-field-code-review-20261002-v1",
+  "reviewed_at": "2026-10-02 12:00:00",
+  "review_due_at": "2026-11-02 12:00:00",
+  "usage_policy": "reference_only",
+  "automatic_application_authorized": false,
+  "source_url": "https://joydo.us.ci/index.full",
+  "source_scope": "Authorized browser-delivered frontend metadata and selected business functions; no server source or credential values",
+  "entries": [
+    {
+      "key": "field_lineage",
+      "title": "JHIRA 字段追踪与基础资料完备性增量",
+      "query": "JHIRA 字段追踪 基础资料完备性增量",
+      "summary": "原生表单、DIV 下拉、标签和衍生指标应分别建字典，再映射输入、保存、回显、计算和报告引用。界面有字段不等于业务链已经闭环。",
+      "source_section": "basic / custom controls / calculation / report",
+      "source_functions": ["computeInvestmentModelV28", "collectPreInvestmentReportData"],
+      "method": [
+        "字段保留单位、统计期间、适用酒店、渠道、来源、采集日期、质量状态和版本；别名、滑块和原生选择器代理不算不同业务字段。",
+        "客群、商圈、经营时段和平台适合作为结构化解释条件；销售时长不能直接乘进可售间夜公式。",
+        "区分当前角色可见页面与隐藏 DOM 模板；隐藏控件只能证明前端存在结构，不能证明用户能操作或后端能保存。",
+        "依赖检查同时记录旧数据兼容、缺失状态、字段变更后结果失效和准确回显。"
+      ],
+      "known_unknowns": ["网站服务器源码、接口持久化和字段权限不可由 DOM 推断", "多数字段缺少逐字段来源和有效日期", "当前 SUXIOS 并发候选未进行稳定运行页面验收"],
+      "local_disposition": "已有场景与知识入口；新增结构化资料和逐字段血缘作为验收要求吸纳"
+    },
+    {
+      "key": "consumables_unit_contract",
+      "title": "JHIRA 17 项用品字段与成本计量约束增量",
+      "query": "JHIRA 17 项用品 成本计量约束增量",
+      "summary": "前端精算包含 17 项用品，数量乘价格得到账面成本，再以糖类 20%、其他 80% 折算所谓真实成本；代码不能提供实际酒店消耗证据。",
+      "source_section": "precision / quick / standard",
+      "source_functions": ["updatePrecisionTotals", "getAmenityRealCostForCalc", "getLaundryCost", "getBreakfastCost"],
+      "method": [
+        "17 项用品名称映射已经记录；数量和价格缺少明确单位、期间与周转基准，不能直接转换成每已售间夜实耗。",
+        "采购金额、出库耗用、盘点差异、单次清扫成本、每已售间夜成本分开记录，保留包价、净含量和采用用量。",
+        "固定 20%/80% 只是来源模型假设；未提供实耗数据时维持 reference_only，禁止替代库存或结算事实。",
+        "佣金、洗涤、早餐是自定义 DIV 下拉；零值、缺失值和手工覆盖分别处理，避免 truthy fallback 把有效零值变成默认数。",
+        "直接采纳采购参考必须明确确认；任何单位、用量或来源改动都使确认失效。"
+      ],
+      "known_unknowns": ["来源用品单位、数量期间、20%/80% 的统计依据不明确", "来源 laundryManual 读路径没有对应 DOM 控件", "原站用品切换、保存和导出传播没有在真实业务案例中验收"],
+      "local_disposition": "SUXIOS 已有采购参考确认、保存和回显流程；本次增补字段映射与禁止自动实耗化的知识约束"
+    },
+    {
+      "key": "financing_cash_pressure",
+      "title": "JHIRA 融资本息与现金压力增量",
+      "query": "JHIRA 融资本息 现金压力增量",
+      "summary": "来源代码将每笔融资的等额本息月供拆成利息和本金，再从经营利润扣除偿债额。利润、项目现金和投资人实际回收必须分别表述。",
+      "source_section": "finance / payback / quick",
+      "source_functions": ["calculateAmortizedDebtServiceV28", "getFinanceDebtServiceV28", "getInvestmentRecoveryMetrics"],
+      "method": [
+        "逐笔保留提款日、本金、利率、期限、还款方式、宽限期、费用和到期尾款；年本息与逐月现金使用同一个期间。",
+        "月供不能机械乘 12 代替剩余期限内的实际偿债；期限不足 12 月和只付息后还本须单独核对。",
+        "同时展示最低现金、首次缺口、追加资金和 DSCR 的分母、期间及未知状态；无债务与债务数据缺失不是同一状态。",
+        "投资人台账采用实际收到的回款；不要把经营利润、未支付分红或估值增长计成回本。",
+        "来源回收额被夹在零与总投资之间，不能表达超额回收、冲回或回本后再投入产生的新缺口；保留 SUXIOS 台账历史。"
+      ],
+      "known_unknowns": ["来源只验证了可读取的等额本息代码，没有银行合同或真实还款证据", "SUXIOS 逐月融资计划已有并发候选，运行身份和页面保存尚未核实", "税、营运资金及实际资金分配未知"],
+      "local_disposition": "在现有投资现金链之上吸纳年/月对账与尾款压力验收要求，不重复建设并发候选"
+    },
+    {
+      "key": "inverse_target_caliber",
+      "title": "JHIRA 回本目标反推与合同日期增量",
+      "query": "JHIRA 回本目标反推 合同日期增量",
+      "summary": "稳定月模型可反推达到回本目标所需的入住率或净房价，但来源固定 30 天模型不覆盖爬坡、免租期、逐月变化和营运资金。",
+      "source_section": "quick / payback / score",
+      "source_functions": ["computeInvestmentModelV28", "getPaybackExpectationYears", "resolveInvestmentRiskDecisionV28"],
+      "method": [
+        "稳定月且边际贡献为正时，目标入住率=(固定成本+月偿债+未回收投资/目标月数)/(可售间夜×单间夜边际贡献)。",
+        "目标入住率超过 100% 显示不可达；贡献不为正、目标缺失或可售间夜缺失时不能输出有限达标值。",
+        "SUXIOS 如实施目标反推，应复用当前正向模型，在收费、免租、爬坡、成本基准和逐月变化下求解，避免两套口径。",
+        "合同安全垫按实际起止日期和预测达标日期比较，不能用天数/30.4375 与整数自然月直接比较。",
+        "目标收益、期末现金安全和投资人回收分别设条件，不以一个评分代替。"
+      ],
+      "known_unknowns": ["来源没有真实完整合同现金案例", "本地自然月与 30.4375 天换算边界存在并发候选待核对", "目标 ADR/入住率反求页面与保存路径未证实"],
+      "local_disposition": "记录为现有正向投资模型的后续求解与验收约束"
+    },
+    {
+      "key": "ota_scene_comparability",
+      "title": "JHIRA OTA 可见性与搜索场景可比性增量",
+      "query": "JHIRA OTA 可见性 搜索场景可比性增量",
+      "summary": "排名、列表页卖点、详情页权益、价格矩阵和转化链适合一起解释，但必须固定同酒店、渠道、业务日与搜索场景。",
+      "source_section": "digital-asset-audit / market-competition",
+      "source_functions": ["collectDigitalAssetData", "getMarketApiReadinessV28", "getMarketReportReadyGateV28"],
+      "method": [
+        "排名观测补充关键词、入住离店日期、定位、设备、登录状态、排序筛选、广告位、页容量、排名范围、截图及观测时间。",
+        "未进入观测范围只表示该搜索场景内未见，不能写为排名零、酒店不可见或全平台没有曝光。",
+        "价格对比统一房型、取消规则、早餐、人数、会员资格、优惠与含税口径；展示原价、可成交价和本次资格。",
+        "来源 normalizeMeituanRateV28 以绝对值<=1 自动乘100，无法识别 1% 和比例1；采用时必须显式记录 fraction/percentage_point。",
+        "来源携程分平台访客加权后又按两渠道等权平均；携程缺数而去哪儿有数时仍除2。跨渠道率应由明确分子分母计算，缺失率和样本覆盖分别展示。",
+        "曝光、浏览、支付、订单、售间夜分别保留分母和时间窗；携程与美团不直接共用评分规则或混成全酒店事实。",
+        "已有人工抓取、审核和历史快照继续保留来源状态，manual_import 不得冒充线上采集。"
+      ],
+      "known_unknowns": ["网站真实 OTA 采集、审核及落库没有本次账号运行验证", "来源显示部分闭环设计门槛，但不证明服务部署", "搜索场景和价格资格的完整证据仍缺失"],
+      "local_disposition": "补强现有携程五维诊断的搜索场景与可比性知识，不导入来源示例为 OTA 事实"
+    },
+    {
+      "key": "sci_normalization",
+      "title": "JHIRA SCI 样本评分与缺失值限制增量",
+      "query": "JHIRA SCI 样本评分 缺失值限制增量",
+      "summary": "来源存在七指标加权与流量/转化/营收三维加权两套 SCI；其样本内 min-max 归一化会随样本组成变化，缺失值回退为 0 或 50。",
+      "source_section": "market-competition / report",
+      "source_functions": ["buildMarketSci", "scoreOneMetric", "computeSciV25"],
+      "method": [
+        "记录算法版本、权重、原始指标、样本范围、平台、日期和缺失覆盖率；同一分数不可跨样本、跨版本直接比较。",
+        "三维参考权重为流量 30%、转化 40%、营收 30%；这只是来源算法，不是官方平台评分。",
+        "七指标版本和三维版本分开存档；极值、全同值、单样本、缺失营收与样本更换需要反例验证。",
+        "缺失指标保留 null/unknown 和覆盖率，不用固定 0/50 生成酒店优劣结论。",
+        "高曝光低转化与低曝光高转化可以形成调查假设；没有同口径证据与人工复核，不自动改价或派任务。"
+      ],
+      "known_unknowns": ["权重和分组阈值缺乏外部验证", "单次源码可复现不证明评分经济有效", "来源平台数据完整性和商圈样本代表性未知"],
+      "local_disposition": "两套 SCI 仅作为可解释方法参考，禁止升级为官方评级或经营动作依据"
+    },
+    {
+      "key": "actual_plan_bridge",
+      "title": "JHIRA 经营复盘与计划实际差异增量",
+      "query": "JHIRA 经营复盘 计划实际差异增量",
+      "summary": "来源复盘保留收入和成本的 manual/import/system 标记，检测超售和期间不一致，再比较实际与目标回本；系统推算成本不等于实际账单。",
+      "source_section": "operation-review / payback",
+      "source_functions": ["calculateOperationReview", "calculatePaybackExpectationGap", "calculateBaselinePaybackGap"],
+      "method": [
+        "基础投资场景、实际期间和来源版本绑定；物理房数、期间可售间夜、已售间夜、可售天数分别命名。",
+        "收入和成本分别记录人工、导入、计算来源；推算值在报告中持续标为估算，不能因为保存而成为实绩。",
+        "复盘比较入住率、净 ADR、渠道收入、固定成本、变动成本、偿债和净现金差异；同一期间才能解释回本偏差。",
+        "来源期间一致性仅在 import 模式用日房量115%做启发式提示；检查通过不证明期间口径一致，也不能跳过手工数据检查。",
+        "30 天月等价和乘 12 年化只是外推；季节性、爬坡期、融资到期和停业等条件下不能代替真实预测。",
+        "周期缺失、超售、负值和收入为零时展示明确状态，避免计算 NaN 后写成零。"
+      ],
+      "known_unknowns": ["经营复盘属于当前角色隐藏模块，只验证前端静态代码", "原站业务保存与历史修改未操作", "SUXIOS 当前同期间计划实际桥接入口尚未完成真实页面验收"],
+      "local_disposition": "吸纳至知识和计划实际桥接验收条件，保留 OTA 渠道范围"
+    },
+    {
+      "key": "report_delivery_gate",
+      "title": "JHIRA 报告六项门槛与版本绑定审核增量",
+      "query": "JHIRA 报告六项门槛 版本绑定审核增量",
+      "summary": "来源报告要求项目资料、测算、复盘、市场、数字资产与导出一致性六项全部 ready；模块就绪和人工投决批准是不同证据。",
+      "source_section": "report / pre-investment-report",
+      "source_functions": ["getReportReadinessV28", "getReportOutputConsistencyV28", "getReportDeliveryGateV28"],
+      "method": [
+        "分开表示缺失、采集失败、待复核、可生成草稿和可正式交付；不以缺少模块造成空检查表全通过。",
+        "来源一致性检查主要核对映射和状态链，不能替代页面数值、HTML、Word/PDF 文件内容的逐值对账。",
+        "正式交付审核绑定不可变快照、来源版本、酒店和期间；任何输入修改使旧批准失效。",
+        "人工审核状态用枚举或明确肯定表达；未通过、不同意、not approved 和混合否定不能被子串 approved/通过/同意命中。",
+        "保存生成物、读取生成物并校验摘要；下载发起不等于文件已生成或接收。"
+      ],
+      "known_unknowns": ["原站真实导出文件未操作核验", "六项门槛的静态实现不证明真实数据审核服务运行", "本次 SUXIOS 修复仅覆盖现有可研 readiness，不代表正式交付新工作流已上线"],
+      "local_disposition": "已在 FeasibilityReportService 修复人工审核否定误判；其余作为版本绑定报告验收要求"
+    },
+    {
+      "key": "ai_failure_provenance",
+      "title": "JHIRA AI 结构化输出与失败来源增量",
+      "query": "JHIRA AI 结构化输出 失败来源增量",
+      "summary": "来源 AI 输出按收入、成本、利润、保本、回本、风险和行动建议组织，并把 API 成功与本地模板 fallback 分开；限流路径可能返回先前结果。",
+      "source_section": "execution interpretation / report",
+      "source_functions": ["generateInvestmentScoreExplanation"],
+      "method": [
+        "AI 输入使用已核实的计算结果和字段口径，输出保留数据充分性、生成时间、输入摘要、模型版本和来源。",
+        "API 失败或限流后返回旧结果必须标为旧版本，不得显示为当前输入的新成功。",
+        "本地模板保留 fallback 标记、失败原因和人工复核状态；不能与外部 AI 输出合并成同一事实证据。",
+        "建议关联证据和未知条件；未通过数据门槛的输出只供解释，不直接创建经营动作。"
+      ],
+      "known_unknowns": ["外站 AI 调用、费用、限流和模型身份没有运行验证", "SUXIOS 相应 AI 失败路径尚未完成本次独立审查"],
+      "local_disposition": "作为现有 AI 报告的失败、旧结果和 provenance 验收规则吸纳"
+    },
+    {
+      "key": "expert_knowledge_curating",
+      "title": "JHIRA 专家知识与标准模板治理增量",
+      "query": "JHIRA 专家知识 标准模板治理增量",
+      "summary": "知识分类、风险等级、评分说明和专家领域筛选适合帮助找到参考方法；目录、展示名和选择值应一致，不能把推荐标签等同验证能力。",
+      "source_section": "standard / data-diagnosis-knowledge / expert-library",
+      "source_functions": ["knowledgeSearchScore", "getKnowledgeForReport", "recommendExpertsByScore"],
+      "method": [
+        "知识单元具备来源、版本、已知条件、未知条件、适用范围、有效期和人工复核记录；检索和经营决策分别设置门槛。",
+        "每条方法提供输入、公式、边界、反例和重复使用验收条件；知识目录存在不等于效果经过验证。",
+        "标准用品配置和评分阈值只是参考模板，引用前校验酒店档位、计量单位、实际采购和来源有效期。",
+        "专家标签、评分和可预约状态不直接决定服务能力；展示名与 option value 不一致时阻止保存错误身份。",
+        "保留隐藏模块静态观察状态，不能据此自动联系专家、购买课程或改变权限。"
+      ],
+      "known_unknowns": ["专家与知识部分当前角色隐藏，后端身份及服务效果未知", "原站静态选项发现展示名和值不一致，未验证实际保存结果", "重名函数存在未覆盖的匿名闭包，不能直接断言全局覆盖"],
+      "local_disposition": "复用 SUXIOS 知识生命周期与检索门槛；专家体系只保留方法参考"
+    },
+    {
+      "key": "geo_evidence_chain",
+      "title": "JHIRA GEO 问答可见性证据链增量",
+      "query": "JHIRA GEO 问答可见性证据链增量",
+      "summary": "GEO 可以作为酒店被 AI 问答引用的观察课题；公开宣传或产品首页不能证明酒店获客效果。",
+      "source_section": "related public GEO landing / knowledge",
+      "source_functions": [],
+      "method": [
+        "观测固定问题、模型及版本、时间、地区、网络、回答全文摘要、引用来源和酒店事实一致性。",
+        "AI 提及、带链接引用、访问、咨询与订单分层记录；没有归因证据不能推断增量获客。",
+        "问题改写、模型更新与搜索结果变化作为不可比条件保存；单次未提及不代表酒店不存在。",
+        "仅公开首页证据时保持 reference_only，不创建营销动作或写入酒店经营事实。"
+      ],
+      "known_unknowns": ["本次没有 GEO 后台权限或真实归因样本", "酒店实际回答覆盖、引流和订单效果未知"],
+      "local_disposition": "延续现有 GEO 参考知识，增加可复现实验字段，不宣称实现获客服务"
+    },
+    {
+      "key": "field_ui_semantics",
+      "title": "JHIRA 控件语义、接口边界与全部审查疑点索引",
+      "query": "JHIRA 控件语义 全部审查疑点索引",
+      "summary": "逐字段和函数审查的所有实质疑点作为索引保留，包括单位、比例、选项身份、竞店联动、缺失、权限、异步旧结果与导出证据；静态存在不等于功能通过。",
+      "source_section": "all retained business modules / boundary metadata",
+      "source_functions": ["normalizeMeituanRateV28", "computeCtripIndices", "operationReviewPeriodConsistencyCheck"],
+      "method": [
+        "折扣75折/65折/55折文本存在倍率歧义；显示比例、计算倍率和来源值分开，不用字符串猜测折扣。",
+        "有窗/无窗配置需要合法0%，并验证比例合计；缺少选项不表示不存在该类房型。",
+        "专家筛选展示名和值不一致不能保存为确定专家；竞店匹配优先平台酒店ID与区域，同名或分店冲突需明确状态。",
+        "365/730天不普遍等于12/24自然月；匿名日期控件方向仍未知，必须标明起日、止日、是否含边界。",
+        "名称调用候选和重名函数不是完整绑定图；匿名闭包、动态参数和服务端实现未取到时持续标未验证。",
+        "凭证、签名、联系方式元数据排除业务事实计数；不读取或吸纳其值。",
+        "源站内置测试定义、前端支付或权限函数只证明结构，不能当通过、鉴权、授权、购买或发布证据。"
+      ],
+      "known_unknowns": ["全站服务端源码、匿名顶层回调和动态生成字段不在当前覆盖范围", "静态疑点不等于已复现运行故障，完整调用和保存需要进一步账户验收", "本地并发修改不能算入本次已验收交付"],
+      "local_disposition": "保留全部字段/函数疑点与追踪文件，作为后续补强的可审查入口"
+    }
+  ]
+}

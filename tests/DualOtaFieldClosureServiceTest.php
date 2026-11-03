@@ -8,6 +8,37 @@ use PHPUnit\Framework\TestCase;
 
 final class DualOtaFieldClosureServiceTest extends TestCase
 {
+    public function testSupplementalReadFailureKeepsScopedMetadataUnknownAndRecovers(): void
+    {
+        $hotel = ['id' => 20, 'tenant_id' => 10];
+        $row = ['id' => 1101, 'tenant_id' => 10, 'system_hotel_id' => 20,
+            'source' => 'ctrip', 'data_date' => '2026-08-20', 'data_type' => 'business',
+            'data_period' => 'daily', 'readback_verified' => 0,
+            'history_status' => 'unverified', 'validation_status' => 'unverified'];
+        $rows = [$row, array_replace($row, ['id' => 9101, 'tenant_id' => 11])];
+        $normal = DualOtaFieldClosureService::evaluate($hotel, '2026-08-20', $rows);
+        $failed = DualOtaFieldClosureService::evaluate($hotel, '2026-08-20', $rows, [
+            'reason' => 'dual_ota_continuous_trust_read_failed',
+        ]);
+        self::assertSame('failed', $failed['supplemental_evidence_read']['status']);
+        self::assertSame(10, $failed['supplemental_evidence_read']['tenant_id']);
+        self::assertSame(20, $failed['supplemental_evidence_read']['hotel_id']);
+        self::assertSame('2026-08-20', $failed['supplemental_evidence_read']['business_date']);
+        self::assertSame($normal['local_source_records'], $failed['local_source_records']);
+        self::assertNotSame($normal['page_identity'], $failed['page_identity']);
+        self::assertSame(0, $failed['revenue_analysis_consumable_field_count']);
+        foreach ($failed['platforms'] as $platform) {
+            self::assertSame('blocked', $platform['revenue_analysis']['status']);
+            foreach ($platform['fields'] as $field) {
+                self::assertNull($field['value']);
+                self::assertSame('readback_failed', $field['status']);
+                self::assertFalse($field['revenue_analysis_consumable']);
+            }
+        }
+        self::assertNotFalse(json_encode($failed, JSON_THROW_ON_ERROR));
+        self::assertSame($normal, DualOtaFieldClosureService::evaluate($hotel, '2026-08-20', $rows));
+    }
+
     public function testRealShapeFieldClosureKeepsExactReadbackSemanticConflictAndFinalitySeparate(): void
     {
         $rows = [
@@ -69,6 +100,7 @@ final class DualOtaFieldClosureServiceTest extends TestCase
             ]),
         ];
 
+        $rows[5] = $this->structuredRowFixture($rows[5]);
         $closure = DualOtaFieldClosureService::evaluate(
             ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'],
             '2026-08-23',
@@ -296,6 +328,7 @@ final class DualOtaFieldClosureServiceTest extends TestCase
             'validation_status' => 'verified',
         ]);
 
+        $row = $this->structuredRowFixture($row);
         $closure = DualOtaFieldClosureService::evaluate(
             ['id' => 80, 'tenant_id' => 7],
             '2026-08-23',
@@ -312,6 +345,23 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         self::assertContains('identity_binding_not_verified', $fields['revenue']['revenue_analysis_blockers']);
         self::assertSame('identity_binding_not_verified', $platform['revenue_analysis']['blocked_reason']);
         self::assertSame('partial', $platform['identity_status']);
+
+        $hotel = ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'];
+        $broadcastClosure = (new \app\service\AiDailyReportBroadcastFactService(
+            static fn(int $hotelId): array => $hotel,
+            null,
+            null,
+            static fn(int $hotelId, string $businessDate): array => $closure
+        ))->build(80, '2026-08-23');
+        $broadcast = (new \app\service\AiDailyReportBroadcastSnapshotService())->buildDraft(
+            $hotel,
+            $broadcastClosure,
+            '2026-08-24 09:00:00'
+        );
+
+        self::assertSame([], $broadcast['facts']);
+        self::assertSame('', $broadcast['final_text']);
+        self::assertFalse($broadcast['can_generate']);
     }
 
     public function testReceiptTaskSourceAndTenantAreFailClosed(): void
@@ -602,6 +652,7 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         ];
         unset($meituan);
 
+        $currentOrder = $this->structuredRowFixture($currentOrder);
         $closure = DualOtaFieldClosureService::evaluate(
             ['id' => 80, 'tenant_id' => 7],
             '2026-08-23',
@@ -823,6 +874,7 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         ];
         unset($meituan);
 
+        $row = $this->structuredRowFixture($row);
         $closure = DualOtaFieldClosureService::evaluate(
             ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'],
             '2026-08-23',
@@ -1059,6 +1111,7 @@ final class DualOtaFieldClosureServiceTest extends TestCase
         ];
         unset($ctrip);
 
+        $row = $this->structuredRowFixture($row);
         $closure = DualOtaFieldClosureService::evaluate(
             ['id' => 80, 'tenant_id' => 7, 'name' => 'Hotel 80'],
             '2026-08-23',
@@ -1103,8 +1156,8 @@ final class DualOtaFieldClosureServiceTest extends TestCase
                 '_capture_source' => 'xhr:orders:daily_summary',
             ]], JSON_THROW_ON_ERROR),
         ];
-        $first = $this->row(201, 'meituan', 'order', $base);
-        $same = $this->row(202, 'meituan', 'order', $base + ['snapshot_time' => '2026-08-24 01:00:00']);
+        $first = $this->structuredRowFixture($this->row(201, 'meituan', 'order', $base));
+        $same = $this->structuredRowFixture($this->row(202, 'meituan', 'order', $base + ['snapshot_time' => '2026-08-24 01:00:00']));
         $trust = $this->trust();
         $meituan = &$trust['days'][0]['platforms'][1];
         $meituan['sync_task_id'] = 5001;
@@ -1194,6 +1247,33 @@ final class DualOtaFieldClosureServiceTest extends TestCase
             'source_missing',
             $this->fields($empty['platforms']['meituan']['fields'])['exposure']['status']
         );
+    }
+
+    /** Synthetic source lineage for cases explicitly testing otherwise-valid strict records. */
+    private function structuredRowFixture(array $row): array
+    {
+        $raw = json_decode($row['raw_data'], true, 512, JSON_THROW_ON_ERROR);
+        $trace = $row['source_trace_id'] ?? $raw['source_trace_id'] ?? 'fixture:' . $row['id'];
+        $hash = $raw['source_url_hash'] ?? str_repeat('a', 64);
+        $row['ingestion_method'] = 'browser_profile';
+        $row['source_trace_id'] = $trace;
+        $raw['source_trace_id'] = $trace;
+        $raw['source_url_hash'] = $hash;
+        $raw['row']['_capture_source'] ??= 'xhr:fixture';
+        $raw['row']['_source_path'] ??= 'data.fixture';
+        if (empty($raw['field_facts'])) {
+            foreach (['order_amount' => 'amount', 'room_nights' => 'quantity', 'order_count' => 'book_order_num'] as $metric => $column) {
+                if (!isset($row[$column]) || !is_numeric($row[$column])) continue;
+                $raw['field_facts'][] = ['metric_key' => $metric, 'normalized_field' => $column,
+                    'source_key' => $metric, 'source_path' => 'data.fixture.' . $metric,
+                    'storage_field' => 'online_daily_data.' . $column, 'status' => 'captured',
+                    'stored_value_present' => true, 'capture_evidence' => [
+                        'source_trace_id' => $trace, 'source_url_hash' => $hash,
+                        'capture_source' => $raw['row']['_capture_source'], 'source_path' => $raw['row']['_source_path']]];
+            }
+        }
+        $row['raw_data'] = json_encode($raw, JSON_THROW_ON_ERROR);
+        return $row;
     }
 
     /** @param array<string,mixed> $overrides @return array<string,mixed> */

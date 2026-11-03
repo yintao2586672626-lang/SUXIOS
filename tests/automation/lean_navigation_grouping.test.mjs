@@ -28,7 +28,7 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(analysis, /sourcePath: 'online-data',[\s\S]*sourceTab: 'data-health'/);
   assert.match(analysis, /sourcePath: 'revenue-research-center'/);
   assert.match(analysis, /sourcePath: 'operating-finance',[\s\S]*name: '净收与恢复'/);
-  assert.match(analysis, /sourcePath: 'ai-simulation',[\s\S]*name: '酒店量化模拟'/);
+  assert.doesNotMatch(analysis, /sourcePath: 'ai-simulation'/);
   assert.match(analysis, /sourcePath: 'operating-targets',[\s\S]*name: '目标与事实'/);
   assert.match(analysis, /sourcePath: 'ai-daily-report'/);
 
@@ -50,16 +50,18 @@ test('boss navigation separates analysis, OTA collection, operations and system 
   assert.match(operations, /sourcePath: 'wechat-notification',[\s\S]*name: '企业微信推送'/);
   assert.match(operations, /sourcePath: 'automation-monitor',[\s\S]*name: '自动化运行监控'/);
   assert.match(operations, /sourcePath: 'ops-track'/);
-  assert.match(operations, /sourcePath: 'operating-growth-archive',[\s\S]*name: '经营成长档案'/);
-  assert.match(operations, /sourcePath: 'opening-overview',[\s\S]*name: '开业管理总览'/);
-  assert.match(operations, /sourcePath: 'opening-checklist',[\s\S]*name: '开业检查清单'/);
+  assert.doesNotMatch(operations, /sourcePath: '(operating-growth-archive|opening-overview|opening-checklist)'/);
   assert.doesNotMatch(operations, /sourcePath: 'operating-targets'/);
   assert.doesNotMatch(operations, /sourcePath: 'manual-notifications'/);
   assert.doesNotMatch(operations, /sourcePath: 'ai-daily-report'/);
   assert.doesNotMatch(operations, /sourcePath: 'ai-governance'/);
-  assert.equal((operations.match(/sourcePath:/g) || []).length, 7);
+  assert.equal((operations.match(/sourcePath:/g) || []).length, 4);
 
   const systemTools = section("name: '系统与工具'");
+  assert.match(systemTools, /name: '专项工具'/);
+  for (const path of ['ai-simulation', 'opening-overview', 'opening-checklist', 'operating-growth-archive']) {
+    assert.ok(systemTools.includes(`sourcePath: '${path}'`));
+  }
   assert.match(systemTools, /name: '系统与工具'/);
   assert.match(systemTools, /sourcePath: 'ai-governance',[\s\S]*name: 'AI决策审计'/);
   assert.match(systemTools, /name: '系统与权限'/);

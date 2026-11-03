@@ -641,15 +641,25 @@ trait OperationBaselineConcern
             ];
         }
 
+        $averages = [];
+        foreach (['orders', 'revenue', 'room_nights'] as $metric) {
+            $averages[$metric] = !$scopeDrifted
+                ? $this->baselineMetricAverage($metricValues[$metric], $metric, $dataGaps)
+                : null;
+        }
+        $averages['conversion'] = !$scopeDrifted
+            ? $this->baselineMetricAverage($conversionValues, 'conversion', $dataGaps)
+            : null;
+
         return [
             'days' => $days,
             'actual_days' => $count,
             'window_start_date' => $start,
             'window_end_date' => $end,
-            'avg_orders' => !$scopeDrifted && $metricValues['orders'] !== [] ? round(array_sum($metricValues['orders']) / count($metricValues['orders']), 2) : null,
-            'avg_revenue' => !$scopeDrifted && $metricValues['revenue'] !== [] ? round(array_sum($metricValues['revenue']) / count($metricValues['revenue']), 2) : null,
-            'avg_room_nights' => !$scopeDrifted && $metricValues['room_nights'] !== [] ? round(array_sum($metricValues['room_nights']) / count($metricValues['room_nights']), 2) : null,
-            'avg_conversion' => !$scopeDrifted && $conversionValues !== [] ? round(array_sum($conversionValues) / count($conversionValues), 2) : null,
+            'avg_orders' => $averages['orders'],
+            'avg_revenue' => $averages['revenue'],
+            'avg_room_nights' => $averages['room_nights'],
+            'avg_conversion' => $averages['conversion'],
             'metric_sample_days' => [
                 'orders' => count($metricValues['orders']),
                 'revenue' => count($metricValues['revenue']),
@@ -671,6 +681,29 @@ trait OperationBaselineConcern
                 ? ($rejectedDailyReportCount > 0 ? 'partial' : 'missing')
                 : ($dataGaps === [] ? self::DATA_OK : 'partial')),
         ];
+    }
+
+    /** Validate samples before an average can contribute to an ok baseline. */
+    private function baselineMetricAverage(array $values, string $metric, array &$dataGaps): ?float
+    {
+        if ($values === []) return null;
+        $failure = static function () use ($metric, &$dataGaps): null {
+            $dataGaps[] = ['code' => 'baseline_metric_average_nonfinite', 'metric' => $metric,
+                'message' => 'Baseline ' . $metric . ' average contains a nonfinite sample or cannot be calculated as a finite number'];
+            return null;
+        };
+        foreach ($values as $value) {
+            if (is_bool($value) || !is_numeric($value) || !is_finite((float)$value)) return $failure();
+        }
+        $sum = array_sum($values);
+        if (is_finite((float)$sum)) {
+            return round($sum / count($values), 2);
+        }
+        // A finite mean can exist when the unscaled total overflows; preserve that mean.
+        $scale = max(array_map('abs', $values));
+        $scaledSum = array_sum(array_map(static fn($value): float => $value / $scale, $values));
+        $average = ($scaledSum / count($values)) * $scale;
+        return is_finite($average) ? round($average, 2) : $failure();
     }
 
     private function dailyReportRows(array $hotelIds, string $startDate, string $endDate): array

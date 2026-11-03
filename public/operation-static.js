@@ -1,28 +1,4 @@
 window.SUXI_OPERATION_STATIC = (() => {
-    const lifecycleMetricLabels = {
-        reports: '可研报告',
-        latest_grade: '最新评级',
-        latest_project: '最新项目',
-        projects: '开业项目',
-        open_tasks: '未完成任务',
-        overdue_tasks: '逾期任务',
-        avg_score: '平均评分',
-        unread_alerts: '未读预警',
-        active_actions: '执行动作',
-        ota_rows: 'OTA数据',
-        pending_prices: '待审价格',
-        applied_prices: '已应用价格',
-        future_forecasts: '未来预测',
-        strategy_simulations: '推演记录',
-        competitor_price_logs: '竞对价格',
-    };
-    const lifecycleStageTitles = {
-        investment: '筹建',
-        opening: '开业',
-        operation: '运营',
-        revenue: '收益',
-        transfer: '转让',
-    };
     const operationAlertFilters = [
         { key: 'all', label: '全部' },
         { key: 'high', label: '高风险' },
@@ -160,7 +136,7 @@ window.SUXI_OPERATION_STATIC = (() => {
             };
         }
 
-        const flags = data.abnormal_flags || [];
+        const flags = Array.isArray(data.abnormal_flags) ? data.abnormal_flags : [];
         if (flags.length) {
             return {
                 status: '优先复核',
@@ -181,7 +157,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         if (missingModules.length) {
             return {
                 status: '样本不足',
-                summary: `先补齐${missingModules.join('、')}，否则只能看到结果，无法判断收入变化的真实原因。`,
+                summary: `当前缺少或尚未核验：${missingModules.join('、')}。可先查看已有来源记录，补齐后再排查可能影响因素。`,
                 className: 'bg-gray-50 text-gray-500',
             };
         }
@@ -250,37 +226,93 @@ window.SUXI_OPERATION_STATIC = (() => {
         && item?.recommendation?.source_module !== 'daily_one_thing'
         && ['pending_execute', 'executing', 'executed'].includes(item?.execution?.status || '')
         && Number(item?.execution?.task_id || 0) > 0;
-    const operationCanReviewExecution = (item) => !operationIsProtectedSystemAnalysis(item) && item?.execution?.status === 'executed' && item?.review?.is_available !== false && !['success', 'near_success', 'failed'].includes(item?.review?.status || '') && Number(item?.execution?.task_id || 0) > 0;
+    const operationHasTerminalReview = (item) => ['success', 'near_success', 'failed'].includes(item?.review?.reported_status || item?.review?.status || '');
+    const operationCanReassessRoiCost = (item) => !operationIsProtectedSystemAnalysis(item)
+        && operationHasTerminalReview(item) && item?.execution?.status === 'executed'
+        && item?.roi?.effect_review_binding?.source_binding_verified === true
+        && item?.roi?.effect_review_binding?.cost_reassessment?.enabled === true;
+    const operationExecutionCostReassessmentText = (item) => {
+        const binding = item?.roi?.effect_review_binding, cost = binding?.cost_reassessment?.roi_cost_basis;
+        return operationCanReassessRoiCost(item)
+            ? `当前来源回读费用¥${cost.value} · 复盘 #${binding.effect_review_id} / 来源 #${binding.source_readback_evidence_id}；保存费用复核后核验利润与ROI` : '';
+    };
+    const operationCanReviewExecution = (item) => !operationIsProtectedSystemAnalysis(item) && item?.execution?.status === 'executed' && item?.review?.is_available !== false && !operationHasTerminalReview(item) && Number(item?.execution?.task_id || 0) > 0;
     const operationCanReconcileExecution = (item) => !operationIsProtectedSystemAnalysis(item)
         && item?.execution?.status === 'executed'
         && item?.review?.is_available === true
         && item?.evidence_truth?.source_verified !== true
         && ['ota_diagnosis_saved', 'operating_question', 'revenue_cockpit_action', 'daily_one_thing'].includes(item?.recommendation?.source_module)
-        && !['success', 'near_success', 'failed'].includes(item?.review?.status || '')
+        && !operationHasTerminalReview(item)
         && Number(item?.execution?.task_id || 0) > 0;
     const operationExecutionActionAvailable = (item) => operationCanApproveExecution(item)
         || operationCanExecuteWithEvidence(item)
         || operationCanRecordNodeCheck(item)
         || operationCanReconcileExecution(item)
+        || operationCanReassessRoiCost(item)
         || operationCanReviewExecution(item);
     const operationHasDisplayValue = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
     const operationExecutionRateText = (value) => operationHasDisplayValue(value) ? `${Number(value).toFixed(0)}%` : '-';
+    const buildOperationExecutionReadback = (flow = {}) => {
+        const gaps = Array.isArray(flow.data_gaps) ? flow.data_gaps : [];
+        const dependencyGap = gaps.some(gap => ['operation_execution_tasks_missing', 'operation_execution_evidence_missing'].includes(gap?.code));
+        const unavailable = key => flow.statistics?.[key] === false && (flow.truncated !== true || dependencyGap);
+        const taskAvailable = !unavailable('task_status_loaded');
+        const evidenceAvailable = taskAvailable && !unavailable('evidence_loaded');
+        const roiAvailable = evidenceAvailable && !unavailable('roi_loaded');
+        const readState = { taskAvailable, evidenceAvailable, roiAvailable, complete: taskAvailable && evidenceAvailable && roiAvailable };
+        const summary = { ...(flow.summary || {}), read_state: readState };
+        if (!taskAvailable || !evidenceAvailable) {
+            for (const key of ['executed', 'execution_rate', 'source_verified_executed']) summary[key] = null;
+        }
+        if (!evidenceAvailable) {
+            for (const key of ['evidence_ready', 'evidence_rate', 'source_verified']) summary[key] = null;
+        }
+        if (!roiAvailable) {
+            for (const key of ['roi_ready', 'roi_ready_rate', 'roi_percent_ready', 'revenue_lift_ready', 'avg_roi', 'avg_revenue_lift', 'profitable', 'profitable_rate', 'total_cost', 'total_incremental_revenue', 'total_profit']) summary[key] = null;
+            summary.money_status = 'read_unavailable';
+        }
+        const stages = (Array.isArray(flow.stages) ? flow.stages : []).map(stage => {
+            const available = readState.complete || ['recommendation', 'approval'].includes(stage.key);
+            return available ? { ...stage } : { ...stage, count: null, read_available: false };
+        });
+        const list = (Array.isArray(flow.list) ? flow.list : []).map(item => {
+            const projected = { ...item, read_state: readState };
+            if (!taskAvailable) projected.execution = { ...item.execution, task_id: null, status: 'read_unavailable' };
+            if (!roiAvailable) projected.roi = { ...item.roi, status: 'read_unavailable', message: '收益复盘未读取，暂不能判断' };
+            if (!readState.complete) projected.next_action = { ...item.next_action, label: '先恢复回读条件' };
+            return projected;
+        });
+        return { ...flow, summary, stages, list };
+    };
     const buildOperationExecutionSummaryCards = (summary = {}, formatters = {}) => {
         const formatter = operationFormatters(formatters);
         const numberText = (value) => operationHasDisplayValue(value) ? formatter.value(value) : '-';
         const moneyText = (value) => operationHasDisplayValue(value) ? formatter.money(value) : '-';
         const countHint = (label, value) => operationHasDisplayValue(value) ? `${label} ${value}` : `${label}数量未返回`;
+        const financialHint = key => operationExecutionFinancialIssueText(summary, key);
         return [
             { label: '执行单', value: numberText(summary.total), hint: '建议转执行意图总数' },
             { label: '审批率', value: operationExecutionRateText(summary.approval_rate), hint: countHint('已审批', summary.approved) },
-            { label: '执行率', value: operationExecutionRateText(summary.execution_rate), hint: countHint('已执行', summary.executed) },
-            { label: '证据率', value: operationExecutionRateText(summary.evidence_rate), hint: countHint('证据齐备', summary.evidence_ready) },
-            { label: '净收益', value: moneyText(summary.total_profit), hint: operationHasDisplayValue(summary.total_incremental_revenue) ? `增量收入 ${moneyText(summary.total_incremental_revenue)}` : '增量收入未返回' },
-            { label: '平均 ROI', value: operationHasDisplayValue(summary.avg_roi) ? `${summary.avg_roi}%` : '-', hint: countHint('百分比样本', summary.roi_percent_ready) },
-            { label: '价格 Lift', value: moneyText(summary.avg_revenue_lift), hint: countHint('金额样本', summary.revenue_lift_ready) },
+            { label: '执行率', value: operationExecutionRateText(summary.execution_rate), hint: summary.read_state?.taskAvailable === false ? '任务状态未读取' : (summary.read_state?.evidenceAvailable === false ? '执行证据未读取' : countHint('已执行', summary.executed)) },
+            { label: '证据率', value: operationExecutionRateText(summary.evidence_rate), hint: summary.read_state?.evidenceAvailable === false ? '执行证据未读取' : countHint('证据齐备', summary.evidence_ready) },
+            { label: '净收益', value: moneyText(summary.total_profit), hint: [financialHint('total_profit'), financialHint('total_incremental_revenue') || (operationHasDisplayValue(summary.total_incremental_revenue) ? `增量收入 ${moneyText(summary.total_incremental_revenue)}` : '增量收入未返回')].filter(Boolean).join('；') },
+            { label: '平均 ROI', value: operationHasDisplayValue(summary.avg_roi) ? `${summary.avg_roi}%` : '-', hint: [countHint('百分比样本', summary.roi_percent_ready), financialHint('avg_roi')].filter(Boolean).join('；') },
+            { label: '价格 Lift', value: moneyText(summary.avg_revenue_lift), hint: [countHint('金额样本', summary.revenue_lift_ready), financialHint('avg_revenue_lift')].filter(Boolean).join('；') },
         ];
     };
+    const operationExecutionFinancialIssueText = (summary, key) => {
+        if (summary?.read_state?.roiAvailable === false) return '';
+        const metric = summary?.financial_metrics?.[key];
+        const reason = { aggregate_overflow: '汇总超出可计算范围', aggregate_input_non_finite: '包含不可计算收益', aggregate_input_missing: '部分收益输入缺失', aggregate_item_calculation_failed: '部分单项收益不可计算', aggregate_precision_loss: '汇总精度不足，暂不能计算' }[metric?.failure_reason];
+        if (!reason) return '';
+        const label = { avg_roi: '平均 ROI', avg_revenue_lift: '价格 Lift', total_incremental_revenue: '增量收入', total_cost: '成本', total_profit: '净收益' }[key] || '收益';
+        const ids = Array.isArray(metric.item_ids) ? metric.item_ids.filter(id => Number(id) > 0) : [];
+        return `${label}：${reason}${ids.length ? `（执行单 ${ids.map(id => `#${id}`).join('、')}）` : ''}`;
+    };
     const operationExecutionBottleneckText = (summary = {}, helpers = {}) => {
+        if (summary.read_state?.complete === false) return '部分任务或证据未读取，暂不能判断瓶颈';
+        if (!operationHasDisplayValue(summary.total)) return '流程尚未读取，暂不能判断';
+        if (Number(summary.total) === 0) return '当前范围暂无流程，暂不能判断';
         const bottleneck = summary?.bottleneck || {};
         if (!bottleneck.stage || !bottleneck.count) return '暂无明显瓶颈';
         const statusLabel = typeof helpers.statusLabel === 'function' ? helpers.statusLabel : (status => status || '-');
@@ -291,6 +323,8 @@ window.SUXI_OPERATION_STATIC = (() => {
         profit_negative: '已验证亏损',
         break_even: '收益持平',
         no_roi: '缺少 ROI 证据',
+        profit_unverified: '净收益无法确认，暂不能判断盈亏',
+        read_unavailable: '收益复盘未读取，暂不能判断',
     }[String(status || '')] || '待判断');
     const operationExecutionMoneyStatusClass = (status) => ({
         profit_positive: 'border-green-100 bg-green-50 text-green-700',
@@ -300,7 +334,7 @@ window.SUXI_OPERATION_STATIC = (() => {
     }[String(status || '')] || 'border-gray-100 bg-gray-50 text-gray-600');
     const operationExecutionSourceText = (item) => {
         const source = item?.recommendation?.source || '';
-        const resolved = source && !source.endsWith('#0') ? source : (item?.recommendation?.source_module || '');
+        const resolved = item?.recommendation?.source_module || (source && !source.endsWith('#0') ? source : '');
         const sourceKey = String(resolved).toLowerCase();
         if (sourceKey === 'manual') return '人工创建';
         if (sourceKey.startsWith('canonical_ota_investigation')) {
@@ -352,7 +386,27 @@ window.SUXI_OPERATION_STATIC = (() => {
         }[actionType] || strategyTypeLabel(actionType));
         return `${objectText} · ${actionText}`;
     };
+    const operationExecutionOutcomeReasonText = (outcome = {}, reason = null) => {
+        const labels = {
+            outcome_calculation_overflow: '结果计算超出可计算范围', outcome_input_non_finite: '结果输入不可计算',
+            source_verified_metric_readback_missing: '同口径来源指标未核验回读',
+            current_separate_effect_review_missing: '独立效果复盘未与当前任务结果核验绑定',
+            approval_target_contract_drifted: '当前审批目标已变化，历史效果复盘不能确认当前结果',
+            separate_effect_review_readback_failed: '独立效果复盘回读失败，暂不能确认结果',
+            expected_metric_missing: '目标指标缺失', expected_direction_unknown: '目标变化方向未确认',
+            expected_delta_invalid: '目标变化量无效', target_not_quantified: '目标尚未量化',
+            target_near_met: '接近目标', target_not_met: '目标未达成', metric_worsened: '指标反向变化',
+        };
+        const fields = {before_value:'前值',after_value:'后值',actual_delta:'实际变化',favorable_delta:'目标方向变化',
+            target_value:'目标值',expected_delta:'目标变化量',target_delta:'目标所需变化',actual_change_rate:'变化比例',progress_rate:'目标进度比例'};
+        const reasons = [...new Set([reason, outcome.failure_reason].filter(Boolean))]
+            .map(key => labels[key] || `复盘未确认（${key}）`);
+        const failures = Object.entries(outcome.metric_failures || {})
+            .map(([field, key]) => `${fields[field] || field}：${labels[key] || '不可计算'}`);
+        return [...reasons, ...failures].join('；');
+    };
     const operationExecutionReviewText = (item, helpers = {}) => {
+        if (item?.read_state?.evidenceAvailable === false) return '执行证据未读取，暂不能判断复盘';
         const managedReview = item?.action_management?.latest_review;
         if (managedReview && typeof managedReview === 'object') {
             const sufficiency = ({ sufficient: '证据充分', insufficient: '证据不足', mismatched: '口径不匹配' }[
@@ -373,7 +427,12 @@ window.SUXI_OPERATION_STATIC = (() => {
                 adverse: '反向变化（adverse）',
             }[outcomeStatus] || `未核验（${outcomeStatus}）`);
             const effectReviewId = Number(managedReview.effect_review_id || 0);
-            const actualDelta = outcome.actual_delta ?? managedReview.delta_value ?? '—';
+            const number = (key, legacyKey = key) => {
+                const value = Object.prototype.hasOwnProperty.call(outcome, key) ? outcome[key] : managedReview[legacyKey];
+                return operationExecutionRoiNumber(value) ?? '未确认';
+            };
+            const actualDelta = number('actual_delta', 'delta_value');
+            const reason = operationExecutionOutcomeReasonText(outcome, item?.review?.failure_reason);
             const causality = managedReview.causality_claimed === false
                 ? '否（仅观察）'
                 : '不满足复盘边界';
@@ -381,15 +440,17 @@ window.SUXI_OPERATION_STATIC = (() => {
                 `${sufficiency} · ${change} · ${recommendation}`,
                 `严格复盘 ${effectReviewId > 0 ? `#${effectReviewId}` : '未形成'} · 管理复盘 #${managedReview.id || '—'}`,
                 `审批冻结指标：${managedReview.metric_key || '未取得'} · ${managedReview.metric_unit || '单位缺失'}`,
-                `前值 ${managedReview.before_value ?? '—'} → 后值 ${managedReview.after_value ?? '—'} · 实际变化 ${actualDelta}`,
+                `前值 ${number('before_value')} → 后值 ${number('after_value')} · 实际变化 ${actualDelta}`,
                 `确定性结果：${outcomeLabel} · 因果归因：${causality}`,
+                ...(reason ? [`结果说明：${reason}`] : []),
             ].join('\n');
             return `${sufficiency} · ${change} · ${recommendation}`;
         }
         const review = item?.review || {};
         const statusLabel = typeof helpers.statusLabel === 'function' ? helpers.statusLabel : (status => status || '-');
         const label = statusLabel(review.status);
-        return review.summary ? `${label} · ${review.summary}` : label;
+        const reason = operationExecutionOutcomeReasonText(item?.outcome_truth || {}, review.failure_reason);
+        return [label, review.summary, reason].filter(Boolean).join(' · ');
     };
     const operationUniqueTextValues = (values = []) => {
         const seen = new Set();
@@ -686,6 +747,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         };
     };
     const operationExecutionNodeRecordText = (item = {}) => {
+        if (item.read_state?.evidenceAvailable === false) return '执行证据未读取';
         const evidenceSummary = item?.evidence_summary || {};
         const evidenceCount = Number(evidenceSummary.count ?? (Array.isArray(item?.evidence) ? item.evidence.length : 0));
         const evidenceTypes = Array.isArray(evidenceSummary.types)
@@ -713,11 +775,60 @@ window.SUXI_OPERATION_STATIC = (() => {
         const progress = ({ normal: '进度正常', too_fast: '进度过快', too_slow: '进度过慢', insufficient_evidence: '证据不足' }[node.progress_status] || '进度未判断');
         return [...evidenceParts, `${period} · ${alignment} · ${progress}`].join('；');
     };
+    const operationExecutionRoiNumber = (value) => {
+        if ((typeof value !== 'number' && typeof value !== 'string') || String(value).trim() === '') return null;
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    };
+    const operationExecutionRoiIncome = (roi) => operationExecutionRoiNumber(
+        Object.prototype.hasOwnProperty.call(roi, 'incremental_revenue') ? roi.incremental_revenue : roi.value
+    );
+    const operationExecutionRoiClass = (roi) => {
+        const ready = roi?.status === 'ready' && ['amount', '%'].includes(roi.unit)
+            && operationExecutionRoiNumber(roi.value) !== null
+            && (roi.unit !== 'amount' || operationExecutionRoiIncome(roi) !== null)
+            && ['incremental_revenue', 'cost', 'profit', 'before_revenue', 'after_revenue']
+                .every(key => roi[key] === null || roi[key] === undefined || operationExecutionRoiNumber(roi[key]) !== null)
+            && !Object.keys(roi.metric_failures || {}).length;
+        return ready ? 'text-green-700 font-semibold' : 'text-gray-500';
+    };
     const operationExecutionRoiText = (roi, formatters = {}) => {
         const formatter = operationFormatters(formatters);
-        if (!roi || roi.status !== 'ready') return roi?.message || '待计算';
-        if (roi.unit === 'amount') return `收入${formatter.money(roi.incremental_revenue || roi.value || 0)} / 利润${formatter.money(roi.profit)}`;
-        return `${roi.value}% / 利润${formatter.money(roi.profit)}`;
+        const binding = roi?.effect_review_binding;
+        const basis = binding?.basis === 'frozen_effect_review_source'
+            ? [`冻结复盘 #${binding.effect_review_id} · 来源回读 #${binding.source_readback_evidence_id}`,
+                binding.cost_validation_status === 'missing' ? '费用未提供，仅核验收入增量' : ''].filter(Boolean).join('；') : '';
+        const financialReasons = {
+            roi_calculation_overflow: '收益计算超出可计算范围', roi_input_non_finite: '收益输入不可计算',
+            revenue_evidence_missing: '收益数据缺失', cost_evidence_missing: '成本证据缺失',
+            roi_cost_denominator_non_positive: '成本分母必须大于零',
+            frozen_effect_roi_cost_changed: '费用来源与冻结复盘不一致',
+            frozen_effect_roi_cost_not_frozen: '历史复盘未冻结费用基础',
+            frozen_effect_roi_cost_unverified: '费用基础不可核验',
+        };
+        const failures = roi?.metric_failures || {};
+        const financialPartial = roi?.status === 'partial' && roi.evidence_truth?.source_verified === true
+            && (financialReasons[roi.failure_reason] || Object.values(failures).some(reason => financialReasons[reason]));
+        if (!roi || (roi.status !== 'ready' && !financialPartial)) {
+            const reason = operationExecutionOutcomeReasonText(roi?.outcome_truth || {},
+                String(roi?.failure_reason || '').startsWith('outcome_') ? roi.failure_reason : null);
+            return [roi?.message || '待计算', reason, basis].filter(Boolean).join('；');
+        }
+        const money = (value) => {
+            const number = operationExecutionRoiNumber(value);
+            return number === null ? '未返回' : formatter.money(number);
+        };
+        const value = operationExecutionRoiNumber(roi.value), income = operationExecutionRoiIncome(roi);
+        const text = roi.unit === 'amount' ? `收入${income === null ? '未确认' : formatter.money(income)}`
+            : roi.unit === '%' ? (value === null ? 'ROI未确认' : `${value}%`) : '收益单位未确认';
+        if (!financialPartial && operationExecutionRoiClass(roi).includes('text-green')) return [`${text} / 利润${money(roi.profit)}`, basis].filter(Boolean).join('；');
+        const reasons = [...new Set([roi.failure_reason, ...Object.values(failures)].map(reason => financialReasons[reason]).filter(Boolean))];
+        if (!reasons.length) reasons.push('收益数据缺失或不可计算');
+        const independent = [['增量收入', roi.incremental_revenue], ['成本', roi.cost], ['利润', roi.profit],
+            ['执行前收入', roi.before_revenue], ['执行后收入', roi.after_revenue]]
+            .filter(([, number]) => operationExecutionRoiNumber(number) !== null)
+            .map(([label, number]) => `${label}${money(number)}`);
+        return [text, ...reasons, ...independent, basis].filter(Boolean).join('；');
     };
     const buildOperationExecutionTraceRows = (summary = {}) => {
         const total = Number(summary.total || 0);
@@ -725,6 +836,9 @@ window.SUXI_OPERATION_STATIC = (() => {
         const executed = Number(summary.executed || 0);
         const evidenceReady = Number(summary.evidence_ready || 0);
         const roiReady = Number(summary.roi_ready || 0);
+        const financialIssues = summary.read_state?.roiAvailable === false ? []
+            : ['avg_roi', 'avg_revenue_lift', 'total_incremental_revenue', 'total_cost', 'total_profit']
+                .map(key => operationExecutionFinancialIssueText(summary, key)).filter(Boolean);
         return [
             {
                 key: 'source',
@@ -743,16 +857,16 @@ window.SUXI_OPERATION_STATIC = (() => {
             {
                 key: 'evidence',
                 label: '执行证据',
-                value: executed ? `${evidenceReady}/${executed}` : '待执行',
+                value: summary.read_state?.evidenceAvailable === false ? '未读取' : (executed ? `${evidenceReady}/${executed}` : '待执行'),
                 className: evidenceReady ? 'bg-indigo-50 text-indigo-700 border-indigo-100' : 'bg-gray-50 text-gray-500 border-gray-200',
                 detail: '执行后需记录平台、截图路径或操作说明；没有证据时不计算最终收益结论。',
             },
             {
                 key: 'roi',
                 label: 'ROI复盘',
-                value: roiReady ? `${roiReady}个样本` : '待计算',
-                className: roiReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200',
-                detail: '活动等投入动作计算 ROI 百分比；价格调整记录收入 lift，缺执行前后样本时显示待计算。',
+                value: summary.read_state?.roiAvailable === false ? '未读取' : (roiReady ? `${roiReady}个样本` : '待计算'),
+                className: financialIssues.length ? 'bg-amber-50 text-amber-700 border-amber-100' : (roiReady ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-gray-50 text-gray-500 border-gray-200'),
+                detail: financialIssues.length ? `逐项样本保留，汇总暂不能完整计算：${financialIssues.join('；')}` : '活动等投入动作计算 ROI 百分比；价格调整记录收入 lift，缺执行前后样本时显示待计算。',
             },
         ];
     };
@@ -1609,6 +1723,53 @@ window.SUXI_OPERATION_STATIC = (() => {
         }
     };
 
+    const reassessOperationExecutionRoiCostMutation = async (item, ctx) => {
+        if (!operationCanReassessRoiCost(item) || ctx.loading.value.actions) return;
+        let mutationContext;
+        try {
+            mutationContext = captureOperationExecutionMutationContext(item, ctx.selectedHotelId(), {
+                requireTask: true, requireDigest: ctx.isManagedAction(item),
+            });
+            assertOperationExecutionMutationContextCurrent(mutationContext, item, ctx.selectedHotelId());
+        } catch (error) { ctx.toast(ctx.errorMessage(error, '费用复核身份校验失败'), 'error'); return; }
+        const binding = Object.freeze({...item.roi.effect_review_binding});
+        const cost = Object.freeze({...binding.cost_reassessment.roi_cost_basis});
+        const reportedStatus = item.review.reported_status, reportedSummary = item.review.summary;
+        const sameCost = actual => actual && Object.keys(actual).length === 5
+            && ['version','status','value','source_path','measurement_kind'].every(key => actual[key] === cost[key]);
+        ctx.loading.value.actions = true;
+        try {
+            const res = await ctx.request(`/operation/execution-tasks/${mutationContext.taskId}/review`, {
+                method:'POST', businessContext:{hotelId:mutationContext.hotelId},
+                body:JSON.stringify({hotel_id:mutationContext.hotelId, system_hotel_id:mutationContext.hotelId,
+                    refresh_roi_cost_review:true, effect_review_id:binding.effect_review_id,
+                    effect_review_content_digest:binding.effect_review_content_digest, roi_cost_basis:cost}),
+            });
+            if (res.code !== 200) throw new Error(res.message || '费用复核保存失败');
+            const saved = res.data?.roi_cost_review_save;
+            if (Number(res.data?.id || 0) !== mutationContext.taskId || !saved || Number(saved.effect_review_id) <= 0
+                || !String(saved.content_digest || '').match(/^[a-f0-9]{64}$/)
+                || !sameCost(saved.roi_cost_basis)) throw new Error('费用复核保存身份不一致');
+            assertOperationExecutionMutationContextCurrent(mutationContext, item, ctx.selectedHotelId());
+            const task = await readOperationExecutionTask(ctx.request, mutationContext.taskId, mutationContext.hotelId);
+            const review = task.active_effect_review;
+            if (ctx.isManagedAction(item)) assertOperationExecutionMutationDigestReadback(task, mutationContext);
+            else if (mutationContext.actionDigest && review?.approval_target_digest !== mutationContext.actionDigest) {
+                throw new Error('费用复核审批目标摘要回读不一致');
+            }
+            if (Number(review?.id) !== Number(saved.effect_review_id) || review?.content_digest !== saved.content_digest
+                || Number(task.intent_id) !== mutationContext.intentId || Number(task.tenant_id) !== Number(item.tenant_id)
+                || review?.readback_verified !== true || review?.approval_contract_verified !== true || review?.active_eligible !== true
+                || Number(review?.source_readback_evidence_id) !== Number(binding.source_readback_evidence_id)
+                || review?.result_status !== reportedStatus || review?.result_summary !== reportedSummary
+                || !sameCost(review?.outcome?.roi_cost_basis)) throw new Error('费用复核未按 ID 严格回读');
+            assertOperationExecutionMutationContextCurrent(mutationContext, item, ctx.selectedHotelId());
+            await ctx.loadActions({focusIntentId:mutationContext.intentId});
+            ctx.toast(`费用复核 #${review.id} 已保存并回读；历史复盘完整保留`, 'success');
+        } catch (error) { ctx.toast(ctx.errorMessage(error, '费用复核保存失败，请刷新核验'), 'error'); }
+        finally { ctx.loading.value.actions = false; }
+    };
+
     const runOperatingNetworkReplicationRestoreFlow = async ({
         replication, hotelId, busy = false, currentHotelId, request, setAction, setError,
         assertBoundaries, setReplication, clearIntent, loadReviews, toast,
@@ -1653,8 +1814,6 @@ window.SUXI_OPERATION_STATIC = (() => {
     };
 
     return {
-        lifecycleMetricLabels,
-        lifecycleStageTitles,
         operationAlertFilters,
         operationStrategyTypes,
         buildOperationSummaryCards,
@@ -1667,8 +1826,11 @@ window.SUXI_OPERATION_STATIC = (() => {
         operationCanRecordNodeCheck,
         operationCanReconcileExecution,
         operationCanReviewExecution,
+        operationCanReassessRoiCost,
+        operationExecutionCostReassessmentText,
         operationExecutionActionAvailable,
         operationExecutionRateText,
+        buildOperationExecutionReadback,
         buildOperationExecutionSummaryCards,
         operationExecutionBottleneckText,
         operationExecutionMoneyStatusText,
@@ -1689,6 +1851,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         buildOperationRevenueNodeRecord,
         operationExecutionNodeRecordText,
         operationExecutionRoiText,
+        operationExecutionRoiClass,
         buildOperationExecutionTraceRows,
         buildOperationClosureSummaryBadge,
         buildOperationClosureSummaryCards,
@@ -1738,6 +1901,7 @@ window.SUXI_OPERATION_STATIC = (() => {
         readOperationExecutionTask,
         cancelOperationExecutionMutation,
         reconcileOperationExecutionReviewMutation,
+        reassessOperationExecutionRoiCostMutation,
         runOperatingNetworkReplicationRestoreFlow,
         operatingNetworkReplicationLabel,
         applyOperationExecutionViewMode,

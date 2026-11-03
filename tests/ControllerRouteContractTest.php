@@ -383,13 +383,13 @@ final class ControllerRouteContractTest extends TestCase
         self::assertStringContainsString("'investment.view'", $quant);
         self::assertStringContainsString('canAccessInvestmentRecord(', $quant);
         $publicDiagnosis = $this->sourceWithoutPhpComments(__DIR__ . '/../app/controller/concern/CtripCompetitiveOperationsConcern.php');
-        self::assertMatchesRegularExpression('/createExecutionIntent\([\s\S]*?false,\s*null,\s*true\s*\)/', $strategy);
+        self::assertStringContainsString("RetiredFeatureReadOnly::response('战略推演')", $strategy);
         self::assertMatchesRegularExpression('/createExecutionIntent\([\s\S]*?false,\s*null,\s*true\s*\)/', $quant);
         self::assertMatchesRegularExpression('/createExecutionIntent\([\s\S]*?false,\s*\$idempotencyKey,\s*true\s*\)/', $publicDiagnosis);
 
         $service = $this->sourceWithoutPhpComments(__DIR__ . '/../app/service/OperationManagementService.php')
             . $this->sourceWithoutPhpComments(
-                __DIR__ . '/../app/service/operation/OperationApprovalValidationConcern.php'
+                __DIR__ . '/../app/service/operation/OperationActionLifecycleConcern.php'
             );
         foreach (['ota_diagnosis', 'strategy_simulation', 'quant_simulation'] as $reservedSource) {
             self::assertStringContainsString("'{$reservedSource}'", $service);

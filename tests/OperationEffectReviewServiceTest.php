@@ -60,6 +60,254 @@ final class OperationEffectReviewServiceTest extends TestCase
         $this->seedApprovedExecution();
     }
 
+    #[\PHPUnit\Framework\Attributes\DataProvider('decimalEffectBoundaryCases')]
+    public function testDecimalEffectBoundaryPersistsAndExactlyReadsBack(
+        float $before,
+        float $after,
+        float $target,
+        string $direction,
+        string $targetType,
+        string $outcomeStatus
+    ): void {
+        $intent = Db::name('operation_execution_intents')->where('id', 1)->find();
+        $targetPayload = json_decode($intent['target_value_json'], true, 512, JSON_THROW_ON_ERROR);
+        $intentEvidence = json_decode($intent['evidence_json'], true, 512, JSON_THROW_ON_ERROR);
+        $contract = $intentEvidence['approval_target'];
+        $definition = $contract['metric_definition'];
+        $definition['metric_key'] = 'revenue';
+        $definition['calculation'] = 'trusted_daily_revenue';
+        $definitionDigest = hash('sha256', self::canonicalJson([
+            'metric_key' => 'revenue', 'definition' => $definition,
+        ]));
+        $delta = $targetType === 'delta' ? number_format($target, 6, '.', '') : null;
+        $absolute = $targetType === 'absolute' ? number_format($target, 6, '.', '') : null;
+        foreach (['expected_metric' => 'revenue', 'expected_direction' => $direction,
+            'target_type' => $targetType, 'target_value' => $absolute, 'expected_delta' => $delta,
+            'metric_definition' => $definition, 'metric_definition_digest' => $definitionDigest] as $key => $value) {
+            $contract[$key] = $value;
+        }
+        unset($contract['content_digest']);
+        $contract['content_digest'] = hash('sha256', self::canonicalJson($contract));
+        foreach (['target_metric' => 'revenue', 'expected_direction' => $direction,
+            'target_type' => $targetType, 'target_value' => $absolute, 'expected_target' => $absolute, 'expected_delta' => $delta,
+            'metric_definition' => $definition, 'metric_definition_digest' => $definitionDigest,
+            'approval_target_digest' => $contract['content_digest']] as $key => $value) {
+            $targetPayload[$key] = $value;
+            $intentEvidence[$key] = $value;
+        }
+        $intentEvidence['approval_target'] = $contract;
+        Db::name('operation_execution_intents')->where('id', 1)->update([
+            'expected_metric' => 'revenue', 'expected_delta' => $delta,
+            'current_value_json' => json_encode(['revenue' => $before], JSON_THROW_ON_ERROR),
+            'target_value_json' => self::canonicalJson($targetPayload),
+            'evidence_json' => self::canonicalJson($intentEvidence),
+        ]);
+        $source = Db::name('operation_execution_evidence')->where('id', 1)->find();
+        $context = json_decode($source['platform_response_json'], true, 512, JSON_THROW_ON_ERROR);
+        $context['metric_key'] = 'revenue';
+        Db::name('operation_execution_evidence')->where('id', 1)->update([
+            'before_json' => json_encode(['revenue' => $before], JSON_THROW_ON_ERROR),
+            'after_json' => json_encode(['revenue' => $after], JSON_THROW_ON_ERROR),
+            'platform_response_json' => self::canonicalJson($context),
+        ]);
+        $resultStatus = match ($outcomeStatus) {
+            'met' => 'success', 'near' => 'near_success', default => 'failed',
+        };
+        Db::name('operation_execution_tasks')->where('id', 1)->update(['result_status' => $resultStatus]);
+        $input = array_replace($this->effectInput(), ['metric_key' => 'revenue', 'result_status' => $resultStatus]);
+        $service = new OperationEffectReviewService();
+        $saved = $service->create(42, 7, 1, 1, $input, 3);
+        self::assertTrue($saved['created']);
+        self::assertTrue($saved['review']['readback_verified']);
+        self::assertSame($outcomeStatus, $saved['review']['outcome_status']);
+        self::assertSame($resultStatus, $saved['review']['result_status']);
+        self::assertSame(number_format($before, 6, '.', ''), $saved['review']['before_value']);
+        self::assertSame(number_format($after, 6, '.', ''), $saved['review']['after_value']);
+        self::assertSame(number_format($after - $before, 6, '.', ''), $saved['review']['outcome']['actual_delta']);
+        self::assertFalse($saved['review']['causality_claimed']);
+        $duplicate = $service->create(42, 7, 1, 1, $input, 3);
+        self::assertFalse($duplicate['created']);
+        self::assertSame($saved['review'], $duplicate['review']);
+        self::assertSame($saved['review'], $service->readVerified((int)$saved['review']['id'], 42, 7, 1, 1));
+        self::assertSame(1, (int)Db::name('operation_effect_reviews')->count());
+        self::assertSame(1, (int)Db::name('operation_execution_evidence')->count());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('lossyDecimalSources')]
+    public function testLossySourceDecimalIsRejectedWithoutSavingOrRewritingEvidence(
+        string $before, string $after, float $delta
+    ): void {
+        $this->testDecimalEffectBoundaryPersistsAndExactlyReadsBack(100.0, 100.0 + $delta, $delta, 'increase', 'delta', 'met');
+        Db::name('operation_effect_reviews')->delete(true);
+        $beforeJson = json_encode(['revenue' => $before], JSON_THROW_ON_ERROR);
+        $afterJson = json_encode(['revenue' => $after], JSON_THROW_ON_ERROR);
+        Db::name('operation_execution_intents')->where('id', 1)->update(['current_value_json' => $beforeJson]);
+        Db::name('operation_execution_evidence')->where('id', 1)->update([
+            'before_json' => $beforeJson, 'after_json' => $afterJson,
+        ]);
+        Db::name('operation_execution_tasks')->where('id', 1)->update(['result_status' => 'failed']);
+        try {
+            (new OperationEffectReviewService())->create(42, 7, 1, 1,
+                array_replace($this->effectInput(), ['metric_key' => 'revenue', 'result_status' => 'failed']), 3);
+            self::fail('A source decimal changed by float normalization must not produce a saved effect review.');
+        } catch (InvalidArgumentException $error) {
+            self::assertStringContainsString('无法按六位小数精确回读', $error->getMessage());
+        }
+        self::assertSame(0, (int)Db::name('operation_effect_reviews')->count());
+        $evidence = Db::name('operation_execution_evidence')->where('id', 1)->find();
+        self::assertSame($beforeJson, $evidence['before_json']);
+        self::assertSame($afterJson, $evidence['after_json']);
+        self::assertSame(1, (int)Db::name('operation_execution_evidence')->count());
+        self::assertSame('failed', Db::name('operation_execution_tasks')->where('id', 1)->value('result_status'));
+    }
+
+    public static function lossyDecimalSources(): array
+    {
+        return [
+            'micro source falsely becomes twice target' => ['10000000000.000000', '10000000000.000001', 0.000002],
+            'sixty six percent falsely becomes near' => ['10000000000000.000000', '10000000000000.001999', 0.003000],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('compatibleDecimalInputs')]
+    public function testDecimalNormalizationRetainsOrdinaryAndLegacyInputs(mixed $value, string $expected): void
+    {
+        $method = new \ReflectionMethod(OperationEffectReviewService::class, 'decimal');
+        self::assertSame($expected, $method->invoke(new OperationEffectReviewService(), $value, 'test fixture'));
+    }
+
+    public static function compatibleDecimalInputs(): array
+    {
+        return [
+            [0, '0.000000'], ['-0.000000', '0.000000'], ['+000100.210000', '100.210000'],
+            [' 100.21 ', '100.210000'], ['.1', '0.100000'], ['1e-1', '0.100000'],
+            [100.21, '100.210000'], ['0.000001', '0.000001'], ['10000000000.000000', '10000000000.000000'],
+            ['-000001.230000', '-1.230000'], ['0.1234567', '0.123457'],
+        ];
+    }
+
+    public static function decimalEffectBoundaryCases(): array
+    {
+        return [
+            'delta increase exactly met' => [100.0, 100.1, 0.1, 'increase', 'delta', 'met'],
+            'cent target with fractional baseline' => [100.2, 100.21, 0.01, 'increase', 'delta', 'met'],
+            'micro target below seventy percent' => [100.0, 100.000002, 0.000003, 'increase', 'delta', 'missed'],
+            'delta decrease exactly met' => [100.0, 99.9, 0.1, 'decrease', 'delta', 'met'],
+            'delta increase exactly seventy percent' => [100.0, 100.07, 0.1, 'increase', 'delta', 'near'],
+            'delta decrease exactly seventy percent' => [100.0, 99.93, 0.1, 'decrease', 'delta', 'near'],
+            'delta below seventy percent' => [100.0, 100.069999, 0.1, 'increase', 'delta', 'missed'],
+            'delta below full target' => [100.0, 100.099999, 0.1, 'increase', 'delta', 'near'],
+            'delta six decimal increase' => [100.0, 100.000001, 0.000001, 'increase', 'delta', 'met'],
+            'delta six decimal decrease' => [100.0, 99.999999, 0.000001, 'decrease', 'delta', 'met'],
+            'positive target without change' => [100.0, 100.0, 0.000001, 'increase', 'delta', 'missed'],
+            'positive target with worsening' => [100.0, 99.999999, 0.1, 'increase', 'delta', 'adverse'],
+            'zero baseline exactly met' => [0.0, 0.1, 0.1, 'increase', 'delta', 'met'],
+            'absolute increase exactly met' => [100.0, 100.1, 100.1, 'increase', 'absolute', 'met'],
+            'absolute increase seventy percent' => [100.0, 100.07, 100.1, 'increase', 'absolute', 'near'],
+            'absolute decrease seventy percent' => [100.0, 99.93, 99.9, 'decrease', 'absolute', 'near'],
+            'absolute below seventy percent' => [100.0, 100.069999, 100.1, 'increase', 'absolute', 'missed'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('storageReadbackDriftCases')]
+    public function testStorageReadbackFailureRollsBackOnlyNewReviewAndAllowsRetry(string $mutation, bool $preserveExisting): void
+    {
+        $service = new OperationEffectReviewService();
+        $existing = $preserveExisting ? $service->create(42, 7, 1, 1, $this->effectInput(), 3) : null;
+        $input = array_replace($this->effectInput(), [
+            'reviewed_at' => '2026-08-09 09:00:01',
+        ]);
+        $source = Db::name('operation_execution_evidence')->where('id', 1)->find();
+        $task = Db::name('operation_execution_tasks')->where('id', 1)->find();
+        $intent = Db::name('operation_execution_intents')->where('id', 1)->find();
+        // This trigger changes only the disposable SQLite fixture's newly inserted row.
+        Db::execute('CREATE TEMP TRIGGER goal055_storage_drift AFTER INSERT ON operation_effect_reviews BEGIN '
+            . 'UPDATE operation_effect_reviews SET ' . $mutation . ' WHERE id = NEW.id; END');
+        try {
+            $service->create(42, 7, 1, 1, $input, 3);
+            self::fail('A stored row failing strict readback must not be committed.');
+        } catch (RuntimeException $error) {
+            self::assertStringContainsString('严格回读', $error->getMessage());
+        } finally {
+            Db::execute('DROP TRIGGER goal055_storage_drift');
+        }
+        $expectedCount = $preserveExisting ? 1 : 0;
+        self::assertSame($expectedCount, (int)Db::name('operation_effect_reviews')->count());
+        self::assertSame($source, Db::name('operation_execution_evidence')->where('id', 1)->find());
+        self::assertSame($task, Db::name('operation_execution_tasks')->where('id', 1)->find());
+        self::assertSame($intent, Db::name('operation_execution_intents')->where('id', 1)->find());
+        if ($existing !== null) {
+            self::assertSame($existing['review'], $service->readVerified((int)$existing['review']['id'], 42, 7, 1, 1));
+        }
+        $retried = $service->create(42, 7, 1, 1, $input, 3);
+        self::assertTrue($retried['created']);
+        self::assertTrue($retried['review']['readback_verified']);
+        self::assertSame($retried['review'], $service->readVerified((int)$retried['review']['id'], 42, 7, 1, 1));
+        $duplicate = $service->create(42, 7, 1, 1, $input, 3);
+        self::assertFalse($duplicate['created']);
+        self::assertSame($retried['review'], $duplicate['review']);
+        self::assertSame($expectedCount + 1, (int)Db::name('operation_effect_reviews')->count());
+    }
+
+    public static function storageReadbackDriftCases(): array
+    {
+        $digestDrift = "content_digest = '" . str_repeat('0', 64) . "'";
+        return [
+            'digest drift without previous review' => [$digestDrift, false],
+            'numeric drift without previous review' => ['after_value = 999', false],
+            'digest drift preserves previous review' => [$digestDrift, true],
+            'numeric drift preserves previous review' => ['after_value = 999', true],
+        ];
+    }
+
+    public function testDuplicateReviewFailingStrictReadbackPreservesExistingRecord(): void
+    {
+        $service = new OperationEffectReviewService();
+        $saved = $service->create(42, 7, 1, 1, $this->effectInput(), 3);
+        Db::name('operation_effect_reviews')->where('id', $saved['review']['id'])->update(['after_value' => 999]);
+        $existing = Db::name('operation_effect_reviews')->where('id', $saved['review']['id'])->find();
+        try {
+            $service->create(42, 7, 1, 1, $this->effectInput(), 3);
+            self::fail('A duplicate with corrupted stored content must fail strict readback.');
+        } catch (RuntimeException $error) {
+            self::assertStringContainsString('严格回读', $error->getMessage());
+        }
+        self::assertSame(1, (int)Db::name('operation_effect_reviews')->count());
+        self::assertSame($existing, Db::name('operation_effect_reviews')->where('id', $saved['review']['id'])->find());
+    }
+
+    public function testTerminalTaskReadbackFailureRollsBackAndCanRetry(): void
+    {
+        Db::name('operation_execution_tasks')->where('id', 1)->update([
+            'result_status' => 'observing', 'result_summary' => '',
+        ]);
+        $this->insertManualExecutionEvidence();
+        $evidenceBefore = Db::name('operation_execution_evidence')->order('id')->select()->toArray();
+        $input = ['result_status' => 'success',
+            'result_summary' => $this->effectInput()['result_summary']];
+        Db::execute('CREATE TEMP TRIGGER goal055_terminal_drift AFTER INSERT ON operation_effect_reviews BEGIN '
+            . 'UPDATE operation_effect_reviews SET after_value = 999 WHERE id = NEW.id; END');
+        try {
+            (new OperationManagementService())->reviewExecutionTask(1, [7], $input, 3);
+            self::fail('Terminal review and effect readback must roll back together.');
+        } catch (RuntimeException $error) {
+            self::assertStringContainsString('严格回读', $error->getMessage());
+        } finally {
+            Db::execute('DROP TRIGGER goal055_terminal_drift');
+        }
+        $task = Db::name('operation_execution_tasks')->where('id', 1)->find();
+        self::assertSame('observing', $task['result_status']);
+        self::assertSame('', $task['result_summary']);
+        self::assertSame(0, (int)Db::name('operation_effect_reviews')->count());
+        self::assertSame($evidenceBefore, Db::name('operation_execution_evidence')->order('id')->select()->toArray());
+        $saved = (new OperationManagementService())->reviewExecutionTask(1, [7], $input, 3);
+        self::assertSame('success', $saved['result_status']);
+        self::assertSame('readback_verified', $saved['effect_review_summary']['persistence_status']);
+        self::assertSame(1, $saved['effect_review_summary']['verified_count']);
+        (new OperationManagementService())->reviewExecutionTask(1, [7], $input, 3);
+        self::assertSame(1, (int)Db::name('operation_effect_reviews')->count());
+    }
+
     public function testCreatePersistsSeparateEffectReviewAndStrictlyReadsItBack(): void
     {
         $service = new OperationEffectReviewService();

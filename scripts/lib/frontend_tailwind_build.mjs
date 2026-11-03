@@ -58,7 +58,7 @@ export function cssContainsClassSelector(css, token) {
 }
 
 export function findDynamicTailwindConstructions(contentFiles) {
-  const interpolation = new RegExp(`\\b${TAILWIND_DYNAMIC_PREFIX}-\\$\\{`, 'g');
+  const interpolation = new RegExp(`(?<![A-Za-z0-9_-])${TAILWIND_DYNAMIC_PREFIX}-\\$\\{`, 'g');
   const concatenation = new RegExp(`[\\'"\\x60]${TAILWIND_DYNAMIC_PREFIX}-[\\'"\\x60]\\s*\\+`, 'g');
   const rows = [];
 
@@ -68,7 +68,10 @@ export function findDynamicTailwindConstructions(contentFiles) {
       const matches = [...line.matchAll(interpolation), ...line.matchAll(concatenation)];
       const hasStyleConstruction = matches.some((match) => {
         const before = line.slice(0, match.index);
-        return before.lastIndexOf('class') >= before.lastIndexOf('key');
+        const literalContext = before + (/^[`'"]/.test(match[0]) ? match[0][0] : '');
+        // IDs and accessibility metadata are not CSS classes, even when their text contains "text-".
+        const identifierProperty = /(?:\b(?:key|id|data-[\w-]+|aria-[\w-]+)|['"](?:key|id|data-[\w-]+|aria-[\w-]+)['"])\s*[:=]\s*[`'"][^`'"]*$/;
+        return !identifierProperty.test(literalContext);
       });
       if (hasStyleConstruction) {
         rows.push({ file, line: index + 1, source: line.trim().slice(0, 300) });

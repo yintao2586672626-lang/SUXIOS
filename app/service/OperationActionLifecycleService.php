@@ -2229,7 +2229,7 @@ final class OperationActionLifecycleService
     /** @param array<string,mixed> $card */
     public function actionIdentityDigest(array $card): string
     {
-        return hash('sha256', $this->canonicalJson([
+        $identity = [
             'contract_version' => (string)($card['contract_version'] ?? self::CARD_CONTRACT_VERSION),
             'hotel' => [
                 'tenant_id' => (int)($card['hotel']['tenant_id'] ?? 0),
@@ -2248,11 +2248,16 @@ final class OperationActionLifecycleService
                 'metric_unit' => strtolower(trim((string)($card['metric_contract']['unit'] ?? ''))),
                 'target_type' => strtolower(trim((string)($card['metric_contract']['target_type'] ?? 'observation'))),
             ],
-            // The opportunity is the durable business identity. Snapshot and
-            // evidence digests attest a particular observation, but refreshing
-            // them must not create a second execution intent for the same work.
+            // A new snapshot of the same facts keeps the same work identity.
+            // Changed baseline facts must not reuse an older action lineage.
             'opportunity_key' => trim((string)($card['trace']['opportunity_key'] ?? '')),
-        ]));
+        ];
+        $rawFactDigest = $card['trace']['cockpit_identity_digest'] ?? null;
+        $factDigest = is_string($rawFactDigest) ? strtolower(trim($rawFactDigest)) : '';
+        if ($this->isDigest($factDigest)) {
+            $identity['cockpit_fact_identity_digest'] = $factDigest;
+        }
+        return hash('sha256', $this->canonicalJson($identity));
     }
 
     /** @param array<string,mixed> $card */

@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace app\model;
 
 use app\model\base\BaseTenantModel;
+use think\facade\Db;
 
 /**
  * 竞对分析模型
@@ -151,6 +152,45 @@ class CompetitorAnalysis extends BaseTenantModel
         $analysis->save();
         
         return $analysis;
+    }
+
+    /** Save an operator sample and verify the persisted scope and values before commit. */
+    public static function recordManualAnalysis(int $hotelId, int $competitorId, array $data): array
+    {
+        return Db::transaction(function () use ($hotelId, $competitorId, $data): array {
+            $analysis = self::recordAnalysis($hotelId, $competitorId, $data);
+            $stored = self::where('id', (int)$analysis->id)
+                ->where('hotel_id', $hotelId)->where('tenant_id', (int)$analysis->tenant_id)->find();
+            if ($stored === null) throw new \RuntimeException('competitor_price_save_readback_mismatch');
+            $row = $stored->toArray();
+            foreach (['hotel_id' => $hotelId, 'competitor_hotel_id' => $competitorId,
+                'room_type_id' => $data['room_type_id'], 'competitor_room_type_id' => $data['competitor_room_type_id'],
+                'ota_platform' => $data['ota_platform']] as $field => $expected) {
+                if ((int)($row[$field] ?? -1) !== (int)$expected) {
+                    throw new \RuntimeException('competitor_price_save_readback_mismatch');
+                }
+            }
+            $expectedMoney = ['our_price' => $data['our_price'], 'competitor_price' => $data['competitor_price'],
+                'price_index' => $data['price_index'], 'price_difference' => round($data['our_price'] - $data['competitor_price'], 2)];
+            foreach ($expectedMoney as $field => $expected) {
+                if (!is_numeric($row[$field] ?? null)
+                    || number_format((float)$row[$field], 2, '.', '') !== number_format((float)$expected, 2, '.', '')) {
+                    throw new \RuntimeException('competitor_price_save_readback_mismatch');
+                }
+            }
+            if (($row['analysis_date'] ?? '') !== $data['analysis_date']
+                || ($row['competitor_data'] ?? null) != $data['competitor_data']) {
+                throw new \RuntimeException('competitor_price_save_readback_mismatch');
+            }
+            foreach (['input_scope', 'source_scope', 'target_workflow', 'evidence_status',
+                'auto_write_ota', 'input_type', 'competitor_name'] as $field) {
+                if (($row['competitor_data'][$field] ?? null) !== ($data['competitor_data'][$field] ?? null)) {
+                    throw new \RuntimeException('competitor_price_save_readback_mismatch');
+                }
+            }
+            return ['id' => (int)$row['id'], 'readback_verified' => true, 'price_sample' => $row,
+                'input_scope' => 'manual_ctrip_competitor_price_sample', 'auto_write_ota' => false];
+        });
     }
 
     /**

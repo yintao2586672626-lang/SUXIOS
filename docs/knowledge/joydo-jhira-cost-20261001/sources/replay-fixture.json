@@ -1,0 +1,22 @@
+{
+  "version": "joydo-cost-replay-20261001-v1",
+  "source_sample": {
+    "evidence": "external_visible_example_not_hotel_fact",
+    "rooms": 50, "days": 30, "occupancy": 0.65, "net_adr": 160,
+    "commission": 0.18, "fixed_cost": 92000, "rent": 50000,
+    "selected_amenities": 5.78, "utilities": 15, "laundry": 6.5,
+    "precision_configuration_total": 61.64, "sugar_configuration": 0.24,
+    "source_assumed_usage": 0.8, "sugar_assumed_usage": 0.2,
+    "source_usage_basis_verified": false,
+    "source_switch": {"checked_observed": true, "selected_value_after_check": 5.78, "profit_after_check": 37402, "breakeven_percent_after_check": 46.21, "propagation_verified": false, "restored_checked": false}
+  },
+  "synthetic_units": {
+    "evidence": "locally_authored_unit_test_not_source_default",
+    "bottle_ml": 500, "bottle_price": 20, "ml_per_guest_night": 15, "guests_per_sold_room_night": 1.4,
+    "inventory": {"opening": 100, "purchases": 200, "transfer_in": 0, "closing": 150, "transfer_out": 0, "returns": 0, "writeoff": 0}
+  },
+  "conditional_mapping": {
+    "evidence": "equivalent_local_arithmetic_not_saved_business_scenario",
+    "annualization_days": 360, "months": 12, "tax_financing_and_other_cash_adjustments": "unknown"
+  }
+}

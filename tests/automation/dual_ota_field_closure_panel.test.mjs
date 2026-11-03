@@ -267,6 +267,7 @@ test('cockpit read uses the exact hotel and business date and rejects scope drif
 
   const closure = {
     contract_version: 'dual_ota_field_closure.v1',
+    tenant_id: 1,
     hotel_id: 80,
     business_date: '2026-08-23',
     platforms: { ctrip: {}, meituan: {} },
@@ -291,6 +292,7 @@ test('component performs a scoped read when the parent payload is unavailable', 
   const component = panel.createPanel({ h });
   const closure = {
     contract_version: 'dual_ota_field_closure.v1',
+    tenant_id: 1,
     hotel_id: 80,
     business_date: '2026-08-23',
     platforms: { ctrip: {}, meituan: {} },
@@ -324,6 +326,7 @@ test('same hotel and date watchers share one in-flight closure read', async () =
   const component = panel.createPanel({ h });
   const closure = {
     contract_version: 'dual_ota_field_closure.v1',
+    tenant_id: 1,
     hotel_id: 80,
     business_date: '2026-08-23',
     platforms: { ctrip: {}, meituan: {} },

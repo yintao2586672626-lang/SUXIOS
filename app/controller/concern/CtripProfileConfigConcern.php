@@ -194,9 +194,8 @@ trait CtripProfileConfigConcern
             $candidates = $this->discoverCtripProfileAutoFetchFieldCandidates();
             $candidateScope = $this->scopeCtripProfileAutoFetchFieldCandidates($candidates);
             $syncResult = $this->mergeCtripProfileAutoFetchFieldCandidates($fields, $candidates);
-            if ((int)$syncResult['added_count'] > 0) {
-                $this->writeCtripProfileCaptureFields($fields);
-            }
+            // Explicit synchronization also persists a default/legacy preview.
+            $this->writeCtripProfileCaptureFields($fields);
 
             $fieldList = array_values($this->activeCtripProfileCaptureFields($fields));
             $sampleSummary = $this->hydrateCtripProfileFieldLatestSamples($fieldList);
@@ -253,6 +252,14 @@ trait CtripProfileConfigConcern
             if ($fieldKey === '' || $fieldName === '') {
                 return $this->error('字段编码和字段名称不能为空');
             }
+            if (!$this->isCtripProfileKeyField($fieldKey)) {
+                return $this->error('字段编码不在当前支持的关键指标范围内，请在高级配置中改用已支持的字段编码；本次未保存');
+            }
+            $requestedVerification = $this->normalizeCtripProfileFieldSampleVerificationStatus($requestData['sample_verification_status'] ?? $requestData['sampleVerificationStatus'] ?? $original['sample_verification_status'] ?? 'unverified');
+            $selectedSampleValue = trim((string)($requestData['verified_sample_value'] ?? $requestData['verifiedSampleValue'] ?? $original['verified_sample_value'] ?? ''));
+            if ($requestedVerification === 'matched' && $selectedSampleValue === '') {
+                return $this->error('请先选择并保存可回读的获取值，再标记数值相符；本次未保存');
+            }
 
             if ($id === '') {
                 $safeIdPart = preg_replace('/[^a-z0-9_\-]+/i', '_', strtolower($fieldKey)) ?: bin2hex(random_bytes(4));
@@ -277,12 +284,27 @@ trait CtripProfileConfigConcern
                 return $this->error('字段所属模块不存在，请先在模块管理中新增模块');
             }
 
+            $verificationReset = false;
+            if ($original) {
+                $evidenceBefore = $this->normalizeCtripProfileCaptureField($this->prepareCtripProfileFieldSaveData($original, $original, false), $original);
+                foreach (['field_key', 'section', 'data_type', 'page_url', 'request_url', 'json_path', 'source_keys', 'target_field', 'target_value', 'value_meaning', 'ownership_rule', 'storage_field', 'value_type', 'unit', 'transform_rule'] as $evidenceKey) {
+                    if (($field[$evidenceKey] ?? '') !== ($evidenceBefore[$evidenceKey] ?? '')) {
+                        $field = $this->normalizeCtripProfileCaptureField(array_merge($field, [
+                            'status' => $field['status'] === 'paused' ? 'paused' : 'pending',
+                            'sample_verification_status' => 'unverified',
+                        ]), $field);
+                        $verificationReset = true;
+                        break;
+                    }
+                }
+            }
+
             $fields[$id] = $field;
             $this->writeCtripProfileCaptureFields($fields);
 
             OperationLog::record('online_data', 'save_ctrip_profile_field', '保存携程 Profile 字段: ' . $fieldName, $this->currentUser->id);
 
-            return $this->success($field, '字段配置已保存');
+            return $this->success($field, $verificationReset ? '字段配置已保存，来源或口径已变更，需重新核验样本' : '字段配置已保存');
         } catch (\Throwable $e) {
             \think\facade\Log::error('保存携程 Profile 字段失败: ' . $e->getMessage(), ['exception' => $e]);
             return $this->error('保存携程 Profile 字段失败: ' . $e->getMessage(), 500);
@@ -349,6 +371,9 @@ trait CtripProfileConfigConcern
             }
 
             $status = $this->normalizeCtripProfileFieldSampleVerificationStatus($rawStatus);
+            if ($status === 'matched' && trim((string)($fields[$id]['verified_sample_value'] ?? '')) === '') {
+                return $this->error('请先选择并保存可回读的获取值，再标记数值相符；本次未保存');
+            }
             $field = $this->normalizeCtripProfileCaptureField(array_merge($fields[$id], [
                 'status' => $this->statusForCtripProfileFieldSampleVerification($status, (string)($fields[$id]['status'] ?? 'pending')),
                 'sample_verification_status' => $status,
@@ -742,6 +767,7 @@ trait CtripProfileConfigConcern
         return '';
     }
 
+    // Reading module metadata must not create or migrate saved capture rules.
     private function readCtripProfileCaptureModules(bool $includeDeleted = false): array
     {
         try {
@@ -752,20 +778,18 @@ trait CtripProfileConfigConcern
         }
         if (!$row) {
             $modules = $this->defaultCtripProfileCaptureModules();
-            $this->writeCtripProfileCaptureModules($modules, true);
             return $includeDeleted ? $modules : $this->activeCtripProfileCaptureModules($modules);
         }
 
         $rawConfigValue = (string)($row['config_value'] ?? '');
         $payload = json_decode($rawConfigValue, true);
         if (!is_array($payload)) {
-            \think\facade\Log::warning('携程 Profile 模块配置无法解析，已恢复默认模块', [
+            \think\facade\Log::warning('携程 Profile 模块配置无法解析，使用默认模块预览，原配置未改写', [
                 'config_key' => self::CTRIP_PROFILE_MODULES_CONFIG_KEY,
                 'json_error' => json_last_error_msg(),
                 'stored_length' => strlen($rawConfigValue),
             ]);
             $modules = $this->defaultCtripProfileCaptureModules();
-            $this->writeCtripProfileCaptureModules($modules);
             return $includeDeleted ? $modules : $this->activeCtripProfileCaptureModules($modules);
         }
 
@@ -784,10 +808,9 @@ trait CtripProfileConfigConcern
             }
         }
 
-        [$modules, $changed] = $this->mergeDefaultCtripProfileCaptureModules($modules);
+        [$modules] = $this->mergeDefaultCtripProfileCaptureModules($modules);
         if (empty($modules)) {
             $modules = $this->defaultCtripProfileCaptureModules();
-            $changed = true;
         }
 
         uasort($modules, function (array $a, array $b): int {
@@ -797,10 +820,6 @@ trait CtripProfileConfigConcern
             }
             return strcmp((string)($a['id'] ?? ''), (string)($b['id'] ?? ''));
         });
-
-        if ($changed) {
-            $this->writeCtripProfileCaptureModules($modules);
-        }
 
         return $includeDeleted ? $modules : $this->activeCtripProfileCaptureModules($modules);
     }
@@ -1002,25 +1021,24 @@ trait CtripProfileConfigConcern
         ];
     }
 
+    // Default/compatibility fields are a read preview; explicit edit/sync actions persist them.
     private function readCtripProfileCaptureFields(bool $includeDeleted = false): array
     {
         $row = \think\facade\Db::name('system_configs')->where('config_key', self::CTRIP_PROFILE_FIELDS_CONFIG_KEY)->find();
         if (!$row) {
             $fields = $this->defaultCtripProfileCaptureFields();
-            $this->writeCtripProfileCaptureFields($fields, true);
             return $includeDeleted ? $fields : $this->activeCtripProfileCaptureFields($fields);
         }
 
         $rawConfigValue = (string)($row['config_value'] ?? '');
         $payload = json_decode($rawConfigValue, true);
         if (!is_array($payload)) {
-            \think\facade\Log::warning('携程 Profile 字段目录配置无法解析，已恢复默认字段目录', [
+            \think\facade\Log::warning('携程 Profile 字段目录配置无法解析，使用默认字段预览，原配置未改写', [
                 'config_key' => self::CTRIP_PROFILE_FIELDS_CONFIG_KEY,
                 'json_error' => json_last_error_msg(),
                 'stored_length' => strlen($rawConfigValue),
             ]);
             $fields = $this->defaultCtripProfileCaptureFields();
-            $this->writeCtripProfileCaptureFields($fields);
             return $includeDeleted ? $fields : $this->activeCtripProfileCaptureFields($fields);
         }
 
@@ -1044,11 +1062,9 @@ trait CtripProfileConfigConcern
         $refreshDefaultFieldKeys = $payloadVersion < (self::CTRIP_PROFILE_FIELDS_CONFIG_VERSION - 1)
             ? CtripProfileFieldMetaService::keyFieldKeys()
             : CtripProfileFieldMetaService::metaRefreshKeys();
-        $hasNewDefaults = false;
         foreach ($defaultFields as $id => $field) {
             if (!isset($fields[$id])) {
                 $fields[$id] = $field;
-                $hasNewDefaults = true;
                 continue;
             }
 
@@ -1077,32 +1093,25 @@ trait CtripProfileConfigConcern
                     'update_time' => date('Y-m-d H:i:s'),
                     'user_id' => $existing['user_id'] ?? null,
                 ]);
-                $hasNewDefaults = true;
             }
         }
-        if ($hasNewDefaults) {
-            $this->writeCtripProfileCaptureFields($fields);
-        }
-
         if (empty($fields)) {
-            \think\facade\Log::warning('携程 Profile 字段目录为空，已恢复默认字段目录', [
+            \think\facade\Log::warning('携程 Profile 字段目录为空，使用默认字段预览，原配置未改写', [
                 'config_key' => self::CTRIP_PROFILE_FIELDS_CONFIG_KEY,
                 'payload_version' => $payloadVersion,
             ]);
             $fields = $this->defaultCtripProfileCaptureFields();
-            $this->writeCtripProfileCaptureFields($fields);
             return $includeDeleted ? $fields : $this->activeCtripProfileCaptureFields($fields);
         }
 
         $keyFields = $this->filterCtripProfileKeyFields($fields);
         if (count($keyFields) < count($fields)) {
-            \think\facade\Log::warning('携程 Profile 字段目录已按关键字段白名单收敛', [
+            \think\facade\Log::warning('携程 Profile 字段目录预览仅显示关键字段，原配置未改写', [
                 'config_key' => self::CTRIP_PROFILE_FIELDS_CONFIG_KEY,
                 'before_count' => count($fields),
                 'after_count' => count($keyFields),
             ]);
             $fields = $keyFields;
-            $this->writeCtripProfileCaptureFields($fields);
         }
 
         uasort($fields, function (array $a, array $b): int {
@@ -1297,6 +1306,12 @@ trait CtripProfileConfigConcern
             $sampleVerifiedBy = null;
         }
         $verifiedSampleValue = trim((string)($item['verified_sample_value'] ?? $item['verifiedSampleValue'] ?? $original['verified_sample_value'] ?? ''));
+        if ($sampleVerificationStatus === 'matched' && $verifiedSampleValue === '') {
+            $sampleVerificationStatus = 'unverified';
+            $sampleVerifiedAt = '';
+            $sampleVerifiedBy = null;
+            if ($status === 'confirmed') $status = 'pending';
+        }
         $verifiedSampleUnit = trim((string)($item['verified_sample_unit'] ?? $item['verifiedSampleUnit'] ?? $original['verified_sample_unit'] ?? ''));
         $verifiedSampleSourceKey = trim((string)($item['verified_sample_source_key'] ?? $item['verifiedSampleSourceKey'] ?? $original['verified_sample_source_key'] ?? ''));
         $verifiedSampleSourcePath = trim((string)($item['verified_sample_source_path'] ?? $item['verifiedSampleSourcePath'] ?? $original['verified_sample_source_path'] ?? ''));

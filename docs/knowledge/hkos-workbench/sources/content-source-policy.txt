@@ -1,0 +1,37 @@
+# HKOS 客户内容来源与分发规则（v1.3.7-rc）
+
+本规则约束单一 Obsidian 插件安装包及其默认示例检索。客户自己的 Vault 留在客户设备，不因安装、激活、到期或卸载而变成发布方内容库。
+
+## 分类与默认动作
+
+| 类别 | 示例 | 安装包 | 默认检索/内容工作室 |
+| --- | --- | --- | --- |
+| DISTRIBUTABLE | 逐条有原创或商业分发许可证明的内容 | 仅白名单可进包 | 仅经明确审核与来源标注后可用 |
+| REFERENCE_ONLY | Owner V3 内部工作流、第三方酒店手册 | 不打包 | 不进入默认客户检索 |
+| CUSTOMER_PRIVATE | 客户在自己 Vault 的笔记、订单与素材 | 不打包、不回传 | 仅客户本机按显式授权使用，不跨客户复用 |
+| DO_NOT_PACKAGE | 内部测试、开发日志、私有仓库信息、敏感截图、未授权人像/手册/Owner 私稿 | 不打包 | 不检索 |
+
+`DISTRIBUTABLE` 的 `distributionRight` 只接受 `OWNER_ORIGINAL`、`HKOS_ORIGINAL`、`LICENSED_FOR_DISTRIBUTION`。`canonical`、目录位置、已有引用或 `reviewed` 都不能单独证明分发权。分发权证据不明时一律不进包。若第三方许可，证据应涵盖权利人、商业分发及改编、媒介、地域、期限与署名要求。客户资料、真实经营数字、人物肖像和平台截图须另行核对来源与用途。
+
+发布方内部原稿、内部工作流及未取得明确商业分发许可的第三方资料，均不复制正文或模板、不打包，也不进入客户默认检索。客户需要引用自己的资料时，只能在当前 Vault 中按下述审批与权利规则本地使用。
+
+## 本 RC 内置 Basic 示例白名单
+
+以下十条为本轮专门编写的虚构酒店教学文字，原始内容见插件源文件 `src/core/basic-sample-knowledge.cjs`，无第三方手册摘录、真实酒店指标、宾客资料或平台规则断言。`sourceType` 均为 `FICTIONAL_HOTEL_TRAINING_EXAMPLE`，`distributionRight` 均为 `HKOS_ORIGINAL`，`version` 均为 `1.0.0`。源文件与本表共同构成逐条原创来源记录；正式对外使用前仍应由内容负责人核对事实、相似性和任何后续新增素材。
+
+| contentId | title | module | sourceType | distributionRight | version | 证据 |
+| --- | --- | --- | --- | --- | --- | --- |
+| BASIC-FO-001 | 入住前沟通清单 | FRONT_OFFICE | FICTIONAL_HOTEL_TRAINING_EXAMPLE | HKOS_ORIGINAL | 1.0.0 | 本轮新编源文件 |
+| BASIC-FO-002 | 前台交接班三项核对 | FRONT_OFFICE | FICTIONAL_HOTEL_TRAINING_EXAMPLE | HKOS_ORIGINAL | 1.0.0 | 本轮新编源文件 |
+| BASIC-HK-001 | 遗留物品登记流程 | HOUSEKEEPING | FICTIONAL_HOTEL_TRAINING_EXAMPLE | HKOS_ORIGINAL | 1.0.0 | 本轮新编源文件 |
+| BASIC-HK-002 | 查房与放房交接 | HOUSEKEEPING | FICTIONAL_HOTEL_TRAINING_EXAMPLE | HKOS_ORIGINAL | 1.0.0 | 本轮新编源文件 |
+| BASIC-OTA-001 | OTA 房型展示巡检 | OTA_OPERATIONS | FICTIONAL_HOTEL_TRAINING_EXAMPLE | HKOS_ORIGINAL | 1.0.0 | 本轮新编源文件 |
+| BASIC-OTA-002 | 价格调整前的事实核对 | OTA_OPERATIONS | FICTIONAL_HOTEL_TRAINING_EXAMPLE | HKOS_ORIGINAL | 1.0.0 | 本轮新编源文件 |
+| BASIC-GS-001 | 宾客投诉闭环记录 | GUEST_SERVICE | FICTIONAL_HOTEL_TRAINING_EXAMPLE | HKOS_ORIGINAL | 1.0.0 | 本轮新编源文件 |
+| BASIC-GS-002 | 服务补救的权限边界 | GUEST_SERVICE | FICTIONAL_HOTEL_TRAINING_EXAMPLE | HKOS_ORIGINAL | 1.0.0 | 本轮新编源文件 |
+| BASIC-TR-001 | 新人岗位训练四步 | HR_TRAINING | FICTIONAL_HOTEL_TRAINING_EXAMPLE | HKOS_ORIGINAL | 1.0.0 | 本轮新编源文件 |
+| BASIC-CT-001 | 口播素材来源核对 | CONTENT_PRODUCTION | FICTIONAL_HOTEL_TRAINING_EXAMPLE | HKOS_ORIGINAL | 1.0.0 | 本轮新编源文件 |
+
+客户 Vault 中可进入六段式工作室的正式知识，本 RC 仅接受 `Hotel KnowledgeOS/Approved Knowledge/` 目录中的 Markdown；其他正式知识目录不会自动进入工作室。同时须明确 `approved: true`、`allowLocalContentStudio: true`、`rightsEvidenceId`、`version`、`approvedBy`、`approvedAt`、尚未到期的 `reviewDueAt`。本机客户来源可标 `CUSTOMER_PRIVATE`；此权利类型**只允许当前客户本机制作草稿，不属于 DISTRIBUTABLE**。原稿或批准信息变化时，已生成草稿须人工核对并重新生成。`external_use: no/false`、`internal_only`、`owner_only` 或复审过期的来源均被拒绝；数组或逗号分隔的范围会逐项检查。这些字段是本地白名单门槛，不代替权利负责人核对原始凭证，也不产生对外发布许可。插件不自动修改原稿，不将用户 Vault 上传到发布方。
+
+本 RC 未把旧头像图片放入客户 ZIP；普通导航使用字形标记，以免在缺少图片授权证明时分发该素材。代码 MIT 与 Defuddle 许可只覆盖对应代码，不能代替知识、图片或客户素材的授权。

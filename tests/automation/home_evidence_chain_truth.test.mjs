@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFrontendTestFileSync as readFileSync } from './helpers/retired_frontend_source.mjs';
 import test from 'node:test';
 
 const summaryFragment = readFileSync('resources/frontend/templates/fragments/23a-page-compass-summary.html', 'utf8');

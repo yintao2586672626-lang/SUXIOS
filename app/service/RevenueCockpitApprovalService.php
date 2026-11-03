@@ -382,7 +382,7 @@ final class RevenueCockpitApprovalService
                         'data_date' => (string)($pmsProvenance['data_date'] ?? ''),
                         'readback_status' => (string)($pmsProvenance['readback_status'] ?? ''),
                     ],
-                    'facts' => is_array($pms['facts'] ?? null) ? $pms['facts'] : [],
+                    'facts' => (array)$pmsSelection['facts'],
                     'fact_statuses' => is_array($pms['fact_statuses'] ?? null) ? $pms['fact_statuses'] : [],
                 ]),
             ];
@@ -415,10 +415,9 @@ final class RevenueCockpitApprovalService
         $lifecycle = new OperationActionLifecycleService();
         $operations = new OperationManagementService();
         $hotelId = (int)($context['cockpit_scope']['hotel_id'] ?? 0);
-        $equivalentId = $lifecycle->findEquivalentIntentId($card);
-        if ($equivalentId !== null) {
-            $intent = $operations->readExecutionIntent($equivalentId, [$hotelId]);
-            $intent = $this->assertManagedIntentReadback($intent, $overview, $context, false);
+        $historicalEquivalent = false;
+        $intent = $this->currentEquivalentManagedAction($card, $overview, $context, $historicalEquivalent);
+        if ($intent !== null) {
             return $this->managedEnvelope($intent, true);
         }
 
@@ -465,6 +464,16 @@ final class RevenueCockpitApprovalService
             'status' => 'pending_approval',
         ];
         $idempotencyKey = 'operation_action_' . substr($lifecycle->actionIdentityDigest($card), 0, 32);
+        if ($historicalEquivalent) {
+            // A historical full-source lineage cannot stand in for a newly
+            // attested snapshot, even when the selected metric is unchanged.
+            if ((int)($card['trace']['decision_snapshot_id'] ?? 0) <= 0) {
+                throw new RuntimeException('revenue_decision_snapshot_action_lineage_stale', 409);
+            }
+            $this->assertDecisionSnapshotLineageCurrent($card, $overview, $context);
+            $idempotencyKey = 'operation_action_' . substr(hash('sha256',
+                $lifecycle->actionIdentityDigest($card) . ':' . $card['trace']['decision_snapshot_digest']), 0, 32);
+        }
         try {
             $intent = $operations->createExecutionIntent(
                 [$hotelId],
@@ -478,14 +487,44 @@ final class RevenueCockpitApprovalService
         } catch (\Throwable $exception) {
             // A concurrent cross-entry create can win the shared semantic
             // identity. Re-read that exact lifecycle instead of creating a copy.
-            $equivalentId = $lifecycle->findEquivalentIntentId($card);
-            if ($equivalentId === null) {
+            $intent = $this->currentEquivalentManagedAction($card, $overview, $context, $historicalEquivalent);
+            if ($intent === null) {
                 throw $exception;
             }
-            $intent = $operations->readExecutionIntent($equivalentId, [$hotelId]);
+            return $this->managedEnvelope($intent, true);
         }
         $intent = $this->assertManagedIntentReadback($intent, $overview, $context, true);
         return $this->managedEnvelope($intent, (bool)($intent['idempotent_replay'] ?? false));
+    }
+
+    /** Reuse a current equivalent before considering a new source version. */
+    private function currentEquivalentManagedAction(
+        array $card,
+        array $overview,
+        array $context,
+        bool &$historicalEquivalent
+    ): ?array {
+        $historicalEquivalent = false;
+        $lifecycle = new OperationActionLifecycleService();
+        $identityDigest = $lifecycle->actionIdentityDigest($card);
+        foreach ($this->readManagedActions($overview, $context) as $intent) {
+            $target = is_array($intent['target_value'] ?? null) ? $intent['target_value'] : [];
+            $evidence = is_array($intent['evidence'] ?? null) ? $intent['evidence'] : [];
+            $storedCard = is_array($target['action_card'] ?? null)
+                ? $target['action_card'] : (array)($evidence['action_card'] ?? []);
+            if (!hash_equals($identityDigest, $lifecycle->actionIdentityDigest($storedCard))) {
+                continue;
+            }
+            try {
+                return $this->assertManagedIntentReadback($intent, $overview, $context, true);
+            } catch (RuntimeException $exception) {
+                if ($exception->getMessage() !== 'revenue_decision_snapshot_action_lineage_stale') {
+                    throw $exception;
+                }
+                $historicalEquivalent = true;
+            }
+        }
+        return null;
     }
 
     /** @param array<string,mixed> $overview @param array<string,mixed> $context */
@@ -610,8 +649,7 @@ final class RevenueCockpitApprovalService
         );
         $forcedMetric = strtolower(trim((string)($context['forced_metric_key'] ?? '')));
         if ($forcedMetric !== '') {
-            array_unshift($priorities, $forcedMetric);
-            $priorities = array_values(array_unique($priorities));
+            $priorities = [$forcedMetric];
         }
         foreach ($priorities as $metricKey) {
             $rowIdsByPlatform = [];
@@ -695,7 +733,10 @@ final class RevenueCockpitApprovalService
                 'source_record_id' => (hexdec(substr($this->digest($identitySeed), 0, 7)) % 2147483646) + 1,
             ];
         }
-        throw new RuntimeException('revenue_cockpit_no_same_criterion_metric_for_action', 422);
+        throw new RuntimeException($forcedMetric !== ''
+            ? '已保存基准指标“' . $this->metricLabel($forcedMetric)
+                . '”缺少同酒店、平台和营业日的严格回读证据；补齐该指标证据后只读刷新。'
+            : 'revenue_cockpit_no_same_criterion_metric_for_action', 422);
     }
 
     /** @param array<string,mixed> $intent @param array<string,mixed> $overview @param array<string,mixed> $context @return array<string,mixed> */
@@ -717,10 +758,9 @@ final class RevenueCockpitApprovalService
         $context['action_context'] = $this->storedActionContext($storedCard);
         $expectedCard = $this->managedActionCard($overview, $context, max(1, (int)($intent['created_by'] ?? 1)));
         $lifecycle = new OperationActionLifecycleService();
+        $lifecycle->assertPendingCardCurrent($intent);
         $lifecycle->assertEquivalentActionIdentity($expectedCard, $storedCard);
-        if ($requireCurrent) {
-            $this->assertDecisionSnapshotLineageCurrent($storedCard, $overview, $context);
-        }
+        $this->assertDecisionSnapshotLineageCurrent($storedCard, $overview, $context);
         $storedSnapshot = strtolower(trim((string)($storedCard['trace']['cockpit_identity_digest'] ?? '')));
         $expectedSnapshot = strtolower(trim((string)($expectedCard['trace']['cockpit_identity_digest'] ?? '')));
         $sameSnapshot = preg_match('/^[a-f0-9]{64}$/D', $storedSnapshot) === 1
@@ -732,9 +772,6 @@ final class RevenueCockpitApprovalService
         }
         if ($requireCurrent && !$sameSnapshot) {
             throw new InvalidArgumentException('收益行动原始事实已漂移，请关闭当前写入并刷新核对');
-        }
-        if ($requireCurrent) {
-            $lifecycle->assertPendingCardCurrent($intent);
         }
         $intent['fact_integrity_status'] = $sameSnapshot ? 'verified' : 'drifted';
         return $intent;
@@ -765,7 +802,9 @@ final class RevenueCockpitApprovalService
             $snapshotDigest,
             $opportunityKey,
             $opportunityDigest,
-            $overview
+            $overview,
+            is_array($overview['cockpit_comparison_contexts'] ?? null)
+                ? $overview['cockpit_comparison_contexts'] : null
         );
     }
 

@@ -34,6 +34,9 @@ class Cors
             $this->normalizeList($policy['allowed_origins'] ?? []),
             static fn(string $allowedOrigin): bool => $allowedOrigin !== '*'
         ));
+        if ($allowedOrigins !== []) {
+            $this->varyByOrigin($response);
+        }
         if ($origin === '' || !in_array($origin, $allowedOrigins, true)) {
             return $response;
         }
@@ -51,7 +54,6 @@ class Cors
             'Access-Control-Allow-Methods' => implode(', ', $allowedMethods),
             'Access-Control-Allow-Headers' => implode(', ', $allowedHeaders),
             'Access-Control-Max-Age' => (string)max(0, (int)($policy['max_age'] ?? 600)),
-            'Vary' => 'Origin',
         ];
         if (($policy['allow_credentials'] ?? false) === true) {
             $headers['Access-Control-Allow-Credentials'] = 'true';
@@ -59,6 +61,27 @@ class Cors
         $response->header($headers);
 
         return $response;
+    }
+
+    private function varyByOrigin(Response $response): void
+    {
+        $name = 'Vary';
+        $value = '';
+        foreach ($response->getHeader() as $headerName => $headerValue) {
+            if (strcasecmp((string)$headerName, 'Vary') === 0) {
+                $name = (string)$headerName;
+                $value = (string)$headerValue;
+                break;
+            }
+        }
+        $fields = $this->normalizeList($value);
+        foreach ($fields as $field) {
+            if ($field === '*' || strcasecmp($field, 'Origin') === 0) {
+                return;
+            }
+        }
+        $fields[] = 'Origin';
+        $response->header([$name => implode(', ', $fields)]);
     }
 
     /** @return list<string> */

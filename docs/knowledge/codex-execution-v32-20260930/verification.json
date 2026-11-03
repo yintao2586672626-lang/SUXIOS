@@ -1,0 +1,67 @@
+{
+  "verified_at": "2026-09-30T02:51:31.4338868+08:00",
+  "status": "passed",
+  "scope": "Local reference document extraction, storage and readback only",
+  "original_source_sha256": "97F5333D9825F0E947B7DF5C6364333AB2A4596406217AFA446CBC12418AAF62",
+  "source_line_count": 262,
+  "source_exact_redacted_readback": true,
+  "redacted_source_lines": [
+    11,
+    198
+  ],
+  "source_sections_covered": 13,
+  "reference_boundary_verified": true,
+  "protected_files": [
+    {
+      "sha256": "1B1CE4D4E6D0EAF29F7B9CE5B74FFC823331A68FDE002121EA54CFEF0EB06DE9",
+      "path": "AGENTS.override.md",
+      "unchanged": true
+    },
+    {
+      "sha256": "537A83FF6ACAD0BD13475087C6A8393650247E24E7FD3A89FB23FE1A46311C2B",
+      "path": "AGENTS.md",
+      "unchanged": true
+    },
+    {
+      "sha256": "3FCF9936E9EB5C12F09E0FDFD9B540461F66D6EAB81CBADCF37B8F6EA531078A",
+      "path": "rules/codex-execution-status-contract.md",
+      "unchanged": true
+    },
+    {
+      "sha256": "995955E28E2243F7B923B7A9AD9F8F765D31875362F2539FBB4D269796D94981",
+      "path": "rules/quality-completeness-and-issue-handling.md",
+      "unchanged": true
+    },
+    {
+      "sha256": "5C521A96DD59E5C1F56CCF7D68DA628D7B3A6A3EDE9341A52308B65DFB4D8EB8",
+      "path": ".codex/config.toml",
+      "unchanged": true
+    }
+  ],
+  "artifacts": [
+    {
+      "sha256": "D71342A79B90389FA324520FF84F25574903C499E2EF4FAF8D90BBB4D45E498F",
+      "bytes": 11976,
+      "path": "docs/capability-absorption/2026-09-30-codex-execution-v32.md"
+    },
+    {
+      "sha256": "BD369FF2A0C2141DD42D14CB08C0C3D1846DE5AFD3843155B7868BB1E48DE975",
+      "bytes": 27530,
+      "path": "docs/knowledge/codex-execution-v32-20260930/source-extracted.redacted.txt"
+    },
+    {
+      "sha256": "14F593F830E002BF685B23A8F94F498CF417BD4C028703E8AA0EC5916FE3C48D",
+      "bytes": 2698,
+      "path": "docs/knowledge/codex-execution-v32-20260930/source-manifest.json"
+    }
+  ],
+  "not_verified": [
+    "workflow reproduction",
+    "automatic instruction loading",
+    "Knowledge Center database indexing",
+    "business runtime or field effect",
+    "GitHub remote state"
+  ],
+  "code_tests": "not_applicable_no_executable_behavior_change",
+  "independent_reviewer": "not_invoked_attachment_reviewer_instructions_not_adopted"
+}

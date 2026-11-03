@@ -3,6 +3,11 @@ declare(strict_types=1);
 
 use think\facade\Route;
 
+Route::group('api/autonomous-maintenance', function () {
+    Route::get('/overview', 'AutonomousMaintenance/overview');
+    Route::post('/control', 'AutonomousMaintenance/control');
+})->middleware(\app\middleware\Auth::class);
+
 // ==================== 运营管理 API ====================
 Route::group('api/operating-loop', function () {
     Route::get('/current', 'OperatingLoop/current');
@@ -36,6 +41,16 @@ Route::group('api/operating-finance', function () {
     Route::post('/on-books-snapshots', 'OperatingFinance/saveOnBooksSnapshot');
     Route::post('/demand-events', 'OperatingFinance/saveDemandEvent');
     Route::post('/monthly-finance', 'OperatingFinance/saveMonthlyFinance');
+    Route::get('/evidence/overview', 'OperatingFinance/evidenceOverview')->completeMatch(true);
+    Route::post('/evidence/preview', 'OperatingFinance/previewEvidence')->completeMatch(true);
+    Route::post('/evidence/snapshots', 'OperatingFinance/saveEvidence')->completeMatch(true);
+    Route::get('/evidence/snapshots/:id', 'OperatingFinance/readEvidence')->completeMatch(true);
+})->middleware(\app\middleware\Auth::class);
+
+Route::group('api/booking-monitoring', function () {
+    Route::get('/overview', 'BookingMonitoring/overview')->completeMatch(true);
+    Route::post('/snapshots', 'BookingMonitoring/saveSnapshots')->completeMatch(true);
+    Route::get('/snapshots/:id', 'BookingMonitoring/readSnapshot')->completeMatch(true);
 })->middleware(\app\middleware\Auth::class);
 
 Route::group('api/operation', function () {
@@ -44,6 +59,10 @@ Route::group('api/operation', function () {
     Route::get('/manager-capability/managers', 'ManagerCapability/managers');
     Route::get('/manager-capability/profile', 'ManagerCapability/profile');
     Route::get('/manager-capability/followup-queue', 'ManagerCapability/followupQueue');
+    Route::get('/manager-capability/coaching', 'ManagerCapability/coachingList');
+    Route::post('/manager-capability/coaching', 'ManagerCapability/coachingCreate');
+    Route::get('/manager-capability/coaching/:id', 'ManagerCapability/coachingRead');
+    Route::post('/manager-capability/coaching/:id/:action', 'ManagerCapability/coachingAction');
     Route::get('/manager-capability/cases/:id', 'ManagerCapability/readCase');
     Route::post('/manager-capability/cases/:id/followups', 'ManagerCapability/createFollowup');
     Route::post('/manager-capability/cases/:id/adjustments', 'ManagerCapability/createAdjustment');
@@ -120,7 +139,7 @@ Route::group('api/expansion', function () {
     Route::delete('/records', 'Expansion/clearRecords');
     Route::get('/records/:id', 'Expansion/detail');
     Route::get('/records', 'Expansion/records');
-})->middleware(\app\middleware\Auth::class);
+})->middleware(\app\middleware\Auth::class)->middleware(\app\middleware\RetiredFeatureReadOnly::class, '扩张测算');
 
 // ==================== 转让管理 API ====================
 Route::group('api/transfer', function () {
@@ -132,4 +151,4 @@ Route::group('api/transfer', function () {
     Route::delete('/records/:id', 'TransferDecision/archive');
     Route::get('/records/:id', 'TransferDecision/detail');
     Route::get('/records', 'TransferDecision/records');
-})->middleware(\app\middleware\Auth::class);
+})->middleware(\app\middleware\Auth::class)->middleware(\app\middleware\RetiredFeatureReadOnly::class, '转让测算');

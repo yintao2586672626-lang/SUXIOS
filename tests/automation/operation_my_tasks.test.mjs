@@ -21,9 +21,11 @@ test('my tasks API binds assignee scope to the authenticated user', () => {
 });
 
 test('operations page loads server-scoped my tasks instead of filtering a truncated client list', () => {
-  assert.match(appMain, /const operationExecutionViewMode = ref\('all'\)/);
+  assert.match(appMain, /const operationExecutionViewMode = ref\('mine'\)/);
   assert.match(appMain, /operationExecutionViewMode\.value === 'mine'[\s\S]*'\/operation\/my-tasks'/);
-  assert.match(appMain, /apiRequest\(`\$\{flowEndpoint\}\$\{flowQuery\}`\)/);
+  assert.match(appMain, /const readOptions = \{\s*businessContext: \{ hotelId: requestHotelId, tenantId: '', platform: '' \}/);
+  assert.match(appMain, /requestPolicy: \{ \.\.\.currentPageReadPolicy\(\), systemHotelId: '', businessDate: '' \}/);
+  assert.match(appMain, /apiRequest\(`\$\{flowEndpoint\}\$\{flowQuery\}`, readOptions\)/);
   assert.match(template, /data-testid="operation-my-tasks-tab"/);
   assert.match(template, /@change="setOperationExecutionViewMode\(\$event\.target\.value\)"/);
 });

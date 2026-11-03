@@ -590,9 +590,23 @@ final class SchemaVersionService
      *   status: array<string, mixed>
      * }
      */
-    public function migrate(): array
+    public function migrate(?array $onlyMigrations = null): array
     {
         $this->assertMigrationExecutionAllowed();
+        $selection = null;
+        if ($onlyMigrations !== null) {
+            $known = array_fill_keys(array_column(self::migrationCatalog($this->root), 'migration'), true);
+            if ($onlyMigrations === []) {
+                throw new RuntimeException('Explicit migration selection must not be empty.');
+            }
+            $selection = [];
+            foreach ($onlyMigrations as $name) {
+                if (!is_string($name) || !isset($known[$name])) {
+                    throw new RuntimeException('Explicit migration selection contains an unknown filename.');
+                }
+                $selection[$name] = true;
+            }
+        }
         if ($this->applicationTableCount() === 0 && !$this->registryExists()) {
             throw new RuntimeException(
                 'Database is empty. Run "php scripts/init_database.php" for a complete fresh initialization.'
@@ -651,7 +665,9 @@ final class SchemaVersionService
             $executed = [];
             $historicalNotApplicable = [];
             foreach (self::migrationCatalog($this->root) as $migration) {
-                if (!isset($pendingLookup[$migration['migration']])) {
+                if (!isset($pendingLookup[$migration['migration']])
+                    || ($selection !== null && !isset($selection[$migration['migration']]))
+                ) {
                     continue;
                 }
 
@@ -695,7 +711,10 @@ final class SchemaVersionService
             $this->resolveRegisteredMigrationFailures();
 
             $finalStatus = $this->status();
-            if (!$finalStatus['ready']) {
+            if ($selection !== null && array_intersect(array_keys($selection), $finalStatus['pending']) !== []) {
+                throw new RuntimeException('Explicit migration selection did not finish.');
+            }
+            if ($selection === null && !$finalStatus['ready']) {
                 throw new RuntimeException('Migration run ended without reaching the required database version.');
             }
 

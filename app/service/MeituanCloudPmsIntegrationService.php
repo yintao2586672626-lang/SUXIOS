@@ -76,6 +76,7 @@ final class MeituanCloudPmsIntegrationService
         string $businessDate = ''
     ): array {
         $this->assertScope($tenantId, $hotelId, $userId);
+        $businessDate = HotelPmsBindingService::validatedBusinessDate($businessDate, $input, 'meituan_cloud_pms_date_invalid');
         $this->assertTableReady();
 
         $providerHotelId = $this->textOrNull($input['provider_hotel_id'] ?? null, 120);
@@ -86,7 +87,8 @@ final class MeituanCloudPmsIntegrationService
         }
 
         $now = date('Y-m-d H:i:s');
-        Db::transaction(function () use (
+        (new HotelPmsBindingService())->writeIntegrationConfiguration($tenantId, $hotelId, $userId,
+            HotelPmsBindingService::PROVIDER_MEITUAN_CLOUD, $enabled, function () use (
             $tenantId,
             $hotelId,
             $userId,

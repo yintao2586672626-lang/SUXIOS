@@ -262,6 +262,37 @@ final class AiEvaluationBatchReplayServiceTest extends TestCase
         self::assertContains('missing_metric_json', $result['cases'][0]['blockers']);
     }
 
+    public function testExpectedEmptyListRejectsUnexpectedOperatingActions(): void
+    {
+        $client = new class {
+            public function createJsonResponseEnvelope(array $messages, array $schema, string $modelKey): array
+            {
+                return ['data' => ['actions' => [['action' => 'unapproved price change']]], 'meta' => []];
+            }
+        };
+        $result = (new AiEvaluationBatchReplayService($client))->run([
+            $this->caseRow('no_actions_without_facts', ['prompt' => 'Test only.', 'schema' => $this->schema()], ['actions' => []]),
+        ], ['evaluation_set' => 'devday_regression', 'execute' => true, 'allow_external_model_call' => true]);
+        self::assertSame('failed', $result['cases'][0]['status']);
+        self::assertSame('actions', $result['cases'][0]['mismatches'][0]['path']);
+        self::assertSame('expected_subset.v2_empty_is_exact', $result['scoring_contract_version']);
+    }
+
+    public function testModelFailureDoesNotPersistUntrustedExceptionText(): void
+    {
+        $client = new class {
+            public function createJsonResponseEnvelope(array $messages, array $schema, string $modelKey): array
+            {
+                throw new \RuntimeException('upstream debug: synthetic-private-request-content');
+            }
+        };
+        $result = (new AiEvaluationBatchReplayService($client))->run([
+            $this->caseRow('failure', ['prompt' => 'Test only.', 'schema' => $this->schema()], ['summary' => 'ok']),
+        ], ['evaluation_set' => 'devday_regression', 'execute' => true, 'allow_external_model_call' => true]);
+        self::assertSame('blocked', $result['cases'][0]['status']);
+        self::assertStringNotContainsString('synthetic-private-request-content', json_encode($result));
+    }
+
     private function caseRow(string $caseKey, array $input, array $expected): array
     {
         return [

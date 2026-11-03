@@ -210,6 +210,124 @@ final class PreciseQueryRouterServiceTest extends TestCase
         ];
     }
 
+    #[DataProvider('unsupportedPeriodProvider')]
+    public function testPeriodNeverFallsBackToASingleDay(string $question, array $dateScope): void
+    {
+        $readerCalls = 0;
+        $router = $this->router(static function () use (&$readerCalls): array {
+            $readerCalls++;
+            return [];
+        });
+        $result = $router->route(10, [80], 7, [
+            'query' => $question,
+            'current_scope' => ['hotel_id' => 80, 'platform' => 'ctrip'] + $dateScope,
+        ]);
+
+        self::assertSame('clarification_required', $result['status']);
+        self::assertSame('business_date_range_unsupported', $result['answer']['reason']);
+        self::assertNull($result['parsed_scope']['business_date']);
+        self::assertSame('period', $result['parsed_scope']['date_grain']);
+        self::assertStringContainsString('单日', $result['answer_summary']);
+        self::assertStringContainsString('携程数据', $result['answer_summary']);
+        self::assertSame([], $result['fact_refs']);
+        self::assertSame(0, $readerCalls, 'A period must not reach the daily fact reader.');
+        self::assertSame($result, $router->read($result['id'], 10, [80]));
+    }
+
+    public static function unsupportedPeriodProvider(): array
+    {
+        $selectedDay = ['date_start' => '2026-08-23', 'date_end' => '2026-08-23'];
+        return [
+            'full date range' => ['携程 2026-08-01 到 2026-08-31 的订单量', $selectedDay],
+            'Chinese range' => ['携程8月1日至8月23日订单量', $selectedDay],
+            'abbreviated end day' => ['携程8月1日到23日订单量', $selectedDay],
+            'two independent dates' => ['携程8月22日和8月23日订单量', $selectedDay],
+            'previous month' => ['携程上月订单量', $selectedDay],
+            'previous month longer phrase' => ['携程上个月订单量', $selectedDay],
+            'named month' => ['携程2026年7月订单量', $selectedDay],
+            'recent days' => ['携程近7天订单量', $selectedDay],
+            'previous week' => ['携程上周订单量', $selectedDay],
+            'relative endpoints' => ['携程昨天到今天订单量', $selectedDay],
+            'slash range without year' => ['携程8/1到8/23的订单量', $selectedDay],
+            'weekday range' => ['携程周一到周五的订单量', $selectedDay],
+            'range inherited from selection' => ['携程订单量', ['date_start' => '2026-08-01', 'date_end' => '2026-08-23']],
+        ];
+    }
+
+    public function testExplicitSingleDayOverridesSelectedPeriodAndPreservesTheWrittenYear(): void
+    {
+        $result = $this->router()->route(10, [80], 7, [
+            'query' => '携程2025年8月23日订单量',
+            'current_scope' => [
+                'hotel_id' => 80,
+                'platform' => 'ctrip',
+                'date_start' => '2026-08-01',
+                'date_end' => '2026-08-23',
+            ],
+        ]);
+
+        self::assertSame('operating_query', $result['route_type']);
+        self::assertSame('2025-08-23', $result['parsed_scope']['business_date']);
+        self::assertSame([], $result['fact_refs']);
+    }
+
+    #[DataProvider('singleDayAliasProvider')]
+    public function testSingleDayAliasesAndHotelNamesDoNotBecomePeriods(string $query, string $expectedDate): void
+    {
+        Db::name('hotels')->where('id', 80)->update(['name' => '七月酒店']);
+        $router = new PreciseQueryRouterService(clock: static fn(): DateTimeImmutable => new DateTimeImmutable(
+            '2026-09-05 12:00:00', new DateTimeZone('Asia/Shanghai')
+        ));
+        $result = $router->route(10, [80], 7, [
+            'query' => $query,
+            'current_scope' => ['hotel_id' => 80, 'platform' => 'ctrip', 'business_date' => '2026-08-23'],
+        ]);
+
+        self::assertSame('operating_query', $result['route_type']);
+        self::assertSame($expectedDate, $result['parsed_scope']['business_date']);
+        self::assertSame('七月酒店', $result['parsed_scope']['hotel_name']);
+        self::assertSame([], $result['fact_refs']);
+        self::assertSame($result, $router->read($result['id'], 10, [80]));
+    }
+
+    public static function singleDayAliasProvider(): array
+    {
+        return [
+            'today with exact date' => ['携程今天（2026年9月5日）的订单量', '2026-09-05'],
+            'yesterday and month in hotel name' => ['七月酒店携程昨天的订单量', '2026-09-04'],
+            'same date repeated in Chinese and ISO' => ['携程2026-09-04（2026年9月4日）的订单量', '2026-09-04'],
+            'same date repeated without year' => ['携程今天（9月5日）的订单量', '2026-09-05'],
+            'exact date and month in hotel name' => ['七月酒店携程2026年9月4日的订单量', '2026-09-04'],
+            'current year with an explicit day' => ['携程今年9月4日订单量', '2026-09-04'],
+        ];
+    }
+
+    #[DataProvider('distinctDateProvider')]
+    public function testDistinctDatesAndExplicitRangesRemainBlockedAfterRemovingTheHotelName(string $query): void
+    {
+        Db::name('hotels')->where('id', 80)->update(['name' => '七月酒店']);
+        $router = new PreciseQueryRouterService(clock: static fn(): DateTimeImmutable => new DateTimeImmutable(
+            '2026-09-05 12:00:00', new DateTimeZone('Asia/Shanghai')
+        ));
+        $result = $router->route(10, [80], 7, [
+            'query' => $query,
+            'current_scope' => ['hotel_id' => 80, 'platform' => 'ctrip', 'business_date' => '2026-08-23'],
+        ]);
+
+        self::assertSame('business_date_range_unsupported', $result['answer']['reason']);
+        self::assertNull($result['parsed_scope']['business_date']);
+        self::assertSame([], $result['fact_refs']);
+    }
+
+    public static function distinctDateProvider(): array
+    {
+        return [
+            'two different dates' => ['七月酒店携程今天和2026年9月4日的订单量'],
+            'explicit range with same day' => ['七月酒店携程今天到2026年9月5日的订单量'],
+            'hotel name with a genuine month request' => ['七月酒店携程七月的订单量'],
+        ];
+    }
+
     public function testTaskBluebookV1RoutesThroughTheDeterministicSystemGuideWithoutExternalLlm(): void
     {
         $router = $this->router(null, true);

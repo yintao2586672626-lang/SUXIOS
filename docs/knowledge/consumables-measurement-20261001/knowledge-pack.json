@@ -1,0 +1,143 @@
+{
+  "version": "consumables-measurement-reference-20261001-v1",
+  "reviewed_at": "2026-10-01 00:00:00",
+  "review_due_at": "2027-04-01 00:00:00",
+  "extracted_on": "2026-10-01",
+  "task_mode": "storage_only",
+  "boundary": {
+    "reference_only": true,
+    "decision_safe": false,
+    "task_draft_safe": false,
+    "contains_current_hotel_fact": false,
+    "contains_current_ota_fact": false,
+    "undefined_coefficients_defaulted": false,
+    "upstream_content_retained": false
+  },
+  "entries": [
+    {
+      "key": "package_dilution_units",
+      "title": "易耗品计量方法：包装稀释量纲",
+      "summary": "明确箱/包/瓶价格与产品净含量；原液与配制液分别计量，未知密度或稀释条件不自动换算。",
+      "method": [
+        "报价每箱时核每箱瓶/包数，再核每瓶/包净含量；包装总重量不等于产品净含量，标称净含量和现场可用量分别留证据。",
+        "每行保留规格、价格包装单位、净含量单位、用量单位及规格来源；mL/L和g/kg可明确换算，g与mL需产品密度，件与mL不能自动转换。",
+        "浓缩液区分每次消耗原液量与每次使用配制液量；若输入成品量，按具体产品标签的稀释定义转换，不把无定义的1:10变成默认系数。",
+        "包价/同单位包净含量×同单位每次用量×事件/已售间夜才产生元/已售间夜；单位或转换条件缺失时结果未知。",
+        "仅计量及成本量纲方法；不默认密度、稀释或损耗，不导入美国监管要求、产品配方或酒店操作制度。"
+      ],
+      "source_urls": [
+        "https://www.nist.gov/document/2026-hb-133-chapter-2",
+        "https://www.nist.gov/document/2026-hb-133-chapter-3",
+        "https://www.epa.gov/sites/default/files/2013-08/documents/ece_curriculum_final.pdf"
+      ],
+      "source_section": "NIST HB133 2026 ch2 §2.3.5 tare; ch3 §3.1.1 and §3.2 density; EPA ECE curriculum section 9 Diluting concentrated products",
+      "application_inference": "NIST为包净含量检验，EPA材料针对儿童服务场景；这里只将其计量与稀释概念用于酒店成本量纲，不搬入行业法规或产品稀释量。",
+      "unknown": "本店规格、标签稀释定义、密度与可用量尚未取得。",
+      "query": "易耗品计量方法：包装稀释量纲",
+      "maturity": "understood",
+      "gates": {
+        "mechanism": "understood",
+        "value": "existing_consumables_cost_input_and_reference_retrieval",
+        "reproduction": "not_verified_hotel_measurement",
+        "authorization": "local_reference_storage_only"
+      },
+      "known_unknowns": [
+        "本店规格、标签稀释定义、密度与可用量尚未取得。",
+        "未验证正式制度、会计政策、业务效果或实耗；中文摘要哈希不是上游源文档哈希。"
+      ]
+    },
+    {
+      "key": "usage_measurement_protocol",
+      "title": "易耗品计量方法：用量标定样本",
+      "summary": "用量以可复验样本标定，保留设备、场景、样本数与时间；短时重复测量不证明长期客房实耗。",
+      "method": [
+        "泵头记录相同条件下累计泵次和消耗净量；其他用品记录前后净量及实际服务次数，容器和包装皮重另核。",
+        "保存品项批次、测量日期、场景、设备分辨率、重复次数、原始量和平均量；标签额定量、人工假设和现场测量分别标记。",
+        "不把显示小数位当准确度；同条件重复样本只描述当前条件，换泵头、稀释器、批次或操作条件后重新标定。",
+        "住客使用、续住清洁、退房清洁拆样本再明示权重；一次退房清洁不能代表全部间夜，不设默认样本门槛。",
+        "保留用量来源和历史版本，缺样本保持人工假设；短时重复不能覆盖全部日间变化。"
+      ],
+      "source_urls": [
+        "https://www.nist.gov/document/2026-hb-133-chapter-2",
+        "https://physics.nist.gov/cuu/Uncertainty/typea.html",
+        "https://www.itl.nist.gov/div898/handbook/mpc/section5/mpc5311.htm"
+      ],
+      "source_section": "NIST HB133 2026 ch2 §2.3.5 and §2.3.6; NIST Type A Mean and standard deviation; MPC §2.5.3.1.1",
+      "application_inference": "NIST支持去皮重、重复观察及时间效应；酒店泵头与清洁场景记录是应用推导，不代表已有本店标定结果。",
+      "unknown": "尚无本店泵头/设备标定、跨日样本或酒店服务用量记录。",
+      "query": "易耗品计量方法：用量标定样本",
+      "maturity": "understood",
+      "gates": {
+        "mechanism": "understood",
+        "value": "existing_consumables_cost_input_and_reference_retrieval",
+        "reproduction": "not_verified_hotel_measurement",
+        "authorization": "local_reference_storage_only"
+      },
+      "known_unknowns": [
+        "尚无本店泵头/设备标定、跨日样本或酒店服务用量记录。",
+        "未验证正式制度、会计政策、业务效果或实耗；中文摘要哈希不是上游源文档哈希。"
+      ]
+    },
+    {
+      "key": "service_event_conversion",
+      "title": "易耗品计量方法：服务事件分母",
+      "summary": "客夜、入住次和清洁次转成每已售间夜时保留同期间事件量与转换依据，不默认一客或一次清洁。",
+      "method": [
+        "先锁定酒店、期间和成本覆盖范围；客夜数、已售间夜和清洁次数分别保留，不互相冒充。",
+        "客夜用品转换比为客夜数/已售间夜；入住赠品为入住事件数/已售间夜；清洁用品为对应清洁次数/已售间夜。",
+        "未记录事件量时不默认一客、一入住或一次清洁/间夜；长住、多客、拒绝清洁和返工会改变转换。",
+        "occurrences必须是该使用事件/已售间夜，不能填期间总事件数后当单位次数再乘一次；按已售间夜直接定义的用量其单位转换恒等于1。",
+        "公区用品保持公区范围；确需分摊时保留依据和未分摊项。分母缺失/为0保持未知，明确零事件与没有记录分开。"
+      ],
+      "source_urls": [
+        "https://sustainablehospitalityalliance.org/wp-content/uploads/2020/02/HWMIME1.pdf"
+      ],
+      "source_section": "HWMI v1.1 p17 water use per occupied room and per guest; p22 Table10 intensity metrics",
+      "application_inference": "HWMI区分每已住间夜与每客夜；将该分母原则用于用品入住/清洁事件是量纲推导，不采用HWMI的水资源分摊系数。",
+      "unknown": "本店同期间客夜、入住/清洁事件与转换证据尚未取得。",
+      "query": "易耗品计量方法：服务事件分母",
+      "maturity": "understood",
+      "gates": {
+        "mechanism": "understood",
+        "value": "existing_consumables_cost_input_and_reference_retrieval",
+        "reproduction": "not_verified_hotel_measurement",
+        "authorization": "local_reference_storage_only"
+      },
+      "known_unknowns": [
+        "本店同期间客夜、入住/清洁事件与转换证据尚未取得。",
+        "未验证正式制度、会计政策、业务效果或实耗；中文摘要哈希不是上游源文档哈希。"
+      ]
+    },
+    {
+      "key": "loss_reason_evidence",
+      "title": "易耗品计量方法：损耗原因证据",
+      "summary": "正常用量、可测损耗和未知库存差异分开，残液与返工留下数量及原因证据，不叠加已有用量中的损耗。",
+      "method": [
+        "泄漏、过期、包装残液、设备故障、品质不合格和返工用量分别记日期、批次、数量、单位与原因证据。",
+        "已测损耗、估算损耗和无法解释的差异分别标记；不套来源80%/20%或固定损耗比例。",
+        "实测每次用量若已包含返工或残液，不再叠加同一损耗系数；包装重量不是产品损耗。",
+        "库存短差不能自动证明员工浪费；先核数量、期间、覆盖范围及已登记调拨/退货/报损，避免重复扣减。",
+        "新情景功能只使用明确输入的单位成本假设；此参考不授权采购、库存调整、报损或财务入账，也不决定税务/会计政策。"
+      ],
+      "source_urls": [
+        "https://sustainablehospitalityalliance.org/resource/hwmm/",
+        "https://www.epa.gov/sustainable-management-food/resources-assessing-wasted-food"
+      ],
+      "source_section": "Hotel Waste Measurement Methodology resource: boundaries, metrics, collection, verification/audit/reporting; EPA assessment resources: amount/type/source tracking",
+      "application_inference": "酒店废弃物方法和EPA餐饮工具支持边界、记录与验证；用品损耗原因分类为管理应用推导，非已核验酒店损失或会计制度。",
+      "unknown": "本店损耗、残液、返工和原因证据尚未取得。",
+      "query": "易耗品计量方法：损耗原因证据",
+      "maturity": "understood",
+      "gates": {
+        "mechanism": "understood",
+        "value": "existing_consumables_cost_input_and_reference_retrieval",
+        "reproduction": "not_verified_hotel_measurement",
+        "authorization": "local_reference_storage_only"
+      },
+      "known_unknowns": [
+        "本店损耗、残液、返工和原因证据尚未取得。",
+        "未验证正式制度、会计政策、业务效果或实耗；中文摘要哈希不是上游源文档哈希。"
+      ]
+    }
+  ]
+}

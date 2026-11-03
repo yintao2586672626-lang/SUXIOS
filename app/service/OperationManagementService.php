@@ -1,8 +1,6 @@
 <?php
 declare(strict_types=1);
-
 namespace app\service;
-
 use app\service\operation\ExecutionOutcomeService;
 use app\service\operation\ExecutionFlowReadService;
 use app\service\operation\OperationEffectReviewService;
@@ -10,7 +8,6 @@ use DateTimeImmutable;
 use DateTimeZone;
 use think\facade\Db;
 use Throwable;
-
 class OperationManagementService
 {
     use \app\service\operation\OperationSnapshotConcern;
@@ -22,14 +19,12 @@ class OperationManagementService
     use \app\service\operation\OperationExecutionPersistenceConcern;
     use \app\service\operation\OperationActionLifecycleConcern;
     use \app\service\operation\OperationExecutionAssigneeConcern;
-
     private RevenuePricingRecommendationService $pricingRecommendationService;
     private ExecutionOutcomeService $executionOutcomeService;
     private ExecutionFlowReadService $executionFlowReadService;
     private OperationOptimizationReviewService $operationOptimizationReviewService;
     /** @var null|callable(int,int,string,string):array<string,mixed> */
     private $temporalForecastReadbackResolver;
-
     private const EXECUTION_CREDENTIAL_KEYS = [
         'authorization' => true,
         'authorizationheader' => true,
@@ -54,11 +49,9 @@ class OperationManagementService
         'sessionid' => true,
         'sessiontoken' => true,
     ];
-
     private const DATA_PENDING = '待接入真实数据';
     private const DATA_OK = 'ok';
     private const DISCLAIMER = '该结果基于历史数据和规则估算，仅用于运营参考。';
-
     public function __construct(
         ?RevenuePricingRecommendationService $pricingRecommendationService = null,
         ?ExecutionOutcomeService $executionOutcomeService = null,
@@ -75,7 +68,6 @@ class OperationManagementService
             ?? new OperationOptimizationReviewService();
         $this->temporalForecastReadbackResolver = $temporalForecastReadbackResolver;
     }
-
     /**
      * @return list<int>
      */
@@ -94,10 +86,8 @@ class OperationManagementService
         if (!in_array($hotelId, $hotelIds, true)) {
             throw new \InvalidArgumentException('Selected hotel is outside the permitted hotel scope');
         }
-
         return [$hotelId];
     }
-
     /** @return array{code:string,message:string,migration_required:bool}|null */
     private function operationAlertTenantSchemaGap(): ?array
     {
@@ -109,7 +99,6 @@ class OperationManagementService
             'operation alerts must expose tenant_id and hotel_id with authoritative hotel tenant scope'
         );
     }
-
     /** @return array{code:string,message:string,migration_required:bool}|null */
     private function priceSuggestionTenantSchemaGap(): ?array
     {
@@ -121,7 +110,6 @@ class OperationManagementService
             'price suggestions must expose tenant_id and hotel_id with authoritative hotel tenant scope'
         );
     }
-
     private function operationTenantSchemaGap(
         string $table, string $scopeCode, string $scopeMessage, string $columnCode, string $columnMessage
     ): ?array {
@@ -140,22 +128,18 @@ class OperationManagementService
         }
         return null;
     }
-
     private function operationAlertMigrationGap(string $code, string $message): array
     {
         return ['code' => $code, 'message' => 'migration_required: ' . $message, 'migration_required' => true];
     }
-
     private function scopeOperationAlertQueryToCurrentTenant(mixed $query): mixed
     {
         return $this->scopeOperationTenantQuery($query, 'operation_alerts', 'operation_alert_hotel');
     }
-
     private function scopePriceSuggestionQueryToCurrentTenant(mixed $query): mixed
     {
         return $this->scopeOperationTenantQuery($query, 'price_suggestions', 'price_suggestion_hotel');
     }
-
     private function scopeOperationTenantQuery(mixed $query, string $table, string $alias): mixed
     {
         $sourceTable = Db::name($table)->getTable();
@@ -167,7 +151,6 @@ class OperationManagementService
                 ->where($alias . '.tenant_id', '>', 0);
         });
     }
-
     private function operationAlertSchemaGapResponse(array $gap, int $hotelId): array
     {
         return [
@@ -176,7 +159,6 @@ class OperationManagementService
             'scope' => 'single_hotel', 'capabilities' => ['can_execute' => false, 'can_mark_read' => false],
         ];
     }
-
     private function normalizeAlertRow(array $row): array
     {
         $row['id'] = (int)$row['id'];
@@ -186,7 +168,6 @@ class OperationManagementService
         $row['action_suggestion'] = $this->normalizeAlertSuggestion($row);
         return $row;
     }
-
     private function alertExecutionBridgeFromIntent(array $intent): array
     {
         return [
@@ -195,7 +176,6 @@ class OperationManagementService
             'blocked_reason' => (string)($intent['blocked_reason'] ?? ''), 'unavailable_reason' => '',
         ];
     }
-
     /** Stable mutation lock order: hotels ascending -> alerts ascending. */
     private function withOperationAlertMutationAuthorization(array $alertIds, array $hotelIds, callable $mutation): mixed
     {
@@ -236,7 +216,6 @@ class OperationManagementService
             })));
         });
     }
-
     public function fullData(array $hotelIds, ?int $hotelId, string $date): array
     {
         $hotelIds = $this->scopeHotelIdsForSelection($hotelIds, $hotelId);
@@ -247,7 +226,6 @@ class OperationManagementService
         $competitors = $this->buildCompetitors($hotelIds, $date, $summary);
         $holiday = $this->buildHoliday($date);
         $abnormalFlags = [];
-
         if (($ota['exposure'] ?? null) !== null
             && ($ota['visitors'] ?? null) !== null
             && (float)$ota['exposure'] <= 0
@@ -256,7 +234,6 @@ class OperationManagementService
         ) {
             $abnormalFlags[] = '曝光/访客为0但订单大于0，疑似采集异常';
         }
-
         foreach ([
             '经营日报' => $summary,
             'OTA数据' => $ota,
@@ -281,7 +258,6 @@ class OperationManagementService
                 $abnormalFlags[] = $module . '为空，待接入真实数据';
             }
         }
-
         return [
             'summary' => $summary,
             'ota' => $ota,
@@ -291,17 +267,14 @@ class OperationManagementService
             'abnormal_flags' => array_values(array_unique($abnormalFlags)),
         ];
     }
-
     public function rootCause(array $hotelIds, ?int $hotelId, string $date, string $problemType): array
     {
         $hotelIds = $this->scopeHotelIdsForSelection($hotelIds, $hotelId);
         $fullData = $this->fullData($hotelIds, $hotelId, $date);
         $avg7 = $this->averageOnlineMetrics($hotelIds, $date, 7);
         $avg30 = $this->averageOnlineMetrics($hotelIds, $date, 30);
-
         return $this->buildRootCauseResult($fullData, $avg7, $avg30, $problemType);
     }
-
     private function buildRootCauseResult(array $fullData, array $avg7, array $avg30, string $problemType): array
     {
         $todayOta = $fullData['ota'] ?? [];
@@ -310,7 +283,6 @@ class OperationManagementService
         $serviceQuality = $fullData['service_quality'] ?? [];
         $holiday = $fullData['holiday'] ?? [];
         $rootCauses = [];
-
         if (($todayOta['orders'] ?? 0) > 0
             && ($todayOta['exposure'] ?? null) !== null
             && ($todayOta['visitors'] ?? null) !== null
@@ -326,11 +298,9 @@ class OperationManagementService
                 'reference_scope' => 'same_hotel_same_platform_same_business_date',
             ]);
         }
-
         $todayFunnelComparable = ($todayOta['data_status'] ?? '') === self::DATA_OK;
         $avg7FunnelComparable = ($avg7['data_status'] ?? '') === self::DATA_OK;
         $avg30FunnelComparable = ($avg30['data_status'] ?? '') === self::DATA_OK;
-
         if ($todayFunnelComparable && $avg7FunnelComparable && ($avg7['exposure'] ?? 0) > 0 && ($todayOta['exposure'] ?? 0) < $avg7['exposure'] * 0.7) {
             $rootCauses[] = $this->cause('traffic_down', '曝光下降', 2, 0.82, '今日曝光低于7日均值30%以上', '检查渠道排名、标题图片和活动流量入口', [
                 'status' => 'available', 'type' => 'historical_average', 'metric' => 'exposure',
@@ -339,7 +309,6 @@ class OperationManagementService
                 'reference_scope' => 'same_hotel_same_platform',
             ]);
         }
-
         if ($todayFunnelComparable && $avg30FunnelComparable && ($avg30['view_rate'] ?? 0) > 0 && ($todayOta['view_rate'] ?? 0) < $avg30['view_rate'] * 0.8) {
             $rootCauses[] = $this->cause('view_conversion_low', '浏览转化差', 3, 0.78, '浏览/曝光低于历史均值20%以上', '优化首图、卖点、价格展示和可售房型', [
                 'status' => 'available', 'type' => 'historical_average', 'metric' => 'view_rate',
@@ -348,7 +317,6 @@ class OperationManagementService
                 'reference_scope' => 'same_hotel_same_platform',
             ]);
         }
-
         if ($todayFunnelComparable && $avg30FunnelComparable && ($avg30['order_rate'] ?? 0) > 0 && ($todayOta['order_rate'] ?? 0) < $avg30['order_rate'] * 0.8) {
             $rootCauses[] = $this->cause('order_conversion_low', '订单转化差', 4, 0.78, '订单/访客低于历史均值20%以上', '检查价格竞争力、取消政策、库存和促销', [
                 'status' => 'available', 'type' => 'historical_average', 'metric' => 'order_rate',
@@ -357,7 +325,6 @@ class OperationManagementService
                 'reference_scope' => 'same_hotel_same_platform',
             ]);
         }
-
         if (($competitors['data_status'] ?? '') === self::DATA_OK
             && ($competitors['comparability_status'] ?? '') === 'eligible'
             && ($competitors['avg_our_public_price'] ?? 0) > 0
@@ -372,7 +339,6 @@ class OperationManagementService
                 'comparison_key' => (string)($competitors['comparison_key'] ?? ''),
             ]);
         }
-
         $psiScore = (float)($serviceQuality['avg_psi_score'] ?? 0);
         $serviceScore = (float)($serviceQuality['avg_service_score'] ?? 0);
         if ($this->serviceQualityThresholdEligible($serviceQuality) && (($psiScore > 0 && $psiScore < 80) || ($serviceScore > 0 && $serviceScore < 80))) {
@@ -383,7 +349,6 @@ class OperationManagementService
                 'reference_scope' => 'ota_service_quality_rule',
             ]);
         }
-
         if (($holiday['days_left'] ?? 999) < 15 && ($holiday['data_status'] ?? '') === self::DATA_OK) {
             $rootCauses[] = $this->cause('holiday_near', '节假日临近', 7, 0.68, '距离节假日小于15天', '提前确认库存、底价、活动和高需求日调价节奏', [
                 'status' => 'available', 'type' => 'fixed_threshold', 'metric' => 'holiday_days_left',
@@ -391,9 +356,7 @@ class OperationManagementService
                 'comparison_rule' => 'measured_value < 15', 'reference_scope' => 'holiday_calendar',
             ]);
         }
-
         usort($rootCauses, static fn(array $a, array $b): int => $a['priority'] <=> $b['priority']);
-
         if (empty($rootCauses)) {
             if (($summary['data_status'] ?? '') === self::DATA_OK
                 && ($todayOta['data_status'] ?? '') !== self::DATA_OK
@@ -420,7 +383,6 @@ class OperationManagementService
                 'next_actions' => ['补齐OTA曝光、访客、订单、竞对价格、广告和服务质量数据'],
             ];
         }
-
         return [
             'main_problem' => $rootCauses[0]['title'],
             'problem_level' => count($rootCauses) >= 3 ? 'high' : 'medium',
@@ -432,7 +394,6 @@ class OperationManagementService
             'next_actions' => array_values(array_unique(array_column($rootCauses, 'suggestion'))),
         ];
     }
-
     public function strategySimulation(array $hotelIds, ?int $hotelId, array $input): array
     {
         $hotelIds = $this->scopeHotelIdsForSelection($hotelIds, $hotelId);
@@ -470,7 +431,6 @@ class OperationManagementService
         $conversionLift = 0.0;
         $orderFactor = 1.0;
         $revenueFactor = 1.0;
-
         if ($strategyType === 'price_adjust') {
             if ($adjustAmount < 0) {
                 $drop = abs($adjustAmount);
@@ -512,13 +472,11 @@ class OperationManagementService
             $orderFactor += 0.02;
             $revenueFactor += 0.02;
         }
-
         $ruleScenario['avg_orders'] = round((float)$baseline['avg_orders'] * max(0, $orderFactor), 2);
         $ruleScenario['avg_revenue'] = round((float)$baseline['avg_revenue'] * max(0, $revenueFactor), 2);
         $ruleScenario['avg_conversion'] = $baseline['avg_conversion'] === null
             ? null
             : round((float)$baseline['avg_conversion'] * (1 + $conversionLift), 2);
-
         return [
             'simulated' => true,
             'status' => 'rule_scenario',
@@ -540,7 +498,6 @@ class OperationManagementService
             'disclaimer' => '该结果由历史基线乘以固定规则系数生成，是规则情景而非经营预测。风险等级只在规则命中时给出，执行前需人工复核。',
         ];
     }
-
     public function createAction(array $hotelIds, ?int $hotelId, array $input): int
     {
         $now = date('Y-m-d H:i:s');
@@ -551,7 +508,6 @@ class OperationManagementService
         }
         $hotelIds = [$selectedHotelId];
         $before = $this->baseline($hotelIds, 7, (string)$input['start_date']);
-
         $data = [
             'hotel_id' => $selectedHotelId,
             'action_type' => (string)$input['action_type'],
@@ -569,12 +525,10 @@ class OperationManagementService
             'created_at' => $now,
             'updated_at' => $now,
         ];
-
         return (int)Db::name('operation_action_tracks')->insertGetId(
             $this->withHotelTenantId($data, 'operation_action_tracks', $selectedHotelId)
         );
     }
-
     public function actionTracking(array $hotelIds, ?int $hotelId): array
     {
         if (!$this->tableExists('operation_action_tracks')) {
@@ -592,7 +546,6 @@ class OperationManagementService
         if (($tenantSchemaGap = $this->operationActionTrackTenantSchemaGap()) !== null) {
             return $this->operationActionTrackSchemaGapResponse($tenantSchemaGap);
         }
-
         $query = Db::name('operation_action_tracks')->whereNull('deleted_at');
         if ($hotelId !== null && $hotelId > 0) {
             $query->where('hotel_id', $hotelId);
@@ -771,6 +724,17 @@ class OperationManagementService
                 'message' => $identityGapCount . ' task/evidence rows were excluded because parent hotel or tenant identity did not match',
             ];
         }
+        $effectReadbackFailed = false;
+        foreach ($items as $item) {
+            $effectStatus = (string)($item['effect_review_summary']['persistence_status'] ?? '');
+            if (in_array($effectStatus, ['readback_failed', 'table_missing'], true)) {
+                $effectReadbackFailed = true;
+                $dataGaps[] = [
+                    'code' => 'operation_effect_review_' . $effectStatus,
+                    'message' => 'Independent effect review unavailable for intent#' . (int)$item['id'],
+                ];
+            }
+        }
 
         $summary = $this->buildExecutionFlowSummary($summaryItems);
 
@@ -788,6 +752,7 @@ class OperationManagementService
                 'task_status_loaded' => $taskTableLoaded && !$truncated,
                 'evidence_loaded' => $taskTableLoaded && $evidenceTableLoaded && !$truncated,
                 'roi_loaded' => $taskTableLoaded && $evidenceTableLoaded && !$truncated,
+                'effect_review_loaded' => !$effectReadbackFailed && !$truncated,
             ],
         ];
     }
@@ -797,7 +762,36 @@ class OperationManagementService
         $intent = $this->normalizeExecutionIntentRow($intentRow);
         $tasks = array_map([$this, 'normalizeExecutionTaskRow'], $taskRows);
         $evidence = array_map([$this, 'normalizeExecutionEvidenceRow'], $evidenceRows);
-        $item = $this->executionFlowReadService->buildItem($intent, $tasks, $evidence);
+        $matchingTasks = array_values(array_filter($tasks, fn(array $task): bool =>
+            $this->executionFlowReadService->taskMatchesIntent($intent, $task)
+        ));
+        usort($matchingTasks, static fn(array $a, array $b): int => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
+        $latestTask = $matchingTasks[0] ?? [];
+        $effectProjection = $this->executionFlowReadService->projectEffectReviews($intent, $latestTask, []);
+        if (($effectProjection['strict_required'] ?? false) === true && (int)($latestTask['id'] ?? 0) > 0) {
+            $readStatus = 'table_missing';
+            $reviews = [];
+            try {
+                if ($this->tableExists(OperationEffectReviewService::TABLE)) {
+                    $result = (new OperationEffectReviewService($this->executionOutcomeService))->listForTask(
+                        (int)($latestTask['tenant_id'] ?? $intent['tenant_id'] ?? 0),
+                        (int)($latestTask['hotel_id'] ?? 0),
+                        (int)($latestTask['intent_id'] ?? 0),
+                        (int)$latestTask['id']
+                    );
+                    $reviews = $result['list'];
+                    $readStatus = 'readback_verified';
+                }
+            } catch (Throwable) {
+                // A failed strict read cannot resurrect the legacy source-only success.
+                $readStatus = 'readback_failed';
+            }
+            $effectProjection = $this->executionFlowReadService->projectEffectReviews($intent, $latestTask, $reviews, $readStatus);
+        }
+        if (($effectProjection['strict_required'] ?? false) !== true) {
+            $effectProjection = null;
+        }
+        $item = $this->executionFlowReadService->buildItem($intent, $tasks, $evidence, $effectProjection);
         $managedIntent = (new OperationActionLifecycleService())->decorateCurrentDatabaseAggregate(array_merge($intent, [
             'tasks' => $tasks,
         ]));
@@ -1132,10 +1126,7 @@ class OperationManagementService
             throw new \InvalidArgumentException('terminal execution task cannot transition');
         }
 
-        $status = trim((string)($input['status'] ?? 'executed'));
-        if (!in_array($status, ['executing', 'blocked', 'executed', 'failed'], true)) {
-            throw new \InvalidArgumentException('execution status is not supported');
-        }
+        $status = $this->normalizeExecutionTaskStatus($input);
 
         $evidence = $this->arrayValue($input['evidence'] ?? []);
         $evidenceType = strtolower(trim((string)($input['evidence_type'] ?? $evidence['evidence_type'] ?? 'manual')));
@@ -1154,6 +1145,7 @@ class OperationManagementService
         }
         $terminalEvidenceIsMeaningful = $evidence !== []
             && self::isMeaningfulExecutionReceipt($normalizedEvidenceContent, $operatorId);
+        self::assertExecutionTaskStatusAndReceipt($status, $normalizedEvidenceContent);
         $isTemporalForecast = in_array(
             strtolower(trim((string)($intent['source_module'] ?? ''))),
             [
@@ -2737,7 +2729,7 @@ class OperationManagementService
         ], true)) {
             return;
         }
-        $status = strtolower(trim((string)($input['status'] ?? '')));
+        $status = strtolower($this->normalizeExecutionTaskStatus($input));
         if (!in_array($status, ['executed', 'failed'], true)) {
             return;
         }
@@ -2923,7 +2915,7 @@ class OperationManagementService
         $dailyContract = (new OperationActionLifecycleService())->isDailyOneThingIntent($normalizedIntent);
         if ($dailyContract) {
             $currentTaskStatus = strtolower(trim((string)($task['status'] ?? '')));
-            $requestedTaskStatus = strtolower(trim((string)($input['status'] ?? 'executed')));
+            $requestedTaskStatus = strtolower($this->normalizeExecutionTaskStatus($input));
             $allowedDailyTaskTransitions = [
                 'pending_execute' => ['executing', 'blocked'],
                 'executing' => ['executed', 'failed', 'blocked'],
@@ -3508,7 +3500,13 @@ class OperationManagementService
         $hasManualStatus = array_key_exists('result_status', $input) || array_key_exists('review_status', $input);
         $hasManualSummary = array_key_exists('result_summary', $input) || array_key_exists('review_summary', $input);
         $terminalResultStatus = (string)($task['result_status'] ?? '');
+        if (($input['refresh_roi_cost_review'] ?? null) === true
+            && !in_array($terminalResultStatus, ['success', 'near_success', 'failed'], true)
+        ) throw new \InvalidArgumentException('expense reassessment requires an existing terminal review');
         if (in_array($terminalResultStatus, ['success', 'near_success', 'failed'], true)) {
+            if (($input['refresh_roi_cost_review'] ?? null) === true) {
+                return $this->refreshTerminalExecutionRoiCostReview($task, $intentRow, $hotelIds, $input, $reviewerId);
+            }
             if ($hasManualStatus
                 && $hasManualSummary
                 && $manualResultStatus === $terminalResultStatus

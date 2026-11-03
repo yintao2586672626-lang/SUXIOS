@@ -1,0 +1,18 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { minify } from 'terser';
+import { compileFrontendTemplate, FRONTEND_TEMPLATE_MINIFY_OPTIONS } from './lib/frontend_template_build.mjs';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const source = fs.readFileSync(path.join(root, 'public/components/system/operating-economics-workbench.js'), 'utf8');
+const start = source.indexOf('        template: `');
+const end = source.indexOf('\n        `,', start);
+if (start < 0 || end < 0) throw new Error('Operating economics template boundaries missing');
+const template = source.slice(start + '        template: `'.length, end);
+const compiled = source.slice(0, start) + '        render: (function(Vue){' + compileFrontendTemplate(template) + '})(Vue),' + source.slice(end + '\n        `,'.length);
+const options = structuredClone(FRONTEND_TEMPLATE_MINIFY_OPTIONS);
+options.compress.booleans_as_integers = false;
+const result = await minify(compiled, options);
+if (!result.code) throw new Error('Empty operating economics build');
+fs.writeFileSync(path.join(root, 'public/components/system/operating-economics-workbench.min.js'), result.code + '\n');
+console.log('Operating economics component built');

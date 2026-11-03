@@ -6,6 +6,44 @@ use PHPUnit\Framework\TestCase;
 
 final class AiDailyReportBroadcastSnapshotServiceTest extends TestCase
 {
+    #[\PHPUnit\Framework\Attributes\DataProvider('mismatchedBusinessDates')]
+    public function testRequestDateMismatchIsRejectedBeforeGeneration(string $entrypoint, ?string $returnedDate): void
+    {
+        $closure = $this->hotel80Closure();
+        $closure['business_date'] = $returnedDate;
+        $clockCalls = 0;
+        $service = new AiDailyReportBroadcastSnapshotService(
+            static fn(): array => $closure,
+            static fn(): array => ['id' => 80, 'tenant_id' => 80, 'name' => 'Fixture'],
+            static function () use (&$clockCalls): DateTimeImmutable {
+                $clockCalls++;
+                // Stop the old implementation before it can enter persistence.
+                throw new RuntimeException('fixture_generation_must_not_start');
+            }
+        );
+
+        $error = null;
+        try {
+            $service->{$entrypoint}(80, '2026-08-23');
+        } catch (RuntimeException $caught) {
+            $error = $caught;
+        }
+        self::assertInstanceOf(RuntimeException::class, $error);
+        self::assertSame('AI daily report broadcast strict fact business date mismatch', $error->getMessage());
+        self::assertSame(422, $error->getCode());
+        self::assertSame(0, $clockCalls, 'Date mismatch must stop before draft generation or persistence.');
+    }
+
+    public static function mismatchedBusinessDates(): array
+    {
+        return [
+            'preview wrong day' => ['preview', '2026-08-24'],
+            'preview missing day' => ['preview', null],
+            'generate wrong day' => ['generateAndReadback', '2026-08-24'],
+            'generate missing day' => ['generateAndReadback', null],
+        ];
+    }
+
     public function testHotel80PartialFactsAreBroadcastReadyWhileAnalysisRemainsBlocked(): void
     {
         $service = $this->service($this->hotel80Closure());
@@ -79,6 +117,58 @@ final class AiDailyReportBroadcastSnapshotServiceTest extends TestCase
         self::assertSame($first['facts_fingerprint'], $second['facts_fingerprint']);
         self::assertSame($first['final_text'], $second['final_text']);
         self::assertNotSame($first['generated_at'], $second['generated_at']);
+    }
+
+    public function testStrictValuesRejectedByCanonicalIdentityGateCannotBecomeBroadcastFacts(): void
+    {
+        $closure = $this->hotel80Closure();
+        foreach (['ctrip', 'meituan'] as $platform) {
+            $closure['platforms'][$platform]['identity_status'] = 'unverified';
+            foreach ($closure['platforms'][$platform]['fields'] as &$field) {
+                $field['revenue_analysis_consumable'] = false;
+                $field['revenue_analysis_blockers'] = ['identity_binding_not_verified'];
+            }
+            unset($field);
+        }
+
+        $draft = $this->service($closure)->preview(80, '2026-08-23');
+
+        self::assertSame([], $draft['facts']);
+        self::assertSame([], $draft['fact_refs']);
+        self::assertSame('', $draft['final_text']);
+        self::assertFalse($draft['can_generate']);
+    }
+
+    public function testVerifiedPartialFactsSurviveWhileUnusableOrUnreferencedFieldsStayMissing(): void
+    {
+        $closure = $this->hotel80Closure();
+        $closure['platforms']['meituan']['fields']['visits']['revenue_analysis_consumable'] = false;
+        $closure['platforms']['meituan']['fields']['conversion']['source_record_refs'] = [];
+
+        $draft = $this->service($closure)->preview(80, '2026-08-23');
+
+        self::assertSame('facts_broadcast_ready', $draft['facts_broadcast_status']);
+        self::assertSame(['exposure'], array_column($draft['facts'], 'metric_key'));
+        self::assertSame(1422, $draft['facts'][0]['value']);
+        $missing = array_column($draft['missing_items'], 'code');
+        self::assertContains('meituan_visits_strict_readback', $missing);
+        self::assertContains('meituan_conversion_verified_calculation', $missing);
+    }
+
+    public function testMissingTrafficIsNamedEvenWhenExposureAndRevenueHeadlinesAreSatisfied(): void
+    {
+        $closure = $this->hotel80Closure();
+        $closure['platforms']['ctrip']['fields']['exposure'] = $this->fact('strict_readback', 100, ['online_daily_data#102231'], true);
+        $closure['platforms']['ctrip']['fields']['revenue']['revenue_analysis_consumable'] = true;
+        $closure['platforms']['meituan']['fields']['revenue'] = $this->fact('strict_readback', 200, ['online_daily_data#102476'], true);
+        $closure['platforms']['meituan']['fields']['adr'] = $this->missing('missing');
+        $closure['platforms']['meituan']['fields']['exposure'] = $this->missing('missing');
+
+        $draft = $this->service($closure)->preview(80, '2026-08-23');
+
+        self::assertNotEmpty($draft['missing_items']);
+        self::assertStringNotContainsString('当前未发现关键事实缺口', $draft['final_text']);
+        self::assertStringContainsString('美团曝光人数事实缺失', $draft['final_text']);
     }
 
     /** @param array<string,mixed> $closure */

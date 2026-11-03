@@ -4,16 +4,6 @@ import test from 'node:test';
 
 const source = readFileSync('public/app-main.js', 'utf8');
 
-const deferred = () => {
-  let resolve;
-  let reject;
-  const promise = new Promise((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-};
-
 const sliceBetween = (start, end) => {
   const startIndex = source.indexOf(start);
   const endIndex = source.indexOf(end, startIndex + start.length);
@@ -93,138 +83,34 @@ test('initial deep links resolve only to active pages visible to the authenticat
   assert.match(authBootstrap, /requestSuxiFullRenderForPage\(currentPage\.value\);/);
 });
 
-test('entering the frozen strategy page loads dependencies and history without generating or saving', () => {
-  const match = source.match(
-    /if \(newPage === 'ai-strategy'\) \{([\s\S]*?)\n\s*\}\n\s*if \(newPage === 'ai-simulation'\)/,
-  );
-  assert.ok(match, 'missing ai-strategy page lifecycle branch');
-  assert.match(match[1], /ensureExpansionStaticReady\(\)/);
-  assert.match(match[1], /loadStrategyRecords\(\)/);
-  assert.doesNotMatch(match[1], /handleStrategy|strategy\/simulate|method:\s*'POST'/);
-  assert.match(
-    source,
-    /const previousPage = previousPageLifecycleKey;[\s\S]*?if \(previousPage === 'ai-strategy' && newPage !== 'ai-strategy'\) \{\s*invalidateStrategyPageRequests\(\);/,
-  );
-  assert.doesNotMatch(source, /if \(previous === 'ai-strategy'/);
-  const authReset = sliceBetween(
-    'const resetHotelScopedClientState = (',
-    'const clearActiveHotelDashboardSnapshots = () => {',
-  );
-  assert.match(authReset, /invalidateStrategyPageRequests\(\);/);
+test('all retired page links resolve to the active compass without loading retired assets', () => {
+  const resolverSource = sliceBetween('const normalizeCanonicalPage = (page) =>', 'const ACTIVE_DISCOVERABLE_PAGE_PATHS');
+  const resolve = Function(resolverSource + '\nreturn normalizeCanonicalPage;')();
+  for (const page of ['ai-workbench', 'ai-strategy', 'ai-feasibility', 'market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency', 'asset-pricing', 'timing-strategy', 'decision-board', 'investment-decision', 'lifecycle', 'lifecycle-auxiliary']) {
+    assert.equal(resolve(page), 'compass', page);
+  }
+  for (const page of ['ai-simulation', 'opening-overview', 'opening-checklist', 'investment-payback', 'ops-track']) assert.equal(resolve(page), page);
 });
 
-const createStrategyHarness = ({ request, currentPageValue = 'ai-strategy' } = {}) => {
-  const strategySource = sliceBetween(
-    'let aiStrategyActionSeq = 0;',
-    'const applyStrategyRecord = (record, reuseInput = false) => {',
-  );
-  const currentPage = { value: currentPageValue };
-  const sessionState = { epoch: 1, token: 'token-a' };
-  const aiStrategyLoading = { value: false };
-  const aiStrategyRecordsLoading = { value: false };
-  const aiStrategyRecordId = { value: null };
-  const aiStrategyResult = { value: null };
-  const historyCalls = [];
-  const toasts = [];
-  let requestCalls = 0;
-  const context = {
-    captureAuthSession: () => ({ ...sessionState }),
-    currentPage,
-    pageRequestGeneration: 7,
-    isAuthSessionCurrent: session => session.epoch === sessionState.epoch && session.token === sessionState.token,
-    aiStrategyLoading,
-    aiStrategyRecordsLoading,
-    ensureExpansionStaticReady: async () => true,
-    request: async (...args) => {
-      requestCalls += 1;
-      return request(...args);
-    },
-    buildStrategyPayload: () => ({ project_name: '测试项目' }),
-    aiStrategyRecordId,
-    aiStrategyResult,
-    normalizeStrategyResult: data => ({ ...data, normalized: true }),
-    loadStrategyRecords: async options => {
-      historyCalls.push(options);
-      return [];
-    },
-    showToast: (...args) => toasts.push(args),
-  };
-  const names = Object.keys(context);
-  const bundle = Function(
-    ...names,
-    `${strategySource}
-return {
-  handleStrategy,
-  invalidateStrategyPageRequests,
-  bumpPageGeneration: () => { pageRequestGeneration += 1; },
-};`,
-  )(...names.map(name => context[name]));
-  return {
-    ...bundle,
-    currentPage,
-    sessionState,
-    aiStrategyLoading,
-    aiStrategyRecordsLoading,
-    aiStrategyRecordId,
-    aiStrategyResult,
-    historyCalls,
-    toasts,
-    requestCalls: () => requestCalls,
-  };
-};
-
-test('a user-triggered strategy result is discarded after leaving and returning to the page', async () => {
-  const response = deferred();
-  const harness = createStrategyHarness({ request: () => response.promise });
-  const run = harness.handleStrategy();
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(harness.requestCalls(), 1);
-
-  harness.currentPage.value = 'compass';
-  harness.invalidateStrategyPageRequests();
-  harness.bumpPageGeneration();
-  harness.currentPage.value = 'ai-strategy';
-  assert.equal(harness.aiStrategyLoading.value, false);
-  response.resolve({ code: 200, data: { record_id: 88, score: 91 } });
-
-  assert.equal(await run, false);
-  assert.equal(harness.aiStrategyRecordId.value, null);
-  assert.equal(harness.aiStrategyResult.value, null);
-  assert.equal(harness.historyCalls.length, 0);
-  assert.deepEqual(harness.toasts, []);
-  assert.equal(harness.aiStrategyLoading.value, false);
+test('retired strategy runtime has no request handlers, state or setup exposure', () => {
+  assert.doesNotMatch(source, /const (?:handleStrategy|applyStrategyRecord|loadStrategyRecords|archiveStrategyRecord|aiStrategyResult|strategyCurrentReadiness)\b/);
+  assert.doesNotMatch(source, /request\(['"]\/strategy\//);
+  assert.doesNotMatch(source, /expansion-static-options\.js/);
 });
 
-test('a user-triggered strategy result is discarded after the auth session changes', async () => {
-  const response = deferred();
-  const harness = createStrategyHarness({ request: () => response.promise });
-  const run = harness.handleStrategy();
-  await Promise.resolve();
-  await Promise.resolve();
-  harness.sessionState.epoch = 2;
-  harness.sessionState.token = 'token-b';
-  harness.invalidateStrategyPageRequests();
-  assert.equal(harness.aiStrategyLoading.value, false);
-  response.resolve({ code: 200, data: { record_id: 99, score: 87 } });
-
-  assert.equal(await run, false);
-  assert.equal(harness.aiStrategyRecordId.value, null);
-  assert.equal(harness.aiStrategyResult.value, null);
-  assert.equal(harness.historyCalls.length, 0);
-  assert.deepEqual(harness.toasts, []);
+test('changing pages and clearing auth do not refer to removed strategy lifecycle handlers', () => {
+  assert.doesNotMatch(source, /invalidateStrategyPageRequests|captureStrategyPageContext|isStrategyPageContextCurrent/);
+  assert.doesNotMatch(source, /if \(newPage === ['"](?:ai-strategy|ai-feasibility|investment-decision|lifecycle)['"]\)/);
+  assert.match(source, /const canonicalPage = normalizeCanonicalPage\(newPage\);/);
+  assert.match(source, /clearAuthSessionWithStatus/);
 });
 
-test('a current user-triggered strategy request still updates state and refreshes history', async () => {
-  const harness = createStrategyHarness({
-    request: async () => ({ code: 200, data: { record_id: 77, score: 93 } }),
-  });
-  assert.equal(await harness.handleStrategy(), true);
-  assert.equal(harness.aiStrategyRecordId.value, 77);
-  assert.deepEqual(harness.aiStrategyResult.value, { record_id: 77, score: 93, normalized: true });
-  assert.equal(harness.historyCalls.length, 1);
-  assert.equal(harness.historyCalls[0].force, true);
-  assert.deepEqual(harness.toasts, [['战略推演已生成']]);
+test('operating closure navigation canonicalizes historical module links before routing', () => {
+  const navigation = sliceBetween('const openOperationClosureModule =', 'const operationErrorMessage =');
+  assert.match(navigation, /const targetPage = normalizeCanonicalPage\(module\?\.entry_page\);/);
+  assert.doesNotMatch(navigation, /loadExpansionRecords|loadTransferRecords/);
+  assert.match(navigation, /loadOperationActions\(\)/);
+  assert.match(navigation, /loadOpeningProjects\(\)/);
 });
 
 const pagePolicyHarness = currentPage => ({

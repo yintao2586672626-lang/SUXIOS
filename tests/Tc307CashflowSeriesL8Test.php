@@ -151,6 +151,29 @@ final class Tc307CashflowSeriesL8Test extends TestCase
         $this->assertPersistedJsonMatchesDetail($id, $detail, $message);
     }
 
+    public function testMonthEndDatesAndUnreachableBreakEvenSurviveSaveAndExactReadback(): void
+    {
+        $service = new Tc307SqliteQuantSimulationService(new Tc307LocalLlmClient());
+        $input = $this->completeInput('2026-01-31');
+        $input['ota_commission_rate'] = 100;
+        $input['occupancy_rate'] = 100;
+        $saved = $service->calculateAndSave([
+            'project_name' => 'TC307_MONTH_END_BOUNDARY', 'model_key' => 'tc307_local_no_network',
+            'input' => $input,
+        ], self::OWNER_USER_ID);
+        $read = $service->detail((int)$saved['id'], self::OWNER_USER_ID, false);
+        self::assertSame($saved['result']['cashflow_series'], $read['result']['cashflow_series']);
+        self::assertSame(['2026-01-31','2026-02-28','2026-03-31','2026-04-30','2026-05-31'],
+            array_column($read['result']['cashflow_series'], 'date'));
+        self::assertNull($read['result']['breakEvenOccupancy']);
+        self::assertSame('unreachable', $read['result']['breakEvenOccupancyStatus']);
+        $stored = Db::name('quant_simulation_records')->where('id', $saved['id'])->find();
+        $storedResult = json_decode((string)$stored['result_json'], true);
+        self::assertNull($storedResult['breakEvenOccupancy']);
+        self::assertSame('unreachable', $storedResult['breakEvenOccupancyStatus']);
+        self::assertSame($read['result']['cashflow_series'], $storedResult['cashflow_series']);
+    }
+
     public function testQuantSaveRejectsAHotelOutsideTheActorPrimaryScope(): void
     {
         $payload = [

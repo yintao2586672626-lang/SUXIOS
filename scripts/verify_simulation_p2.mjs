@@ -71,11 +71,6 @@ const checks = [
       "requireSimulationStatic('buildSimulationOtaCommissionChannels')",
       "requireSimulationStatic('isSimulationModelAnalysisVisible')",
       "requireSimulationStatic('simulationModelSourceLabel')",
-      "requireSimulationStatic('createBenchmarkModelForm')",
-      "requireSimulationStatic('createCollaborationProject')",
-      "requireSimulationStatic('createTransferPricingForm')",
-      "requireSimulationStatic('createTransferTimingForm')",
-      "requireSimulationStatic('buildTransferTimingDataCheck')",
       'const hydrateSimulationStaticDefaults = () =>',
       'await ensureSimulationStaticReady();',
       'simulationCurrentReadiness',
@@ -91,10 +86,6 @@ const checks = [
     file: 'public/simulation-static.js',
     contains: [
       "request('/simulation/calculate'",
-      'const createBenchmarkModelForm',
-      'const createCollaborationProject',
-      'const createTransferPricingForm',
-      'const createTransferTimingForm',
       'function buildSimulationInvestmentGroups',
       'function simulationInvestmentTotalFromGroups',
       'function simulationInvestmentPerRoom',
@@ -103,7 +94,6 @@ const checks = [
       'function buildSimulationOtaCommissionChannels',
       'function isSimulationModelAnalysisVisible',
       'function simulationModelSourceLabel',
-      'const buildTransferTimingDataCheck',
     ],
   },
 ];
@@ -134,33 +124,12 @@ try {
   vm.runInNewContext(simulationStaticSource, context, {
     filename: 'public/simulation-static.js',
   });
-  const buildTransferTimingDataCheck = context.window.SUXI_SIMULATION_STATIC?.buildTransferTimingDataCheck;
-  if (typeof buildTransferTimingDataCheck !== 'function') {
-    failures.push('public/simulation-static.js missing buildTransferTimingDataCheck function');
-  } else {
-    const healthy = buildTransferTimingDataCheck({
-      exposure: 12000,
-      visitors: 1800,
-      conversion_rate: 6.5,
-      order_count: 420,
-      room_nights: 980,
-    });
-    if (healthy.status !== '未发现明显口径冲突' || healthy.derivedConversionLabel !== '23.3%' || healthy.roomNightPerOrderLabel !== 2.33) {
-      failures.push('buildTransferTimingDataCheck should keep healthy transfer timing metrics stable');
-    }
-
-    const gap = buildTransferTimingDataCheck({});
-    if (gap.status !== '数据断档' || !gap.hasDataGap || gap.hasDataAnomaly) {
-      failures.push('buildTransferTimingDataCheck should expose missing transfer timing data as a data gap');
-    }
-
-    const anomaly = buildTransferTimingDataCheck({
-      order_count: 12,
-      room_nights: 18,
-    });
-    if (anomaly.status !== '疑似采集异常' || !anomaly.hasDataAnomaly) {
-      failures.push('buildTransferTimingDataCheck should expose suspected collection anomalies');
-    }
+  const api = context.window.SUXI_SIMULATION_STATIC;
+  for (const key of Object.keys(api || {})) {
+    if (/^(?:benchmark|collaboration|expansion|createBenchmark|createCollaboration|createTransfer|buildCollaboration|transfer|buildTransfer|resolveTransfer|filterExpansion|hasExpansion|hasAnyExpansion)/.test(key)) failures.push('retired runtime helper remains exported: ' + key);
+  }
+  for (const key of ['normalizeSimulationInput', 'validateSimulationInput', 'buildSimulationInvestmentGroups', 'buildSimulationCostGroups', 'buildSimulationOtaCommissionChannels', 'runSimulationCalculationFlow', 'runSimulationArchiveFlow', 'runSimulationExecutionIntentFlow']) {
+    if (typeof api?.[key] !== 'function') failures.push('active simulation helper missing: ' + key);
   }
 } catch (error) {
   failures.push(`public/simulation-static.js failed runtime validation: ${error.message}`);

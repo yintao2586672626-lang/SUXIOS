@@ -12,7 +12,8 @@ final class OtaExecutionStageException extends RuntimeException
         private readonly string $stage,
         private readonly string $safeMessage,
         private readonly int $httpStatus,
-        ?Throwable $previous = null
+        ?Throwable $previous = null,
+        private readonly string $failureCode = ''
     ) {
         parent::__construct('Manual OTA execution failed at stage: ' . $stage, $httpStatus, $previous);
     }
@@ -30,5 +31,12 @@ final class OtaExecutionStageException extends RuntimeException
     public function httpStatus(): int
     {
         return $this->httpStatus;
+    }
+
+    public function failureCode(): string
+    {
+        return $this->failureCode === 'credential_configuration_mismatch'
+            ? $this->failureCode
+            : '';
     }
 }

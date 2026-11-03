@@ -160,7 +160,7 @@ final class OperatingOpportunity extends Base
                 $today = new \DateTimeImmutable('now', new \DateTimeZone('Asia/Shanghai'));
                 $weekEnd = $today->modify('-' . (int)$today->format('N') . ' days')->format('Y-m-d');
             }
-            return $this->success($this->weeklyPlanService->readLatest(
+            return $this->success($this->weeklyPlanService->readLatestAvailability(
                 $tenantId,
                 $hotelId,
                 $weekEnd

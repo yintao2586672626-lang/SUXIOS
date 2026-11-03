@@ -8,6 +8,53 @@ use PHPUnit\Framework\TestCase;
 
 final class KnowledgeDecisionGateServiceTest extends TestCase
 {
+    public function testReviewAfterAsOfCannotAuthorizeDecisionOrTaskDraft(): void
+    {
+        $service = new KnowledgeDecisionGateService();
+        $content = ['lifecycle_status' => 'active', 'scope' => 'platform_rule',
+            'evidence_level' => 'official_current_rule', 'source_refs' => ['synthetic-versioned-rule']];
+        foreach ([['2099-01-01 00:00:00', '2026-10-03 00:00:00'], ['2026-10-03 00:00:00', '2026-10-02 23:59:59']] as [$reviewedAt, $asOf]) {
+            $unit = ['lifecycle_status' => 'active', 'reviewed_at' => $reviewedAt];
+            $originalUnit = $unit;
+            $originalContent = $content;
+            $gate = $service->assess($unit, $content, $asOf);
+            self::assertSame('reference_only', $gate['status']);
+            self::assertSame('review_after_as_of', $gate['freshness_status']);
+            self::assertContains('knowledge_reviewed_at_after_as_of', $gate['reason_codes']);
+            self::assertFalse($gate['decision_safe']);
+            self::assertFalse($gate['task_draft_safe']);
+            self::assertTrue($gate['reference_safe']);
+            self::assertSame($originalUnit, $unit);
+            self::assertSame($originalContent, $content);
+        }
+    }
+
+    public function testFutureReviewedReferenceCannotAuthorizeTaskDraft(): void
+    {
+        $gate = (new KnowledgeDecisionGateService())->assess(['lifecycle_status' => 'active', 'reviewed_at' => '2026-10-03 00:00:00'],
+            ['lifecycle_status' => 'active', 'scope' => 'generic_methodology', 'evidence_level' => 'reviewed_method',
+                'evidence_grade' => 'C', 'source_refs' => ['synthetic-method-source']], '2026-10-02 00:00:00');
+        self::assertSame('reference_only', $gate['status']);
+        self::assertFalse($gate['decision_safe']);
+        self::assertFalse($gate['task_draft_safe']);
+        self::assertTrue($gate['reference_safe']);
+    }
+
+    public function testExactReviewBoundaryRemainsUsableWhileUnverifiedReferenceStaysRestricted(): void
+    {
+        $service = new KnowledgeDecisionGateService();
+        $unit = ['lifecycle_status' => 'active', 'reviewed_at' => '2026-10-03 00:00:00'];
+        $content = ['scope' => 'platform_rule', 'evidence_level' => 'official_current_rule', 'source_refs' => ['synthetic-rule']];
+        $current = $service->assess($unit, $content, '2026-10-03 00:00:00');
+        self::assertSame('approved', $current['status']);
+        self::assertTrue($current['decision_safe']);
+        self::assertTrue($current['task_draft_safe']);
+        $reference = $service->assess($unit, [...$content, 'evidence_level' => 'unverified_reference'], '2026-10-03 00:00:00');
+        self::assertSame('reference_only', $reference['status']);
+        self::assertFalse($reference['decision_safe']);
+        self::assertFalse($reference['task_draft_safe']);
+    }
+
     public function testCurrentOfficialKnowledgeIsApprovedForDecisionSupport(): void
     {
         $gate = (new KnowledgeDecisionGateService())->assess([

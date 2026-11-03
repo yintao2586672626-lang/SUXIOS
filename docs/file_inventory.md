@@ -272,7 +272,7 @@
 | `scripts/verify_feasibility_loop.mjs` | 可行性闭环验证 | 保留 |
 | `scripts/verify_five_modules_p1.mjs` | 五模块 P1 验证 | 保留 |
 | `scripts/verify_home_trends.mjs` | 首页趋势验证 | 保留 |
-| `scripts/verify_market_evaluation_random_sample.mjs` | 市场评估随机样本验证 | 保留 |
+| `scripts/verify_market_evaluation_random_sample.mjs` | 已退役的市场生成随机验证 | 2026-10-02 从活动脚本移除；精确副本见本次瘦身恢复包 |
 | `scripts/verify_missing_modules.php` | 缺失模块验证 | 保留 |
 | `scripts/verify_non_security_review.mjs` | 非安全项复核 | 保留 |
 | `scripts/verify_ota_config_hotel_match.mjs` | OTA 配置酒店匹配验证 | 保留 |

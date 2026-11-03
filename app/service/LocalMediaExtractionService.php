@@ -198,7 +198,27 @@ final class LocalMediaExtractionService
         if (!is_string($image) || $image === '') {
             return $this->failed('ollama_vision_local', 'qwen3-vl:4b', 'image_read_failed');
         }
-        $schema = [
+        $payload = [
+            'model' => LocalAiRuntimeService::VISION_MODEL,
+            'messages' => [
+                ['role' => 'system', 'content' => '你是宿析OS本机图片理解器。只描述图片中可观察内容和清晰可见文字，不推断酒店、日期、平台账号、经营结果或因果。只输出符合schema的简体中文JSON。'],
+                ['role' => 'user', 'content' => '提取图片中的可见信息。', 'images' => [base64_encode($image)]],
+            ],
+            'stream' => false,
+            'format' => $this->imageSchema(),
+            'options' => ['temperature' => 0],
+        ];
+        $response = $this->ollama('/api/chat', $payload, 120);
+        if (($response['ok'] ?? false) !== true) {
+            return $this->failed('ollama_vision_local', 'qwen3-vl:4b', 'vision_model_call_failed');
+        }
+        $content = trim((string)($response['data']['message']['content'] ?? ''));
+        return $this->parseImageContent($content);
+    }
+
+    private function imageSchema(): array
+    {
+        return [
             'type' => 'object',
             'required' => ['summary', 'visible_text', 'observable_facts', 'uncertainties'],
             'properties' => [
@@ -208,23 +228,13 @@ final class LocalMediaExtractionService
                 'uncertainties' => ['type' => 'array', 'items' => ['type' => 'string']],
             ],
         ];
-        $payload = [
-            'model' => LocalAiRuntimeService::VISION_MODEL,
-            'messages' => [
-                ['role' => 'system', 'content' => '你是宿析OS本机图片理解器。只描述图片中可观察内容和清晰可见文字，不推断酒店、日期、平台账号、经营结果或因果。只输出符合schema的简体中文JSON。'],
-                ['role' => 'user', 'content' => '提取图片中的可见信息。', 'images' => [base64_encode($image)]],
-            ],
-            'stream' => false,
-            'format' => $schema,
-            'options' => ['temperature' => 0],
-        ];
-        $response = $this->ollama('/api/chat', $payload, 120);
-        if (($response['ok'] ?? false) !== true) {
-            return $this->failed('ollama_vision_local', 'qwen3-vl:4b', 'vision_model_call_failed');
-        }
-        $content = trim((string)($response['data']['message']['content'] ?? ''));
-        $structured = $this->decode($content);
-        if ($structured === [] || !isset($structured['summary'])) {
+    }
+
+    private function parseImageContent(string $content): array
+    {
+        try {
+            $structured = LlmStructuredOutputContract::decode($content, $this->imageSchema());
+        } catch (RuntimeException) {
             return $this->failed('ollama_vision_local', 'qwen3-vl:4b', 'vision_output_invalid');
         }
         $textParts = [(string)($structured['summary'] ?? '')];

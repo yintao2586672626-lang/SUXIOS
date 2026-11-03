@@ -27,6 +27,7 @@ function cloudHotelIdColumnRegistry(): array
         ['daily_reports', 'hotel_id', 'hotel_id'],
         ['monthly_tasks', 'hotel_id', 'hotel_id'],
         ['ai_daily_reports', 'hotel_id', 'hotel_id'],
+        ['ai_report_presentation_reviews', 'hotel_id', 'hotel_id'],
         ['ai_model_call_logs', 'hotel_id', 'hotel_id'],
         ['online_daily_data', 'system_hotel_id', 'canonical_foreign_key'],
         ['ota_ctrip_metric_facts', 'system_hotel_id', 'canonical_foreign_key'],
@@ -168,8 +169,24 @@ function cloudHotelIdColumnRegistry(): array
         ['wecom_task_receipts', 'hotel_id', 'hotel_id'],
         ['ota_settlement_import_batches', 'hotel_id', 'hotel_id'],
         ['hotel_on_books_snapshots', 'hotel_id', 'hotel_id'],
+        ['hotel_room_type_on_books_snapshots', 'hotel_id', 'hotel_id'],
+        ['hotel_operating_evidence_snapshots', 'hotel_id', 'hotel_id'],
+        ['hotel_business_workspace_snapshots', 'hotel_id', 'hotel_id'],
+        ['campaign_operation_versions', 'hotel_id', 'hotel_id'],
+        ['guest_operation_records', 'hotel_id', 'hotel_id'],
+        ['guest_operation_heads', 'hotel_id', 'hotel_id'],
+        ['guest_operation_requests', 'hotel_id', 'hotel_id'],
         ['hotel_demand_event_facts', 'hotel_id', 'hotel_id'],
         ['hotel_monthly_operating_finance_snapshots', 'hotel_id', 'hotel_id'],
+        // Optional new business ledgers use the canonical SUXIOS hotel identity.
+        // Digest-bound payloads remain evidence; relational classification alone
+        // does not authorize rewriting their nested source identity.
+        ['investment_payback_projects', 'hotel_id', 'hotel_id'],
+        ['manager_coaching_plans', 'hotel_id', 'hotel_id'],
+        ['manager_coaching_events', 'hotel_id', 'hotel_id'],
+        ['operation_task_workflow_events', 'hotel_id', 'hotel_id'],
+        ['operation_task_workflow_proposals', 'hotel_id', 'hotel_id'],
+        ['promotion_experiment_versions', 'system_hotel_id', 'canonical_foreign_key'],
 
         // Both sides of a controlled SOP replication are system-hotel aliases.
         ['hotel_operating_sop_replications', 'source_hotel_id', 'source_hotel_id'],
@@ -187,6 +204,13 @@ function cloudHotelIdColumnRegistry(): array
         ['wecom_task_receipts', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         ['ota_settlement_import_batches', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         ['hotel_on_books_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['hotel_room_type_on_books_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['hotel_operating_evidence_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['hotel_business_workspace_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['campaign_operation_versions', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['guest_operation_records', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['guest_operation_heads', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
+        ['guest_operation_requests', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         ['hotel_demand_event_facts', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         ['hotel_monthly_operating_finance_snapshots', 'source_hotel_id', 'immutable_source_hotel_id_evidence'],
         // OTA/competitor/provider identifiers are not SUXIOS system hotel IDs.
@@ -363,6 +387,11 @@ function cloudHotelIdJsonPolicyRegistry(): array
         ],
     ];
     $immutable = [
+        ['hotel_operating_evidence_snapshots', 'payload_json'],
+        ['hotel_business_workspace_snapshots', 'payload_json'],
+        ['campaign_operation_versions', 'payload_json'],
+        ['guest_operation_records', 'content_json'],
+        ['guest_operation_requests', 'record_ids_json'],
         ['platform_data_raw_records', 'raw_payload'],
         ['strategy_data_snapshots', 'raw_json'],
         ['operation_action_tracks', 'before_data_json'],
@@ -373,6 +402,9 @@ function cloudHotelIdJsonPolicyRegistry(): array
         ['operation_execution_evidence', 'after_json'],
         ['operation_execution_evidence', 'platform_response_json'],
         ['ai_daily_reports', 'snapshot_json'],
+        ['ai_report_presentation_specs', 'spec_json'],
+        ['ai_report_presentation_reviews', 'review_json'],
+        ['ai_report_presentation_artifacts', 'manifest_json'],
         ['ota_ctrip_reviews', 'raw_review_json'],
         ['ota_ctrip_orders', 'raw_order_json'],
         ['ota_ctrip_review_order_matches', 'evidence_json'],

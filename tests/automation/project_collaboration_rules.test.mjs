@@ -13,7 +13,9 @@ test('full Gauntlet is evidence-triggered while ordinary work keeps a compact de
   );
   assert.match(agentRules, /其他任务按[\s\S]*codex-execution-status-contract\.md[\s\S]*直接完成一个闭环/);
   assert.doesNotMatch(agentRules, /对有可检查产物的非简单目标自动使用/);
-  assert.match(charter, /普通功能不得先扩成全仓审计、完整门禁或发布工程/);
+  assert.match(charter, /普通功能不擅自扩成无关审计或发布工程/);
+  assert.match(charter, /用户要求全项目扫描时必须覆盖明确范围/);
+  assert.match(charter, /必要的依赖与风险验证不能因最少命令或省额度而省略/);
 });
 
 test('dirty worktrees are resolved by target overlap instead of a global clean requirement', () => {

@@ -1,0 +1,34 @@
+{
+  "version": "joydo-other-replay-20261001-v1",
+  "source_sample": {
+    "evidence": "external_visible_example_not_hotel_fact",
+    "rooms": 50, "days": 30, "sales_window_hours": 12,
+    "occupancy": 0.65, "net_adr": 160, "variable_cost": 27.28, "fixed_cost": 92000,
+    "remaining_investment": 3000000, "monthly_cash_proxy": 37402, "remaining_contract_years": 8,
+    "own_capital": 1500000, "visible_other_funding": 0, "total_investment": 3000000,
+    "nonzero_debt_reproduction_verified": false,
+    "ota_rank": null, "ota_diagnosed": false, "ota_live_collection_verified": false, "ota_ledger_write_disabled": true,
+    "report_review_ready": 3, "report_review_total": 6, "report_check_definitions": "not_observed", "all_download_buttons_disabled": true,
+    "report_exported_files": 0, "governance_content_access": "not_verified"
+  },
+  "synthetic_finance": {
+    "evidence": "locally_authored_schedule_not_source_algorithm_or_bank_terms",
+    "principal_yuan": 600000, "nominal_annual_rate": 0.12, "months": 12,
+    "interest_basis": "opening_balance_nominal_rate_divided_by_12",
+    "currency_rounding": "integer_fen_per_month_final_principal_remainder",
+    "cash_available_for_debt_service": 560000
+  },
+  "conditional_contract": {
+    "evidence": "source_sample_remaining_period_assumption_not_verified_contract_dates",
+    "remaining_months": 96,
+    "source_display_margin_years": 1.32
+  },
+  "synthetic_scope": {
+    "evidence": "locally_authored_contract_counterexamples_not_observations",
+    "hotel_id": 42, "platform": "ctrip", "query": "测试地标",
+    "observed_at": "2026-10-01 12:00:00", "observation_batch": "synthetic_batch_a", "checkin": "2026-10-10", "checkout": "2026-10-11",
+    "device": "test_desktop", "login_mode": "test_anonymous", "location_mode": "test_city", "sort": "test_default", "filters": "none",
+    "rank_interval": {"min": 21, "max": 50}, "page_capacity": null
+  },
+  "source_geo": {"url": "https://geo.joydorms.com/", "access": "public_landing_only", "backend_verified": false, "ranking_effect_verified": false, "growth_effect_verified": false}
+}

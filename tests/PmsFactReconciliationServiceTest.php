@@ -10,6 +10,98 @@ use PHPUnit\Framework\TestCase;
 
 final class PmsFactReconciliationServiceTest extends TestCase
 {
+    public function testInvalidScopeIsAValidationException(): void
+    {
+        foreach ([[0, null], [80, 0]] as [$hotelId, $tenantId]) {
+            try {
+                (new PmsFactReconciliationService())->summarize($hotelId, '2026-07-28', [], [], $tenantId);
+                self::fail('Invalid PMS scope must be rejected');
+            } catch (\InvalidArgumentException $error) {
+                self::assertSame('pms_reconciliation_scope_invalid', $error->getMessage());
+            }
+        }
+    }
+
+    public function testLargeFinitePmsAmountsDoNotTurnIntoVerifiedZeroFacts(): void
+    {
+        $capture = $this->dingdandaoCapture(2, '2026-07-28 10:10:00', 1e308, 1e308, 1, 1, 100, 1e308);
+        $result = (new PmsFactReconciliationService())->summarize(80, '2026-07-28', [
+            DingdandaoOperatingTargetCaptureService::PROVIDER => $capture,
+        ], [], 1);
+        $facts = $result['sources'][DingdandaoOperatingTargetCaptureService::PROVIDER]['facts'];
+        foreach (['room_revenue', 'adr', 'revpar'] as $metric) {
+            self::assertSame(1e308, $facts[$metric]['value'], $metric);
+        }
+        json_encode($result, JSON_THROW_ON_ERROR);
+    }
+
+    public function testLargePmsPickupStaysFiniteAndOverflowedPaceStaysMissing(): void
+    {
+        $current = $this->dingdandaoCapture(2, '2026-07-28 10:01:00', 1e308, 1e308, 1, 1, 100, 1e308);
+        $previous = $this->dingdandaoCapture(1, '2026-07-28 10:00:00', 0, 0, 1, 1, 100, 0);
+        $result = (new PmsFactReconciliationService())->summarize(80, '2026-07-28', [
+            DingdandaoOperatingTargetCaptureService::PROVIDER => $current,
+        ], [DingdandaoOperatingTargetCaptureService::PROVIDER => [$current, $previous]], 1);
+        $delta = $result['source_deltas'][DingdandaoOperatingTargetCaptureService::PROVIDER];
+        self::assertSame(1e308, $delta['delta_vector']['room_revenue']);
+        self::assertNull($delta['pace']['room_revenue_per_hour']);
+        json_encode($result, JSON_THROW_ON_ERROR);
+    }
+
+    public function testForeignHotelTenantAndProviderCapturesCannotBecomeRequestedHotelFacts(): void
+    {
+        $valid = $this->dingdandaoCapture(2, '2026-07-28 10:10:00', 10000, 250, 40, 100, 40, 100);
+        foreach ([
+            ['hotel_id' => 81],
+            ['tenant_id' => 2],
+            ['provider' => MeituanCloudPmsCaptureService::PROVIDER],
+            ['hotel_id' => null, 'tenant_id' => null],
+        ] as $identityChange) {
+            $result = (new PmsFactReconciliationService())->summarize(80, '2026-07-28', [
+                DingdandaoOperatingTargetCaptureService::PROVIDER => array_replace($valid, $identityChange),
+            ], [], 1);
+            $source = $result['sources'][DingdandaoOperatingTargetCaptureService::PROVIDER];
+            self::assertFalse($source['usable'], 'Capture identity must be bound to the receiving hotel, tenant and provider.');
+            self::assertNull($source['facts']['room_revenue']['value']);
+            self::assertContains('pms_capture_scope_mismatch', array_column($source['gaps'], 'code'));
+            self::assertSame('blocked', $result['source_deltas'][DingdandaoOperatingTargetCaptureService::PROVIDER]['status']);
+        }
+    }
+
+    public function testForeignHistoricalCaptureCannotEstablishPickupBaseline(): void
+    {
+        $current = $this->dingdandaoCapture(2, '2026-07-28 10:10:00', 10000, 250, 40, 100, 40, 100);
+        $foreign = array_replace(
+            $this->dingdandaoCapture(1, '2026-07-28 09:10:00', 8750, 250, 35, 100, 35, 87.50),
+            ['hotel_id' => 81, 'tenant_id' => 2]
+        );
+        $result = (new PmsFactReconciliationService())->summarize(80, '2026-07-28', [
+            DingdandaoOperatingTargetCaptureService::PROVIDER => $current,
+        ], [DingdandaoOperatingTargetCaptureService::PROVIDER => [$current, $foreign]], 1);
+        $delta = $result['source_deltas'][DingdandaoOperatingTargetCaptureService::PROVIDER];
+
+        self::assertSame('baseline_only', $delta['status']);
+        self::assertNull($delta['previous_capture_id']);
+        self::assertNull($delta['delta_vector']['net_pickup']);
+    }
+
+    public function testPmsStoreRebindingRequiresNewBaseline(): void
+    {
+        $current = $this->dingdandaoCapture(2, '2026-07-28 10:10:00', 10000, 250, 40, 100, 40, 100);
+        $previous = array_replace(
+            $this->dingdandaoCapture(1, '2026-07-28 09:10:00', 8750, 250, 35, 100, 35, 87.50),
+            ['provider_hotel_id' => 'DD-previous-binding']
+        );
+        $result = (new PmsFactReconciliationService())->summarize(80, '2026-07-28', [
+            DingdandaoOperatingTargetCaptureService::PROVIDER => $current,
+        ], [DingdandaoOperatingTargetCaptureService::PROVIDER => [$current, $previous]], 1);
+        $delta = $result['source_deltas'][DingdandaoOperatingTargetCaptureService::PROVIDER];
+
+        self::assertSame('rebaseline_required', $delta['status']);
+        self::assertNull($delta['delta_vector']['net_pickup']);
+        self::assertNull($delta['pace']['net_pickup_per_hour']);
+    }
+
     public function testDualVerifiedSourcesKeepIndependentIdentityAndAlignComparableFacts(): void
     {
         $dingdandaoCurrent = $this->dingdandaoCapture(
@@ -353,6 +445,8 @@ final class PmsFactReconciliationServiceTest extends TestCase
         return [
             'id' => $id,
             'provider' => DingdandaoOperatingTargetCaptureService::PROVIDER,
+            'tenant_id' => 1,
+            'hotel_id' => 80,
             'provider_hotel_id' => 'DD-80',
             'provider_hotel_name' => '测试酒店',
             'identity_status' => 'matched',
@@ -391,6 +485,8 @@ final class PmsFactReconciliationServiceTest extends TestCase
         return [
             'id' => $id,
             'provider' => MeituanCloudPmsCaptureService::PROVIDER,
+            'tenant_id' => 1,
+            'hotel_id' => 80,
             'provider_hotel_id' => 'MT-80',
             'provider_hotel_name' => '测试酒店',
             'identity_status' => 'matched',

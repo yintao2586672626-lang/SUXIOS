@@ -23,13 +23,36 @@ class OtaRevenueMetricService
         $trafficForecast = $this->list($dataset['fact_ota_traffic_forecast'] ?? []);
         $comments = $this->list($dataset['fact_ota_comment'] ?? []);
         $dataGaps = [];
+        $monetaryFailures = [];
+        foreach ($daily as $row) {
+            $evidence = OtaStandardEtlService::monetaryUnitEvidence($row);
+            $monetaryFailures = array_merge($monetaryFailures, $evidence['failure_reasons'],
+                (array)($row['monetary_unit_evidence']['failure_reasons'] ?? []));
+        }
+        $monetaryFailures = array_values(array_unique($monetaryFailures));
+        if ($monetaryFailures !== []) {
+            // A known subset is not a complete monetary total for this request.
+            // This is a read projection only; orders, nights and source records stay intact.
+            foreach ($daily as &$row) {
+                foreach (OtaStandardEtlService::MONETARY_DAILY_FIELDS as $field) {
+                    if (array_key_exists($field, $row)) $row[$field] = null;
+                }
+            }
+            unset($row);
+            foreach ($monetaryFailures as $reason) {
+                $dataGaps[] = ['code' => $reason,
+                    'message' => 'An explicit unknown or unsupported currency/amount unit blocks monetary calculations for the requested scope; order and room-night counts remain available.'];
+            }
+        }
         $trafficFlowRows = $this->canonicalTrafficMetricRows(
             $traffic,
-            'flow_rate'
+            'flow_rate',
+            true
         );
         $trafficSubmitRows = $this->canonicalTrafficMetricRows(
             $traffic,
-            'submit_rate'
+            'submit_rate',
+            true
         );
         $trafficListExposureRows = $this->canonicalTrafficMetricRows(
             $traffic,
@@ -41,6 +64,15 @@ class OtaRevenueMetricService
         );
         $trafficProjectionOverlapGroups =
             $this->trafficProjectionOverlapGroupCount($traffic);
+        $flowAggregate = $this->aggregateTrafficRate($trafficFlowRows, 'flow_rate', 'detail_exposure', 'list_exposure');
+        $submitAggregate = $this->aggregateTrafficRate($trafficSubmitRows, 'submit_rate', 'order_submit_num', 'order_filling_num');
+        foreach ([$flowAggregate, $submitAggregate] as $aggregate) {
+            foreach ($aggregate['failure_reasons'] as $reason) {
+                $dataGaps[] = ['code' => $reason, 'message' => $reason === 'traffic_flow_rate_unit_unverified'
+                    ? '来源比例缺少单位证明，且无完整同范围计数可计算；请核对原始字段单位，不能猜成百分数。'
+                    : 'Traffic rate requires aligned observed counts; daily percentages are not averaged.'];
+            }
+        }
 
         $revenueRows = $this->rowsWithNumeric($daily, 'revenue');
         $grossRevenueRows = $this->rowsWithNumeric($daily, 'gross_revenue');
@@ -54,6 +86,10 @@ class OtaRevenueMetricService
         $roomRevenue = $this->sum($roomRevenueRows, 'room_revenue');
         $roomNightRows = $this->rowsWithNumeric($daily, 'room_nights');
         $roomNights = $this->sum($roomNightRows, 'room_nights');
+        $adrAggregate = $this->aggregateAdrByScope($daily);
+        foreach ($adrAggregate['failure_reasons'] as $reason) {
+            $dataGaps[] = ['code' => $reason, 'message' => 'ADR requires room revenue and room nights within every hotel, platform and business-date scope.'];
+        }
         if (!$roomNightRows) {
             $dataGaps[] = [
                 'code' => 'room_nights_missing',
@@ -452,7 +488,17 @@ class OtaRevenueMetricService
             ];
         }
 
-        $priceRows = array_values(array_filter($daily, static fn(array $row): bool => ($row['our_price'] ?? null) !== null && ($row['competitor_price'] ?? null) !== null));
+        $priceRows = array_values(array_filter($daily, fn(array $row): bool =>
+            $this->hasNumericValue($row, 'our_price') && $this->hasNumericValue($row, 'competitor_price')));
+        // Calculate from the same observed pairs; collected gap fields remain
+        // untouched and cannot substitute a different sample or stale formula.
+        $priceComparisons = [];
+        foreach ($priceRows as $row) {
+            $row['price_gap'] = round((float)$row['our_price'] - (float)$row['competitor_price'], 2);
+            $row['price_gap_rate'] = (float)$row['competitor_price'] > 0
+                ? round($row['price_gap'] / (float)$row['competitor_price'] * 100, 2) : null;
+            $priceComparisons[] = $row;
+        }
         if (!$priceRows) {
             $dataGaps[] = [
                 'code' => 'competitor_price_fields_missing',
@@ -499,6 +545,8 @@ class OtaRevenueMetricService
                 : ($cancelRows ?: $directCancelRateRows),
             $cancelRoomNightRows
         );
+        $metricTrust['traffic.avg_flow_rate'] = $this->trust($flowAggregate['value'] === null ? [] : $trafficFlowRows, $flowAggregate['basis'], $flowAggregate['failure_reasons']);
+        $metricTrust['traffic.avg_submit_rate'] = $this->trust($submitAggregate['value'] === null ? [] : $trafficSubmitRows, $submitAggregate['basis'], $submitAggregate['failure_reasons']);
         $metricTrust['totals.gross_order_count'] = $this->trust(
             $grossOrderEvidenceRows,
             'sum(fact_ota_daily.gross_order_count) from one complete cancellation-classification scope',
@@ -529,6 +577,8 @@ class OtaRevenueMetricService
         );
 
         $result = [
+            'aggregation_contract_version' => 'ota_scoped_aggregation.20260904.v3',
+            'source_read_contract_version' => $dataset['read_contract_version'] ?? 'legacy_unspecified',
             'status' => $daily || $traffic || $advertising || $quality || $searchKeywords || $peerRanks || $trafficAnalysis || $trafficForecast || $comments ? 'ready' : 'empty',
             'generated_at' => date('Y-m-d H:i:s'),
             'fact_table' => [
@@ -543,7 +593,7 @@ class OtaRevenueMetricService
                 'room_revenue' => $roomRevenueRows ? round($roomRevenue, 2) : null,
                 'net_revenue' => $netRows ? round($netRevenue, 2) : null,
                 'commission_amount' => $commissionRows ? round($commissionAmount, 2) : null,
-                'commission_rate' => $commissionRows && $commissionGrossRevenue > 0 ? round($commissionAmount / $commissionGrossRevenue * 100, 2) : null,
+                'commission_rate' => $commissionRows && $commissionGrossRevenue > 0 ? $this->finiteRatio($commissionAmount, $commissionGrossRevenue, 100) : null,
                 'room_nights' => $roomNightRows ? round($roomNights, 2) : null,
                 'available_room_nights' => $availableRows ? round($availableRoomNights, 2) : null,
                 'occupied_room_nights' => $occupancyRows ? round($occupiedRoomNights, 2) : null,
@@ -553,12 +603,11 @@ class OtaRevenueMetricService
                     ? (int)round($cancelOrders)
                     : null,
                 'cancellation_rate_basis' => $cancellationRateBasis,
-                'adr' => $roomRevenueRows && $roomNightRows && $roomNights > 0
-                    ? round($roomRevenue / $roomNights, 2)
-                    : null,
-                'occ' => $occupancyRows && $occupancyAvailableRoomNights > 0 ? round($occupiedRoomNights / $occupancyAvailableRoomNights * 100, 2) : null,
-                'revpar' => $revparRows && $revparAvailableRoomNights > 0 ? round($revparRoomRevenue / $revparAvailableRoomNights, 2) : null,
-                'net_revpar' => $netRevparRows && $netRevparAvailableRoomNights > 0 ? round($netRevparNetRevenue / $netRevparAvailableRoomNights, 2) : null,
+                'adr' => $adrAggregate['value'],
+                'adr_scope_coverage' => ['total' => $adrAggregate['scope_count'], 'complete' => $adrAggregate['complete_scope_count']],
+                'occ' => $occupancyRows && $occupancyAvailableRoomNights > 0 ? $this->finiteRatio($occupiedRoomNights, $occupancyAvailableRoomNights, 100) : null,
+                'revpar' => $revparRows && $revparAvailableRoomNights > 0 ? $this->finiteRatio($revparRoomRevenue, $revparAvailableRoomNights) : null,
+                'net_revpar' => $netRevparRows && $netRevparAvailableRoomNights > 0 ? $this->finiteRatio($netRevparNetRevenue, $netRevparAvailableRoomNights) : null,
                 'avg_lead_time_days' => $this->average($leadTimeRows, 'lead_time_days'),
                 'cancellation_rate' => $cancellationRate,
                 'room_night_cancellation_rate' => $roomNightCancellationRate,
@@ -567,14 +616,10 @@ class OtaRevenueMetricService
             ],
             'traffic' => [
                 'rows' => count($traffic),
-                'avg_flow_rate' => $this->average(
-                    $trafficFlowRows,
-                    'flow_rate'
-                ),
-                'avg_submit_rate' => $this->average(
-                    $trafficSubmitRows,
-                    'submit_rate'
-                ),
+                'avg_flow_rate' => $flowAggregate['value'],
+                'avg_submit_rate' => $submitAggregate['value'],
+                'rate_aggregation' => ['flow_rate' => $flowAggregate['basis'], 'submit_rate' => $submitAggregate['basis']],
+                'count_aggregation_scope' => 'sum_of_daily_channel_counts_not_cross_day_or_cross_platform_unique_users',
                 'list_exposure' => $trafficListExposureRows
                     ? (int)round($this->sum(
                         $trafficListExposureRows,
@@ -604,8 +649,8 @@ class OtaRevenueMetricService
                 'rows' => count($priceRows),
                 'avg_our_price' => $this->average($priceRows, 'our_price'),
                 'avg_competitor_price' => $this->average($priceRows, 'competitor_price'),
-                'avg_price_gap' => $this->average($priceRows, 'price_gap'),
-                'avg_price_gap_rate' => $this->average($priceRows, 'price_gap_rate'),
+                'avg_price_gap' => $this->average($priceComparisons, 'price_gap'),
+                'avg_price_gap_rate' => $this->average($priceComparisons, 'price_gap_rate'),
             ],
             'booking_window_adr' => $bookingWindowAdr,
             'channel_booking_window_month' => $channelBookingWindowMonth,
@@ -618,9 +663,74 @@ class OtaRevenueMetricService
             'metric_trust' => $metricTrust,
         ];
 
+        if ($monetaryFailures !== []) {
+            foreach ($result['metric_trust'] as $key => &$trust) {
+                $metricParts = explode('.', $key);
+                $metricName = end($metricParts);
+                if (in_array($metricName, OtaStandardEtlService::MONETARY_DAILY_FIELDS, true)
+                    || str_contains($key, 'booking_window_adr')
+                    || str_starts_with($key, 'competitor_price.')) {
+                    $trust['saved_success'] = false;
+                    $trust['failure_reasons'] = array_values(array_unique(array_merge(
+                        $monetaryFailures, (array)($trust['failure_reasons'] ?? [])
+                    )));
+                    $trust['truth'] = OnlineDataTrustStatusService::metricTruthEnvelope($trust);
+                }
+            }
+            unset($trust);
+        }
+        $result = $this->guardFiniteAggregates($result);
         $result['credibility_gate'] = (new OtaDataCredibilityGateService())->evaluate($dataset, $result);
         $result['p1_revenue_closure'] = $this->p1RevenueClosure($result);
 
+        return $result;
+    }
+
+    /** Non-finite intermediates are internal failure markers, never public facts. */
+    private function finiteRatio(float $numerator, float $denominator, float $scale = 1.0): float
+    {
+        if (!is_finite($numerator) || !is_finite($denominator)) return NAN;
+        return round($numerator / $denominator * $scale, 2);
+    }
+
+    /** Keep unaffected scopes and counts; invalidate only failed calculations and their trust. */
+    private function guardFiniteAggregates(array $result): array
+    {
+        $failedPaths = [];
+        $visit = function (array &$node, string $prefix = '') use (&$visit, &$failedPaths): void {
+            foreach ($node as $key => &$value) {
+                $path = $prefix === '' ? (string)$key : $prefix . '.' . $key;
+                if (is_array($value)) $visit($value, $path);
+                elseif (is_float($value) && !is_finite($value)) {
+                    $failedPaths[] = $path;
+                    $value = null;
+                }
+            }
+            unset($value);
+        };
+        $visit($result);
+        foreach ($failedPaths as $path) {
+            $trustKey = $path;
+            $parts = explode('.', $path);
+            if (in_array($parts[0], ['by_platform', 'by_hotel'], true) && isset($parts[2])) {
+                $parts[1] = (string)($result[$parts[0]][(int)$parts[1]]['key'] ?? $parts[1]);
+                $trustKey = implode('.', $parts);
+            } elseif (str_starts_with($path, 'booking_window_adr.buckets.')) {
+                $trustKey = 'booking_window_adr.buckets';
+                $result['booking_window_adr']['status'] = 'not_calculable';
+                $result['booking_window_adr']['reason'] = 'numeric_aggregate_nonfinite';
+            }
+            if (isset($result['metric_trust'][$trustKey])) {
+                $trust = &$result['metric_trust'][$trustKey];
+                $trust['saved_success'] = false;
+                $trust['failure_reasons'] = array_values(array_unique(array_merge(
+                    ['numeric_aggregate_nonfinite'], (array)($trust['failure_reasons'] ?? []))));
+                $trust['truth'] = OnlineDataTrustStatusService::metricTruthEnvelope($trust);
+                unset($trust);
+            }
+            $result['data_gaps'][] = ['code' => 'numeric_aggregate_nonfinite', 'metric_path' => $path,
+                'message' => 'Same-scope arithmetic exceeded the finite numeric range; this calculation is unavailable. Original facts and unaffected scopes are preserved.'];
+        }
         return $result;
     }
 
@@ -979,7 +1089,7 @@ class OtaRevenueMetricService
             'avg_ctr' => $this->average($rows, 'ctr'),
             'avg_cvr' => $this->average($rows, 'cvr'),
             'roas' => $spendRows && $orderAmountRows && $spend > 0
-                ? round($orderAmount / $spend, 2)
+                ? $this->finiteRatio($orderAmount, $spend)
                 : $this->average($rows, 'roas'),
         ];
     }
@@ -1058,7 +1168,7 @@ class OtaRevenueMetricService
                 'room_revenue' => round($group['room_revenue'], 2),
                 'room_nights' => round($group['room_nights'], 2),
                 'order_count' => $group['has_order_count'] ? $group['order_count'] : null,
-                'adr' => round($group['room_revenue'] / $group['room_nights'], 2),
+                'adr' => $this->finiteRatio($group['room_revenue'], $group['room_nights']),
             ];
         }
 
@@ -1240,7 +1350,7 @@ class OtaRevenueMetricService
     {
         $values = [];
         foreach ($rows as $row) {
-            if (array_key_exists($key, $row) && $row[$key] !== null && is_numeric($row[$key])) {
+            if ($this->hasNumericValue($row, $key)) {
                 $values[] = (float)$row[$key];
             }
         }
@@ -1295,18 +1405,89 @@ class OtaRevenueMetricService
      */
     private function canonicalTrafficMetricRows(
         array $rows,
-        string $metricKey
+        string $metricKey,
+        bool $keepMissing = false
     ): array {
-        $metricRows = $this->rowsWithNumeric($rows, $metricKey);
-        $metricRows = $this->canonicalMeituanTrafficMetricRows($metricRows);
-        return $this->canonicalCtripTrafficMetricRows($metricRows);
+        // Pick the authoritative batch before testing field presence. Filtering
+        // first would silently backfill missing fields from an older batch.
+        $metricRows = $this->canonicalMeituanTrafficMetricRows($rows, $metricKey);
+        $metricRows = $this->canonicalCtripTrafficMetricRows($metricRows);
+        // Rate aggregation must retain a day whose rate is absent; dropping
+        // that day would disguise a partial range as a complete result.
+        return $keepMissing ? $metricRows : $this->rowsWithNumeric($metricRows, $metricKey);
+    }
+
+    private function aggregateTrafficRate(array $rows, string $rate, string $numerator, string $denominator): array
+    {
+        $basis = "sum(canonical fact_ota_traffic.{$numerator}) / sum(canonical fact_ota_traffic.{$denominator}) * 100";
+        $result = ['value' => null, 'basis' => $basis, 'failure_reasons' => []];
+        if ($rows === []) {
+            return $result;
+        }
+        foreach ($rows as $row) {
+            if (($row[$rate . '_validation_status'] ?? '') === 'counts_invalid'
+                || in_array($rate . '_counts_invalid', (array)($row[$rate . '_quality_flags'] ?? []), true)
+                || ($this->hasNumericValue($row, $rate) && ((float)$row[$rate] < 0 || (float)$row[$rate] > 100))
+                || ($this->hasNumericValue($row, $numerator) && (float)$row[$numerator] < 0)
+                || ($this->hasNumericValue($row, $denominator) && (float)$row[$denominator] < 0)
+                || ($this->hasNumericValue($row, $numerator) && $this->hasNumericValue($row, $denominator)
+                    && (float)$row[$numerator] > (float)$row[$denominator])) {
+                $result['failure_reasons'][] = "traffic_{$rate}_counts_invalid";
+                return $result;
+            }
+            if ($rate === 'flow_rate' && (
+                ($row['flow_rate_validation_status'] ?? '') === 'caliber_uncertain'
+                || in_array('platform_exposure_to_browse_rate_mismatch', (array)($row['flow_rate_quality_flags'] ?? []), true)
+            )) {
+                $result['failure_reasons'][] = 'traffic_flow_rate_caliber_uncertain';
+                return $result;
+            }
+        }
+        if (count($rows) === 1 && $this->hasNumericValue($rows[0], $rate)) {
+            // A single standardized platform rate is already a source fact;
+            // only a multi-row aggregation needs denominator weighting here.
+            $result['value'] = round((float)$rows[0][$rate], 2);
+            $result['basis'] = "single_source_supplied fact_ota_traffic.{$rate}";
+            return $result;
+        }
+        $missing = array_filter($rows, fn(array $row): bool => !$this->hasNumericValue($row, $numerator)
+            || !$this->hasNumericValue($row, $denominator));
+        if ($missing !== []) {
+            if ($rate === 'flow_rate' && array_filter($rows, static fn(array $row): bool =>
+                in_array('flow_rate_unit_unverified', (array)($row['flow_rate_quality_flags'] ?? []), true)
+            ) !== []) {
+                $result['failure_reasons'][] = 'traffic_flow_rate_unit_unverified';
+            }
+            $result['failure_reasons'][] = "traffic_{$rate}_counts_missing";
+            return $result;
+        }
+        foreach ($rows as $row) {
+            if ((float)$row[$denominator] < 0 || (float)$row[$numerator] < 0
+                || ((float)$row[$denominator] === 0.0 && (float)$row[$numerator] !== 0.0)) {
+                $result['failure_reasons'][] = "traffic_{$rate}_counts_invalid";
+                return $result;
+            }
+        }
+        $top = $this->sum($rows, $numerator);
+        $bottom = $this->sum($rows, $denominator);
+        if ($bottom <= 0 || !is_finite($top) || !is_finite($bottom)) {
+            $result['failure_reasons'][] = "traffic_{$rate}_denominator_invalid";
+            return $result;
+        }
+        $value = $top / $bottom * 100;
+        if (!is_finite($value) || $value > 100) {
+            $result['failure_reasons'][] = "traffic_{$rate}_counts_invalid";
+            return $result;
+        }
+        $result['value'] = round($value, 2);
+        return $result;
     }
 
     /**
      * @param array<int, array<string, mixed>> $rows
      * @return array<int, array<string, mixed>>
      */
-    private function canonicalMeituanTrafficMetricRows(array $rows): array
+    private function canonicalMeituanTrafficMetricRows(array $rows, ?string $metricKey = null): array
     {
         $selected = [];
         $groups = [];
@@ -1355,12 +1536,18 @@ class OtaRevenueMetricService
                     )
             );
             $latestRun = end($runs);
+            $presentItems = $metricKey === null ? $latestRun : array_values(array_filter(
+                $latestRun, fn(array $item): bool => $this->hasNumericValue($item['row'], $metricKey)
+            ));
+            // Same-task projections can complement one another, but another
+            // task must never fill a field absent from the current task.
+            $candidates = $presentItems !== [] ? $presentItems : $latestRun;
             $structured = array_values(array_filter(
-                $latestRun,
+                $candidates,
                 static fn(array $item): bool =>
                     $item['projection'] === 'structured_xhr'
             ));
-            $pool = $structured !== [] ? $structured : $latestRun;
+            $pool = $structured !== [] ? $structured : $candidates;
             usort(
                 $pool,
                 fn(array $left, array $right): int =>
@@ -1629,16 +1816,73 @@ class OtaRevenueMetricService
      */
     private function hasNumericValue(array $row, string $key): bool
     {
-        return array_key_exists($key, $row) && $row[$key] !== null && $row[$key] !== '' && is_numeric($row[$key]);
+        return array_key_exists($key, $row) && $row[$key] !== null && $row[$key] !== ''
+            && is_numeric($row[$key]) && is_finite((float)$row[$key]);
     }
 
     /**
      * @param array<int, array<string, mixed>> $rows
      * @return array<int, array<string, mixed>>
      */
+    private function aggregateAdrByScope(array $rows): array
+    {
+        $scopes = [];
+        $evidence = [];
+        foreach ($rows as $index => $row) {
+            $hasRevenue = $this->hasNumericValue($row, 'room_revenue');
+            $hasNights = $this->hasNumericValue($row, 'room_nights');
+            $expectsRevenueFacts = in_array((string)($row['data_type'] ?? ''), ['business', 'order'], true)
+                && !in_array((string)($row['metric_semantic_scope'] ?? ''), [
+                    'ctrip_capacity_daily', 'ctrip_non_revenue_business_fact',
+                    'ctrip_booking_or_unverified_excluded', 'ctrip_market_overview_booking_daily',
+                ], true);
+            // An explicit business/order day with missing values is a scope
+            // gap, not an absent day. Non-revenue capacity/booking projections
+            // still do not create revenue coverage obligations of their own.
+            if (!$hasRevenue && !$hasNights && !$this->hasNumericValue($row, 'revenue') && !$expectsRevenueFacts) {
+                continue;
+            }
+            $trace = is_array($row['source_trace'] ?? null) ? $row['source_trace'] : [];
+            $parts = [(string)($row['hotel_key'] ?? $trace['hotel_key'] ?? ''),
+                (string)($row['platform_key'] ?? $trace['platform'] ?? ''),
+                (string)($row['date_key'] ?? $trace['date_key'] ?? '')];
+            // Unknown scopes can use paired fields from one row, but cannot
+            // pair unrelated rows merely because both omitted their identity.
+            $scope = in_array('', $parts, true) ? 'unknown-row:' . $index : implode('|', $parts);
+            $scopes[$scope] ??= ['revenue' => 0.0, 'nights' => 0.0, 'has_revenue' => false, 'has_nights' => false];
+            if ($hasRevenue) {
+                $scopes[$scope]['revenue'] += (float)$row['room_revenue'];
+                $scopes[$scope]['has_revenue'] = true;
+            }
+            if ($hasNights) {
+                $scopes[$scope]['nights'] += (float)$row['room_nights'];
+                $scopes[$scope]['has_nights'] = true;
+            }
+            $evidence[] = $row;
+        }
+        $complete = array_filter($scopes, static fn(array $scope): bool => $scope['has_revenue'] && $scope['has_nights']);
+        $result = ['value' => null, 'rows' => $evidence, 'scope_count' => count($scopes),
+            'complete_scope_count' => count($complete), 'failure_reasons' => []];
+        if (count($complete) !== count($scopes)) {
+            $result['failure_reasons'][] = 'adr_scope_incomplete';
+            return $result;
+        }
+        $revenue = array_sum(array_column($complete, 'revenue'));
+        $nights = array_sum(array_column($complete, 'nights'));
+        if ($nights > 0) {
+            $result['value'] = $this->finiteRatio($revenue, $nights);
+            if (!is_finite($result['value'])) $result['failure_reasons'][] = 'numeric_aggregate_nonfinite';
+        }
+        return $result;
+    }
+
     private function groupDailyBy(array $rows, string $key, float $totalRevenue = 0.0, float $totalNetRevenue = 0.0): array
     {
         $groups = [];
+        $adrByGroup = [];
+        foreach ($this->groupRowsBy($rows, $key) as $groupKey => $groupRows) {
+            $adrByGroup[$groupKey] = $this->aggregateAdrByScope($groupRows);
+        }
         foreach ($rows as $row) {
             $groupKey = (string)($row[$key] ?? '');
             if ($groupKey === '') {
@@ -1731,24 +1975,22 @@ class OtaRevenueMetricService
             $group['order_count'] = $group['has_order_count'] ? (int)$group['order_count'] : null;
             $group['available_room_nights'] = $group['has_available_room_nights'] ? round((float)$group['available_room_nights'], 2) : null;
             $group['occupied_room_nights'] = $group['has_occupied_room_nights'] ? round((float)$group['occupied_room_nights'], 2) : null;
-            $group['adr'] = $group['room_revenue'] !== null && $group['room_nights'] !== null && $group['room_nights'] > 0
-                ? round($group['room_revenue'] / $group['room_nights'], 2)
-                : null;
+            $group['adr'] = $adrByGroup[$group['key']]['value'] ?? null;
             $group['occ'] = $group['occupancy_available_room_nights'] > 0 && $group['occupied_room_nights'] !== null
-                ? round($group['occupied_room_nights'] / $group['occupancy_available_room_nights'] * 100, 2)
+                ? $this->finiteRatio($group['occupied_room_nights'], $group['occupancy_available_room_nights'], 100)
                 : null;
             $group['revpar'] = $group['has_revpar_room_revenue'] && $group['revpar_available_room_nights'] > 0
-                ? round($group['revpar_room_revenue'] / $group['revpar_available_room_nights'], 2)
+                ? $this->finiteRatio($group['revpar_room_revenue'], $group['revpar_available_room_nights'])
                 : null;
             $group['net_revpar'] = $group['net_revpar_available_room_nights'] > 0
-                ? round($group['net_revpar_net_revenue'] / $group['net_revpar_available_room_nights'], 2)
+                ? $this->finiteRatio($group['net_revpar_net_revenue'], $group['net_revpar_available_room_nights'])
                 : null;
             $group['channel_contribution_rate'] = $totalRevenue > 0 && $group['revenue'] !== null
-                ? round($group['revenue'] / $totalRevenue * 100, 2)
+                ? $this->finiteRatio($group['revenue'], $totalRevenue, 100)
                 : null;
             $group['revenue_contribution_rate'] = $group['channel_contribution_rate'];
             $group['net_revenue_contribution_rate'] = $totalNetRevenue > 0 && $group['net_revenue'] !== null
-                ? round($group['net_revenue'] / $totalNetRevenue * 100, 2)
+                ? $this->finiteRatio($group['net_revenue'], $totalNetRevenue, 100)
                 : null;
             unset(
                 $group['has_net_revenue'],
@@ -1822,9 +2064,9 @@ class OtaRevenueMetricService
                     : null
             );
             $this->appendChannelMetric($metrics, $row, $resource, 'adr', $row['adr'] ?? null, $row['room_nights'] ?? null);
-            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'our_price', $row['our_price'] ?? null);
-            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'competitor_price', $row['competitor_price'] ?? null);
-            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'price_gap', $row['price_gap'] ?? null);
+            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'our_price', $this->hasNumericValue($row, 'our_price') ? $row['our_price'] : null);
+            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'competitor_price', $this->hasNumericValue($row, 'competitor_price') ? $row['competitor_price'] : null);
+            $this->appendChannelMetric($metrics, $row, 'competitor_price', 'price_gap', $this->hasNumericValue($row, 'price_gap') ? $row['price_gap'] : null);
         }
 
         foreach ($this->canonicalTrafficMetricRows(
@@ -2035,7 +2277,8 @@ class OtaRevenueMetricService
         $roomRevenueRows = $this->rowsWithNumeric($daily, 'room_revenue');
         $roomNightRows = $this->rowsWithNumeric($daily, 'room_nights');
         $orderCountRows = $this->verifiedOrderCountRows($daily);
-        $adrRows = $this->mergeMetricRows($roomRevenueRows, $roomNightRows);
+        $adrAggregate = $this->aggregateAdrByScope($daily);
+        $adrRows = $adrAggregate['rows'];
         $revparRows = array_values(array_filter(
             $availableRows,
             fn(array $row): bool => $this->hasNumericValue($row, 'room_revenue')
@@ -2060,6 +2303,7 @@ class OtaRevenueMetricService
                 'sum(fact_ota_daily.room_revenue) / sum(fact_ota_daily.room_nights)',
                 array_merge(
                     $roomRevenueFailures,
+                    $adrAggregate['failure_reasons'],
                     $roomNights > 0 ? [] : ['adr_denominator_zero']
                 )
             ),
@@ -2111,8 +2355,12 @@ class OtaRevenueMetricService
             'competitor_price.rows' => $this->trust($priceRows, 'count(fact_ota_daily rows with our_price and competitor_price)', $priceFailures),
             'competitor_price.avg_our_price' => $this->trust($priceRows, 'avg(fact_ota_daily.our_price)', $priceFailures),
             'competitor_price.avg_competitor_price' => $this->trust($priceRows, 'avg(fact_ota_daily.competitor_price)', $priceFailures),
-            'competitor_price.avg_price_gap' => $this->trust($priceRows, 'avg(fact_ota_daily.price_gap)', $priceFailures),
-            'competitor_price.avg_price_gap_rate' => $this->trust($priceRows, 'avg(fact_ota_daily.price_gap_rate)', $priceFailures),
+            'competitor_price.avg_price_gap' => $this->trust($priceRows, 'avg(fact_ota_daily.our_price - fact_ota_daily.competitor_price)', $priceFailures),
+            'competitor_price.avg_price_gap_rate' => $this->trust(
+                array_values(array_filter($priceRows, static fn(array $row): bool => (float)$row['competitor_price'] > 0)),
+                'avg((fact_ota_daily.our_price - fact_ota_daily.competitor_price) / fact_ota_daily.competitor_price * 100) for positive competitor prices',
+                $priceFailures
+            ),
         ];
 
         foreach ($this->groupRowsBy($daily, 'platform_key') as $key => $rows) {
@@ -2140,7 +2388,8 @@ class OtaRevenueMetricService
         $roomRevenueRows = $this->rowsWithNumeric($rows, 'room_revenue');
         $roomNightRows = $this->rowsWithNumeric($rows, 'room_nights');
         $orderCountRows = $this->verifiedOrderCountRows($rows);
-        $adrRows = $this->mergeMetricRows($roomRevenueRows, $roomNightRows);
+        $adrAggregate = $this->aggregateAdrByScope($rows);
+        $adrRows = $adrAggregate['rows'];
         $availableRows = $this->rowsWithPositive($rows, 'available_room_nights');
         $occupancyRows = array_values(array_filter($rows, function (array $row): bool {
             return $this->hasNumericValue($row, 'available_room_nights')
@@ -2202,6 +2451,7 @@ class OtaRevenueMetricService
                 'sum(fact_ota_daily.room_revenue) / sum(fact_ota_daily.room_nights)',
                 array_merge(
                     $roomRevenueFailures,
+                    $adrAggregate['failure_reasons'],
                     $this->sum($rows, 'room_nights') > 0 ? [] : ['adr_denominator_zero']
                 )
             ),

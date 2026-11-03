@@ -55,6 +55,8 @@ if (!fs.existsSync(startupScriptPath)) {
     'information_schema.TABLES',
     'Get-ProjectIdentity',
     'Test-RuntimeIdentity',
+    'Test-OriginCodeIdentity',
+    'X-SUXIOS-Origin-Code-SHA256',
     'public_app_main_sha256=',
     'runtime_asset_sha256=',
     'verify_runtime_asset_identity.mjs',

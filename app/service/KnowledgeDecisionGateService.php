@@ -35,6 +35,16 @@ final class KnowledgeDecisionGateService
         $evidenceLevel = strtolower(trim((string)($content['evidence_level'] ?? '')));
         $sourceRefs = $this->normalizeList($content['source_refs'] ?? []);
         $evidenceGrade = $this->classifyEvidenceGrade($content);
+        $usagePolicy = is_scalar($content['usage_policy'] ?? null)
+            ? strtolower(trim((string)$content['usage_policy'])) : '';
+        $decisionPolicy = is_scalar($content['decision_policy'] ?? null)
+            ? strtolower(trim((string)$content['decision_policy'])) : '';
+        $referenceOnly = $usagePolicy === self::STATUS_REFERENCE_ONLY
+            || $scope === self::STATUS_REFERENCE_ONLY
+            || $decisionPolicy === self::STATUS_REFERENCE_ONLY
+            || str_starts_with($decisionPolicy, 'reference_only_');
+        $decisionDisallowed = $this->explicitlyDisallows($content, 'decision_safe');
+        $taskDraftDisallowed = $this->explicitlyDisallows($content, 'task_draft_safe');
         $reviewedAt = $this->firstDate([
             $content['reviewed_at'] ?? null,
             $unit['reviewed_at'] ?? null,
@@ -105,6 +115,9 @@ final class KnowledgeDecisionGateService
             $freshnessStatus = 'not_yet_effective';
         } elseif ($validUntil !== null && $validUntil < $asOfDate) {
             $freshnessStatus = 'expired';
+        } elseif ($reviewedAt !== null && $reviewedAt > $asOfDate) {
+            $freshnessStatus = 'review_after_as_of';
+            $reasons[] = 'knowledge_reviewed_at_after_as_of';
         } elseif ($reviewedAt === null && $reviewDueAt === null) {
             $freshnessStatus = 'undated';
             $reasons[] = 'knowledge_review_date_missing';
@@ -126,6 +139,15 @@ final class KnowledgeDecisionGateService
         } elseif ($evidenceGrade === 'U') {
             $reasons[] = 'knowledge_evidence_unrated';
         }
+        if ($referenceOnly) {
+            $reasons[] = 'knowledge_usage_reference_only';
+        }
+        if ($decisionDisallowed) {
+            $reasons[] = 'knowledge_decision_explicitly_disallowed';
+        }
+        if ($taskDraftDisallowed) {
+            $reasons[] = 'knowledge_task_draft_explicitly_disallowed';
+        }
 
         $status = self::STATUS_APPROVED;
         if ($hardBlocked) {
@@ -133,7 +155,9 @@ final class KnowledgeDecisionGateService
         } elseif ($knownUnknownBoundary) {
             $status = self::STATUS_KNOWN_UNKNOWN;
         } elseif (
-            $freshnessStatus !== 'current'
+            $referenceOnly
+            || $decisionDisallowed
+            || $freshnessStatus !== 'current'
             || $requiresCurrentVerification
             || in_array($evidenceGrade, ['C', 'D', 'U'], true)
         ) {
@@ -147,6 +171,8 @@ final class KnowledgeDecisionGateService
             && in_array($evidenceGrade, ['A', 'B'], true)
             && (!$requiresCurrentVerification || $hasCurrentVerification);
         $taskDraftSafe = $referenceSafe
+            && !$referenceOnly
+            && !$taskDraftDisallowed
             && !$knownUnknownBoundary
             && $freshnessStatus === 'current'
             && in_array($evidenceGrade, ['A', 'B', 'C'], true)
@@ -463,6 +489,15 @@ final class KnowledgeDecisionGateService
     /**
      * @param array<string, mixed> $content
      */
+    private function explicitlyDisallows(array $content, string $key): bool
+    {
+        // Missing flags keep the legacy contract; present flags can restrict,
+        // never elevate evidence or bypass source, freshness and lifecycle gates.
+        return array_key_exists($key, $content)
+            && (!is_scalar($content[$key])
+                || filter_var($content[$key], FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE) !== true);
+    }
+
     private function blocksTaskDraft(array $content): bool
     {
         $blockedUses = $this->normalizeList($content['blocked_uses'] ?? []);

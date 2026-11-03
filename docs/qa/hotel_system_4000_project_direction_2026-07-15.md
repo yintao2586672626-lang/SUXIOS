@@ -144,7 +144,7 @@ TC-283 审批场景仍只算 `partial`：动作窗口、诊断状态和 AI 审�
 
 ## 生成物
 
-- `docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl`：完整 4,000 条用例。
+- `docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl.gz`：完整 4,000 条用例。
 - `docs/qa/hotel_system_4000_diagnostic_results_2026-07-15.json`：汇总、分类、来源和组合模型。
 - `docs/qa/hotel_system_4000_diagnostic_summary_2026-07-15.md`：快速统计。
 - `docs/qa/hotel_system_4000_execution_evidence_2026-07-15.json`：按场景签名绑定的动态证据账本。

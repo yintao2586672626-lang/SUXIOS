@@ -236,6 +236,7 @@ class LlmClient
                 'fallback_used' => $isFallback,
                 'circuit_state' => $circuitState,
                 'provider_attempts' => $attempts,
+                'usage_observation' => $outcome['result']['data']['debug']['usage_observation'] ?? LlmUsageObservation::summarize([]),
             ]);
             $loggedResult = $this->finishWithGovernance(
                 (array)$outcome['result'],
@@ -279,6 +280,7 @@ class LlmClient
     /** @return array<string, mixed> */
     private function executeProviderAttempt(array $config, string $prompt, array $meta, array $options): array
     {
+        unset($meta['usage_observation']);
         if (($options['required_direct_deepseek_v4_pro'] ?? false) === true
             && !$this->directDeepSeekV4ProConfigReady($config)
         ) {
@@ -342,7 +344,8 @@ class LlmClient
             'failure_state' => (string)($transport['failure_state'] ?? ''),
         ];
         $debugMeta = array_merge($meta, $retryMeta, [
-            'request_dispatched' => true,
+            'request_dispatched' => ($transport['usage_observation']['dispatched_count'] ?? 0) > 0,
+            'usage_observation' => $transport['usage_observation'],
         ]);
 
         if ($response === false) {
@@ -503,7 +506,7 @@ class LlmClient
                 ];
             }
             try {
-                $this->assertStructuredJsonMatchesSchema($structured, $options['json_schema']);
+                LlmStructuredOutputContract::decode($this->extractJsonText($content), $options['json_schema'], (string)$config['provider']);
             } catch (RuntimeException) {
                 $message = 'LLM structured response does not match the required schema';
                 return [
@@ -578,6 +581,7 @@ class LlmClient
                         'max_retries' => (int)$transport['max_retries'],
                         'retry_delays_ms' => $this->retrySchedule($options),
                         'finish_reason' => $finishReason,
+                        'usage_observation' => $transport['usage_observation'],
                     ],
                 ],
             ],
@@ -818,10 +822,7 @@ class LlmClient
         }
 
         $jsonText = $this->extractJsonText((string)$result['content']);
-        $data = json_decode($jsonText, true);
-        if (!is_array($data)) {
-            throw new RuntimeException('LLM did not return valid JSON.');
-        }
+        $data = LlmStructuredOutputContract::decode($jsonText, $schemaForPrompt, (string)($result['provider'] ?? ''));
         $this->updateGovernanceFromJson($result, $data);
         return $data;
     }
@@ -928,7 +929,7 @@ class LlmClient
             );
         }
         try {
-            $this->assertStructuredJsonMatchesSchema($data, $schemaForPrompt);
+            $data = LlmStructuredOutputContract::decode($jsonText, $schemaForPrompt, (string)($result['provider'] ?? ''));
         } catch (RuntimeException $exception) {
             throw new LlmDirectRequestException(
                 'LLM structured response does not match the required schema.',
@@ -1933,7 +1934,9 @@ class LlmClient
             'json_schema' => [
                 'name' => $this->schemaResponseName((string)($options['json_schema_name'] ?? 'structured_response')),
                 'strict' => true,
-                'schema' => $this->schemaWithoutGovernance($schema),
+                'schema' => $provider === 'openai'
+                    ? LlmStructuredOutputContract::openAiSchema($this->schemaWithoutGovernance($schema))
+                    : $this->schemaWithoutGovernance($schema),
             ],
         ];
     }
@@ -1948,49 +1951,6 @@ class LlmClient
         return substr($name, 0, 64);
     }
 
-    /** @param array<string,mixed> $schema */
-    private function assertStructuredJsonMatchesSchema(mixed $value, array $schema, string $path = '$'): void
-    {
-        if (isset($schema['enum']) && is_array($schema['enum']) && !in_array($value, $schema['enum'], true)) {
-            throw new RuntimeException('LLM structured JSON enum mismatch at ' . $path);
-        }
-
-        $type = strtolower(trim((string)($schema['type'] ?? '')));
-        $validType = match ($type) {
-            '', 'any' => true,
-            'object' => is_array($value) && ($value === [] || !array_is_list($value)),
-            'array' => is_array($value) && array_is_list($value),
-            'string' => is_string($value),
-            'integer' => is_int($value),
-            'number' => is_int($value) || is_float($value),
-            'boolean' => is_bool($value),
-            'null' => $value === null,
-            default => false,
-        };
-        if (!$validType) {
-            throw new RuntimeException('LLM structured JSON type mismatch at ' . $path);
-        }
-
-        if ($type === 'object') {
-            foreach ((array)($schema['required'] ?? []) as $required) {
-                $required = (string)$required;
-                if ($required !== '' && !array_key_exists($required, $value)) {
-                    throw new RuntimeException('LLM structured JSON missing required field at ' . $path . '.' . $required);
-                }
-            }
-            foreach ((array)($schema['properties'] ?? []) as $key => $childSchema) {
-                if (array_key_exists((string)$key, $value) && is_array($childSchema)) {
-                    $this->assertStructuredJsonMatchesSchema($value[(string)$key], $childSchema, $path . '.' . (string)$key);
-                }
-            }
-        }
-        if ($type === 'array' && is_array($schema['items'] ?? null)) {
-            foreach ($value as $index => $item) {
-                $this->assertStructuredJsonMatchesSchema($item, $schema['items'], $path . '[' . $index . ']');
-            }
-        }
-    }
-
     private function extractJsonText(string $text): string
     {
         $text = trim($text);
@@ -1998,6 +1958,10 @@ class LlmClient
             $text = preg_replace('/^```(?:json)?\s*/i', '', $text) ?? $text;
             $text = preg_replace('/\s*```$/', '', $text) ?? $text;
             $text = trim($text);
+        }
+        json_decode($text);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return $text;
         }
         $start = strpos($text, '{');
         $end = strrpos($text, '}');
@@ -2018,6 +1982,8 @@ class LlmClient
 
     protected function sendWithRetry(string $url, array $config, string $payloadJson, array $options): array
     {
+        $transportStartedAt = microtime(true);
+        $receipts = [];
         $maxRetries = $this->maxRetries($options);
         $attempt = 0;
         $last = [
@@ -2034,7 +2000,9 @@ class LlmClient
         ];
 
         do {
-            $last = array_merge($last, $this->sendOnce($url, $config, $payloadJson, $options));
+            $sent = $this->sendOnce($url, $config, $payloadJson, $options);
+            $last = array_merge($last, $sent);
+            $receipts[] = LlmUsageObservation::receipt($sent['response'] ?? false, ($sent['request_dispatched'] ?? true) === true);
             $retryReason = $this->retryReason($last['response'], (int)$last['http_status']);
             $last['retryable'] = $retryReason !== '';
             $last['retry_reason'] = $retryReason;
@@ -2056,6 +2024,7 @@ class LlmClient
                         (bool)$last['retry_exhausted']
                     );
                 }
+                $last['usage_observation'] = LlmUsageObservation::summarize($receipts, max(0, (int)round((microtime(true) - $transportStartedAt) * 1000)));
                 return $last;
             }
 
@@ -2081,6 +2050,7 @@ class LlmClient
                 'response' => false,
                 'http_status' => 0,
                 'error' => 'Outbound LLM URL is not allowed',
+                'request_dispatched' => false,
             ];
         }
         if (!function_exists('curl_init')) {
@@ -2088,6 +2058,7 @@ class LlmClient
                 'response' => false,
                 'http_status' => 0,
                 'error' => 'Network request component is unavailable',
+                'request_dispatched' => false,
             ];
         }
 
@@ -2107,6 +2078,7 @@ class LlmClient
             'response' => $response,
             'http_status' => $statusCode,
             'error' => $error,
+            'request_dispatched' => true,
         ];
     }
 
@@ -2423,6 +2395,8 @@ class LlmClient
         float $startedAt,
         bool $hasConclusion
     ): array {
+        // Cache/rule/config paths must not inherit tokens from an earlier successful call.
+        $governance['usage_observation'] = $governance['usage_observation'] ?? LlmUsageObservation::summarize([]);
         try {
             $logId = $this->recordModelCall($governance, $config, $prompt, $response, $status, $errorType, $errorMessage, $httpStatus, $payloadSize, $startedAt);
             $result['data'] = $this->attachGovernanceToData(is_array($result['data'] ?? null) ? $result['data'] : [], $governance, $logId, $status);
@@ -2512,6 +2486,7 @@ class LlmClient
                 'fallback_used' => (bool)($governance['fallback_used'] ?? false),
                 'circuit_state' => (string)($governance['circuit_state'] ?? 'closed'),
                 'provider_attempts' => is_array($governance['provider_attempts'] ?? null) ? $governance['provider_attempts'] : [],
+                'usage_observation' => $governance['usage_observation'],
             ],
         ]);
 
@@ -2542,6 +2517,7 @@ class LlmClient
             'requested_model_key' => (string)($governance['requested_model_key'] ?? $governance['model_key'] ?? ''),
             'fallback_used' => (bool)($governance['fallback_used'] ?? false),
             'circuit_state' => (string)($governance['circuit_state'] ?? 'closed'),
+            'usage_observation' => $governance['usage_observation'],
         ];
         if ($logError !== '') {
             $summary['log_error'] = $logError;
@@ -2756,6 +2732,7 @@ class LlmClient
                 'failure_state' => (string)($meta['failure_state'] ?? ''),
                 'request_id' => mb_substr(trim((string)($meta['request_id'] ?? '')), 0, 64),
                 'request_dispatched' => ($meta['request_dispatched'] ?? false) === true,
+                'usage_observation' => $meta['usage_observation'] ?? LlmUsageObservation::summarize([]),
                 'finish_reason' => strtolower(mb_substr(trim((string)($meta['finish_reason'] ?? '')), 0, 50)),
                 'circuit_state' => (string)($meta['circuit_state'] ?? ''),
             ],

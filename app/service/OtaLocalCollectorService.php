@@ -23,6 +23,7 @@ final class OtaLocalCollectorService
 {
     use OtaLocalCollectorLeaseConcern;
     use OtaLocalCollectorManualLoginConcern;
+    use \app\service\concern\OtaLocalCollectorResultDeliveryConcern;
 
     private const CONTRACT_VERSION = 'ota_local_collector.v1';
     private const PAIR_TTL_SECONDS = 600;
@@ -89,19 +90,25 @@ final class OtaLocalCollectorService
     /** @var callable|null */
     private $autopilotKickEnqueuer;
 
+    /** @var callable|null */
+    private $canonicalHistoryFinalizer;
+
     public function __construct(
         ?callable $collectionImporter = null,
         private readonly ?OtaFailureNotificationService $failureNotifier = null,
         ?callable $trustResolver = null,
         ?callable $authorityVerifier = null,
         ?callable $downstreamGateResolver = null,
-        ?callable $autopilotKickEnqueuer = null
+        ?callable $autopilotKickEnqueuer = null,
+        private readonly ?OtaLocalCollectorEvidenceStore $deliveryEvidenceStore = null,
+        ?callable $canonicalHistoryFinalizer = null
     ) {
         $this->collectionImporter = $collectionImporter;
         $this->trustResolver = $trustResolver;
         $this->authorityVerifier = $authorityVerifier;
         $this->downstreamGateResolver = $downstreamGateResolver;
         $this->autopilotKickEnqueuer = $autopilotKickEnqueuer;
+        $this->canonicalHistoryFinalizer = $canonicalHistoryFinalizer;
     }
 
     /** @return array<string, mixed> */
@@ -1593,11 +1600,20 @@ final class OtaLocalCollectorService
         if ($rawBytes > self::MAX_RESULT_BYTES) {
             throw new RuntimeException('本机采集结果超过 3MB 上限，请缩小模块范围后重试。', 413);
         }
+        $delivery = $this->decodeResultDeliveryEnvelope($input);
         $inspectableInput = $input;
         unset($inspectableInput['lease_token']);
         $this->assertNoSensitiveMaterial($inspectableInput);
         $device = $this->authenticateDevice($publicId, $token);
+        if ($delivery !== []) {
+            $deliveryTask = $this->resultDeliveryTask($device, $taskId);
+            $accepted = $this->acceptedResultDelivery($deliveryTask, $delivery);
+            if ($accepted !== null) {
+                return $accepted;
+            }
+        }
         $task = $this->leasedTask($device, $taskId, (string)($input['lease_token'] ?? ''));
+        $this->validateResultDelivery($task, $delivery);
         $account = $this->scopedAccountQuery($task)
             ->where('device_id', (int)$device['id'])
             ->find();
@@ -1675,6 +1691,7 @@ final class OtaLocalCollectorService
             throw new RuntimeException('单次本机采集最多上传 2000 行，请拆分模块。', 413);
         }
         $rows = $this->normalizeCollectionRows($rows, $task, $mapping);
+        $delivery = $this->retainResultDelivery($task, $delivery);
         $request = $this->decodeJson($task['request_json'] ?? null);
         $orderedPlan = is_array($request['ordered_collection'] ?? null)
             ? $request['ordered_collection']
@@ -1863,6 +1880,15 @@ final class OtaLocalCollectorService
         $fieldGap = $missingFieldKeys !== []
             || $syncStatus !== 'success'
             || !$p0Satisfied;
+        $summary['canonical_history'] = $this->unavailableLocalHistory(
+            (int)$task['tenant_id'], (int)$task['system_hotel_id'], (string)$task['data_date'],
+            $fieldGap ? 'local_collector_core_fields_incomplete' : 'local_collector_finalization_pending',
+            $fieldGap ? 'blocked' : 'pending'
+        );
+        $deliveryReceipt = $this->acceptResultDelivery($task, $delivery, $summary, $fieldGap);
+        if ($deliveryReceipt !== []) {
+            $summary['result_delivery'] = $deliveryReceipt;
+        }
         if ($fieldGap) {
             $this->requireLeasedTaskWrite($task, [
                 'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
@@ -1886,6 +1912,33 @@ final class OtaLocalCollectorService
                 '目标日期数据已保存并回读，但尚未达到正式门禁：' . implode('；', $gapParts)
             );
             Db::commit();
+            // A saved partial result still needs a scoped post-commit receipt.
+            // Keep field_gap and its accepted delivery independent of verification.
+            try {
+                $savedSummaryJson = json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                $summary['dual_ota_authority'] = $this->refreshDualOtaAuthorityReceipt($task);
+                $summary['canonical_history'] = $summary['dual_ota_authority']['canonical_history'];
+                $finalSummaryJson = json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                // Retrying tasks have no finished_at. Fence on the exact saved
+                // result instead, so a newer attempt cannot be overwritten.
+                $updated = $this->scopedTaskQuery($task, true)
+                    ->where('status', (string)$failure['status'])
+                    ->where('lease_token_hash', '')
+                    ->where('result_summary_json', $savedSummaryJson)
+                    ->update(['result_summary_json' => $finalSummaryJson]);
+                if ($updated !== 1 || $this->scopedTaskQuery($task, true)->value('result_summary_json') !== $finalSummaryJson) {
+                    throw new OtaLocalCollectorLeaseConflict('local_collector_partial_receipt_readback_mismatch', 409);
+                }
+            } catch (Throwable) {
+                $summary['canonical_history'] = $this->unavailableLocalHistory(
+                    (int)$task['tenant_id'], (int)$task['system_hotel_id'], (string)$task['data_date'],
+                    'local_collector_post_commit_finalization_failed'
+                );
+            }
+            $failure['summary'] = $summary;
+            if ($deliveryReceipt !== []) {
+                $failure['delivery'] = $deliveryReceipt;
+            }
             return $failure;
         }
         Db::transaction(function () use ($task, $account, $summary, $now): void {
@@ -1915,13 +1968,6 @@ final class OtaLocalCollectorService
                 '采集成功后账号状态精确回读失败。'
             );
         });
-        $summary['dual_ota_authority'] = $this->refreshDualOtaAuthorityReceipt(
-            $task
-        );
-        $this->requireCompletedTaskWrite($task, 'success', $now, [
-            'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-            'update_time' => date('Y-m-d H:i:s'),
-        ]);
             Db::commit();
         } catch (OtaLocalCollectorLeaseConflict $e) {
             Db::rollback();
@@ -1936,6 +1982,21 @@ final class OtaLocalCollectorService
                 '结构化结果入库或回读失败：' . $this->safeText($e->getMessage(), 360)
             );
         }
+        // External verification must see committed rows. Its failure cannot
+        // roll back a durable upload or turn it into an upload retry.
+        try {
+            $summary['dual_ota_authority'] = $this->refreshDualOtaAuthorityReceipt($task);
+            $summary['canonical_history'] = $summary['dual_ota_authority']['canonical_history'];
+            $this->requireCompletedTaskWrite($task, 'success', $now, [
+                'result_summary_json' => json_encode($summary, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                'update_time' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (Throwable) {
+            $summary['canonical_history'] = $this->unavailableLocalHistory(
+                (int)$task['tenant_id'], (int)$task['system_hotel_id'], (string)$task['data_date'],
+                'local_collector_post_commit_finalization_failed'
+            );
+        }
         $this->touchDevice($device);
         $this->resolveFailureNotification($task);
 
@@ -1943,6 +2004,7 @@ final class OtaLocalCollectorService
             'status' => 'success',
             'task_id' => (int)$task['id'],
             'summary' => $summary,
+            'delivery' => $deliveryReceipt,
             'next_action' => '服务器已保存并回读；本机可安全清理本次临时结果文件。',
         ];
     }
@@ -4367,6 +4429,9 @@ final class OtaLocalCollectorService
             : [];
         return [
             'reason' => $this->safeText((string)($request['reason'] ?? ''), 180),
+            'result_delivery' => is_array($request['result_delivery'] ?? null)
+                ? array_intersect_key($request['result_delivery'], array_flip(['status', 'result_id', 'result_hash', 'attempt']))
+                : null,
             'sections' => $this->sanitizeSections($request['sections'] ?? []),
             'ordered_collection' => $ordered === [] ? null : [
                 'contract_version' => (string)($ordered['contract_version'] ?? OtaOrderedCollectionPlanner::CONTRACT_VERSION),
@@ -4994,6 +5059,10 @@ final class OtaLocalCollectorService
             'historical_daily'
         );
 
+        $canonicalHistory = $this->finalizeLocalHistory($receipt, $tenantId, $hotelId);
+        $receipt['canonical_history_finalization'] = $canonicalHistory;
+        $receipt['canonical_history_complete'] = ($canonicalHistory['canonical_history_complete'] ?? false) === true;
+
         if ($complete && ($receipt['collection_complete'] ?? false) === true) {
             try {
                 $verifier = $this->authorityVerifier !== null
@@ -5004,12 +5073,8 @@ final class OtaLocalCollectorService
                         self::PLATFORMS,
                         (string)($receipt['collection_anchor_hash'] ?? '')
                     )
-                    : (new P0OtaFieldLoopVerifierRunner())->verify(
-                        $hotelId,
-                        $targetDate,
-                        self::PLATFORMS,
-                        (string)($receipt['collection_anchor_hash'] ?? '')
-                    );
+                    : (is_array($canonicalHistory['overall_verifier'] ?? null)
+                        ? $canonicalHistory['overall_verifier'] : []);
             } catch (Throwable $exception) {
                 $verifier = [
                     'verification_source' => 'external_p0_verifier',
@@ -5071,6 +5136,7 @@ final class OtaLocalCollectorService
                 ? 'ready'
                 : ($complete ? 'verifier_incomplete' : 'awaiting_other_platform'),
             'ready' => $ready,
+            'canonical_history' => $canonicalHistory,
             'verification_source' => (string)($verifier['verification_source'] ?? 'external_p0_verifier'),
             'verifier_status' => (string)($verifier['status'] ?? 'not_run'),
             'verified_platforms' => $this->sanitizeFieldKeys($verifier['verified_platforms'] ?? []),
@@ -5342,15 +5408,7 @@ final class OtaLocalCollectorService
         $request = is_array($task['request_summary'] ?? null)
             ? $task['request_summary']
             : $this->publicTaskRequest($this->decodeJson($task['request_json'] ?? null));
-        $ordered = is_array($request['ordered_collection'] ?? null) ? $request['ordered_collection'] : [];
-        $missing = is_array($ordered['missing_field_keys'] ?? null) ? $ordered['missing_field_keys'] : [];
-        if ($missing !== []) {
-            return count($missing);
-        }
-        if ((string)($ordered['stage'] ?? '') === 'yesterday_core') {
-            return count((array)($ordered['required_field_keys'] ?? []));
-        }
-        return 0;
+        return $this->privateTaskMissingFieldCount($request);
     }
 
     private function privateTaskMissingFieldCount(array $request): int

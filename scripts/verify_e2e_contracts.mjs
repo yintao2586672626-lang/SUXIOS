@@ -2,10 +2,15 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import vm from 'node:vm';
-import { verifyFrozenAiWorkbenchContract } from './lib/frozen_ai_workbench_contract.mjs';
+import { FROZEN_AI_WORKBENCH_SOURCE, verifyFrozenAiWorkbenchContract } from './lib/frozen_ai_workbench_contract.mjs';
+import { readRetiredFrontendFragment } from '../tests/automation/helpers/retired_frontend_source.mjs';
+import { inspectCtripProfileFieldConfigPanel } from './lib/ctrip_profile_panel_contract.mjs';
 
 const root = process.cwd();
 const sourceCache = new Map();
+// Historical assertions use the pinned test fixture; they do not read or
+// restore retired content into the active template or runtime bundle.
+sourceCache.set(FROZEN_AI_WORKBENCH_SOURCE, readRetiredFrontendFragment('23b-page-ai-workbench.html'));
 const readRaw = (file) => {
   if (!sourceCache.has(file)) {
     sourceCache.set(file, fs.readFileSync(path.join(root, file), 'utf8'));
@@ -283,9 +288,9 @@ requireText('public/index.html', 'const toggleDualOtaCompare = () => {', 'AI wor
 requireText('public/index.html', "if ((currentText === '未返回' || currentText === '待更新') && metric.note) {", 'AI workbench comparison line keeps missing-data reasons visible for missing current metrics');
 requireText('public/index.html', "const dualOtaCtripMissingReason = (fallback = '当前携程指标未返回') => {", 'AI workbench explains Ctrip missing metrics by selected range and target date');
 requireText('public/index.html', "return latestDate && latestDate !== expectedDate", 'AI workbench Ctrip missing reason includes the latest available Ctrip date when target date is absent');
-requireText('public/style.css', 'grid-template-columns: minmax(260px, 1fr) minmax(420px, 500px);', 'AI workbench keeps current-hotel selector and platform controls in a stable two-column strip');
-requireText('public/style.css', 'grid-template-columns: repeat(4, minmax(0, 1fr)) !important;', 'AI workbench keeps comparison switch and three platform buttons on one row');
-requireText('public/style.css', 'main[data-current-page="ai-workbench"] .dual-ota-store-scope-list > *', 'AI workbench keeps comparison switch and platform buttons stretched inside the four-column row');
+requireNoText('resources/frontend/app-template.html', 'data-testid="home-ai-workbench"', 'retired AI workbench has no active template entry');
+requireNoText('resources/frontend/app-template.html', 'dual-ota-store-scope-list', 'retired platform comparison strip has no active template consumer');
+requireNoText('public/style.css', 'main[data-current-page="ai-workbench"]', 'retired AI workbench styling is not shipped as active page CSS');
 requireText('public/index.html', 'const dualOtaRatePreviousExtra = (value) => {', 'AI workbench normalizes previous-period rate metrics before comparison');
 requireText('public/index.html', 'ctripLatestComparison.value = payload?.rank?.comparison || null;', 'AI workbench stores Ctrip latest comparison snapshot from backend response');
 requireText('public/index.html', "const latestRange = isCompassDataPage() ? String(dualOtaSelectedRange.value || '').trim() : '';", 'AI workbench sends selected range when loading latest Ctrip data');
@@ -304,7 +309,7 @@ requireText('public/index.html', "const totalRevenue = observedOrRows(metrics.to
 requireText('public/index.html', "return dualOtaExistingMetricText(row?.[textField]) ? value : null;", 'AI workbench row-backed Meituan totals keep undisplayable metrics missing instead of coercing them to zero');
 requireText('public/index.html', "const previousTotals = dualOtaMeituanMetricTotals(previousMetrics, previousRows);", 'AI workbench Meituan average comparison uses previous-period row-backed metric totals');
 requireText('public/index.html', "const previousMeituanTotals = dualOtaMeituanMetricTotals(previousMeituanMetrics, previousMeituanRows);", 'AI workbench combined comparison uses previous-period Meituan row-backed metric totals');
-requireText('public/style.css', 'text-align-last: center;', 'AI workbench current-hotel select centers the displayed selected store');
+requireText('resources/frontend/templates/fragments/23a-page-compass-summary.html', 'select v-model="filterReportHotel"', 'active Compass hotel selector remains bound to the explicit current-hotel context');
 requireText('public/index.html', 'const refreshDualOtaWorkbenchData = async ({ allowFetch = false, silent = true } = {}) => {', 'AI workbench has one store/range/platform refresh entrypoint');
 requireText('public/index.html', 'refreshDualOtaWorkbenchData({ allowFetch: true, silent: false });', 'AI workbench store/range/platform changes trigger data refresh and necessary fetch prompts');
 requireText('public/index.html', "const ctripLoaded = await loadLatestCtripData({ silent: true, hotelId });", 'AI workbench reads stored Ctrip snapshot before deciding to fetch');
@@ -347,8 +352,8 @@ requireNoText('public/dual-ota-home-static.js', "{ name: '价格监控', reason:
 requireNoText('public/dual-ota-home-static.js', "title: '入口流量够',", 'AI workbench no longer uses ambiguous exposure explanation wording');
 requireNoText('public/index.html', '<div v-if="dualOtaSystemOverviewSourceNote" class="dual-ota-boundary-note">', 'AI workbench system overview does not render the redundant scope explanation strip');
 requireNoText('public/index.html', 'const dualOtaSystemOverviewSourceNote = computed(() => {', 'AI workbench does not keep the removed redundant scope explanation generator');
-requireText('public/style.css', 'box-shadow: inset 0 3px 0 rgba(139, 86, 49, .40) !important;', 'AI workbench warning loss nodes use a subtle status rule instead of a full tinted card');
-requireText('public/style.css', 'color: #8B5631 !important;', 'AI workbench deferred module and risk accents use coffee palette');
+requireNoText('resources/frontend/app-template.html', 'dual-ota-loss-node', 'retired loss-chain cards have no active template consumer');
+requireText('public/compass-authority-polish.css', ':is(button, select, input, summary):focus-visible', 'active Compass controls retain visible keyboard focus');
 requireNoText('public/index.html', 'const meituanIdentifierMissing = [', 'hotel platform binding row group logic is not re-inlined');
 requireText('public/system-static.js', "target: 'profile-login'", 'system static keeps profile login direct target metadata');
 requireText('public/system-static.js', "target: 'sync-logs'", 'system static keeps sync logs direct target metadata');
@@ -634,19 +639,12 @@ requireOrder('public/index.html', '@click="triggerAutoFetch"', '<platform-auto-s
 requireText('public/index.html', 'data-testid="platform-auto-settings-panels-loading"', 'platform auto-fetch settings wrapper shows an explicit loading state while the lazy body loads');
 requireText('public/components/online-data/platform-auto-settings-panels.js', 'components.PlatformAutoSettingsPanelsBody', 'platform auto-fetch settings body registers under a lazy component key');
 requireText('public/components/online-data/platform-auto-settings-panels.js', 'data-testid="platform-auto-settings-panels" class="grid grid-cols-1 lg:grid-cols-2 gap-4"', 'platform auto-fetch schedule/browser settings stay in the split component');
-requireText('public/index.html', "const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';", 'Ctrip profile-field admin panel uses a versioned lazy component script');
-requireText('public/index.html', "const CtripProfileFieldConfigPanel = {", 'Ctrip profile-field admin panel uses a stable sync wrapper component');
-requireText('public/index.html', 'const ensureCtripProfileFieldConfigPanelReady = async () => {', 'Ctrip profile-field admin panel loads its heavy template only when the tab is opened');
-requireText('public/index.html', "requireOnlineDataComponent('CtripProfileFieldConfigPanelBody')", 'Ctrip profile-field admin panel resolves the lazy body component after script load');
-requireText('public/index.html', 'void ensureCtripProfileFieldConfigPanelReady().catch', 'Ctrip profile-field tab starts non-blocking component loading before field data rendering');
-requireText('public/index.html', '<ctrip-profile-field-config-panel', 'Ctrip profile-field admin panel mounts through the split wrapper component');
-requireText('public/index.html', 'data-testid="ctrip-profile-field-config-loading"', 'Ctrip profile-field admin panel shows an explicit loading state while the lazy body loads');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'components.CtripProfileFieldConfigPanelBody', 'Ctrip profile-field admin body registers under a non-conflicting lazy component key');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'data-testid=\\"ctrip-profile-field-config-panel\\"', 'Ctrip profile-field admin template stays in the lazy component');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'return new Proxy({}, {', 'Ctrip profile-field lazy component bridges existing root bindings through a setup proxy');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'return props.ctx?.[key] ?? target[key];', 'Ctrip profile-field lazy component reads root bindings from the passed context');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'props.ctx[key] = value;', 'Ctrip profile-field lazy component writes v-model updates back to root bindings');
-requireText('public/components/online-data/ctrip-profile-field-config-panel.js', 'getOwnPropertyDescriptor() {', 'Ctrip profile-field lazy component exposes proxy properties to Vue setup-state lookup');
+checks.push({
+  file: 'Ctrip profile-field entry + component + source template',
+  label: 'Ctrip profile-field panel retains versioned lazy loading, compiled registration, loading UI, editable root context and admin-only rendering',
+  ok: inspectCtripProfileFieldConfigPanel({ entry: read('public/index.html'), component: readRaw('public/components/online-data/ctrip-profile-field-config-panel.js'), template: readRaw('resources/frontend/templates/components/ctrip-profile-field-config-panel.html') }),
+  detail: 'Shared contract checks lazy wrapper/body/load markers, compiled render, zero/false reads, ctx writes, proxy descriptors and non-admin/non-tab exclusion.',
+});
 requireNoText('public/index.html', '携程登录会话字段配置', 'Ctrip profile-field admin template is no longer in the initial entry HTML');
 requireText('public/index.html', 'const PLATFORM_AUTO_SECONDARY_PANEL_DELAY_MS = 2600;', 'platform auto-fetch delays secondary status/result panels behind first paint');
 requireText('public/index.html', 'const platformAutoSecondaryPanelsReady = ref(false);', 'platform auto-fetch tracks secondary panel readiness separately from core controls');
@@ -2452,7 +2450,7 @@ requireText('app/model/SystemConfig.php', 'self::writeDurableValueCache($key, $f
 requireText('app/model/SystemConfig.php', 'self::writeDurableValueCache($key, true, $value);', 'system config setValue refreshes selected cross-request cache after writes');
 requireNoText('app/service/ProtectedCapabilityService.php', 'mightMatchDefaultCapabilityPath', 'protected capability classification must not be gated by default policy paths');
 requireNoText('app/middleware/Auth.php', 'ProtectedCapabilityService::mightMatchDefaultCapabilityPath', 'auth middleware must load the configured protected policy before classification');
-requireText('app/middleware/Auth.php', '$protectedCapabilityService = $this->protectedCapabilityService();\n        $capability = $protectedCapabilityService->classifyPath($request->method(), $request->url());', 'auth middleware classifies with the configured protected policy');
+requireText('app/middleware/Auth.php', "$protectedCapabilityService = $this->protectedCapabilityService();\n        $capability = $protectedCapabilityService->classifyPath($request->method(), '/' . ltrim($request->pathinfo(), '/'));", 'auth middleware classifies the router path with the configured protected policy');
 requireNoText('public/index.html', 'const isItemVisible = (item) => {', 'visible menu permission filter is not re-inlined');
 requireNoText('public/index.html', 'const platformNextActionMeta =', 'platform next action metadata is not re-inlined');
 requireNoText('public/index.html', 'const platformAccountStoreText =', 'platform account store text is not re-inlined');

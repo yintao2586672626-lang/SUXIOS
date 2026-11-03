@@ -52,6 +52,48 @@
   },
   "surfaces": [
     {
+      "id": "investment-payback-ledger",
+      "product_chain_stage": "人工酒店投资资金台账、经营情景测算与回本跟踪",
+      "availability": "active",
+      "enforcement": "strict",
+      "fragment_ids": ["page-investment-payback"],
+      "inherited_fragment_ids": [],
+      "inheritance_reason": "无继承片段。",
+      "scope_dimensions": ["tenant", "hotel", "project_id", "investor_name", "business_date", "currency", "basis", "source", "fact_status"],
+      "state_requirements": ["loading", "ready", "empty", "unverified", "blocked", "error"],
+      "contract_dimensions": ["scope_identity", "truthful_states", "source_date", "save_readback", "failure_visibility", "focused_regression"],
+      "source_checks": [
+        {
+          "path": "public/system-static.js",
+          "includes": ["testid: 'nav-investment-payback'", "path: 'investment-payback'"]
+        },
+        {
+          "path": "resources/frontend/templates/fragments/28a-page-investment-payback.html",
+          "includes": ["data-testid=\"investment-payback-page\"", "investment-payback-view"]
+        },
+        {
+          "path": "public/components/system/investment-payback.js",
+          "includes": ["人工录入，来源未独立核验", "first_payback", "withBusinessContext: false"]
+        },
+        {
+          "path": "public/components/system/investment-scenario.js",
+          "includes": ["scenario-reference-example", "scenario-result-stale", "content_digest", "readback", "withBusinessContext: false"]
+        }
+      ],
+      "regression_checks": [
+        {
+          "path": "tests/automation/investment_payback_workbench.test.mjs",
+          "includes": ["the investment-payback workbench keeps source, scope and forecast boundaries visible"]
+        },
+        {
+          "path": "tests/automation/investment_scenario_workbench.test.mjs",
+          "includes": ["new and old projects start blank without implicit Qingyuan numbers or invented zeros"]
+        }
+      ],
+      "evidence_maturity": "unit_contract_pass",
+      "evidence_limit": "本地代码、隔离合成验收及保存回读；经营测算始终是人工假设，不代表实际酒店回款、会计现金流或生产部署。"
+    },
+    {
       "id": "decision-workbench",
       "product_chain_stage": "AI决策工作台",
       "availability": "active",
@@ -128,6 +170,10 @@
         {
           "path": "tests/automation/ctrip_visible_download_snapshot.test.mjs",
           "includes": ["captureCtripBusinessDownloadSnapshot", "ctrip_visible_download_table_unavailable", "current-visible"]
+        },
+        {
+          "path": "tests/automation/ctrip_temporary_order_estimate.test.mjs",
+          "includes": ["referenceOnly", "source_unverified", "ctripTrafficChannelSecondaryText"]
         },
         {
           "path": "tests/automation/review_order_evidence_closure.test.mjs",
@@ -346,21 +392,57 @@
       "source_checks": [
         {
           "path": "resources/frontend/templates/fragments/19c-page-operating-finance.html",
-          "includes": ["<operating-finance-control-center", "v-if=\"currentPage === 'operating-finance'\"", ":request=\"managerCapabilityRequest\""]
+          "includes": ["<operating-finance-control-center", "v-if=\"currentPage === 'operating-finance'\"", ":request=\"managerCapabilityRequest\"", "owner-operations-hub", "changqing-capability-catalog", "@open-investment-ledger"]
         },
         {
           "path": "public/components/system/operating-finance-control-center.js",
-          "includes": ["operating_finance_control_center.v1", "settlements/import", "on-books-snapshots", "demand-events", "monthly-finance", "external_write_count"]
+          "includes": ["operating_finance_control_center.v1", "settlements/import", "on-books-snapshots", "demand-events", "monthly-finance", "external_write_count", "investment_bridge", "investment-operating-bridge-panel"]
+        },
+        {
+          "path": "public/components/system/investment-operating-bridge-panel.js",
+          "includes": ["investment_operating_bridge.v1", "effective_as_of", "recorded_totals", "investment_view_permission_required", "资金来源为人工台账，未独立核验"]
+        },
+        {
+          "path": "public/components/system/business-feature-workspace.js",
+          "includes": ["business_workspace.v1", "business-configuration-rows", "pendingSave", "readback_verified", "settings-applied", "entryKey"]
+        },
+        {
+          "path": "public/components/system/guest-operations-panel.js",
+          "includes": ["guest_operations.v1", "scopeKey", "feedback_entries", "entryKey"]
+        },
+        {
+          "path": "public/components/system/campaign-operations-panel.js",
+          "includes": ["MediaRecorder", "canExecute", "handover-action"]
         }
       ],
       "regression_checks": [
         {
           "path": "tests/automation/operating_finance_control_center.test.mjs",
           "includes": ["net revenue never becomes whole-hotel GOP", "one selected recovery blocker", "WeCom receipt stays sender-reported only", "same-scope portfolio ranking"]
+        },
+        {
+          "path": "tests/automation/changqing_operating_hub.test.mjs",
+          "includes": ["31", "openMeituanStoredDataTab", "fresh headless Chromium"]
+        },
+        {
+          "path": "tests/automation/investment_operating_bridge_browser.test.mjs",
+          "includes": ["Previous hotel totals must disappear", "Financial writes are forbidden", "investment_view_permission_required"]
+        },
+        {
+          "path": "tests/automation/business_feature_workspace_browser.test.mjs",
+          "includes": ["three-phase settings", "feedback QR", "unpermitted QR hotel"]
+        },
+        {
+          "path": "tests/automation/guest_operations_panel.test.mjs",
+          "includes": ["independent ZXing", "isolated controller/SQLite"]
+        },
+        {
+          "path": "tests/automation/campaign_operations_browser.test.mjs",
+          "includes": ["chromium", "video"]
         }
       ],
       "evidence_maturity": "unit_contract_pass",
-      "evidence_limit": "代码级结算、恢复、在手预订、需求参考、企微员工自报、月度财务和多店同口径合同；不证明真实账单导入、员工映射、生产部署、自动审批或外部写入。"
+      "evidence_limit": "代码级结算、恢复、在手预订、需求参考、企微员工自报、月度财务和多店同口径合同；经营与自投入口、投资台账持久化桥接及压缩组件使用隔离合成数据验证。投资人工实收与GOP、现金代理、预测分开；不证明真实账单、资金流水独立核验、员工映射、生产部署、自动审批或外部写入。"
     },
     {
       "id": "revenue-analysis",
@@ -551,7 +633,7 @@
         }
       ],
       "evidence_maturity": "static_contract_only",
-      "evidence_limit": "当前阶段隐藏下游入口，仅保护模板和冻结边界；不宣称可发现、可操作或现场有效。",
+      "evidence_limit": "下游模板保持冻结；战略推演、扩张、转让及可研的生成、修改、归档与转执行接口返回410，历史GET仍走原鉴权和回读。聚焦中间件及路由回归见RetiredFeatureReadOnlyTest与retired_feature_routes；不宣称现场有效。",
       "known_limits": ["阶段一导航隐藏", "未执行真实策略、可研、扩张、资产定价或正式投决现场验收"]
     },
     {

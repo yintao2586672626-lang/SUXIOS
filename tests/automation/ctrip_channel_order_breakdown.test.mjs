@@ -636,7 +636,7 @@ test('Ctrip sales table follows the flat one-row scan pattern used by the traffi
   assert.doesNotMatch(salesColumnDefinitions, /同程等渠道（含取消）＝/);
   assert.doesNotMatch(salesColumnDefinitions, /携程订单（推算）|去哪儿订单（推算）|同程及其他分销渠道订单（差额推算）/);
   assert.match(appMain, /attachCtripChannelOrderBreakdown/);
-  assert.equal((ctripTemplate.match(/hotel\.totalOrderIncludingCancelledEstimate/g) || []).length, 6);
+  assert.equal((ctripTemplate.match(/formatOptionalNumber\(hotel\.totalOrderIncludingCancelledEstimate\)/g) || []).length, 2);
   assert.doesNotMatch(ctripTemplate, /hotel\.fullChannelRoomNightsEstimate/);
   const scenarioListStart = appMain.indexOf('const ctripScenarioHotelsList');
   const scenarioListEnd = appMain.indexOf('const ctripSortedHotelsList', scenarioListStart);

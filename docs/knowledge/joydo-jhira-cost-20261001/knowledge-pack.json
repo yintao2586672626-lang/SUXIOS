@@ -1,0 +1,62 @@
+{
+  "version": "joydo-jhira-cost-reference-20261001-v1",
+  "reviewed_at": "2026-10-01 20:01:43",
+  "review_due_at": "2026-11-01 23:59:59",
+  "task_mode": "classify",
+  "entries": [
+    {
+      "key": "consumption_basis",
+      "title": "JHIRA酒店成本深学：用品采购配置与耗用基准",
+      "summary": "区分采购现金、库存配置、期间耗用和选定间夜成本；大瓶用品先换算基础单位，缺客夜或周期证据保持未知。来源系数仅作外部假设。",
+      "query": "JHIRA酒店成本深学 用品采购配置 耗用基准",
+      "source_section": "#precision; #quick",
+      "maturity": "validated",
+      "method": [
+        "采购配置61.64、带来源系数49.168和选定成本5.78是三个不同量；不能直接互换。",
+        "基础单位库存平衡后确认期间经营耗用，调拨、退货和报损分别登记，避免重复扣减。",
+        "瓶价除容量，再乘每次耗用及有证据的客夜/清扫到间夜换算；未知转换保持null，明确零与缺失分开。",
+        "80%/20%是来源假设，非当前酒店实耗；价格、容量、损耗、生效日期和凭证仍须核对。",
+        "标准、实耗、选定值各保留来源和版本；停用行不计入，未知行不按零合计。",
+        "单位与库存合成回放通过不证明酒店会计政策、来源实耗或采购系统已经接入。"
+      ],
+      "known_unknowns": ["来源用品每间夜/每客次/周期基准不明", "来源80%/20%系数缺实耗证据", "成本标准库入口及保存维护未验证", "酒店适用计价税费政策未确定"],
+      "gates": {"mechanism": "pass_bounded_unit_and_period_model", "value": "pass_cost_input_truth_and_scope", "reproduction": "pass_local_synthetic_units_only_source_consumption_not_verified", "integration": "not_done"}
+    },
+    {
+      "key": "denominators_dedup",
+      "title": "JHIRA酒店成本深学：成本分母与租金佣金排重",
+      "summary": "同期间同范围成本率必须保持总额/收入与同分母单位额一致；净房价不二扣佣金，独立租金不重复加入固定成本。外部样例76.02%与85.21%的差异已重放。",
+      "query": "JHIRA酒店成本深学 成本分母 租金佣金排重",
+      "source_section": "#dashboard; #quick; #payback",
+      "maturity": "validated",
+      "method": [
+        "使用同期间A可售间夜、Q已售间夜、R同口径营收和C同范围成本；C/R=(C/A)/(R/A)=(C/Q)/(R/Q)。",
+        "外部样例正确同范围成本率76.0244%；F/A+每已售间夜v除净价RevPAR得到85.2051%，是混分母推断而非上游代码事实。",
+        "营收或有效分母缺失/为零时为null；餐饮等成本不能无说明除纯客房收入。",
+        "净ADR已扣渠道佣金；渠道成交价转换后不得再次扣同一佣金，混合渠道保留各自范围。",
+        "复用现有固定+变动情景口径，月固定92000含租金50000时仅42000年化进入非租金固定成本。",
+        "租金、管理费、折旧已单列时聚合成本排除它们；原模型来源和年度期间保持情景假设。"
+      ],
+      "known_unknowns": ["源站指标的完整费用范围与上游算法未读取", "当前酒店真实A/Q/R及渠道结算未接入", "来源GOP和安全边际标签不等于已确认行业口径"],
+      "gates": {"mechanism": "pass_same_scope_identity_and_dedup", "value": "pass_existing_scenario_model_reuse", "reproduction": "pass_visible_numbers_and_existing_pure_calculator", "integration": "not_done"}
+    },
+    {
+      "key": "selection_review",
+      "title": "JHIRA酒店成本深学：采用成本联动与盈亏复盘",
+      "summary": "成本选择要同步总成本、利润、保本和现金范围，并保存同版本回读。外部勾选后未观察到采用值变化；精算条件敏感性可翻转盈亏，保持候选不自动采用。",
+      "query": "JHIRA酒店成本深学 采用成本联动 盈亏复盘",
+      "source_section": "#usePrecisionCost; #precision; #dashboard; #payback",
+      "maturity": "understood",
+      "method": [
+        "页面选中精算后仍显示5.78、37402和46.21%，本次成本切换传播未证实成功；已恢复原选择。",
+        "若49.168与5.78均为每已售间夜用品，替换后月成本160901.30、利润-4901.30、保本68.6577%；此为条件回放不是酒店结论。",
+        "贡献非正或恒定现金非正时不输出正有限回本；目标入住率超过100%仅表示指定期限目标不可达，不能据此排除更长年限回本；税/融资/维护等未知时不冒充完整现金流。",
+        "选定成本、纳入范围、单位和预览版本一同保存回读；切换使旧预览失效，报告消费同一快照。",
+        "预算和实际先统一期间、业务量与计价，再拆价格、单位耗用、业务量和损耗差异，不能用差异直接推出员工浪费。",
+        "承接现有经营情景入口与保存服务，用品分解是可选候选，不另建同类利润/回本或真实投资资金模型。"
+      ],
+      "known_unknowns": ["源站切换触发与保存刷新回显未验证", "来源精算耗用基准缺证", "宿析成本细项页面、保存与正式集成未实现", "实际酒店盈亏和服务质量未评估"],
+      "gates": {"mechanism": "pass_required_propagation_and_review_contract", "value": "pass_profit_and_breakeven_sensitivity", "reproduction": "partial_local_conditional_replay_source_switch_not_passed", "integration": "not_done"}
+    }
+  ]
+}

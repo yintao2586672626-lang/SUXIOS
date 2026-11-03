@@ -86,6 +86,7 @@
 
     function shouldPersistField(field) {
         if (!field) return false;
+        if (field.closest?.('[data-form-draft="off"]')) return false;
         const type = String(field.type || '').toLowerCase();
         if (SKIPPED_TYPES.has(type)) return false;
         if (field.disabled || field.readOnly) return false;
@@ -212,6 +213,7 @@
     }
 
     function applyDraft(scope, store, doc) {
+        if (scope.getAttribute?.('data-form-draft') === 'off' || scope.closest?.('[data-form-draft="off"]')) return;
         const key = scopeKey(scope, doc);
         const draft = store.getDraft(key);
         if (!draft || typeof draft !== 'object') return;
@@ -224,6 +226,7 @@
     }
 
     function persistDraft(scope, store, doc) {
+        if (scope.getAttribute?.('data-form-draft') === 'off' || scope.closest?.('[data-form-draft="off"]')) return;
         const draft = collectDraft(scope);
         if (Object.keys(draft).length > 0) {
             store.setDraft(scopeKey(scope, doc), draft);

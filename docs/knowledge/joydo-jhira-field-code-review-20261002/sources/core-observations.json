@@ -1,0 +1,60 @@
+{
+  "reviewed_on": "2026-10-02",
+  "url": "https://joydo.us.ci/index.full",
+  "quality": "reference_only",
+  "method": "Read selected credential-filtered frontend function bodies from authorized existing browser; retain authored observations and structural fingerprints only, never execute source JS or retain entire source",
+  "deep_read_functions": [
+    "getAmenityRealCostForCalc", "updatePrecisionTotals", "getCommissionRate", "getLaundryCost", "getBreakfastCost",
+    "calculateAmortizedDebtServiceV28", "getFinanceDebtServiceV28", "computeInvestmentModelV28", "getInvestmentRecoveryMetrics",
+    "getReportReadinessV28", "getReportOutputConsistencyV28", "getMarketApiReadinessV28", "getMarketReportReadyGateV28",
+    "collectOperationReviewData", "collectMarketData", "collectDigitalAssetData", "getReportDeliveryGateV28",
+    "buildMarketSci", "scoreOneMetric", "computeSciV25", "calculateOperationReview", "generateInvestmentScoreExplanation",
+    "getCoreMetrics", "getCostAtPrice", "normalizeMeituanRateV28", "weightedRate", "operationReviewPeriodConsistencyCheck",
+    "operationReviewDays", "operationReviewDaysFromPeriod", "operationReviewBaseline", "updatePaybackDynamic", "computeCtripIndices"
+  ],
+  "findings": [
+    {
+      "id": "explicit_rate_scale_required",
+      "severity": "material_caliber_risk",
+      "function": "normalizeMeituanRateV28",
+      "line": 7398,
+      "finding": "有限输入绝对值<=1时乘100，导致1个百分点和比例1无法区分；负率也未在该函数中拒绝。采用必须显式携带比例单位、边界和来源，不复制数值猜单位规则。"
+    },
+    {
+      "id": "ctrip_cross_channel_conversion_missing_halved",
+      "severity": "material_missing_data_and_denominator_risk",
+      "functions": ["weightedRate", "computeCtripIndices"],
+      "lines": [8382, 8391],
+      "finding": "各渠道率先按访客加权；去哪儿有率时，两渠道率再等权平均，携程缺率回退0而结果减半。流量缺值求和也转0。无法作为全渠道转化率或完整流量事实，须保留渠道覆盖和真实分子分母。"
+    },
+    {
+      "id": "period_heuristic_is_not_complete_validation",
+      "severity": "material_validation_boundary",
+      "function": "operationReviewPeriodConsistencyCheck",
+      "line": 17734,
+      "finding": "期间检查仅针对import，基于日房量115%启发式；手工来源和部分缺值会返回不冲突。此结果仅为提示，不是统一期间可售间夜校验通过。"
+    },
+    {
+      "id": "source_price_pressure_reuses_current_price_core",
+      "severity": "clarified_call_path",
+      "functions": ["updatePaybackDynamic", "getCostAtPrice", "getCoreMetrics"],
+      "lines": [3483, 3439, 1926],
+      "finding": "updatePaybackDynamic先getCoreMetrics(price)再将同一core传入getCostAtPrice；coreTotal覆盖fallback并非已证明的价格成本固定 bug。此主路径保持模拟价格口径，其他调用与运行仍未验收。"
+    },
+    {
+      "id": "source_ai_429_may_return_previous_result",
+      "severity": "material_stale_result_risk",
+      "function": "generateInvestmentScoreExplanation",
+      "line": 16499,
+      "finding": "限流路径返回该module已有结果，没有在该分支显式绑定当前输入摘要；必须验证旧结果能否被误当当前结果。普通错误路径则标fallback与local-template-fallback，值得保留来源区分。"
+    },
+    {
+      "id": "source_readiness_and_export_mapping_limits",
+      "severity": "material_delivery_evidence_boundary",
+      "functions": ["getReportReadinessV28", "getReportOutputConsistencyV28"],
+      "lines": [15214, 7287],
+      "finding": "六模块全部ready是静态准入机制；导出一致性主要查映射、重名、合同目标字段与状态链，并未读取实际Word/PDF数值。模块就绪、人工审核、冻结输入与真实文件一致性仍需分开验收。"
+    }
+  ],
+  "not_verified": ["website backend source", "role-hidden UI operations", "website persistence", "actual exports", "real OTA acquisition", "AI model calls", "economic effectiveness"]
+}

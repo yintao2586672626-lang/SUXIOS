@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFrontendTestFileSync as readFileSync } from './helpers/retired_frontend_source.mjs';
 import test from 'node:test';
 import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 import { readFrontendContractSource } from './helpers/frontend_source.mjs';

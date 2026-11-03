@@ -1,0 +1,6309 @@
+{
+  "custom": [
+    {
+      "canonical_id": "provinceSelect",
+      "id": "provinceSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "北京市",
+          "value": "11"
+        },
+        {
+          "label": "天津市",
+          "value": "12"
+        },
+        {
+          "label": "河北省",
+          "value": "13"
+        },
+        {
+          "label": "山西省",
+          "value": "14"
+        },
+        {
+          "label": "内蒙古自治区",
+          "value": "15"
+        },
+        {
+          "label": "辽宁省",
+          "value": "21"
+        },
+        {
+          "label": "吉林省",
+          "value": "22"
+        },
+        {
+          "label": "黑龙江省",
+          "value": "23"
+        },
+        {
+          "label": "上海市",
+          "value": "31"
+        },
+        {
+          "label": "江苏省",
+          "value": "32"
+        },
+        {
+          "label": "浙江省",
+          "value": "33"
+        },
+        {
+          "label": "安徽省",
+          "value": "34"
+        },
+        {
+          "label": "福建省",
+          "value": "35"
+        },
+        {
+          "label": "江西省",
+          "value": "36"
+        },
+        {
+          "label": "山东省",
+          "value": "37"
+        },
+        {
+          "label": "河南省",
+          "value": "41"
+        },
+        {
+          "label": "湖北省",
+          "value": "42"
+        },
+        {
+          "label": "湖南省",
+          "value": "43"
+        },
+        {
+          "label": "广东省",
+          "value": "44"
+        },
+        {
+          "label": "广西壮族自治区",
+          "value": "45"
+        },
+        {
+          "label": "海南省",
+          "value": "46"
+        },
+        {
+          "label": "重庆市",
+          "value": "50"
+        },
+        {
+          "label": "四川省",
+          "value": "51"
+        },
+        {
+          "label": "贵州省",
+          "value": "52"
+        },
+        {
+          "label": "云南省",
+          "value": "53"
+        },
+        {
+          "label": "西藏自治区",
+          "value": "54"
+        },
+        {
+          "label": "陕西省",
+          "value": "61"
+        },
+        {
+          "label": "甘肃省",
+          "value": "62"
+        },
+        {
+          "label": "青海省",
+          "value": "63"
+        },
+        {
+          "label": "宁夏回族自治区",
+          "value": "64"
+        },
+        {
+          "label": "新疆维吾尔自治区",
+          "value": "65"
+        }
+      ],
+      "section": "basic",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "citySelect",
+      "id": "citySelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "长沙市",
+          "value": "4301"
+        },
+        {
+          "label": "株洲市",
+          "value": "4302"
+        },
+        {
+          "label": "湘潭市",
+          "value": "4303"
+        },
+        {
+          "label": "衡阳市",
+          "value": "4304"
+        },
+        {
+          "label": "邵阳市",
+          "value": "4305"
+        },
+        {
+          "label": "岳阳市",
+          "value": "4306"
+        },
+        {
+          "label": "常德市",
+          "value": "4307"
+        },
+        {
+          "label": "张家界市",
+          "value": "4308"
+        },
+        {
+          "label": "益阳市",
+          "value": "4309"
+        },
+        {
+          "label": "郴州市",
+          "value": "4310"
+        },
+        {
+          "label": "永州市",
+          "value": "4311"
+        },
+        {
+          "label": "怀化市",
+          "value": "4312"
+        },
+        {
+          "label": "娄底市",
+          "value": "4313"
+        },
+        {
+          "label": "湘西土家族苗族自治州",
+          "value": "4331"
+        }
+      ],
+      "section": "basic",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "districtSelect",
+      "id": "districtSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "芙蓉区",
+          "value": "430102"
+        },
+        {
+          "label": "天心区",
+          "value": "430103"
+        },
+        {
+          "label": "岳麓区",
+          "value": "430104"
+        },
+        {
+          "label": "开福区",
+          "value": "430105"
+        },
+        {
+          "label": "雨花区",
+          "value": "430111"
+        },
+        {
+          "label": "望城区",
+          "value": "430112"
+        },
+        {
+          "label": "长沙县",
+          "value": "430121"
+        },
+        {
+          "label": "浏阳市",
+          "value": "430181"
+        },
+        {
+          "label": "宁乡市",
+          "value": "430182"
+        }
+      ],
+      "section": "basic",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "streetSelect",
+      "id": "streetSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "望月湖街道",
+          "value": "430104001"
+        },
+        {
+          "label": "岳麓街道",
+          "value": "430104002"
+        },
+        {
+          "label": "桔子洲街道",
+          "value": "430104003"
+        },
+        {
+          "label": "银盆岭街道",
+          "value": "430104004"
+        },
+        {
+          "label": "观沙岭街道",
+          "value": "430104005"
+        },
+        {
+          "label": "望城坡街道",
+          "value": "430104006"
+        },
+        {
+          "label": "西湖街道",
+          "value": "430104007"
+        },
+        {
+          "label": "咸嘉湖街道",
+          "value": "430104008"
+        },
+        {
+          "label": "望岳街道",
+          "value": "430104009"
+        },
+        {
+          "label": "梅溪湖街道",
+          "value": "430104010"
+        },
+        {
+          "label": "麓谷街道",
+          "value": "430104011"
+        },
+        {
+          "label": "坪塘街道",
+          "value": "430104012"
+        },
+        {
+          "label": "含浦街道",
+          "value": "430104013"
+        },
+        {
+          "label": "天顶街道",
+          "value": "430104014"
+        },
+        {
+          "label": "洋湖街道",
+          "value": "430104015"
+        },
+        {
+          "label": "学士街道",
+          "value": "430104016"
+        },
+        {
+          "label": "东方红街道",
+          "value": "430104017"
+        },
+        {
+          "label": "莲花镇",
+          "value": "430104102"
+        },
+        {
+          "label": "雨敞坪镇",
+          "value": "430104105"
+        }
+      ],
+      "section": "basic",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "hotelGradeSelect",
+      "id": "hotelGradeSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "经济型",
+          "value": "经济型"
+        },
+        {
+          "label": "舒适型",
+          "value": "舒适型"
+        },
+        {
+          "label": "高档型",
+          "value": "高档型"
+        },
+        {
+          "label": "豪华型",
+          "value": "豪华型"
+        },
+        {
+          "label": "民宿",
+          "value": "民宿"
+        },
+        {
+          "label": "其他类型",
+          "value": "其他类型"
+        }
+      ],
+      "section": "basic",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "hotelTypeSelect",
+      "id": "hotelTypeSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "商务型",
+          "value": "商务型"
+        },
+        {
+          "label": "公寓型",
+          "value": "公寓型"
+        },
+        {
+          "label": "民宿型",
+          "value": "民宿型"
+        },
+        {
+          "label": "主题型",
+          "value": "主题型"
+        },
+        {
+          "label": "度假型",
+          "value": "度假型"
+        },
+        {
+          "label": "会议型",
+          "value": "会议型"
+        },
+        {
+          "label": "其他型酒店",
+          "value": "其他型酒店"
+        }
+      ],
+      "section": "basic",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "salesHoursSelect",
+      "id": "salesHoursSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "15小时",
+          "value": "15小时"
+        },
+        {
+          "label": "14小时",
+          "value": "14小时"
+        },
+        {
+          "label": "13小时",
+          "value": "13小时"
+        },
+        {
+          "label": "12小时",
+          "value": "12小时"
+        },
+        {
+          "label": "11小时",
+          "value": "11小时"
+        },
+        {
+          "label": "10小时",
+          "value": "10小时"
+        },
+        {
+          "label": "9小时",
+          "value": "9小时"
+        },
+        {
+          "label": "8小时",
+          "value": "8小时"
+        },
+        {
+          "label": "7小时",
+          "value": "7小时"
+        },
+        {
+          "label": "6小时",
+          "value": "6小时"
+        },
+        {
+          "label": "5小时",
+          "value": "5小时"
+        },
+        {
+          "label": "16小时",
+          "value": "16小时"
+        },
+        {
+          "label": "17小时",
+          "value": "17小时"
+        }
+      ],
+      "section": "basic",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "mainPlatformSelect",
+      "id": "mainPlatformSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "美团",
+          "value": "美团"
+        },
+        {
+          "label": "携程",
+          "value": "携程"
+        },
+        {
+          "label": "飞猪",
+          "value": "飞猪"
+        },
+        {
+          "label": "抖音",
+          "value": "抖音"
+        },
+        {
+          "label": "TikTok（海外内容平台）",
+          "value": "TikTok（海外内容平台）"
+        },
+        {
+          "label": "其他平台",
+          "value": "其他平台"
+        }
+      ],
+      "section": "basic",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "commissionSelect",
+      "id": "commissionSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "10%",
+          "value": "10"
+        },
+        {
+          "label": "11%",
+          "value": "11"
+        },
+        {
+          "label": "12%",
+          "value": "12"
+        },
+        {
+          "label": "13%",
+          "value": "13"
+        },
+        {
+          "label": "14%",
+          "value": "14"
+        },
+        {
+          "label": "15%",
+          "value": "15"
+        },
+        {
+          "label": "16%",
+          "value": "16"
+        },
+        {
+          "label": "17%",
+          "value": "17"
+        },
+        {
+          "label": "18%",
+          "value": "18"
+        },
+        {
+          "label": "19%",
+          "value": "19"
+        },
+        {
+          "label": "20%",
+          "value": "20"
+        },
+        {
+          "label": "21%",
+          "value": "21"
+        },
+        {
+          "label": "22%",
+          "value": "22"
+        },
+        {
+          "label": "23%",
+          "value": "23"
+        },
+        {
+          "label": "24%",
+          "value": "24"
+        },
+        {
+          "label": "25%",
+          "value": "25"
+        },
+        {
+          "label": "26%",
+          "value": "26"
+        },
+        {
+          "label": "27%",
+          "value": "27"
+        },
+        {
+          "label": "28%",
+          "value": "28"
+        },
+        {
+          "label": "29%",
+          "value": "29"
+        },
+        {
+          "label": "30%",
+          "value": "30"
+        }
+      ],
+      "section": "quick",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "paybackExpectationSelect",
+      "id": "paybackExpectationSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "1年",
+          "value": "1"
+        },
+        {
+          "label": "1.5年",
+          "value": "1.5"
+        },
+        {
+          "label": "2年",
+          "value": "2"
+        },
+        {
+          "label": "2.5年",
+          "value": "2.5"
+        },
+        {
+          "label": "3年",
+          "value": "3"
+        },
+        {
+          "label": "3.5年",
+          "value": "3.5"
+        },
+        {
+          "label": "4年",
+          "value": "4"
+        },
+        {
+          "label": "4.5年",
+          "value": "4.5"
+        },
+        {
+          "label": "5年",
+          "value": "5"
+        },
+        {
+          "label": "5.5年",
+          "value": "5.5"
+        },
+        {
+          "label": "6年",
+          "value": "6"
+        },
+        {
+          "label": "6.5年",
+          "value": "6.5"
+        },
+        {
+          "label": "7年",
+          "value": "7"
+        },
+        {
+          "label": "7.5年",
+          "value": "7.5"
+        },
+        {
+          "label": "8年",
+          "value": "8"
+        },
+        {
+          "label": "8.5年",
+          "value": "8.5"
+        },
+        {
+          "label": "9年",
+          "value": "9"
+        },
+        {
+          "label": "9.5年",
+          "value": "9.5"
+        },
+        {
+          "label": "10年",
+          "value": "10"
+        }
+      ],
+      "section": "quick",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "laundrySelect",
+      "id": "laundrySelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "¥5.50/间",
+          "value": "5.5"
+        },
+        {
+          "label": "¥6.00/间",
+          "value": "6"
+        },
+        {
+          "label": "¥6.50/间",
+          "value": "6.5"
+        },
+        {
+          "label": "¥7.00/间",
+          "value": "7"
+        },
+        {
+          "label": "¥7.50/间",
+          "value": "7.5"
+        },
+        {
+          "label": "¥8.00/间",
+          "value": "8"
+        },
+        {
+          "label": "¥8.50/间",
+          "value": "8.5"
+        },
+        {
+          "label": "¥9.00/间",
+          "value": "9"
+        },
+        {
+          "label": "¥9.50/间",
+          "value": "9.5"
+        },
+        {
+          "label": "¥10.00/间",
+          "value": "10"
+        },
+        {
+          "label": "¥10.50/间",
+          "value": "10.5"
+        },
+        {
+          "label": "¥11.00/间",
+          "value": "11"
+        },
+        {
+          "label": "¥11.50/间",
+          "value": "11.5"
+        },
+        {
+          "label": "¥12.00/间",
+          "value": "12"
+        },
+        {
+          "label": "¥12.50/间",
+          "value": "12.5"
+        },
+        {
+          "label": "¥13.00/间",
+          "value": "13"
+        },
+        {
+          "label": "¥13.50/间",
+          "value": "13.5"
+        },
+        {
+          "label": "¥14.00/间",
+          "value": "14"
+        },
+        {
+          "label": "¥14.50/间",
+          "value": "14.5"
+        },
+        {
+          "label": "¥15.00/间",
+          "value": "15"
+        },
+        {
+          "label": "¥15.50/间",
+          "value": "15.5"
+        },
+        {
+          "label": "¥16.00/间",
+          "value": "16"
+        },
+        {
+          "label": "¥16.50/间",
+          "value": "16.5"
+        },
+        {
+          "label": "¥17.00/间",
+          "value": "17"
+        },
+        {
+          "label": "¥17.50/间",
+          "value": "17.5"
+        },
+        {
+          "label": "¥18.00/间",
+          "value": "18"
+        },
+        {
+          "label": "¥18.50/间",
+          "value": "18.5"
+        },
+        {
+          "label": "¥19.00/间",
+          "value": "19"
+        },
+        {
+          "label": "¥19.50/间",
+          "value": "19.5"
+        },
+        {
+          "label": "¥20.00/间",
+          "value": "20"
+        }
+      ],
+      "section": "quick",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "breakfastSelect",
+      "id": "breakfastSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "不含早 ¥0/间",
+          "value": "0"
+        },
+        {
+          "label": "¥2.00/间",
+          "value": "2"
+        },
+        {
+          "label": "¥2.50/间",
+          "value": "2.5"
+        },
+        {
+          "label": "¥3.00/间",
+          "value": "3"
+        },
+        {
+          "label": "¥3.50/间",
+          "value": "3.5"
+        },
+        {
+          "label": "¥4.00/间",
+          "value": "4"
+        },
+        {
+          "label": "¥4.50/间",
+          "value": "4.5"
+        },
+        {
+          "label": "¥5.00/间",
+          "value": "5"
+        },
+        {
+          "label": "¥5.50/间",
+          "value": "5.5"
+        },
+        {
+          "label": "¥6.00/间",
+          "value": "6"
+        },
+        {
+          "label": "¥6.50/间",
+          "value": "6.5"
+        },
+        {
+          "label": "¥7.00/间",
+          "value": "7"
+        },
+        {
+          "label": "¥7.50/间",
+          "value": "7.5"
+        },
+        {
+          "label": "¥8.00/间",
+          "value": "8"
+        },
+        {
+          "label": "¥8.50/间",
+          "value": "8.5"
+        },
+        {
+          "label": "¥9.00/间",
+          "value": "9"
+        },
+        {
+          "label": "¥9.50/间",
+          "value": "9.5"
+        },
+        {
+          "label": "¥10.00/间",
+          "value": "10"
+        },
+        {
+          "label": "¥10.50/间",
+          "value": "10.5"
+        },
+        {
+          "label": "¥11.00/间",
+          "value": "11"
+        },
+        {
+          "label": "¥11.50/间",
+          "value": "11.5"
+        },
+        {
+          "label": "¥12.00/间",
+          "value": "12"
+        },
+        {
+          "label": "¥12.50/间",
+          "value": "12.5"
+        },
+        {
+          "label": "¥13.00/间",
+          "value": "13"
+        },
+        {
+          "label": "¥13.50/间",
+          "value": "13.5"
+        },
+        {
+          "label": "¥14.00/间",
+          "value": "14"
+        },
+        {
+          "label": "¥14.50/间",
+          "value": "14.5"
+        },
+        {
+          "label": "¥15.00/间",
+          "value": "15"
+        },
+        {
+          "label": "¥15.50/间",
+          "value": "15.5"
+        },
+        {
+          "label": "¥16.00/间",
+          "value": "16"
+        },
+        {
+          "label": "¥16.50/间",
+          "value": "16.5"
+        },
+        {
+          "label": "¥17.00/间",
+          "value": "17"
+        },
+        {
+          "label": "¥17.50/间",
+          "value": "17.5"
+        },
+        {
+          "label": "¥18.00/间",
+          "value": "18"
+        },
+        {
+          "label": "¥18.50/间",
+          "value": "18.5"
+        },
+        {
+          "label": "¥19.00/间",
+          "value": "19"
+        },
+        {
+          "label": "¥19.50/间",
+          "value": "19.5"
+        },
+        {
+          "label": "¥20.00/间",
+          "value": "20"
+        },
+        {
+          "label": "¥20.50/间",
+          "value": "20.5"
+        },
+        {
+          "label": "¥21.00/间",
+          "value": "21"
+        },
+        {
+          "label": "¥21.50/间",
+          "value": "21.5"
+        },
+        {
+          "label": "¥22.00/间",
+          "value": "22"
+        },
+        {
+          "label": "¥22.50/间",
+          "value": "22.5"
+        },
+        {
+          "label": "¥23.00/间",
+          "value": "23"
+        },
+        {
+          "label": "¥23.50/间",
+          "value": "23.5"
+        },
+        {
+          "label": "¥24.00/间",
+          "value": "24"
+        },
+        {
+          "label": "¥24.50/间",
+          "value": "24.5"
+        },
+        {
+          "label": "¥25.00/间",
+          "value": "25"
+        },
+        {
+          "label": "¥25.50/间",
+          "value": "25.5"
+        },
+        {
+          "label": "¥26.00/间",
+          "value": "26"
+        },
+        {
+          "label": "¥26.50/间",
+          "value": "26.5"
+        },
+        {
+          "label": "¥27.00/间",
+          "value": "27"
+        },
+        {
+          "label": "¥27.50/间",
+          "value": "27.5"
+        },
+        {
+          "label": "¥28.00/间",
+          "value": "28"
+        },
+        {
+          "label": "¥28.50/间",
+          "value": "28.5"
+        },
+        {
+          "label": "¥29.00/间",
+          "value": "29"
+        },
+        {
+          "label": "¥29.50/间",
+          "value": "29.5"
+        },
+        {
+          "label": "¥30.00/间",
+          "value": "30"
+        }
+      ],
+      "section": "quick",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "marketMeituanHotelSelect",
+      "id": "marketMeituanHotelSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择酒店",
+          "value": "请选择酒店"
+        },
+        {
+          "label": "测试酒店123",
+          "value": "测试酒店123"
+        }
+      ],
+      "section": "market-competition",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "marketMeituanCommentReplyType",
+      "id": "marketMeituanCommentReplyType__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "差评/待回复",
+          "value": "差评/待回复"
+        },
+        {
+          "label": "全部",
+          "value": "全部"
+        },
+        {
+          "label": "已回复",
+          "value": "已回复"
+        }
+      ],
+      "section": "market-competition",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "marketMeituanCommentLimit",
+      "id": "marketMeituanCommentLimit__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "50条",
+          "value": "50条"
+        },
+        {
+          "label": "100条",
+          "value": "100条"
+        }
+      ],
+      "section": "market-competition",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "marketMeituanCommentTag",
+      "id": "marketMeituanCommentTag__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "全部",
+          "value": "全部"
+        },
+        {
+          "label": "设施",
+          "value": "设施"
+        },
+        {
+          "label": "服务",
+          "value": "服务"
+        },
+        {
+          "label": "卫生",
+          "value": "卫生"
+        }
+      ],
+      "section": "market-competition",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "marketCtripHotelSelect",
+      "id": "marketCtripHotelSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择酒店",
+          "value": "请选择酒店"
+        },
+        {
+          "label": "郴州测试12",
+          "value": "郴州测试12"
+        }
+      ],
+      "section": "market-competition",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "native_select_1",
+      "id": "native_select_1__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "全部酒店",
+          "value": "全部酒店"
+        },
+        {
+          "label": "郴州测试12",
+          "value": "郴州测试12"
+        }
+      ],
+      "section": "market-competition",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "otaBookingSampleDateRange",
+      "id": "otaBookingSampleDateRange__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "实时",
+          "value": "实时"
+        },
+        {
+          "label": "昨日",
+          "value": "昨日"
+        },
+        {
+          "label": "近7天",
+          "value": "近7天"
+        },
+        {
+          "label": "近30天",
+          "value": "近30天"
+        }
+      ],
+      "section": "market-competition",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "otaProvinceSelect",
+      "id": "otaProvinceSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "北京市",
+          "value": "11"
+        },
+        {
+          "label": "天津市",
+          "value": "12"
+        },
+        {
+          "label": "河北省",
+          "value": "13"
+        },
+        {
+          "label": "山西省",
+          "value": "14"
+        },
+        {
+          "label": "内蒙古自治区",
+          "value": "15"
+        },
+        {
+          "label": "辽宁省",
+          "value": "21"
+        },
+        {
+          "label": "吉林省",
+          "value": "22"
+        },
+        {
+          "label": "黑龙江省",
+          "value": "23"
+        },
+        {
+          "label": "上海市",
+          "value": "31"
+        },
+        {
+          "label": "江苏省",
+          "value": "32"
+        },
+        {
+          "label": "浙江省",
+          "value": "33"
+        },
+        {
+          "label": "安徽省",
+          "value": "34"
+        },
+        {
+          "label": "福建省",
+          "value": "35"
+        },
+        {
+          "label": "江西省",
+          "value": "36"
+        },
+        {
+          "label": "山东省",
+          "value": "37"
+        },
+        {
+          "label": "河南省",
+          "value": "41"
+        },
+        {
+          "label": "湖北省",
+          "value": "42"
+        },
+        {
+          "label": "湖南省",
+          "value": "43"
+        },
+        {
+          "label": "广东省",
+          "value": "44"
+        },
+        {
+          "label": "广西壮族自治区",
+          "value": "45"
+        },
+        {
+          "label": "海南省",
+          "value": "46"
+        },
+        {
+          "label": "重庆市",
+          "value": "50"
+        },
+        {
+          "label": "四川省",
+          "value": "51"
+        },
+        {
+          "label": "贵州省",
+          "value": "52"
+        },
+        {
+          "label": "云南省",
+          "value": "53"
+        },
+        {
+          "label": "西藏自治区",
+          "value": "54"
+        },
+        {
+          "label": "陕西省",
+          "value": "61"
+        },
+        {
+          "label": "甘肃省",
+          "value": "62"
+        },
+        {
+          "label": "青海省",
+          "value": "63"
+        },
+        {
+          "label": "宁夏回族自治区",
+          "value": "64"
+        },
+        {
+          "label": "新疆维吾尔自治区",
+          "value": "65"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaCitySelect",
+      "id": "otaCitySelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "长沙市",
+          "value": "4301"
+        },
+        {
+          "label": "株洲市",
+          "value": "4302"
+        },
+        {
+          "label": "湘潭市",
+          "value": "4303"
+        },
+        {
+          "label": "衡阳市",
+          "value": "4304"
+        },
+        {
+          "label": "邵阳市",
+          "value": "4305"
+        },
+        {
+          "label": "岳阳市",
+          "value": "4306"
+        },
+        {
+          "label": "常德市",
+          "value": "4307"
+        },
+        {
+          "label": "张家界市",
+          "value": "4308"
+        },
+        {
+          "label": "益阳市",
+          "value": "4309"
+        },
+        {
+          "label": "郴州市",
+          "value": "4310"
+        },
+        {
+          "label": "永州市",
+          "value": "4311"
+        },
+        {
+          "label": "怀化市",
+          "value": "4312"
+        },
+        {
+          "label": "娄底市",
+          "value": "4313"
+        },
+        {
+          "label": "湘西土家族苗族自治州",
+          "value": "4331"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDistrictSelect",
+      "id": "otaDistrictSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "芙蓉区",
+          "value": "430102"
+        },
+        {
+          "label": "天心区",
+          "value": "430103"
+        },
+        {
+          "label": "岳麓区",
+          "value": "430104"
+        },
+        {
+          "label": "开福区",
+          "value": "430105"
+        },
+        {
+          "label": "雨花区",
+          "value": "430111"
+        },
+        {
+          "label": "望城区",
+          "value": "430112"
+        },
+        {
+          "label": "长沙县",
+          "value": "430121"
+        },
+        {
+          "label": "浏阳市",
+          "value": "430181"
+        },
+        {
+          "label": "宁乡市",
+          "value": "430182"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaStreetSelect",
+      "id": "otaStreetSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "望月湖街道",
+          "value": "430104001"
+        },
+        {
+          "label": "岳麓街道",
+          "value": "430104002"
+        },
+        {
+          "label": "桔子洲街道",
+          "value": "430104003"
+        },
+        {
+          "label": "银盆岭街道",
+          "value": "430104004"
+        },
+        {
+          "label": "观沙岭街道",
+          "value": "430104005"
+        },
+        {
+          "label": "望城坡街道",
+          "value": "430104006"
+        },
+        {
+          "label": "西湖街道",
+          "value": "430104007"
+        },
+        {
+          "label": "咸嘉湖街道",
+          "value": "430104008"
+        },
+        {
+          "label": "望岳街道",
+          "value": "430104009"
+        },
+        {
+          "label": "梅溪湖街道",
+          "value": "430104010"
+        },
+        {
+          "label": "麓谷街道",
+          "value": "430104011"
+        },
+        {
+          "label": "坪塘街道",
+          "value": "430104012"
+        },
+        {
+          "label": "含浦街道",
+          "value": "430104013"
+        },
+        {
+          "label": "天顶街道",
+          "value": "430104014"
+        },
+        {
+          "label": "洋湖街道",
+          "value": "430104015"
+        },
+        {
+          "label": "学士街道",
+          "value": "430104016"
+        },
+        {
+          "label": "东方红街道",
+          "value": "430104017"
+        },
+        {
+          "label": "莲花镇",
+          "value": "430104102"
+        },
+        {
+          "label": "雨敞坪镇",
+          "value": "430104105"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaBaseHotelGrade",
+      "id": "otaBaseHotelGrade",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "经济型",
+          "value": "经济型"
+        },
+        {
+          "label": "舒适型",
+          "value": "舒适型"
+        },
+        {
+          "label": "高档型",
+          "value": "高档型"
+        },
+        {
+          "label": "豪华型",
+          "value": "豪华型"
+        },
+        {
+          "label": "民宿",
+          "value": "民宿"
+        },
+        {
+          "label": "其他类型",
+          "value": "其他类型"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaBaseHotelType",
+      "id": "otaBaseHotelType",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "商务型",
+          "value": "商务型"
+        },
+        {
+          "label": "公寓型",
+          "value": "公寓型"
+        },
+        {
+          "label": "民宿型",
+          "value": "民宿型"
+        },
+        {
+          "label": "主题型",
+          "value": "主题型"
+        },
+        {
+          "label": "度假型",
+          "value": "度假型"
+        },
+        {
+          "label": "会议型",
+          "value": "会议型"
+        },
+        {
+          "label": "其他型酒店",
+          "value": "其他型酒店"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaBaseOpeningTime",
+      "id": "otaBaseOpeningTime",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "2026年",
+          "value": "2026年"
+        },
+        {
+          "label": "2025年",
+          "value": "2025年"
+        },
+        {
+          "label": "2024年",
+          "value": "2024年"
+        },
+        {
+          "label": "2023年",
+          "value": "2023年"
+        },
+        {
+          "label": "2022年",
+          "value": "2022年"
+        },
+        {
+          "label": "2021年",
+          "value": "2021年"
+        },
+        {
+          "label": "2020年",
+          "value": "2020年"
+        },
+        {
+          "label": "2019年",
+          "value": "2019年"
+        },
+        {
+          "label": "2018年",
+          "value": "2018年"
+        },
+        {
+          "label": "2017年",
+          "value": "2017年"
+        },
+        {
+          "label": "2016年",
+          "value": "2016年"
+        },
+        {
+          "label": "2015年",
+          "value": "2015年"
+        },
+        {
+          "label": "2014年",
+          "value": "2014年"
+        },
+        {
+          "label": "2013年",
+          "value": "2013年"
+        },
+        {
+          "label": "2012年",
+          "value": "2012年"
+        },
+        {
+          "label": "2011年",
+          "value": "2011年"
+        },
+        {
+          "label": "2010年",
+          "value": "2010年"
+        },
+        {
+          "label": "2009年",
+          "value": "2009年"
+        },
+        {
+          "label": "2008年",
+          "value": "2008年"
+        },
+        {
+          "label": "2007年",
+          "value": "2007年"
+        },
+        {
+          "label": "2006年",
+          "value": "2006年"
+        },
+        {
+          "label": "2005年",
+          "value": "2005年"
+        },
+        {
+          "label": "2004年",
+          "value": "2004年"
+        },
+        {
+          "label": "2003年",
+          "value": "2003年"
+        },
+        {
+          "label": "2002年",
+          "value": "2002年"
+        },
+        {
+          "label": "2001年",
+          "value": "2001年"
+        },
+        {
+          "label": "2000年",
+          "value": "2000年"
+        },
+        {
+          "label": "1999年",
+          "value": "1999年"
+        },
+        {
+          "label": "1998年",
+          "value": "1998年"
+        },
+        {
+          "label": "1997年",
+          "value": "1997年"
+        },
+        {
+          "label": "1996年",
+          "value": "1996年"
+        },
+        {
+          "label": "1995年",
+          "value": "1995年"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaBaseMainPlatform",
+      "id": "otaBaseMainPlatform",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "美团",
+          "value": "美团"
+        },
+        {
+          "label": "携程",
+          "value": "携程"
+        },
+        {
+          "label": "飞猪",
+          "value": "飞猪"
+        },
+        {
+          "label": "抖音",
+          "value": "抖音"
+        },
+        {
+          "label": "TikTok（海外内容平台）",
+          "value": "TikTok（海外内容平台）"
+        },
+        {
+          "label": "其他平台",
+          "value": "其他平台"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaBaseSalesHours",
+      "id": "otaBaseSalesHours",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "5小时",
+          "value": "5小时"
+        },
+        {
+          "label": "6小时",
+          "value": "6小时"
+        },
+        {
+          "label": "7小时",
+          "value": "7小时"
+        },
+        {
+          "label": "8小时",
+          "value": "8小时"
+        },
+        {
+          "label": "9小时",
+          "value": "9小时"
+        },
+        {
+          "label": "10小时",
+          "value": "10小时"
+        },
+        {
+          "label": "11小时",
+          "value": "11小时"
+        },
+        {
+          "label": "12小时",
+          "value": "12小时"
+        },
+        {
+          "label": "13小时",
+          "value": "13小时"
+        },
+        {
+          "label": "14小时",
+          "value": "14小时"
+        },
+        {
+          "label": "15小时",
+          "value": "15小时"
+        },
+        {
+          "label": "16小时",
+          "value": "16小时"
+        },
+        {
+          "label": "17小时",
+          "value": "17小时"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "native_select_14",
+      "id": "native_select_14__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "前3名",
+          "value": "前3名"
+        },
+        {
+          "label": "前5名",
+          "value": "前5名"
+        },
+        {
+          "label": "前10名",
+          "value": "前10名"
+        },
+        {
+          "label": "前15名",
+          "value": "前15名"
+        },
+        {
+          "label": "前20名",
+          "value": "前20名"
+        },
+        {
+          "label": "前25名",
+          "value": "前25名"
+        },
+        {
+          "label": "前30名",
+          "value": "前30名"
+        },
+        {
+          "label": "30名以后",
+          "value": "30名以后"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "native_select_15",
+      "id": "native_select_15__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "前3名",
+          "value": "前3名"
+        },
+        {
+          "label": "前5名",
+          "value": "前5名"
+        },
+        {
+          "label": "前10名",
+          "value": "前10名"
+        },
+        {
+          "label": "前15名",
+          "value": "前15名"
+        },
+        {
+          "label": "前20名",
+          "value": "前20名"
+        },
+        {
+          "label": "前25名",
+          "value": "前25名"
+        },
+        {
+          "label": "前30名",
+          "value": "前30名"
+        },
+        {
+          "label": "30名以后",
+          "value": "30名以后"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "native_select_16",
+      "id": "native_select_16__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "前3名",
+          "value": "前3名"
+        },
+        {
+          "label": "前5名",
+          "value": "前5名"
+        },
+        {
+          "label": "前10名",
+          "value": "前10名"
+        },
+        {
+          "label": "前15名",
+          "value": "前15名"
+        },
+        {
+          "label": "前20名",
+          "value": "前20名"
+        },
+        {
+          "label": "前25名",
+          "value": "前25名"
+        },
+        {
+          "label": "前30名",
+          "value": "前30名"
+        },
+        {
+          "label": "30名以后",
+          "value": "30名以后"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "native_select_17",
+      "id": "native_select_17__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "前3名",
+          "value": "前3名"
+        },
+        {
+          "label": "前5名",
+          "value": "前5名"
+        },
+        {
+          "label": "前10名",
+          "value": "前10名"
+        },
+        {
+          "label": "前15名",
+          "value": "前15名"
+        },
+        {
+          "label": "前20名",
+          "value": "前20名"
+        },
+        {
+          "label": "前25名",
+          "value": "前25名"
+        },
+        {
+          "label": "前30名",
+          "value": "前30名"
+        },
+        {
+          "label": "30名以后",
+          "value": "30名以后"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListHotelCoverImage",
+      "id": "otaListHotelCoverImage__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "强",
+          "value": "强"
+        },
+        {
+          "label": "中",
+          "value": "中"
+        },
+        {
+          "label": "弱",
+          "value": "弱"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListHotelName",
+      "id": "otaListHotelName__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "强",
+          "value": "强"
+        },
+        {
+          "label": "中",
+          "value": "中"
+        },
+        {
+          "label": "弱",
+          "value": "弱"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListBranchName",
+      "id": "otaListBranchName__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "强",
+          "value": "强"
+        },
+        {
+          "label": "中",
+          "value": "中"
+        },
+        {
+          "label": "弱",
+          "value": "弱"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListNameRefinement",
+      "id": "otaListNameRefinement__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "强",
+          "value": "强"
+        },
+        {
+          "label": "中",
+          "value": "中"
+        },
+        {
+          "label": "弱",
+          "value": "弱"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListReviewScore",
+      "id": "otaListReviewScore__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "5.0",
+          "value": "5.0"
+        },
+        {
+          "label": "4.9",
+          "value": "4.9"
+        },
+        {
+          "label": "4.8",
+          "value": "4.8"
+        },
+        {
+          "label": "4.7",
+          "value": "4.7"
+        },
+        {
+          "label": "4.6",
+          "value": "4.6"
+        },
+        {
+          "label": "4.5",
+          "value": "4.5"
+        },
+        {
+          "label": "4.4",
+          "value": "4.4"
+        },
+        {
+          "label": "4.3",
+          "value": "4.3"
+        },
+        {
+          "label": "4.2",
+          "value": "4.2"
+        },
+        {
+          "label": "4.1分",
+          "value": "4.1分"
+        },
+        {
+          "label": "4分以下",
+          "value": "4分以下"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListConsumptionCount",
+      "id": "otaListConsumptionCount__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "100+",
+          "value": "100+"
+        },
+        {
+          "label": "200+",
+          "value": "200+"
+        },
+        {
+          "label": "500+",
+          "value": "500+"
+        },
+        {
+          "label": "1000+",
+          "value": "1000+"
+        },
+        {
+          "label": "5000+",
+          "value": "5000+"
+        },
+        {
+          "label": "1万+",
+          "value": "1万+"
+        },
+        {
+          "label": "2万+",
+          "value": "2万+"
+        },
+        {
+          "label": "3万+",
+          "value": "3万+"
+        },
+        {
+          "label": "4万+",
+          "value": "4万+"
+        },
+        {
+          "label": "5万+",
+          "value": "5万+"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListWalkingDistance",
+      "id": "otaListWalkingDistance__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "100米",
+          "value": "100米"
+        },
+        {
+          "label": "200米",
+          "value": "200米"
+        },
+        {
+          "label": "300米",
+          "value": "300米"
+        },
+        {
+          "label": "400米",
+          "value": "400米"
+        },
+        {
+          "label": "500米",
+          "value": "500米"
+        },
+        {
+          "label": "600米",
+          "value": "600米"
+        },
+        {
+          "label": "700米",
+          "value": "700米"
+        },
+        {
+          "label": "800米",
+          "value": "800米"
+        },
+        {
+          "label": "900米",
+          "value": "900米"
+        },
+        {
+          "label": "1公里",
+          "value": "1公里"
+        },
+        {
+          "label": "2公里",
+          "value": "2公里"
+        },
+        {
+          "label": "3公里",
+          "value": "3公里"
+        },
+        {
+          "label": "4公里",
+          "value": "4公里"
+        },
+        {
+          "label": "5公里",
+          "value": "5公里"
+        },
+        {
+          "label": "6公里+",
+          "value": "6公里+"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListHotelDiscount",
+      "id": "otaListHotelDiscount__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "95折",
+          "value": "95折"
+        },
+        {
+          "label": "9折",
+          "value": "9折"
+        },
+        {
+          "label": "8.5折",
+          "value": "8.5折"
+        },
+        {
+          "label": "8折",
+          "value": "8折"
+        },
+        {
+          "label": "75折",
+          "value": "75折"
+        },
+        {
+          "label": "7折",
+          "value": "7折"
+        },
+        {
+          "label": "65折",
+          "value": "65折"
+        },
+        {
+          "label": "6折",
+          "value": "6折"
+        },
+        {
+          "label": "55折",
+          "value": "55折"
+        },
+        {
+          "label": "5折",
+          "value": "5折"
+        },
+        {
+          "label": "5折以下",
+          "value": "5折以下"
+        },
+        {
+          "label": "无折扣",
+          "value": "无折扣"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListBookingUrgency",
+      "id": "otaListBookingUrgency__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "有",
+          "value": "有"
+        },
+        {
+          "label": "无",
+          "value": "无"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListLowestPriceStock",
+      "id": "otaListLowestPriceStock__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "不限制",
+          "value": "不限制"
+        },
+        {
+          "label": "1间",
+          "value": "1间"
+        },
+        {
+          "label": "2间",
+          "value": "2间"
+        },
+        {
+          "label": "3间",
+          "value": "3间"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListHotelActivityTag",
+      "id": "otaListHotelActivityTag__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "有",
+          "value": "有"
+        },
+        {
+          "label": "无",
+          "value": "无"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListMeituanLiveBar",
+      "id": "otaListMeituanLiveBar__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "有",
+          "value": "有"
+        },
+        {
+          "label": "无",
+          "value": "无"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaListHotelRights",
+      "id": "otaListHotelRights__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "无冠",
+          "value": "无冠"
+        },
+        {
+          "label": "银冠",
+          "value": "银冠"
+        },
+        {
+          "label": "金冠",
+          "value": "金冠"
+        },
+        {
+          "label": "黑金1",
+          "value": "黑金1"
+        },
+        {
+          "label": "黑金2",
+          "value": "黑金2"
+        },
+        {
+          "label": "黑金3",
+          "value": "黑金3"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailAlbumCompleteness",
+      "id": "otaDetailAlbumCompleteness__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "优秀",
+          "value": "优秀"
+        },
+        {
+          "label": "良好",
+          "value": "良好"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "精进",
+          "value": "精进"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "otaDetailRegionalCompetitiveness",
+      "id": "otaDetailRegionalCompetitiveness__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "优秀",
+          "value": "优秀"
+        },
+        {
+          "label": "良好",
+          "value": "良好"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "otaDetailReplyQuality",
+      "id": "otaDetailReplyQuality__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "优秀",
+          "value": "优秀"
+        },
+        {
+          "label": "良好",
+          "value": "良好"
+        },
+        {
+          "label": "及格",
+          "value": "及格"
+        },
+        {
+          "label": "努力",
+          "value": "努力"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "otaDetailPhysicalAddressCheck",
+      "id": "otaDetailPhysicalAddressCheck__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "0级",
+          "value": "0级"
+        },
+        {
+          "label": "1级",
+          "value": "1级"
+        },
+        {
+          "label": "2级",
+          "value": "2级"
+        },
+        {
+          "label": "3级",
+          "value": "3级"
+        },
+        {
+          "label": "4级",
+          "value": "4级"
+        },
+        {
+          "label": "5级",
+          "value": "5级"
+        },
+        {
+          "label": "6级",
+          "value": "6级"
+        },
+        {
+          "label": "7级",
+          "value": "7级"
+        },
+        {
+          "label": "8级",
+          "value": "8级"
+        },
+        {
+          "label": "9级",
+          "value": "9级"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailFuturePriceCheck",
+      "id": "otaDetailFuturePriceCheck__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomNameOptimize",
+      "id": "otaDetailRoomNameOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomSuffixOptimize",
+      "id": "otaDetailRoomSuffixOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomHighlightOptimize",
+      "id": "otaDetailRoomHighlightOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomGiftOptimize",
+      "id": "otaDetailRoomGiftOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomPackageOptimize",
+      "id": "otaDetailRoomPackageOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "没有",
+          "value": "没有"
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomPackageAdvantage",
+      "id": "otaDetailRoomPackageAdvantage__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "强",
+          "value": "强"
+        },
+        {
+          "label": "中",
+          "value": "中"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "努力",
+          "value": "努力"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomPackageCount",
+      "id": "otaDetailRoomPackageCount__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "0",
+          "value": "0"
+        },
+        {
+          "label": "1",
+          "value": "1"
+        },
+        {
+          "label": "2",
+          "value": "2"
+        },
+        {
+          "label": "3",
+          "value": "3"
+        },
+        {
+          "label": "4",
+          "value": "4"
+        },
+        {
+          "label": "5",
+          "value": "5"
+        },
+        {
+          "label": "6",
+          "value": "6"
+        },
+        {
+          "label": "7",
+          "value": "7"
+        },
+        {
+          "label": "8",
+          "value": "8"
+        },
+        {
+          "label": "9",
+          "value": "9"
+        },
+        {
+          "label": "10",
+          "value": "10"
+        },
+        {
+          "label": "11",
+          "value": "11"
+        },
+        {
+          "label": "12",
+          "value": "12"
+        },
+        {
+          "label": "13",
+          "value": "13"
+        },
+        {
+          "label": "14",
+          "value": "14"
+        },
+        {
+          "label": "15",
+          "value": "15"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomImageOptimize",
+      "id": "otaDetailRoomImageOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailStoreBasicInfoOptimize",
+      "id": "otaDetailStoreBasicInfoOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailHotelBusinessAreaCorrection",
+      "id": "otaDetailHotelBusinessAreaCorrection__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailHotelIntroductionOptimize",
+      "id": "otaDetailHotelIntroductionOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailBreakfastSupply",
+      "id": "otaDetailBreakfastSupply__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "无早",
+          "value": "无早"
+        },
+        {
+          "label": "单早",
+          "value": "单早"
+        },
+        {
+          "label": "双早",
+          "value": "双早"
+        },
+        {
+          "label": "路早",
+          "value": "路早"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomArea",
+      "id": "otaDetailRoomArea__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "10平米以下",
+          "value": "10平米以下"
+        },
+        {
+          "label": "11-15平米",
+          "value": "11-15平米"
+        },
+        {
+          "label": "15-18平米",
+          "value": "15-18平米"
+        },
+        {
+          "label": "18-23平米",
+          "value": "18-23平米"
+        },
+        {
+          "label": "23-28平米",
+          "value": "23-28平米"
+        },
+        {
+          "label": "28-33平米",
+          "value": "28-33平米"
+        },
+        {
+          "label": "33-38平米",
+          "value": "33-38平米"
+        },
+        {
+          "label": "38-43平米",
+          "value": "38-43平米"
+        },
+        {
+          "label": "43-48平米",
+          "value": "43-48平米"
+        },
+        {
+          "label": "48-50平米",
+          "value": "48-50平米"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomBedType",
+      "id": "otaDetailRoomBedType__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "大床",
+          "value": "大床"
+        },
+        {
+          "label": "双床",
+          "value": "双床"
+        },
+        {
+          "label": "三人床",
+          "value": "三人床"
+        },
+        {
+          "label": "四人床",
+          "value": "四人床"
+        },
+        {
+          "label": "五人床",
+          "value": "五人床"
+        },
+        {
+          "label": "上下铺",
+          "value": "上下铺"
+        },
+        {
+          "label": "其他床",
+          "value": "其他床"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailWindowWithRatio",
+      "id": "otaDetailWindowWithRatio__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "100%",
+          "value": "100%"
+        },
+        {
+          "label": "95%",
+          "value": "95%"
+        },
+        {
+          "label": "90%",
+          "value": "90%"
+        },
+        {
+          "label": "85%",
+          "value": "85%"
+        },
+        {
+          "label": "80%",
+          "value": "80%"
+        },
+        {
+          "label": "75%",
+          "value": "75%"
+        },
+        {
+          "label": "70%",
+          "value": "70%"
+        },
+        {
+          "label": "65%",
+          "value": "65%"
+        },
+        {
+          "label": "60%",
+          "value": "60%"
+        },
+        {
+          "label": "55%",
+          "value": "55%"
+        },
+        {
+          "label": "50%",
+          "value": "50%"
+        },
+        {
+          "label": "45%",
+          "value": "45%"
+        },
+        {
+          "label": "40%",
+          "value": "40%"
+        },
+        {
+          "label": "35%",
+          "value": "35%"
+        },
+        {
+          "label": "30%",
+          "value": "30%"
+        },
+        {
+          "label": "25%",
+          "value": "25%"
+        },
+        {
+          "label": "20%",
+          "value": "20%"
+        },
+        {
+          "label": "15%",
+          "value": "15%"
+        },
+        {
+          "label": "10%",
+          "value": "10%"
+        },
+        {
+          "label": "5%",
+          "value": "5%"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailWindowWithoutRatio",
+      "id": "otaDetailWindowWithoutRatio__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "100%",
+          "value": "100%"
+        },
+        {
+          "label": "95%",
+          "value": "95%"
+        },
+        {
+          "label": "90%",
+          "value": "90%"
+        },
+        {
+          "label": "85%",
+          "value": "85%"
+        },
+        {
+          "label": "80%",
+          "value": "80%"
+        },
+        {
+          "label": "75%",
+          "value": "75%"
+        },
+        {
+          "label": "70%",
+          "value": "70%"
+        },
+        {
+          "label": "65%",
+          "value": "65%"
+        },
+        {
+          "label": "60%",
+          "value": "60%"
+        },
+        {
+          "label": "55%",
+          "value": "55%"
+        },
+        {
+          "label": "50%",
+          "value": "50%"
+        },
+        {
+          "label": "45%",
+          "value": "45%"
+        },
+        {
+          "label": "40%",
+          "value": "40%"
+        },
+        {
+          "label": "35%",
+          "value": "35%"
+        },
+        {
+          "label": "30%",
+          "value": "30%"
+        },
+        {
+          "label": "25%",
+          "value": "25%"
+        },
+        {
+          "label": "20%",
+          "value": "20%"
+        },
+        {
+          "label": "15%",
+          "value": "15%"
+        },
+        {
+          "label": "10%",
+          "value": "10%"
+        },
+        {
+          "label": "5%",
+          "value": "5%"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailBigBedRoomTypeCount",
+      "id": "otaDetailBigBedRoomTypeCount__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "1",
+          "value": "1"
+        },
+        {
+          "label": "2",
+          "value": "2"
+        },
+        {
+          "label": "3",
+          "value": "3"
+        },
+        {
+          "label": "4",
+          "value": "4"
+        },
+        {
+          "label": "5",
+          "value": "5"
+        },
+        {
+          "label": "6",
+          "value": "6"
+        },
+        {
+          "label": "7",
+          "value": "7"
+        },
+        {
+          "label": "8",
+          "value": "8"
+        },
+        {
+          "label": "9",
+          "value": "9"
+        },
+        {
+          "label": "10",
+          "value": "10"
+        },
+        {
+          "label": "11",
+          "value": "11"
+        },
+        {
+          "label": "12",
+          "value": "12"
+        },
+        {
+          "label": "13",
+          "value": "13"
+        },
+        {
+          "label": "14",
+          "value": "14"
+        },
+        {
+          "label": "15",
+          "value": "15"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailTwinBedRoomTypeCount",
+      "id": "otaDetailTwinBedRoomTypeCount__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "1",
+          "value": "1"
+        },
+        {
+          "label": "2",
+          "value": "2"
+        },
+        {
+          "label": "3",
+          "value": "3"
+        },
+        {
+          "label": "4",
+          "value": "4"
+        },
+        {
+          "label": "5",
+          "value": "5"
+        },
+        {
+          "label": "6",
+          "value": "6"
+        },
+        {
+          "label": "7",
+          "value": "7"
+        },
+        {
+          "label": "8",
+          "value": "8"
+        },
+        {
+          "label": "9",
+          "value": "9"
+        },
+        {
+          "label": "10",
+          "value": "10"
+        },
+        {
+          "label": "11",
+          "value": "11"
+        },
+        {
+          "label": "12",
+          "value": "12"
+        },
+        {
+          "label": "13",
+          "value": "13"
+        },
+        {
+          "label": "14",
+          "value": "14"
+        },
+        {
+          "label": "15",
+          "value": "15"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailMultiBedRoomTypeCount",
+      "id": "otaDetailMultiBedRoomTypeCount__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "1",
+          "value": "1"
+        },
+        {
+          "label": "2",
+          "value": "2"
+        },
+        {
+          "label": "3",
+          "value": "3"
+        },
+        {
+          "label": "4",
+          "value": "4"
+        },
+        {
+          "label": "5",
+          "value": "5"
+        },
+        {
+          "label": "6",
+          "value": "6"
+        },
+        {
+          "label": "7",
+          "value": "7"
+        },
+        {
+          "label": "8",
+          "value": "8"
+        },
+        {
+          "label": "9",
+          "value": "9"
+        },
+        {
+          "label": "10",
+          "value": "10"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomTypeAgency",
+      "id": "otaDetailRoomTypeAgency__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "有",
+          "value": "有"
+        },
+        {
+          "label": "无",
+          "value": "无"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomTypeBasicInfoOptimize",
+      "id": "otaDetailRoomTypeBasicInfoOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomTypeNameTierOptimize",
+      "id": "otaDetailRoomTypeNameTierOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailRoomTypePriceTierOptimize",
+      "id": "otaDetailRoomTypePriceTierOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailHotelGraphicShow",
+      "id": "otaDetailHotelGraphicShow__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "有",
+          "value": "有"
+        },
+        {
+          "label": "无",
+          "value": "无"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailGraphicShowRefinement",
+      "id": "otaDetailGraphicShowRefinement__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "优秀",
+          "value": "优秀"
+        },
+        {
+          "label": "良好",
+          "value": "良好"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "努力",
+          "value": "努力"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailHourlyRoomTypeOptimize",
+      "id": "otaDetailHourlyRoomTypeOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "otaDetailHourlyStayDuration",
+      "id": "otaDetailHourlyStayDuration__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "1小时",
+          "value": "1小时"
+        },
+        {
+          "label": "2小时",
+          "value": "2小时"
+        },
+        {
+          "label": "3小时",
+          "value": "3小时"
+        },
+        {
+          "label": "4小时",
+          "value": "4小时"
+        },
+        {
+          "label": "5小时",
+          "value": "5小时"
+        },
+        {
+          "label": "6小时",
+          "value": "6小时"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "otaDetailHourlyCancelPolicy",
+      "id": "otaDetailHourlyCancelPolicy__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "可取消",
+          "value": "可取消"
+        },
+        {
+          "label": "不可取消",
+          "value": "不可取消"
+        },
+        {
+          "label": "预订15分钟内免费取消",
+          "value": "预订15分钟内免费取消"
+        },
+        {
+          "label": "预订30分钟内免费取消",
+          "value": "预订30分钟内免费取消"
+        },
+        {
+          "label": "入住18点前免费取消",
+          "value": "入住18点前免费取消"
+        },
+        {
+          "label": "入住20点前免费取消",
+          "value": "入住20点前免费取消"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "otaDetailQaOptimize",
+      "id": "otaDetailQaOptimize__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "需要",
+          "value": "需要"
+        },
+        {
+          "label": "尚可",
+          "value": "尚可"
+        },
+        {
+          "label": "不需要",
+          "value": "不需要"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "otaDetailCancelPolicy",
+      "id": "otaDetailCancelPolicy__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "可取消",
+          "value": "可取消"
+        },
+        {
+          "label": "不可取消",
+          "value": "不可取消"
+        },
+        {
+          "label": "预订15分钟内免费取消",
+          "value": "预订15分钟内免费取消"
+        },
+        {
+          "label": "预订30分钟内免费取消",
+          "value": "预订30分钟内免费取消"
+        },
+        {
+          "label": "入住18点前免费取消",
+          "value": "入住18点前免费取消"
+        },
+        {
+          "label": "入住20点前免费取消",
+          "value": "入住20点前免费取消"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailConfirmDuration",
+      "id": "otaDetailConfirmDuration__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "立即确认",
+          "value": "立即确认"
+        },
+        {
+          "label": "5分钟确认",
+          "value": "5分钟确认"
+        },
+        {
+          "label": "1小时确认",
+          "value": "1小时确认"
+        },
+        {
+          "label": "12小时确认",
+          "value": "12小时确认"
+        },
+        {
+          "label": "24小时确认",
+          "value": "24小时确认"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailPaymentMethod",
+      "id": "otaDetailPaymentMethod__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "分期支付",
+          "value": "分期支付"
+        },
+        {
+          "label": "常规支付",
+          "value": "常规支付"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDetailNonSmoking",
+      "id": "otaDetailNonSmoking__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "是",
+          "value": "是"
+        },
+        {
+          "label": "否",
+          "value": "否"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": true
+    },
+    {
+      "canonical_id": "otaDrawerRankRange",
+      "id": "otaDrawerRankRange__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        },
+        {
+          "label": "前3名",
+          "value": "前3名"
+        },
+        {
+          "label": "前5名",
+          "value": "前5名"
+        },
+        {
+          "label": "前10名",
+          "value": "前10名"
+        },
+        {
+          "label": "前15名",
+          "value": "前15名"
+        },
+        {
+          "label": "前20名",
+          "value": "前20名"
+        },
+        {
+          "label": "前25名",
+          "value": "前25名"
+        },
+        {
+          "label": "前30名",
+          "value": "前30名"
+        },
+        {
+          "label": "30名以后",
+          "value": "30名以后"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "operationPeriod",
+      "id": "operationPeriod__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "7天",
+          "value": "7"
+        },
+        {
+          "label": "15天",
+          "value": "15"
+        },
+        {
+          "label": "30天",
+          "value": "30"
+        },
+        {
+          "label": "12个月",
+          "value": "365"
+        },
+        {
+          "label": "24个月",
+          "value": "730"
+        },
+        {
+          "label": "自定义",
+          "value": "custom"
+        }
+      ],
+      "section": "operation-review",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "operationSeason",
+      "id": "operationSeason__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "未选择",
+          "value": "未选择"
+        },
+        {
+          "label": "淡季",
+          "value": "淡季"
+        },
+        {
+          "label": "平季",
+          "value": "平季"
+        },
+        {
+          "label": "旺季",
+          "value": "旺季"
+        }
+      ],
+      "section": "operation-review",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "operationCommission",
+      "id": "operationCommission__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "10%",
+          "value": "10"
+        },
+        {
+          "label": "11%",
+          "value": "11"
+        },
+        {
+          "label": "12%",
+          "value": "12"
+        },
+        {
+          "label": "13%",
+          "value": "13"
+        },
+        {
+          "label": "14%",
+          "value": "14"
+        },
+        {
+          "label": "15%",
+          "value": "15"
+        },
+        {
+          "label": "16%",
+          "value": "16"
+        },
+        {
+          "label": "17%",
+          "value": "17"
+        },
+        {
+          "label": "18%",
+          "value": "18"
+        },
+        {
+          "label": "19%",
+          "value": "19"
+        },
+        {
+          "label": "20%",
+          "value": "20"
+        },
+        {
+          "label": "21%",
+          "value": "21"
+        },
+        {
+          "label": "22%",
+          "value": "22"
+        },
+        {
+          "label": "23%",
+          "value": "23"
+        },
+        {
+          "label": "24%",
+          "value": "24"
+        },
+        {
+          "label": "25%",
+          "value": "25"
+        },
+        {
+          "label": "26%",
+          "value": "26"
+        },
+        {
+          "label": "27%",
+          "value": "27"
+        },
+        {
+          "label": "28%",
+          "value": "28"
+        },
+        {
+          "label": "29%",
+          "value": "29"
+        },
+        {
+          "label": "30%",
+          "value": "30"
+        }
+      ],
+      "section": "operation-review",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "operationExpectedPayback",
+      "id": "operationExpectedPayback__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "0.5年",
+          "value": "6"
+        },
+        {
+          "label": "1年",
+          "value": "12"
+        },
+        {
+          "label": "1.5年",
+          "value": "18"
+        },
+        {
+          "label": "2年",
+          "value": "24"
+        },
+        {
+          "label": "2.5年",
+          "value": "30"
+        },
+        {
+          "label": "3年",
+          "value": "36"
+        },
+        {
+          "label": "3.5年",
+          "value": "42"
+        },
+        {
+          "label": "4年",
+          "value": "48"
+        },
+        {
+          "label": "4.5年",
+          "value": "54"
+        },
+        {
+          "label": "5年",
+          "value": "60"
+        },
+        {
+          "label": "5.5年",
+          "value": "66"
+        },
+        {
+          "label": "6年",
+          "value": "72"
+        }
+      ],
+      "section": "operation-review",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeGovernanceType",
+      "id": "knowledgeGovernanceType__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "知识 Knowledge",
+          "value": "knowledge"
+        },
+        {
+          "label": "案例 Case",
+          "value": "case"
+        },
+        {
+          "label": "Prompt 元数据",
+          "value": "prompt"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeGovernanceMode",
+      "id": "knowledgeGovernanceMode__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "更新当前版本",
+          "value": "update"
+        },
+        {
+          "label": "新增版本",
+          "value": "new"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeGovernanceLifecycleAction",
+      "id": "knowledgeGovernanceLifecycleAction__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "保存草稿",
+          "value": "draft"
+        },
+        {
+          "label": "提交待审",
+          "value": "submit_review"
+        },
+        {
+          "label": "发布",
+          "value": "publish"
+        },
+        {
+          "label": "归档",
+          "value": "archive"
+        },
+        {
+          "label": "回滚为新版本",
+          "value": "rollback"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeCategoryFilter",
+      "id": "knowledgeCategoryFilter__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "全部分类",
+          "value": "all"
+        },
+        {
+          "label": "投资判断知识库",
+          "value": "investmentJudgment"
+        },
+        {
+          "label": "保本线知识库",
+          "value": "breakevenLine"
+        },
+        {
+          "label": "回本周期知识库",
+          "value": "paybackCycle"
+        },
+        {
+          "label": "经营复盘知识库",
+          "value": "operationReview"
+        },
+        {
+          "label": "OTA诊断知识库",
+          "value": "otaDiagnosis"
+        },
+        {
+          "label": "商圈竞争知识库",
+          "value": "marketCompetition"
+        },
+        {
+          "label": "SCI评分知识库",
+          "value": "sciScore"
+        },
+        {
+          "label": "报告话术知识库",
+          "value": "reportLanguage"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeModuleFilter",
+      "id": "knowledgeModuleFilter__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "全部模块",
+          "value": "全部模块"
+        },
+        {
+          "label": "全系统",
+          "value": "全系统"
+        },
+        {
+          "label": "投资回报报告",
+          "value": "投资回报报告"
+        },
+        {
+          "label": "投前报告",
+          "value": "投前报告"
+        },
+        {
+          "label": "收益分析",
+          "value": "收益分析"
+        },
+        {
+          "label": "保本线分析",
+          "value": "保本线分析"
+        },
+        {
+          "label": "回本周期分析",
+          "value": "回本周期分析"
+        },
+        {
+          "label": "经营复盘报告",
+          "value": "经营复盘报告"
+        },
+        {
+          "label": "经营复盘",
+          "value": "经营复盘"
+        },
+        {
+          "label": "分析决策层",
+          "value": "分析决策层"
+        },
+        {
+          "label": "OTA诊断报告",
+          "value": "OTA诊断报告"
+        },
+        {
+          "label": "OTA交易渠道",
+          "value": "OTA交易渠道"
+        },
+        {
+          "label": "数字资产诊断",
+          "value": "数字资产诊断"
+        },
+        {
+          "label": "商圈竞争报告",
+          "value": "商圈竞争报告"
+        },
+        {
+          "label": "商圈竞争分析",
+          "value": "商圈竞争分析"
+        },
+        {
+          "label": "市场竞争",
+          "value": "市场竞争"
+        },
+        {
+          "label": "SCI评分报告",
+          "value": "SCI评分报告"
+        },
+        {
+          "label": "SCI评分",
+          "value": "SCI评分"
+        },
+        {
+          "label": "报告输出",
+          "value": "报告输出"
+        },
+        {
+          "label": "Codex修正报告",
+          "value": "Codex修正报告"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeRiskFilter",
+      "id": "knowledgeRiskFilter__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "全部风险",
+          "value": "all"
+        },
+        {
+          "label": "极高",
+          "value": "极高"
+        },
+        {
+          "label": "高",
+          "value": "高"
+        },
+        {
+          "label": "中",
+          "value": "中"
+        },
+        {
+          "label": "较低",
+          "value": "较低"
+        },
+        {
+          "label": "低",
+          "value": "低"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeExpertFilter",
+      "id": "knowledgeExpertFilter__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "全部专家",
+          "value": "all"
+        },
+        {
+          "label": "莫老师",
+          "value": "莫老师"
+        },
+        {
+          "label": "魏老师",
+          "value": "秦老师"
+        },
+        {
+          "label": "周研究员",
+          "value": "周研究员"
+        },
+        {
+          "label": "林顾问",
+          "value": "林顾问"
+        },
+        {
+          "label": "何分析师",
+          "value": "何分析师"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeStatusFilter",
+      "id": "knowledgeStatusFilter__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "全部状态",
+          "value": "all"
+        },
+        {
+          "label": "启用",
+          "value": "enabled"
+        },
+        {
+          "label": "停用",
+          "value": "disabled"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeReviewFilter",
+      "id": "knowledgeReviewFilter__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "全部审核",
+          "value": "all"
+        },
+        {
+          "label": "草稿",
+          "value": "draft"
+        },
+        {
+          "label": "已审核",
+          "value": "reviewed"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeExpertAliasSelect",
+      "id": "knowledgeExpertAliasSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "真实显示",
+          "value": "real"
+        },
+        {
+          "label": "匿名专家",
+          "value": "anonymous"
+        },
+        {
+          "label": "顾问字母",
+          "value": "advisor"
+        },
+        {
+          "label": "高级分析师",
+          "value": "analyst"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "readonlyAgentType",
+      "id": "readonlyAgentType__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "经营顾问Agent｜综合经营判断",
+          "value": "businessAdvisor"
+        },
+        {
+          "label": "收益管理Agent｜ADR、RevPAR、出租率与价格策略",
+          "value": "revenueManager"
+        },
+        {
+          "label": "OTA运营Agent｜曝光、浏览、订单与支付转化",
+          "value": "otaOperator"
+        },
+        {
+          "label": "投资测算Agent｜保本线、回本周期与现金流安全",
+          "value": "investmentCalculator"
+        },
+        {
+          "label": "培训Agent｜把经营知识转成课程和学习任务",
+          "value": "trainingCoach"
+        },
+        {
+          "label": "知识教练Agent｜知识命中、来源解释与补充建议",
+          "value": "knowledgeCoach"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "agentGovernanceAction",
+      "id": "agentGovernanceAction__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "入队待确认",
+          "value": "queue"
+        },
+        {
+          "label": "人工确认通过",
+          "value": "approve"
+        },
+        {
+          "label": "沙箱执行",
+          "value": "execute"
+        },
+        {
+          "label": "撤销任务",
+          "value": "cancel"
+        },
+        {
+          "label": "回滚沙箱",
+          "value": "rollback"
+        },
+        {
+          "label": "审计回放",
+          "value": "replay"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeEditCategory",
+      "id": "knowledgeEditCategory__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "投资判断知识库",
+          "value": "investmentJudgment"
+        },
+        {
+          "label": "保本线知识库",
+          "value": "breakevenLine"
+        },
+        {
+          "label": "回本周期知识库",
+          "value": "paybackCycle"
+        },
+        {
+          "label": "经营复盘知识库",
+          "value": "operationReview"
+        },
+        {
+          "label": "OTA诊断知识库",
+          "value": "otaDiagnosis"
+        },
+        {
+          "label": "商圈竞争知识库",
+          "value": "marketCompetition"
+        },
+        {
+          "label": "SCI评分知识库",
+          "value": "sciScore"
+        },
+        {
+          "label": "报告话术知识库",
+          "value": "reportLanguage"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeEditRiskLevel",
+      "id": "knowledgeEditRiskLevel__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "极高",
+          "value": "极高"
+        },
+        {
+          "label": "高",
+          "value": "高"
+        },
+        {
+          "label": "中",
+          "value": "中"
+        },
+        {
+          "label": "较低",
+          "value": "较低"
+        },
+        {
+          "label": "低",
+          "value": "低"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeEditStatus",
+      "id": "knowledgeEditStatus__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "启用",
+          "value": "enabled"
+        },
+        {
+          "label": "停用",
+          "value": "disabled"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "knowledgeEditReviewStatus",
+      "id": "knowledgeEditReviewStatus__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "草稿",
+          "value": "draft"
+        },
+        {
+          "label": "已审核",
+          "value": "reviewed"
+        }
+      ],
+      "section": "systemKnowledgeContainers",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertFieldFilter",
+      "id": "expertFieldFilter",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "全部领域",
+          "value": "all"
+        },
+        {
+          "label": "酒店投资测算",
+          "value": "酒店投资测算"
+        },
+        {
+          "label": "酒店保本线测算",
+          "value": "酒店保本线测算"
+        },
+        {
+          "label": "酒店回本周期分析",
+          "value": "酒店回本周期分析"
+        },
+        {
+          "label": "酒店投前报告解读",
+          "value": "酒店投前报告解读"
+        },
+        {
+          "label": "酒店租金谈判",
+          "value": "酒店租金谈判"
+        },
+        {
+          "label": "酒店投资安全评分解读",
+          "value": "酒店投资安全评分解读"
+        },
+        {
+          "label": "酒店JHIRA评分解读",
+          "value": "酒店JHIRA评分解读"
+        },
+        {
+          "label": "酒店收益管理",
+          "value": "酒店收益管理"
+        },
+        {
+          "label": "酒店价格体系设计",
+          "value": "酒店价格体系设计"
+        },
+        {
+          "label": "酒店RevPAR提升",
+          "value": "酒店RevPAR提升"
+        },
+        {
+          "label": "酒店出租率提升",
+          "value": "酒店出租率提升"
+        },
+        {
+          "label": "酒店房价策略",
+          "value": "酒店房价策略"
+        },
+        {
+          "label": "酒店收益复盘",
+          "value": "酒店收益复盘"
+        },
+        {
+          "label": "酒店经营增长",
+          "value": "酒店经营增长"
+        },
+        {
+          "label": "酒店OTA运营",
+          "value": "酒店OTA运营"
+        },
+        {
+          "label": "酒店携程运营",
+          "value": "酒店携程运营"
+        },
+        {
+          "label": "酒店美团运营",
+          "value": "酒店美团运营"
+        },
+        {
+          "label": "酒店大众点评运营",
+          "value": "酒店大众点评运营"
+        },
+        {
+          "label": "OTA排名优化",
+          "value": "OTA排名优化"
+        },
+        {
+          "label": "OTA列表页优化",
+          "value": "OTA列表页优化"
+        },
+        {
+          "label": "OTA详情页优化",
+          "value": "OTA详情页优化"
+        },
+        {
+          "label": "OTA转化率提升",
+          "value": "OTA转化率提升"
+        },
+        {
+          "label": "酒店平台活动设计",
+          "value": "酒店平台活动设计"
+        },
+        {
+          "label": "酒店飞猪运营",
+          "value": "酒店飞猪运营"
+        },
+        {
+          "label": "酒店抖音运营",
+          "value": "酒店抖音运营"
+        },
+        {
+          "label": "酒店成本控制",
+          "value": "酒店成本控制"
+        },
+        {
+          "label": "酒店财务管理",
+          "value": "酒店财务管理"
+        },
+        {
+          "label": "酒店融资测算",
+          "value": "酒店融资测算"
+        },
+        {
+          "label": "酒店现金流分析",
+          "value": "酒店现金流分析"
+        },
+        {
+          "label": "酒店房租压力分析",
+          "value": "酒店房租压力分析"
+        },
+        {
+          "label": "酒店人工成本分析",
+          "value": "酒店人工成本分析"
+        },
+        {
+          "label": "酒店风控与合规",
+          "value": "酒店风控与合规"
+        },
+        {
+          "label": "酒店税务合规",
+          "value": "酒店税务合规"
+        },
+        {
+          "label": "酒店服务动线设计",
+          "value": "酒店服务动线设计"
+        },
+        {
+          "label": "酒店客房运营",
+          "value": "酒店客房运营"
+        },
+        {
+          "label": "酒店前厅管理",
+          "value": "酒店前厅管理"
+        },
+        {
+          "label": "酒店客诉处理",
+          "value": "酒店客诉处理"
+        },
+        {
+          "label": "酒店服务标准化",
+          "value": "酒店服务标准化"
+        },
+        {
+          "label": "酒店会员体系",
+          "value": "酒店会员体系"
+        },
+        {
+          "label": "酒店经营复盘",
+          "value": "酒店经营复盘"
+        },
+        {
+          "label": "酒店数据分析",
+          "value": "酒店数据分析"
+        },
+        {
+          "label": "酒店美陈设计",
+          "value": "酒店美陈设计"
+        },
+        {
+          "label": "酒店礼仪培训",
+          "value": "酒店礼仪培训"
+        },
+        {
+          "label": "酒店人力资源管理",
+          "value": "酒店人力资源管理"
+        },
+        {
+          "label": "酒店培训体系搭建",
+          "value": "酒店培训体系搭建"
+        },
+        {
+          "label": "酒店绩效考核",
+          "value": "酒店绩效考核"
+        },
+        {
+          "label": "酒店组织架构设计",
+          "value": "酒店组织架构设计"
+        },
+        {
+          "label": "酒店专家课程培训",
+          "value": "酒店专家课程培训"
+        },
+        {
+          "label": "酒店店长培训",
+          "value": "酒店店长培训"
+        },
+        {
+          "label": "酒店员工服务培训",
+          "value": "酒店员工服务培训"
+        },
+        {
+          "label": "酒店品牌定位",
+          "value": "酒店品牌定位"
+        },
+        {
+          "label": "酒店产品设计",
+          "value": "酒店产品设计"
+        },
+        {
+          "label": "酒店房型优化",
+          "value": "酒店房型优化"
+        },
+        {
+          "label": "酒店套餐设计",
+          "value": "酒店套餐设计"
+        },
+        {
+          "label": "酒店会员产品设计",
+          "value": "酒店会员产品设计"
+        },
+        {
+          "label": "酒店品牌升级",
+          "value": "酒店品牌升级"
+        },
+        {
+          "label": "酒店产品竞争力分析",
+          "value": "酒店产品竞争力分析"
+        },
+        {
+          "label": "酒店数字资产诊断",
+          "value": "酒店数字资产诊断"
+        },
+        {
+          "label": "酒店内容营销",
+          "value": "酒店内容营销"
+        },
+        {
+          "label": "酒店小红书运营",
+          "value": "酒店小红书运营"
+        },
+        {
+          "label": "酒店私域运营",
+          "value": "酒店私域运营"
+        },
+        {
+          "label": "酒店商圈竞争分析",
+          "value": "酒店商圈竞争分析"
+        },
+        {
+          "label": "酒店SCI评分分析",
+          "value": "酒店SCI评分分析"
+        },
+        {
+          "label": "酒店AI搜索与GEO优化",
+          "value": "酒店AI搜索与GEO优化"
+        },
+        {
+          "label": "酒店携程旅拍营销",
+          "value": "酒店携程旅拍营销"
+        },
+        {
+          "label": "酒店AI修图",
+          "value": "酒店AI修图"
+        },
+        {
+          "label": "酒店拍照摄影",
+          "value": "酒店拍照摄影"
+        },
+        {
+          "label": "酒店商业摄影",
+          "value": "酒店商业摄影"
+        },
+        {
+          "label": "酒店房型图片优化",
+          "value": "酒店房型图片优化"
+        },
+        {
+          "label": "酒店OTA首图优化",
+          "value": "酒店OTA首图优化"
+        },
+        {
+          "label": "酒店空间视觉优化",
+          "value": "酒店空间视觉优化"
+        },
+        {
+          "label": "酒店视频拍摄",
+          "value": "酒店视频拍摄"
+        },
+        {
+          "label": "酒店短视频剪辑",
+          "value": "酒店短视频剪辑"
+        },
+        {
+          "label": "酒店图片审核优化",
+          "value": "酒店图片审核优化"
+        },
+        {
+          "label": "酒店工程筹开",
+          "value": "酒店工程筹开"
+        },
+        {
+          "label": "酒店筹建筹开",
+          "value": "酒店筹建筹开"
+        },
+        {
+          "label": "酒店改造翻新",
+          "value": "酒店改造翻新"
+        },
+        {
+          "label": "酒店空间设计",
+          "value": "酒店空间设计"
+        },
+        {
+          "label": "酒店能耗管理",
+          "value": "酒店能耗管理"
+        },
+        {
+          "label": "酒店布草管理",
+          "value": "酒店布草管理"
+        },
+        {
+          "label": "酒店采购管理",
+          "value": "酒店采购管理"
+        },
+        {
+          "label": "酒店供应链管理",
+          "value": "酒店供应链管理"
+        },
+        {
+          "label": "酒店智能化应用",
+          "value": "酒店智能化应用"
+        },
+        {
+          "label": "酒店合同审查",
+          "value": "酒店合同审查"
+        },
+        {
+          "label": "酒店消防安全管理",
+          "value": "酒店消防安全管理"
+        },
+        {
+          "label": "酒店法务合规",
+          "value": "酒店法务合规"
+        },
+        {
+          "label": "酒店劳动用工合规",
+          "value": "酒店劳动用工合规"
+        },
+        {
+          "label": "酒店安全生产管理",
+          "value": "酒店安全生产管理"
+        },
+        {
+          "label": "酒店证照合规",
+          "value": "酒店证照合规"
+        },
+        {
+          "label": "酒店舆情风险处理",
+          "value": "酒店舆情风险处理"
+        },
+        {
+          "label": "酒店AI应用与智能增长",
+          "value": "酒店AI应用与智能增长"
+        },
+        {
+          "label": "酒店AI经营分析",
+          "value": "酒店AI经营分析"
+        },
+        {
+          "label": "酒店AI报告生成",
+          "value": "酒店AI报告生成"
+        },
+        {
+          "label": "酒店AI客服应用",
+          "value": "酒店AI客服应用"
+        },
+        {
+          "label": "酒店AI定价辅助",
+          "value": "酒店AI定价辅助"
+        },
+        {
+          "label": "酒店AI知识库建设",
+          "value": "酒店AI知识库建设"
+        },
+        {
+          "label": "酒店AI营销内容生成",
+          "value": "酒店AI营销内容生成"
+        }
+      ],
+      "section": "expert-library",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertRatingFilter",
+      "id": "expertRatingFilter",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "全部评分",
+          "value": ""
+        },
+        {
+          "label": "4.0 分及以上",
+          "value": "4.0"
+        },
+        {
+          "label": "4.5 分及以上",
+          "value": "4.5"
+        },
+        {
+          "label": "4.8 分及以上",
+          "value": "4.8"
+        }
+      ],
+      "section": "expert-library",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertAvailabilityFilter",
+      "id": "expertAvailabilityFilter",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "全部状态",
+          "value": "all"
+        },
+        {
+          "label": "可咨询",
+          "value": "yes"
+        },
+        {
+          "label": "暂不可咨询",
+          "value": "no"
+        }
+      ],
+      "section": "expert-library",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertCourseFilter",
+      "id": "expertCourseFilter",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "全部课程状态",
+          "value": "all"
+        },
+        {
+          "label": "有课程",
+          "value": "yes"
+        },
+        {
+          "label": "无课程",
+          "value": "no"
+        }
+      ],
+      "section": "expert-library",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertCityFilter",
+      "id": "expertCityFilter",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "全部城市",
+          "value": "all"
+        },
+        {
+          "label": "佛山",
+          "value": "佛山"
+        },
+        {
+          "label": "广州",
+          "value": "广州"
+        },
+        {
+          "label": "深圳",
+          "value": "深圳"
+        },
+        {
+          "label": "长沙",
+          "value": "长沙"
+        }
+      ],
+      "section": "expert-library",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertAliasModeSelect",
+      "id": "expertAliasModeSelect",
+      "kind": "custom_select",
+      "label": null,
+      "options": [
+        {
+          "label": "显示真实专家",
+          "value": "real"
+        },
+        {
+          "label": "匿名专家",
+          "value": "anonymous"
+        },
+        {
+          "label": "顾问A/B/C",
+          "value": "advisor"
+        },
+        {
+          "label": "高级分析师",
+          "value": "analyst"
+        }
+      ],
+      "section": "expert-library",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertSelfProfileSelect",
+      "id": "expertSelfProfileSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        }
+      ],
+      "section": "expert-library",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertSelfServiceMode",
+      "id": "expertSelfServiceMode__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "线下服务",
+          "value": "offline"
+        },
+        {
+          "label": "线上服务",
+          "value": "online"
+        }
+      ],
+      "section": "expert-library",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertSelfOnlinePriceSelect",
+      "id": "expertSelfOnlinePriceSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "¥9.9",
+          "value": "9.9"
+        },
+        {
+          "label": "¥19.9",
+          "value": "19.9"
+        },
+        {
+          "label": "¥29.9",
+          "value": "29.9"
+        },
+        {
+          "label": "自定义金额",
+          "value": "custom"
+        }
+      ],
+      "section": "expert-library",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertDonationSelect",
+      "id": "expertDonationSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "¥0.5",
+          "value": "0.5"
+        },
+        {
+          "label": "¥1.0",
+          "value": "1"
+        },
+        {
+          "label": "¥1.5",
+          "value": "1.5"
+        },
+        {
+          "label": "¥2.0",
+          "value": "2"
+        },
+        {
+          "label": "¥2.5",
+          "value": "2.5"
+        },
+        {
+          "label": "¥3.0",
+          "value": "3"
+        },
+        {
+          "label": "¥3.5",
+          "value": "3.5"
+        },
+        {
+          "label": "¥4.0",
+          "value": "4"
+        },
+        {
+          "label": "¥4.5",
+          "value": "4.5"
+        },
+        {
+          "label": "¥5.0",
+          "value": "5"
+        },
+        {
+          "label": "自定义（> ¥5）",
+          "value": "custom"
+        }
+      ],
+      "section": null,
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertSelfTimeStartSelect",
+      "id": "expertSelfTimeStartSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        }
+      ],
+      "section": null,
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertSelfTimeEndSelect",
+      "id": "expertSelfTimeEndSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        }
+      ],
+      "section": null,
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "ocrStatusModeSelect",
+      "id": "ocrStatusModeSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "light",
+          "value": "light"
+        },
+        {
+          "label": "heavy",
+          "value": "heavy"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "native_select_6",
+      "id": "native_select_6__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "服务端未接入",
+          "value": "服务端未接入"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "native_select_7",
+      "id": "native_select_7__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "服务端未接入",
+          "value": "服务端未接入"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "native_select_8",
+      "id": "native_select_8__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "实时",
+          "value": "实时"
+        },
+        {
+          "label": "近7天",
+          "value": "近7天"
+        },
+        {
+          "label": "近30天",
+          "value": "近30天"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "native_select_9",
+      "id": "native_select_9__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "服务端未接入",
+          "value": "服务端未接入"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "native_select_10",
+      "id": "native_select_10__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "单店",
+          "value": "单店"
+        },
+        {
+          "label": "商圈",
+          "value": "商圈"
+        },
+        {
+          "label": "集团",
+          "value": "集团"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "native_select_11",
+      "id": "native_select_11__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "服务端未接入",
+          "value": "服务端未接入"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "native_select_12",
+      "id": "native_select_12__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "美团",
+          "value": "美团"
+        },
+        {
+          "label": "携程",
+          "value": "携程"
+        },
+        {
+          "label": "综合",
+          "value": "综合"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "native_select_13",
+      "id": "native_select_13__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "服务端未接入",
+          "value": "服务端未接入"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "permissionTargetMode",
+      "id": "permissionTargetMode__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "角色默认模板",
+          "value": "role"
+        },
+        {
+          "label": "指定账号导航",
+          "value": "account"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "permissionRoleSelect",
+      "id": "permissionRoleSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "系统管理员",
+          "value": "admin"
+        },
+        {
+          "label": "顾问账号",
+          "value": "consultant"
+        },
+        {
+          "label": "专家账号",
+          "value": "expert"
+        },
+        {
+          "label": "投资人账号",
+          "value": "investor"
+        },
+        {
+          "label": "只读账号",
+          "value": "viewer"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "permissionWatermarkLevel",
+      "id": "permissionWatermarkLevel__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "关闭",
+          "value": "none"
+        },
+        {
+          "label": "低",
+          "value": "low"
+        },
+        {
+          "label": "中",
+          "value": "medium"
+        },
+        {
+          "label": "高",
+          "value": "high"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "permissionDesensitizationLevel",
+      "id": "permissionDesensitizationLevel__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "无脱敏",
+          "value": "none"
+        },
+        {
+          "label": "轻度脱敏",
+          "value": "low"
+        },
+        {
+          "label": "中度脱敏",
+          "value": "medium"
+        },
+        {
+          "label": "高强脱敏",
+          "value": "high"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "permissionAccountSelect",
+      "id": "permissionAccountSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "permissionTemplateRoleSelect",
+      "id": "permissionTemplateRoleSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "顾问账号默认模板",
+          "value": "consultant"
+        },
+        {
+          "label": "专家账号默认模板",
+          "value": "expert"
+        },
+        {
+          "label": "合作伙伴默认模板",
+          "value": "partner"
+        },
+        {
+          "label": "投资人账号默认模板",
+          "value": "investor"
+        },
+        {
+          "label": "只读账号默认模板",
+          "value": "viewer"
+        },
+        {
+          "label": "系统管理员默认模板",
+          "value": "admin"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "accountCreatePosition",
+      "id": "accountCreatePosition__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择职位",
+          "value": ""
+        },
+        {
+          "label": "投资人",
+          "value": "投资人"
+        },
+        {
+          "label": "总经理",
+          "value": "总经理"
+        },
+        {
+          "label": "店长",
+          "value": "店长"
+        },
+        {
+          "label": "业主代表",
+          "value": "业主代表"
+        },
+        {
+          "label": "财务负责人",
+          "value": "财务负责人"
+        },
+        {
+          "label": "运营负责人",
+          "value": "运营负责人"
+        },
+        {
+          "label": "其他",
+          "value": "其他"
+        },
+        {
+          "label": "酒店顾问",
+          "value": "酒店顾问"
+        },
+        {
+          "label": "酒店专家",
+          "value": "酒店专家"
+        },
+        {
+          "label": "院校专家",
+          "value": "院校专家"
+        },
+        {
+          "label": "区域合伙人",
+          "value": "区域合伙人"
+        },
+        {
+          "label": "高级合伙人",
+          "value": "高级合伙人"
+        },
+        {
+          "label": "联合创始人",
+          "value": "联合创始人"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "accountCreateRole",
+      "id": "accountCreateRole__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "顾问账号",
+          "value": "consultant"
+        },
+        {
+          "label": "专家账号",
+          "value": "expert"
+        },
+        {
+          "label": "合作伙伴",
+          "value": "partner"
+        },
+        {
+          "label": "投资人账号",
+          "value": "investor"
+        },
+        {
+          "label": "只读账号",
+          "value": "viewer"
+        },
+        {
+          "label": "系统管理员",
+          "value": "admin"
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    },
+    {
+      "canonical_id": "expertGrantUserSelect",
+      "id": "expertGrantUserSelect__proxy",
+      "kind": "native_select_proxy",
+      "label": null,
+      "options": [
+        {
+          "label": "请选择",
+          "value": ""
+        }
+      ],
+      "section": "system-api-center",
+      "sensitive_metadata": false,
+      "visible": false
+    }
+  ],
+  "does_not_capture": [
+    "selected values",
+    "credentials",
+    "private contacts",
+    "account records"
+  ],
+  "excluded_metadata": [
+    {
+      "id": "contactPositionSelect",
+      "reason": "credential_or_private_contact_metadata"
+    },
+    {
+      "id": "otaBaseContactPosition",
+      "reason": "credential_or_private_contact_metadata"
+    },
+    {
+      "id": "otaDetailContactInfoOptimize__proxy",
+      "reason": "credential_or_private_contact_metadata"
+    }
+  ],
+  "observed_on": "2026-10-02",
+  "precision": [
+    {
+      "canonical_id": "consumables.item_001",
+      "idx": 0,
+      "label": "香皂",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_002",
+      "idx": 1,
+      "label": "牙刷",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_003",
+      "idx": 2,
+      "label": "梳子",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_004",
+      "idx": 3,
+      "label": "剃须刀",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_005",
+      "idx": 4,
+      "label": "浴帽",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_006",
+      "idx": 5,
+      "label": "一次性拖鞋",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_007",
+      "idx": 6,
+      "label": "免费矿泉水",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_008",
+      "idx": 7,
+      "label": "护理套装",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_009",
+      "idx": 8,
+      "label": "马桶垫",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_010",
+      "idx": 9,
+      "label": "洗发水",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_011",
+      "idx": 10,
+      "label": "沐浴露",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_012",
+      "idx": 11,
+      "label": "护发素",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_013",
+      "idx": 12,
+      "label": "免费茶包",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_014",
+      "idx": 13,
+      "label": "白糖包",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_015",
+      "idx": 14,
+      "label": "免费咖啡",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_016",
+      "idx": 15,
+      "label": "其他用品",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    },
+    {
+      "canonical_id": "consumables.item_017",
+      "idx": 16,
+      "label": "礼品袋",
+      "period_status": "not_defined",
+      "unit_status": "not_defined"
+    }
+  ],
+  "quality": "reference_only",
+  "tags": [
+    {
+      "id": "businessAreaTags",
+      "kind": "tag_options",
+      "options": [
+        {
+          "label": "商务商圈"
+        },
+        {
+          "label": "机场商圈"
+        },
+        {
+          "label": "政企商圈"
+        },
+        {
+          "label": "高铁商圈"
+        },
+        {
+          "label": "医院商圈"
+        },
+        {
+          "label": "院校商圈"
+        },
+        {
+          "label": "商业商圈"
+        },
+        {
+          "label": "住宅商圈"
+        },
+        {
+          "label": "厂区商圈"
+        },
+        {
+          "label": "地铁口商圈"
+        },
+        {
+          "label": "其他商圈"
+        }
+      ],
+      "section": "basic",
+      "visible": true
+    },
+    {
+      "id": "guestTypeTags",
+      "kind": "tag_options",
+      "options": [
+        {
+          "label": "商务群体"
+        },
+        {
+          "label": "情侣群体"
+        },
+        {
+          "label": "独自群体"
+        },
+        {
+          "label": "家庭群体"
+        },
+        {
+          "label": "学生群体"
+        },
+        {
+          "label": "政企群体"
+        },
+        {
+          "label": "会议群体"
+        },
+        {
+          "label": "其他群体"
+        }
+      ],
+      "section": "basic",
+      "visible": true
+    },
+    {
+      "id": "onlinePlatformTags",
+      "kind": "tag_options",
+      "options": [
+        {
+          "label": "美团"
+        },
+        {
+          "label": "携程"
+        },
+        {
+          "label": "飞猪"
+        },
+        {
+          "label": "抖音"
+        },
+        {
+          "label": "TikTok（海外内容平台）"
+        },
+        {
+          "label": "其他平台"
+        }
+      ],
+      "section": "basic",
+      "visible": true
+    },
+    {
+      "id": "dataLinkageOptions",
+      "kind": "tag_options",
+      "options": [],
+      "section": "basic",
+      "visible": true
+    },
+    {
+      "id": "otaBaseGuestTypes",
+      "kind": "tag_options",
+      "options": [
+        {
+          "label": "商务群体"
+        },
+        {
+          "label": "情侣群体"
+        },
+        {
+          "label": "独自群体"
+        },
+        {
+          "label": "家庭群体"
+        },
+        {
+          "label": "学生群体"
+        },
+        {
+          "label": "政企群体"
+        },
+        {
+          "label": "会议群体"
+        },
+        {
+          "label": "其他群体"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "visible": true
+    },
+    {
+      "id": "otaBaseOnlinePlatforms",
+      "kind": "tag_options",
+      "options": [
+        {
+          "label": "美团"
+        },
+        {
+          "label": "携程"
+        },
+        {
+          "label": "飞猪"
+        },
+        {
+          "label": "抖音"
+        },
+        {
+          "label": "TikTok（海外内容平台）"
+        },
+        {
+          "label": "其他平台"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "visible": true
+    },
+    {
+      "id": "otaBaseBusinessAreas",
+      "kind": "tag_options",
+      "options": [
+        {
+          "label": "商务商圈"
+        },
+        {
+          "label": "机场商圈"
+        },
+        {
+          "label": "政企商圈"
+        },
+        {
+          "label": "高铁商圈"
+        },
+        {
+          "label": "院校商圈"
+        },
+        {
+          "label": "商业商圈"
+        },
+        {
+          "label": "住宅商圈"
+        },
+        {
+          "label": "厂区商圈"
+        },
+        {
+          "label": "地铁口商圈"
+        },
+        {
+          "label": "其他商圈"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "visible": true
+    },
+    {
+      "id": "otaListMemberBenefits",
+      "kind": "tag_options",
+      "options": [
+        {
+          "label": "无"
+        },
+        {
+          "label": "积分兑换"
+        },
+        {
+          "label": "提前入住"
+        },
+        {
+          "label": "延迟退房"
+        },
+        {
+          "label": "赠送早餐"
+        },
+        {
+          "label": "赠送水果"
+        },
+        {
+          "label": "外卖券"
+        },
+        {
+          "label": "神券"
+        }
+      ],
+      "section": "digital-asset-audit",
+      "visible": true
+    }
+  ]
+}

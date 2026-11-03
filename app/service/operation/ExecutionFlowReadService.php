@@ -56,7 +56,105 @@ final class ExecutionFlowReadService
         return $this->tenantIdentityMatches($task, $evidence);
     }
 
-    public function buildItem(array $intent, array $tasks = [], array $evidence = []): array
+    /** Project already strictly read reviews onto this exact task's current result. */
+    public function projectEffectReviews(array $intent, array $task, array $reviews, string $readStatus = 'readback_verified'): array
+    {
+        $reviews = array_values(array_filter($reviews, static fn(array $review): bool =>
+            (int)($review['tenant_id'] ?? 0) === (int)($task['tenant_id'] ?? $intent['tenant_id'] ?? 0)
+            && (int)($review['hotel_id'] ?? 0) === (int)($task['hotel_id'] ?? 0)
+            && (int)($review['intent_id'] ?? 0) === (int)($task['intent_id'] ?? 0)
+            && (int)($review['task_id'] ?? 0) === (int)($task['id'] ?? 0)
+        ));
+        usort($reviews, static fn(array $a, array $b): int => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
+        $verified = array_values(array_filter($reviews, static fn(array $review): bool =>
+            ($review['readback_verified'] ?? false) === true
+            && ($review['approval_contract_verified'] ?? false) === true
+            && ($review['active_eligible'] ?? false) === true
+            && ($review['outcome']['source_verified'] ?? false) === true
+            && ($review['outcome']['outcome_verified'] ?? false) === true
+            && ($review['causality_claimed'] ?? true) === false
+        ));
+        $drifted = count(array_filter($reviews, static fn(array $review): bool =>
+            ($review['approval_contract_verified'] ?? false) !== true
+        )) > 0;
+        $active = null;
+        if ($readStatus === 'readback_verified') {
+            foreach ($verified as $review) {
+                if ((string)($review['result_status'] ?? '') === (string)($task['result_status'] ?? '')
+                    && (string)($review['result_summary'] ?? '') === (string)($task['result_summary'] ?? '')
+                ) {
+                    $active = $review;
+                    break;
+                }
+            }
+        }
+        $strict = in_array(strtolower(trim((string)($intent['source_module'] ?? ''))), [
+            'ota_diagnosis_saved',
+            \app\service\OperatingQuestionExecutionBridgeService::SOURCE_MODULE,
+            \app\service\RevenueCockpitActionContract::SOURCE_MODULE,
+            \app\service\OperatingOpportunityLabService::DAILY_SOURCE_MODULE,
+        ], true);
+        $terminal = in_array((string)($task['result_status'] ?? ''), ['success', 'near_success', 'failed'], true);
+        return [
+            'effect_reviews' => $reviews,
+            'active_effect_review' => $active,
+            'strict_required' => $strict,
+            'approval_contract_drifted' => $drifted,
+            'effect_review_summary' => [
+                'count' => count($reviews),
+                'verified_count' => count($verified),
+                'approval_contract_verified_count' => count(array_filter($reviews, static fn(array $review): bool =>
+                    ($review['approval_contract_verified'] ?? false) === true
+                )),
+                'latest_id' => (int)($reviews[0]['id'] ?? 0),
+                'active_id' => (int)($active['id'] ?? 0),
+                'active_content_digest' => (string)($active['content_digest'] ?? ''),
+                'current_result_bound' => $active !== null,
+                'persistence_status' => $readStatus !== 'readback_verified' ? $readStatus
+                    : ($active !== null ? 'readback_verified'
+                        : ($drifted ? 'approval_target_drifted' : ($reviews === [] ? 'missing' : 'current_result_mismatch'))),
+                'execution_effect_storage_separated' => true,
+                'causality_claimed' => false,
+            ],
+            'outcome_truth' => $strict && $terminal ? ($active['outcome'] ?? [
+                'status' => 'unverified',
+                'source_verified' => false,
+                'outcome_verified' => false,
+                'positive_outcome_verified' => false,
+                'metric_key' => (string)($intent['expected_metric'] ?? ''),
+                'before_value' => null,
+                'after_value' => null,
+                'actual_delta' => null,
+                'favorable_delta' => null,
+                'target_value' => null,
+                'expected_delta' => null,
+                'target_delta' => null,
+                'actual_change_rate' => null,
+                'progress_rate' => null,
+                'failure_reason' => $readStatus === 'readback_failed' ? 'separate_effect_review_readback_failed'
+                    : ($drifted ? 'approval_target_contract_drifted' : 'current_separate_effect_review_missing'),
+                'causality_claimed' => false,
+            ]) : null,
+        ];
+    }
+
+    public function applyEffectReviewSopGate(array $candidate, array $projection): array
+    {
+        if (($projection['strict_required'] ?? false) === true && ($projection['active_effect_review'] ?? null) === null) {
+            $drifted = ($projection['approval_contract_drifted'] ?? false) === true;
+            $reasons = is_array($candidate['reason_codes'] ?? null) ? $candidate['reason_codes'] : [];
+            $reasons[] = $drifted ? 'approval_target_contract_drifted' : 'separate_effect_review_readback_missing';
+            $candidate['candidate_id'] = null;
+            $candidate['status'] = 'not_ready';
+            $candidate['approval_status'] = 'not_available';
+            $candidate['reason_codes'] = array_values(array_unique($reasons));
+            $candidate['boundaries']['next_stage'] = $drifted
+                ? 'reapprove_target_and_repeat_effect_review' : 'complete_separate_effect_review';
+        }
+        return $candidate;
+    }
+
+    public function buildItem(array $intent, array $tasks = [], array $evidence = [], ?array $effectReviewReadback = null): array
     {
         $inputTaskCount = count($tasks);
         $tasks = array_values(array_filter(
@@ -109,6 +207,68 @@ final class ExecutionFlowReadService
             $task,
             $taskEvidence
         );
+        if (is_array($effectReviewReadback['outcome_truth'] ?? null)) {
+            $outcomeTruth = $effectReviewReadback['outcome_truth'];
+        }
+        $roiBinding = [];
+        $roiBindingFailure = null;
+        $activeReview = $effectReviewReadback['active_effect_review'] ?? null;
+        if (($effectReviewReadback['strict_required'] ?? false) === true && is_array($activeReview)) {
+            $sourceId = (int)($activeReview['source_readback_evidence_id'] ?? 0);
+            $roiBinding = [
+                'effect_review_id' => (int)$activeReview['id'],
+                'effect_review_content_digest' => (string)$activeReview['content_digest'],
+                'source_readback_evidence_id' => $sourceId,
+                'basis' => 'frozen_effect_review_source',
+            ];
+            $roiEvidence = [];
+            foreach ($taskEvidence as $row) {
+                if ((int)($row['id'] ?? 0) === $sourceId) {
+                    $roiEvidence = $row;
+                    break;
+                }
+            }
+            $roiBinding['source_readback_present'] = $roiEvidence !== [];
+            if ($roiEvidence === []) {
+                $roiBindingFailure = 'frozen_effect_roi_source_missing';
+            } elseif (!in_array((string)($activeReview['metric_key'] ?? ''), ['revenue', 'avg_revenue', 'amount', 'income'], true)) {
+                $roiBindingFailure = 'frozen_effect_roi_revenue_not_reviewed';
+            } else {
+                try {
+                    (new OperationEffectReviewService())->assertFrozenSourceReadback($activeReview, $intent, $task, $roiEvidence);
+                    // ROI must use the exact reviewed metric, not a different alias in the same row.
+                    foreach (['before', 'after'] as $key) {
+                        $roiEvidence[$key]['revenue'] = $roiEvidence[$key][$activeReview['metric_key']];
+                    }
+                } catch (\InvalidArgumentException) {
+                    $roiBindingFailure = 'frozen_effect_roi_source_changed';
+                }
+            }
+            if ($roiBindingFailure !== null) $roiEvidence = [];
+            $roiBinding['source_binding_verified'] = $roiBindingFailure === null;
+        }
+        $roiCostFailure = null;
+        if ($roiBinding !== [] && $roiBindingFailure === null) {
+            $frozenCost = $activeReview['outcome']['roi_cost_basis'] ?? null;
+            $currentCost = $this->executionOutcomeService->executionRoiCostBasis($intent, $task, $roiEvidence);
+            $roiBinding['cost_basis'] = $frozenCost;
+            if (!$this->executionOutcomeService->validExecutionRoiCostBasis($frozenCost)) {
+                $roiCostFailure = 'frozen_effect_roi_cost_not_frozen';
+            } elseif ($frozenCost != $currentCost) {
+                $roiCostFailure = 'frozen_effect_roi_cost_changed';
+            } elseif ($frozenCost['status'] === 'non_finite'
+                || $frozenCost['measurement_kind'] === 'plan_reference') {
+                $roiCostFailure = 'frozen_effect_roi_cost_unverified';
+            }
+            $roiBinding['cost_binding_verified'] = $roiCostFailure === null && $frozenCost['status'] === 'finite';
+            $roiBinding['cost_validation_status'] = $roiCostFailure ?? $frozenCost['status'];
+            $roiBinding['cost_reassessment'] = [
+                'enabled'=>in_array($reviewStatus, ['success', 'near_success', 'failed'], true)
+                    && $roiCostFailure !== null && $currentCost['status'] === 'finite'
+                    && $currentCost['measurement_kind'] === 'source_reported_cost',
+                'roi_cost_basis'=>$currentCost,
+            ];
+        }
         $roiEvidenceTruth = $this->executionOutcomeService->buildExecutionEvidenceTruth(
             $intent,
             $task,
@@ -181,10 +341,47 @@ final class ExecutionFlowReadService
             $outcomeTruth,
             $reviewStatus
         );
+        if ($effectReviewReadback !== null) {
+            $sopCandidate = $this->applyEffectReviewSopGate($sopCandidate, $effectReviewReadback);
+        }
+
+        $roi = $this->executionOutcomeService->buildExecutionRoi($intent, $task, $roiEvidence, $roiEvidenceTruth, $outcomeTruth);
+        $nextAction = $this->buildNextAction($stage, $intent, $task, $displayReviewStatus);
+        if ($roiBinding !== []) $roi['effect_review_binding'] = $roiBinding;
+        if ($roiBindingFailure !== null) {
+            if ($stage === 'reviewed') $stage = 'review';
+            $roi['failure_reason'] = $roiBindingFailure;
+            $roi['evidence_truth']['evidence_count'] = $roiBinding['source_readback_present'] ? 1 : 0;
+            $roi['evidence_truth']['failure_reason'] = $roiBindingFailure;
+            $roi['evidence_truth']['failure_reasons'] = [$roiBindingFailure];
+            $roi['message'] = match ($roiBindingFailure) {
+                'frozen_effect_roi_source_missing' => '冻结复盘的收益来源未读回，收益未确认',
+                'frozen_effect_roi_revenue_not_reviewed' => '冻结复盘尚未核验收益指标，收益未确认',
+                default => '收益来源与冻结复盘的值、日期或引用不一致，收益未确认',
+            };
+            $nextAction = ['key'=>'refresh_readback','label'=>'刷新核验收益','reason'=>$roiBindingFailure];
+        }
+        if ($roiCostFailure !== null) {
+            // A failed expense input does not erase the independently verified revenue.
+            foreach (['value', 'cost', 'profit', 'formula'] as $key) $roi[$key] = null;
+            foreach (['value', 'cost', 'profit'] as $key) $roi['metric_failures'][$key] = $roiCostFailure;
+            $roi['status'] = 'partial';
+            $roi['unit'] = '%';
+            $roi['failure_reason'] = $roiCostFailure;
+            $roi['message'] = match ($roiCostFailure) {
+                'frozen_effect_roi_cost_changed' => '费用来源与冻结复盘不一致，成本、利润及ROI未确认',
+                'frozen_effect_roi_cost_not_frozen' => '历史复盘未冻结费用基础，成本、利润及ROI未确认',
+                default => '费用基础不可核验，成本、利润及ROI未确认',
+            };
+            if ($stage === 'reviewed') $stage = 'review';
+            $nextAction = ['key'=>'refresh_readback','label'=>'刷新核验费用','reason'=>$roiCostFailure];
+        }
 
         return [
             'id' => (int)$intent['id'],
             'hotel_id' => (int)$intent['hotel_id'],
+            'tenant_id' => isset($intent['tenant_id']) && (int)$intent['tenant_id'] > 0 ? (int)$intent['tenant_id'] : null,
+            'source_kind' => is_string($intent['source_kind'] ?? null) ? $intent['source_kind'] : null,
             'stage' => $stage,
             'identity' => [
                 'status' => $identityGapCount === 0 ? 'consistent' : 'mismatch_excluded',
@@ -201,6 +398,7 @@ final class ExecutionFlowReadService
                 'date_end' => (string)($intent['date_end'] ?? ''),
                 'expected_metric' => (string)($intent['expected_metric'] ?? ''),
                 'expected_delta' => is_numeric($intent['expected_delta'] ?? null)
+                    && is_finite((float)$intent['expected_delta'])
                     ? (float)$intent['expected_delta']
                     : null,
                 'risk_level' => (string)($intent['risk_level'] ?? ''),
@@ -237,6 +435,7 @@ final class ExecutionFlowReadService
             'evidence_summary' => $evidenceSummary,
             'evidence_truth' => $evidenceTruth,
             'outcome_truth' => $outcomeTruth,
+            'effect_review_summary' => $effectReviewReadback['effect_review_summary'] ?? null,
             'truth_context' => $truthContext,
             'review' => [
                 'status' => $displayReviewStatus,
@@ -250,14 +449,8 @@ final class ExecutionFlowReadService
                 'is_available' => $reviewIsAvailable,
             ],
             'sop_candidate' => $sopCandidate,
-            'roi' => $this->executionOutcomeService->buildExecutionRoi(
-                $intent,
-                $task,
-                $roiEvidence,
-                $roiEvidenceTruth,
-                $outcomeTruth
-            ),
-            'next_action' => $this->buildNextAction($stage, $intent, $task),
+            'roi' => $roi,
+            'next_action' => $nextAction,
         ];
     }
 
@@ -416,11 +609,9 @@ final class ExecutionFlowReadService
         $sourceVerifiedExecuted = 0;
         $operatorAttested = 0;
         $evidenceReady = 0;
-        $totalIncrementalRevenue = 0.0;
-        $totalCost = 0.0;
-        $totalProfit = 0.0;
-        $incrementalRevenueReady = 0;
-        $costReady = 0;
+        $incrementalRevenueValues = [];
+        $costValues = [];
+        $profitValues = [];
         $profitReady = 0;
 
         foreach ($items as $item) {
@@ -457,25 +648,24 @@ final class ExecutionFlowReadService
                     $sourceVerifiedExecuted++;
                 }
             }
-            if ($sourceVerified && ($item['roi']['status'] ?? '') === 'ready') {
-                $unit = (string)($item['roi']['unit'] ?? '%');
-                $value = (float)($item['roi']['value'] ?? 0);
+            $roiStatus = (string)($item['roi']['status'] ?? '');
+            $financialPartial = $roiStatus === 'partial' && (!empty($item['roi']['metric_failures'])
+                || in_array($item['roi']['failure_reason'] ?? '', [
+                    'revenue_evidence_missing', 'cost_evidence_missing', 'roi_cost_denominator_non_positive',
+                ], true));
+            if ($sourceVerified && ($roiStatus === 'ready' || $financialPartial)) {
+                $unit = (string)($item['roi']['unit'] ?? ($roiStatus === 'ready' ? '%' : ''));
+                $value = $this->financialSample($item, 'value');
                 if ($unit === 'amount') {
                     $revenueLiftValues[] = $value;
-                } else {
+                } elseif ($unit === '%') {
                     $roiPercentValues[] = $value;
                 }
-                if (is_numeric($item['roi']['incremental_revenue'] ?? null)) {
-                    $totalIncrementalRevenue += (float)$item['roi']['incremental_revenue'];
-                    $incrementalRevenueReady++;
-                }
-                if (is_numeric($item['roi']['cost'] ?? null)) {
-                    $totalCost += (float)$item['roi']['cost'];
-                    $costReady++;
-                }
-                if (is_numeric($item['roi']['profit'] ?? null)) {
+                $incrementalRevenueValues[] = $this->financialSample($item, 'incremental_revenue');
+                $costValues[] = $this->financialSample($item, 'cost');
+                $profitValues[] = $this->financialSample($item, 'profit');
+                if (is_numeric($item['roi']['profit'] ?? null) && is_finite((float)$item['roi']['profit'])) {
                     $profit = (float)$item['roi']['profit'];
-                    $totalProfit += $profit;
                     $profitReady++;
                     if ($profit > 0) {
                         $profitable++;
@@ -485,9 +675,19 @@ final class ExecutionFlowReadService
         }
 
         $total = count($items);
-        $roiPercentReady = count($roiPercentValues);
-        $revenueLiftReady = count($revenueLiftValues);
+        $roiPercentReady = count(array_filter($roiPercentValues, static fn(array $sample): bool => $sample['roi_ready']));
+        $revenueLiftReady = count(array_filter($revenueLiftValues, static fn(array $sample): bool => $sample['roi_ready']));
         $roiReady = $roiPercentReady + $revenueLiftReady;
+        $financialMetrics = [
+            'avg_roi' => $this->aggregateFinancialSamples($roiPercentValues, '%', true),
+            'avg_revenue_lift' => $this->aggregateFinancialSamples($revenueLiftValues, 'amount', true),
+            'total_incremental_revenue' => $this->aggregateFinancialSamples($incrementalRevenueValues, 'amount'),
+            'total_cost' => $this->aggregateFinancialSamples($costValues, 'amount'),
+            'total_profit' => $this->aggregateFinancialSamples($profitValues, 'amount'),
+        ];
+        $moneyProfit = $financialMetrics['total_profit']['unrounded_value'];
+        foreach ($financialMetrics as &$metric) unset($metric['unrounded_value']);
+        unset($metric);
 
         return [
             'total' => $total,
@@ -505,8 +705,8 @@ final class ExecutionFlowReadService
             'roi_ready' => $roiReady,
             'roi_percent_ready' => $roiPercentReady,
             'revenue_lift_ready' => $revenueLiftReady,
-            'avg_roi' => $roiPercentReady > 0 ? round(array_sum($roiPercentValues) / $roiPercentReady, 2) : null,
-            'avg_revenue_lift' => $revenueLiftReady > 0 ? round(array_sum($revenueLiftValues) / $revenueLiftReady, 2) : null,
+            'avg_roi' => $financialMetrics['avg_roi']['value'],
+            'avg_revenue_lift' => $financialMetrics['avg_revenue_lift']['value'],
             'approval_rate' => $total > 0 ? round($approved / $total * 100, 2) : null,
             'authorization_rate' => $total > 0 ? round($authorized / $total * 100, 2) : null,
             'execution_rate' => $total > 0 ? round($executed / $total * 100, 2) : null,
@@ -517,16 +717,103 @@ final class ExecutionFlowReadService
             'roi_ready_rate' => $total > 0 ? round($roiReady / $total * 100, 2) : null,
             'profitable' => $profitable,
             'profitable_rate' => $profitReady > 0 ? round($profitable / $profitReady * 100, 2) : null,
-            'total_incremental_revenue' => $roiReady > 0 && $incrementalRevenueReady === $roiReady
-                ? round($totalIncrementalRevenue, 2)
-                : null,
-            'total_cost' => $roiReady > 0 && $costReady === $roiReady ? round($totalCost, 2) : null,
-            'total_profit' => $roiReady > 0 && $profitReady === $roiReady ? round($totalProfit, 2) : null,
-            'money_status' => $this->moneyStatus(
-                $roiReady,
-                $roiReady > 0 && $profitReady === $roiReady ? $totalProfit : null
-            ),
+            'total_incremental_revenue' => $financialMetrics['total_incremental_revenue']['value'],
+            'total_cost' => $financialMetrics['total_cost']['value'],
+            'total_profit' => $financialMetrics['total_profit']['value'],
+            'financial_metrics' => $financialMetrics,
+            'money_status' => $this->moneyStatus($roiReady, $moneyProfit, $profitValues !== []),
         ];
+    }
+
+    private function financialSample(array $item, string $field): array
+    {
+        $truth = (array)($item['evidence_truth'] ?? []);
+        $refs = [];
+        foreach (array_merge([$truth], (array)($truth['assessments'] ?? [])) as $assessment) {
+            if (is_array($assessment) && is_string($assessment['source_ref'] ?? null)
+                && trim($assessment['source_ref']) !== '') {
+                $refs[] = $assessment['source_ref'];
+            }
+        }
+        return ['value' => $item['roi'][$field] ?? null, 'item_id' => (int)($item['id'] ?? 0),
+            'roi_ready' => ($item['roi']['status'] ?? '') === 'ready',
+            'failure_reason' => $item['roi']['metric_failures'][$field] ?? null,
+            'source_refs' => array_values(array_unique($refs)),
+            'scope' => array_replace(
+                array_intersect_key($item, array_flip(['tenant_id', 'hotel_id', 'platform', 'date_start', 'date_end', 'source_kind'])),
+                array_intersect_key((array)($item['recommendation'] ?? []), array_flip(['platform', 'date_start', 'date_end']))
+            )];
+    }
+
+    /** A finite mean can exist even when its intermediate sum exceeds the float range. */
+    private function aggregateFinancialSamples(array $samples, string $unit, bool $average = false): array
+    {
+        $result = ['value' => null, 'unrounded_value' => null, 'unit' => $unit, 'status' => 'missing',
+            'failure_reason' => $samples === [] ? 'no_roi_samples' : null,
+            'item_ids' => array_values(array_unique(array_column($samples, 'item_id'))),
+            'source_refs' => [], 'scopes' => array_column($samples, 'scope')];
+        $values = [];
+        foreach ($samples as $sample) {
+            $result['source_refs'] = array_values(array_unique(array_merge($result['source_refs'], $sample['source_refs'])));
+            if (!is_numeric($sample['value'])) {
+                if (in_array($sample['failure_reason'], ['roi_input_non_finite', 'roi_calculation_overflow'], true)) {
+                    $result['failure_reason'] = 'aggregate_item_calculation_failed';
+                    $result['status'] = 'calculation_failed';
+                    $result['item_failures'][(string)$sample['item_id']] = $sample['failure_reason'];
+                } else {
+                    $result['failure_reason'] ??= 'aggregate_input_missing';
+                }
+            } elseif (!is_finite((float)$sample['value'])) {
+                $result['failure_reason'] = 'aggregate_input_non_finite';
+                $result['status'] = 'non_finite';
+            } else {
+                $values[] = (float)$sample['value'];
+            }
+        }
+        if ($result['failure_reason'] !== null) return $result;
+        $sum = $this->financialSum($values);
+        $value = $sum === null ? NAN : ($average ? $sum / count($values) : $sum);
+        if (!is_finite($value)) {
+            $scale = max(array_map('abs', $values));
+            $normalizedValues = [];
+            foreach ($values as $v) {
+                $normalizedValue = $v / $scale / ($average ? count($values) : 1);
+                if ($v !== 0.0 && $normalizedValue === 0.0) {
+                    $result['status'] = 'precision_loss';
+                    $result['failure_reason'] = 'aggregate_precision_loss';
+                    return $result;
+                }
+                $normalizedValues[] = $normalizedValue;
+            }
+            $normalized = $this->financialSum($normalizedValues);
+            // The mean is a convex combination; rounding cannot legitimately exceed this range.
+            $value = $normalized === null ? NAN : ($average ? max(-1.0, min(1.0, $normalized)) : $normalized) * $scale;
+        }
+        if (!is_finite($value)) {
+            $result['status'] = 'overflow';
+            $result['failure_reason'] = 'aggregate_overflow';
+            return $result;
+        }
+        $result['value'] = round($value, 2);
+        $result['unrounded_value'] = $value;
+        $result['status'] = 'ready';
+        return $result;
+    }
+
+    /** Preserve low-order residuals when large, opposing financial values cancel. */
+    private function financialSum(array $values): ?float
+    {
+        $sum = 0.0;
+        $correction = 0.0;
+        foreach ($values as $value) {
+            $next = $sum + $value;
+            if (!is_finite($next)) return null;
+            $correction += abs($sum) >= abs($value)
+                ? ($sum - $next) + $value : ($value - $next) + $sum;
+            $sum = $next;
+        }
+        $result = $sum + $correction;
+        return is_finite($result) ? $result : null;
     }
 
     public function buildStages(array $summary): array
@@ -714,7 +1001,7 @@ final class ExecutionFlowReadService
         ];
     }
 
-    private function buildNextAction(string $stage, array $intent, array $task): array
+    private function buildNextAction(string $stage, array $intent, array $task, string $displayReviewStatus): array
     {
         if ((string)($intent['source_module'] ?? '') === 'canonical_ota_investigation'
             && (string)($intent['status'] ?? '') === 'system_authorized_analysis'
@@ -724,6 +1011,20 @@ final class ExecutionFlowReadService
                 'label' => '核查已完成；经营效果未声明',
                 'priority' => 'low',
                 'target_id' => (int)($task['id'] ?? 0),
+            ];
+        }
+        // A saved terminal review cannot be reopened. Re-read current facts
+        // without suggesting a review mutation or inventing missing evidence.
+        if ($displayReviewStatus === 'unverified'
+            && (string)($task['status'] ?? '') === 'executed'
+            && (int)($task['id'] ?? 0) > 0
+            && in_array((string)($task['result_status'] ?? ''), ['success', 'near_success'], true)
+        ) {
+            return [
+                'key' => 'refresh_readback',
+                'label' => '刷新核验结果',
+                'priority' => 'medium',
+                'target_id' => (int)$task['id'],
             ];
         }
         return match ($stage) {
@@ -812,12 +1113,12 @@ final class ExecutionFlowReadService
         ][$stage] ?? '';
     }
 
-    private function moneyStatus(int $roiReady, ?float $totalProfit): string
+    private function moneyStatus(int $roiReady, ?float $totalProfit, bool $hasFinancialSamples = false): string
     {
         if ($roiReady <= 0) {
-            return 'no_roi';
+            return $hasFinancialSamples ? 'profit_unverified' : 'no_roi';
         }
-        if ($totalProfit === null) {
+        if ($totalProfit === null || !is_finite($totalProfit)) {
             return 'profit_unverified';
         }
         if ($totalProfit > 0) {

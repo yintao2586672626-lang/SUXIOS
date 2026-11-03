@@ -1,0 +1,47 @@
+{
+  "source_url": "https://joydo.us.ci/index.full",
+  "version_label": "V2.8 / JHIRA-100",
+  "observed_at": "2026-10-01",
+  "timezone": "Asia/Shanghai",
+  "visible_role": "合作伙伴",
+  "scope": "authorized_visible_cost_sections",
+  "capture_type": "bounded_own_paraphrase_screenshot_and_locally_authored_replay",
+  "contains_credentials": false,
+  "contains_source_code": false,
+  "contains_current_hotel_facts": false,
+  "upstream_full_site_hash_available": false,
+  "source_switch_propagation_verified": false,
+  "cost_standard_library_access": "not_verified_no_visible_entry",
+  "retained_files": [
+    {
+      "file": "sources/observations.md",
+      "sha256": "C765A1BE639017F57ED1E820BEE353E7C1F6564E289C6FE616A8131C2F9E83CD"
+    },
+    {
+      "file": "sources/cost-switch-observed.jpg",
+      "sha256": "D748A3981CC89ECA2FBD4519E2F3631F1C7BA497BBF1109180B065C01611BA61"
+    },
+    {
+      "file": "sources/replay-fixture.json",
+      "sha256": "A1FAFADD00F724AA40854AADED4AC984AD8B39B1F4BE875751005077769C440A"
+    },
+    {
+      "file": "README.md",
+      "sha256": "246BD3DC50117412BB72D89BB243441D0CA6053B0900A143AB823561ED759EF1"
+    },
+    {
+      "file": "knowledge-pack.json",
+      "sha256": "9A793812CEEE2F35F5A674A164865714AB392AAE2419950E57E0F5ABAE53AD6E"
+    }
+  ],
+  "local_replay_script": {
+    "file": "scripts/verify_joydo_hotel_cost_reference.php",
+    "sha256": "7A8F5E13B0A1F3FDDF3B1C62FB808315CED319FE90B41C3349CCD6218D8F6505"
+  },
+  "supporting_definition_refs": [
+    "https://www.ifrs.org/issued-standards/list-of-standards/ias-2-inventories/",
+    "https://www.costar.com/products/str-benchmark/resources/data-insights-blog/what-revenue-available-room-revpar-and-how"
+  ],
+  "usage_policy": "reference_only",
+  "capability_disposition": "absorption_candidate"
+}

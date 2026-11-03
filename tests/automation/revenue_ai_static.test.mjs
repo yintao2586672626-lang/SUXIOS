@@ -764,7 +764,7 @@ test('Agent pricing suggestion workbench exposes manual room type pricing guard 
 test('Agent pricing suggestion workbench exposes manual Ctrip demand and competitor inputs', () => {
   assert.match(html, /data-testid="agent-pricing-generation-preflight-summary"/);
   assert.match(html, /agentPricingGenerationPreflightSummary/);
-  assert.match(html, /revenueAiBuildPricingGenerationPreflightSummary\(\{\s*overview: revenueAiOverview\.value,\s*\}\)/s);
+  assert.match(html, /revenueAiBuildPricingGenerationPreflightSummary\(\{\s*overview: revenueAiOverview\.value,\s*overviewError: revenueAiOverviewError\.value,\s*overviewLoading: revenueAiOverviewLoading\.value \|\| revenueAiStaticLoading\.value,\s*\}\)/s);
   assert.match(html, /agentPricingGenerationPreflightSummary\.autoWriteOta/);
   assert.match(html, /agentPricingGenerationPreflightSummary\.candidateSkipReasons/);
   assert.match(html, /agentPricingGenerationPreflightSummary\.candidateDataGaps/);
@@ -3652,6 +3652,27 @@ test('daily revenue cockpit accepts only the exact server-issued canonical model
   assert.equal(loading.visibleSections.length, 0);
 });
 
+test('a verified empty date scope remains a data gap without a contract error or endless loading', () => {
+  const empty = helpers.buildRevenueCockpitModel({ overview: null, loadStatus: 'empty' });
+  assert.equal(empty.status, 'empty');
+  assert.equal(empty.statusLabel, '待补数据');
+  assert.match(empty.headline, /暂无严格回读/);
+  assert.match(empty.dateNotice, /尚无严格可用业务日期/);
+  assert.doesNotMatch(empty.summary, /合同|正在/);
+  assert.equal(empty.canSaveSnapshot, false);
+  assert.equal(empty.canCreatePendingApproval, false);
+  assert.equal(empty.canAskQuestion, false);
+  assert.equal(empty.visibleSections.length, 0);
+  assert.equal(empty.opportunities.length, 0);
+
+  const failed = helpers.buildRevenueCockpitModel({ loadStatus: 'empty', error: '范围读取失败' });
+  assert.equal(failed.status, 'blocked');
+  assert.equal(failed.summary, '范围读取失败');
+  const malformed = helpers.buildRevenueCockpitModel({ overview: {}, loadStatus: 'empty' });
+  assert.equal(malformed.status, 'blocked');
+  assert.match(malformed.summary, /合同/);
+});
+
 test('revenue decision snapshot posts and reads back the same canonical model digest', async () => {
   const digest = 'b'.repeat(64);
   const model = {
@@ -3674,6 +3695,7 @@ test('revenue decision snapshot posts and reads back the same canonical model di
   };
   const snapshot = {
     id: 33,
+    tenant_id: 9,
     contract_version: 'revenue_decision_snapshot.v1',
     persistence_status: 'readback_verified',
     evidence_identity_status: 'matched_current',

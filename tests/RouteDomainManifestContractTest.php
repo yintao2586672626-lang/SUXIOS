@@ -79,7 +79,7 @@ final class RouteDomainManifestContractTest extends TestCase
 
         foreach (self::EXPECTED_GROUPS as $prefix => $expectedRoutes) {
             $groupPattern = sprintf(
-                "/Route::group\\('%s', function \\(\\) \\{(?P<body>.*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\);/s",
+                "/Route::group\\('%s', function \\(\\) \\{(?P<body>.*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\)(?:->middleware\\(\\\\app\\\\middleware\\\\RetiredFeatureReadOnly::class, '[^']+'\\))?;/s",
                 preg_quote($prefix, '/')
             );
             self::assertSame(1, preg_match($groupPattern, $manifest, $groupMatch), "Missing authenticated route group {$prefix}");
@@ -153,7 +153,11 @@ final class RouteDomainManifestContractTest extends TestCase
             'route/domain/ai_daily_reports.php',
             'route/domain/online_data_order_analysis.php',
             'route/domain/ai_governance.php',
+            'route/domain/investment.php',
             'route/domain/operations.php',
+            'route/domain/business_workspace.php',
+            'route/domain/guest_operations.php',
+            'route/domain/campaign_operations.php',
             'route/domain/wecom_admin.php',
             'route/domain/wecom_api.php',
             'route/domain/agent_guidance.php',
@@ -173,7 +177,7 @@ final class RouteDomainManifestContractTest extends TestCase
         $tuples = [];
         foreach (self::EXTRACTED_GROUP_PREFIXES as $prefix) {
             $pattern = sprintf(
-                "/Route::group\\('%s', function \\(\\) \\{(?P<body>.*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\);/s",
+                "/Route::group\\('%s', function \\(\\) \\{(?P<body>.*?)\\}\\)->middleware\\(\\\\app\\\\middleware\\\\Auth::class\\)(?:->middleware\\(\\\\app\\\\middleware\\\\RetiredFeatureReadOnly::class, '[^']+'\\))?;/s",
                 preg_quote($prefix, '/')
             );
             self::assertSame(1, preg_match($pattern, $source, $groupMatch), "Missing authenticated route group {$prefix}");
@@ -188,10 +192,18 @@ final class RouteDomainManifestContractTest extends TestCase
             }
         }
 
-        self::assertCount(self::EXTRACTED_ROUTE_SURFACE_COUNT, $tuples);
+        $additions = [
+            'api/operation|get|/manager-capability/coaching|ManagerCapability/coachingList',
+            'api/operation|post|/manager-capability/coaching|ManagerCapability/coachingCreate',
+            'api/operation|get|/manager-capability/coaching/:id|ManagerCapability/coachingRead',
+            'api/operation|post|/manager-capability/coaching/:id/:action|ManagerCapability/coachingAction',
+        ];
+        self::assertSame($additions, array_values(array_filter($tuples, static fn(string $tuple): bool => in_array($tuple, $additions, true))));
+        $baseline = array_values(array_filter($tuples, static fn(string $tuple): bool => !in_array($tuple, $additions, true)));
+        self::assertCount(self::EXTRACTED_ROUTE_SURFACE_COUNT, $baseline);
         self::assertSame(
             self::EXTRACTED_ROUTE_SURFACE_SHA256,
-            hash('sha256', implode("\n", $tuples)),
+            hash('sha256', implode("\n", $baseline)),
             'An extracted route changed method, URL, handler, order, or authentication boundary'
         );
     }

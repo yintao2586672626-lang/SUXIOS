@@ -477,7 +477,8 @@ final class PreciseQueryRouterService
             $currentScope,
             $tenantId,
             (int)$hotel['id'],
-            $platform
+            $platform,
+            (string)$hotel['name']
         );
         if (($date['clarifying_question'] ?? '') !== '') {
             return $this->persistClarification(
@@ -488,7 +489,7 @@ final class PreciseQueryRouterService
                 $currentScope,
                 (string)$date['clarifying_question'],
                 (string)($date['reason'] ?? 'business_date_required'),
-                $knownScope
+                $knownScope + (array)($date['requested_scope'] ?? [])
             );
         }
         $businessDate = (string)($date['business_date'] ?? '');
@@ -1565,14 +1566,31 @@ final class PreciseQueryRouterService
         array $currentScope,
         int $tenantId,
         int $hotelId,
-        string $platform
+        string $platform,
+        string $hotelName = ''
     ): array {
         $today = $this->now();
-        if (preg_match('/\b(20[0-9]{2})[-\/.年](0?[1-9]|1[0-2])[-\/.月](0?[1-9]|[12][0-9]|3[01])日?\b/u', $query, $matches) === 1) {
+        $originalQuery = $query;
+        if ($hotelName !== '') {
+            $query = str_replace($hotelName, '', $query);
+        }
+        $query = (string)preg_replace(
+            '/今年\s*(?=[0-9]{1,2}月[0-9]{1,2}[日号])/u',
+            $today->format('Y') . '年',
+            $query
+        );
+        $period = $this->unsupportedPeriodDate($query, $currentScope, $platform);
+        if ($period !== []) {
+            if (($period['requested_scope']['date_source'] ?? '') === 'explicit_unsupported_period') {
+                $period['requested_scope']['requested_date_expression'] = $originalQuery;
+            }
+            return $period;
+        }
+        if (preg_match('/(?<![0-9])(20[0-9]{2})[-\/.年](0?[1-9]|1[0-2])[-\/.月](0?[1-9]|[12][0-9]|3[01])日?(?![0-9])/u', $query, $matches) === 1) {
             $date = sprintf('%04d-%02d-%02d', (int)$matches[1], (int)$matches[2], (int)$matches[3]);
             return $this->validatedDate($date, 'explicit_full_date');
         }
-        if (preg_match('/(?<![0-9])(0?[1-9]|1[0-2])月(0?[1-9]|[12][0-9]|3[01])日/u', $query, $matches) === 1) {
+        if (preg_match('/(?<![0-9])(0?[1-9]|1[0-2])(?:月|\/)(0?[1-9]|[12][0-9]|3[01])(?:[日号]|(?![0-9]))/u', $query, $matches) === 1) {
             $date = sprintf('%04d-%02d-%02d', (int)$today->format('Y'), (int)$matches[1], (int)$matches[2]);
             $validated = $this->validatedDate($date, 'explicit_month_day_current_year');
             if (($validated['business_date'] ?? '') !== '' && $date > $today->format('Y-m-d')) {
@@ -1621,6 +1639,89 @@ final class PreciseQueryRouterService
             return ['business_date' => $contextDate, 'source' => 'current_selected_scope'];
         }
         return ['clarifying_question' => '请告诉我需要查询哪一个业务日期。', 'reason' => 'business_date_required'];
+    }
+
+    /**
+     * Daily fact readers cannot prove period coverage or aggregate ratios/unique
+     * visitors. Recognize period intent before any daily-date fallback occurs.
+     * @param array<string,mixed> $currentScope
+     * @return array<string,mixed>
+     */
+    private function unsupportedPeriodDate(string $query, array $currentScope, string $platform): array
+    {
+        $dayPattern = '/(?<![0-9])(?:20[0-9]{2}[-\/.年][0-9]{1,2}[-\/.月][0-9]{1,2}日?'
+            . '|[0-9]{1,2}月[0-9]{1,2}[日号]|[0-9]{1,2}\/[0-9]{1,2})(?![0-9])|前天|昨天|昨日|今天|今日/u';
+        $dayCount = preg_match_all($dayPattern, $query, $mentions);
+        $dayKeys = array_unique(array_map(fn(string $mention): string => $this->dateMentionKey($mention), $mentions[0]));
+        $masked = (string)preg_replace($dayPattern, '@date@', $query);
+        $explicitPeriod = count($dayKeys) > 1
+            || preg_match('/@date@\s*(?:到|至|~|～|—|–|-)/u', $masked) === 1
+            || preg_match('/(?:周|星期)[一二三四五六日天]\s*(?:到|至|~|～|—|–|-)\s*(?:(?:周|星期))?[一二三四五六日天]/u', $masked) === 1
+            || preg_match('/(?:上|本|这|当|下)(?:个)?月|(?:上|本|这|下)(?:个)?(?:周|星期)'
+                . '|今年|去年|前年|本年|全年|季度|半年|整月'
+                . '|(?:最近|过去|近)\s*(?:[0-9]+|[一二两三四五六七八九十百]+)\s*(?:个?月|天|日|周|星期|年)'
+                . '|[0-9一二三四五六七八九十]{1,3}月|20[0-9]{2}年'
+                . '|(?<![0-9])20[0-9]{2}[-\/.](?:0?[1-9]|1[0-2])(?![-\/.0-9])/u', $masked) === 1;
+        $start = trim((string)($currentScope['date_start'] ?? $currentScope['business_date'] ?? ''));
+        $end = trim((string)($currentScope['date_end'] ?? $start));
+        $contextPeriod = !$explicitPeriod && $dayCount === 0
+            && preg_match('/最近一次|最新一次|最新/u', $query) !== 1
+            && $start !== '' && $end !== '' && $start !== $end;
+        if (!$explicitPeriod && !$contextPeriod) {
+            return [];
+        }
+
+        $requestedScope = [
+            'business_date' => null,
+            'date_grain' => 'period',
+            'date_source' => $explicitPeriod ? 'explicit_unsupported_period' : 'current_selected_period',
+            'requested_date_expression' => $explicitPeriod ? $query : $start . ' 至 ' . $end,
+        ];
+        if ($contextPeriod) {
+            $requestedScope['date_start'] = $start;
+            $requestedScope['date_end'] = $end;
+        } elseif (preg_match_all('/(?<![0-9])(20[0-9]{2})[-\/.年]([0-9]{1,2})[-\/.月]([0-9]{1,2})日?(?![0-9])/u', $query, $dates, PREG_SET_ORDER) === 2) {
+            $range = array_map(static fn(array $date): string => sprintf(
+                '%04d-%02d-%02d', (int)$date[1], (int)$date[2], (int)$date[3]
+            ), $dates);
+            if (($this->validatedDate($range[0], 'range')['business_date'] ?? '') !== ''
+                && ($this->validatedDate($range[1], 'range')['business_date'] ?? '') !== '') {
+                $requestedScope['date_start'] = $range[0];
+                $requestedScope['date_end'] = $range[1];
+            }
+        }
+        $entry = match ($platform) {
+            'ctrip' => '“携程数据”',
+            'meituan' => '“美团数据”',
+            default => '对应平台的数据页面',
+        };
+        return [
+            'clarifying_question' => '识别到期间或多个日期；当前精准查数只支持单日，尚不支持期间汇总或多日对比。'
+                . '请改为一个明确业务日期，或前往' . $entry . '按日期范围查看已保存的历史记录。',
+            'reason' => 'business_date_range_unsupported',
+            'requested_scope' => $requestedScope,
+        ];
+    }
+
+    private function dateMentionKey(string $mention): string
+    {
+        $today = $this->now();
+        $offset = match ($mention) {
+            '前天' => -2,
+            '昨天', '昨日' => -1,
+            '今天', '今日' => 0,
+            default => null,
+        };
+        if ($offset !== null) {
+            return $today->modify($offset . ' days')->format('Y-m-d');
+        }
+        if (preg_match('/^(20[0-9]{2})[-\/.年]([0-9]{1,2})[-\/.月]([0-9]{1,2})/u', $mention, $date) === 1) {
+            return sprintf('%04d-%02d-%02d', (int)$date[1], (int)$date[2], (int)$date[3]);
+        }
+        if (preg_match('/^([0-9]{1,2})(?:月|\/)([0-9]{1,2})/u', $mention, $date) === 1) {
+            return sprintf('%04d-%02d-%02d', (int)$today->format('Y'), (int)$date[1], (int)$date[2]);
+        }
+        return $mention;
     }
 
     /** @return array<string,mixed> */

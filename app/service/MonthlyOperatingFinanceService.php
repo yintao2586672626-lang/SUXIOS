@@ -75,11 +75,11 @@ final class MonthlyOperatingFinanceService
                 && $inputs['departmental_expense'] !== null
                 && $inputs['undistributed_operating_expense'] !== null
             ) {
-                $roomContribution = round(
+                $roomContribution = $this->calculatedNumber(
                     $inputs['room_operating_revenue']
                     - $inputs['departmental_expense']
                     - $inputs['undistributed_operating_expense'],
-                    2
+                    'room_operating_contribution'
                 );
             } else {
                 if ($inputs['departmental_expense'] === null) {
@@ -93,9 +93,9 @@ final class MonthlyOperatingFinanceService
                 if ($inputs['non_room_operating_revenue'] === null) {
                     $missing[] = 'non_room_operating_revenue_missing';
                 } elseif ($inputs['room_operating_revenue'] !== null) {
-                    $totalRevenue = round(
+                    $totalRevenue = $this->calculatedNumber(
                         $inputs['room_operating_revenue'] + $inputs['non_room_operating_revenue'],
-                        2
+                        'total_operating_revenue'
                     );
                     $recognizedRevenue = $totalRevenue;
                 }
@@ -103,13 +103,15 @@ final class MonthlyOperatingFinanceService
                     && $inputs['departmental_expense'] !== null
                     && $inputs['undistributed_operating_expense'] !== null
                 ) {
-                    $gop = round(
+                    $gop = $this->calculatedNumber(
                         $totalRevenue
                         - $inputs['departmental_expense']
                         - $inputs['undistributed_operating_expense'],
-                        2
+                        'gop'
                     );
-                    $gopMargin = $totalRevenue > 0 ? round($gop / $totalRevenue * 100, 2) : null;
+                    $gopMargin = $totalRevenue > 0
+                        ? $this->calculatedNumber($gop / $totalRevenue * 100, 'gop_margin_percent')
+                        : null;
                 } else {
                     $missing[] = 'gop_input_coverage_incomplete';
                 }
@@ -117,9 +119,9 @@ final class MonthlyOperatingFinanceService
                     && $inputs['rent_expense'] !== null
                     && $inputs['other_fixed_cash_cost'] !== null
                 ) {
-                    $ownerCashProxy = round(
+                    $ownerCashProxy = $this->calculatedNumber(
                         $gop - $inputs['rent_expense'] - $inputs['other_fixed_cash_cost'],
-                        2
+                        'owner_cash_proxy_before_tax_capex_and_financing'
                     );
                 } else {
                     if ($inputs['rent_expense'] === null) {
@@ -139,10 +141,10 @@ final class MonthlyOperatingFinanceService
         $gopVariance = null;
         if ($factScope === 'whole_hotel') {
             $totalRevenueVariance = $totalRevenue !== null && $inputs['budget_total_operating_revenue'] !== null
-                ? round($totalRevenue - $inputs['budget_total_operating_revenue'], 2)
+                ? $this->calculatedNumber($totalRevenue - $inputs['budget_total_operating_revenue'], 'budget_total_operating_revenue_variance')
                 : null;
             $gopVariance = $gop !== null && $inputs['budget_gop'] !== null
-                ? round($gop - $inputs['budget_gop'], 2)
+                ? $this->calculatedNumber($gop - $inputs['budget_gop'], 'budget_gop_variance')
                 : null;
             if ($inputs['budget_total_operating_revenue'] === null) {
                 $missing[] = 'budget_total_operating_revenue_missing';
@@ -595,6 +597,15 @@ final class MonthlyOperatingFinanceService
             throw new InvalidArgumentException($field . '_invalid');
         }
         return round($number, 2);
+    }
+
+    private function calculatedNumber(float $value, string $field): float
+    {
+        $rounded = round($value, 2);
+        if (!is_finite($rounded)) {
+            throw new InvalidArgumentException($field . '_not_calculable');
+        }
+        return $rounded;
     }
 
     /** @return list<string> */

@@ -83,6 +83,12 @@ final class PlatformDataSyncService
         return PlatformDataCollectionDefinitionRegistry::collectionResources();
     }
 
+    /** Reuse the same credential, order-PII and URL redaction as stored rows. */
+    public function sanitizeCollectorBusinessEvidence(array $payload): array
+    {
+        return $this->sanitizePayloadForStorage($payload);
+    }
+
     /**
      * Read the exact persisted rows that an ordered Profile run may use as
      * evidence for its next missing section. Keeping this query beside the
@@ -2309,7 +2315,13 @@ final class PlatformDataSyncService
             }
             $this->assertRequiredCurrentRunProfileSessionProbe($source, $options, $result);
             $timing['capture_elapsed_ms'] = $this->elapsedMilliseconds($phaseStartedAt);
-            $this->refreshDatabaseConnectionAfterExternalFetch();
+            // Local uploads already contain the captured result: no external
+            // wait occurred. The caller holds the device/task lease and import
+            // transaction; reconnecting here would roll it back and lose its
+            // newly created source/sync task before writing the result rows.
+            if (!$this->isOtaLocalCollectorSource($source)) {
+                $this->refreshDatabaseConnectionAfterExternalFetch();
+            }
             $payload = $this->applySyncOptionPeriodMetadata($result['payload'] ?? [], $options);
             if (($result['status'] ?? '') !== 'success') {
                 $payload['sync_diagnostics'] = $this->buildSyncDiagnostics([], 0, $source, $options, $payload, (string)$result['status'], (string)$result['message']);
@@ -2379,7 +2391,9 @@ final class PlatformDataSyncService
             $payload['sync_diagnostics'] = $diagnostics;
             return $this->finishTask($taskId, $source, $status, $message, count($rows), $saved, $payload, $timing, $syncStartedAt);
         } catch (\Throwable $e) {
-            $this->refreshDatabaseConnectionAfterExternalFetch();
+            if (!$this->isOtaLocalCollectorSource($source)) {
+                $this->refreshDatabaseConnectionAfterExternalFetch();
+            }
             $failureMessage = $isOtaSource ? $this->safeOtaExecutionFailureCode($e) : $e->getMessage();
             $payload = [
                 'sync_diagnostics' => $this->buildSyncDiagnostics([], 0, $source, $options, [], 'failed', $failureMessage),

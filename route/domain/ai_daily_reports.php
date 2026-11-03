@@ -9,3 +9,5 @@ Route::post('/broadcast-snapshots', 'AiDailyReportBroadcast/generate');
 Route::get('/latest', 'AiDailyReport/latest');
 Route::post('/generate', 'AiDailyReport/generate');
 Route::get('/tasks/:taskId', 'AiDailyReport/generationTask');
+Route::get('/:id/presentation-review', 'AiDailyReport/presentationReview')->completeMatch(true);
+Route::post('/:id/presentation-review', 'AiDailyReport/savePresentationReview')->completeMatch(true);

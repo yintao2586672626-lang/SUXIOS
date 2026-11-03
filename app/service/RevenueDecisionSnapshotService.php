@@ -76,6 +76,11 @@ final class RevenueDecisionSnapshotService
             $businessDate,
             $platform
         );
+        if ((string)($visibleModel['previousDate'] ?? '') !== ''
+            || (string)($visibleModel['sameWeekdayDate'] ?? '') !== '') {
+            $evidenceSummary['comparison_evidence'] = (new RevenueDecisionComparisonEvidenceService())
+                ->freeze($comparisonContexts, $tenantId, $hotelId, $businessDate, $platform);
+        }
         $visibleModelDigest = self::digest($visibleModel);
         $evidenceDigest = self::digest($sourceRefs);
         $content = [
@@ -169,7 +174,8 @@ final class RevenueDecisionSnapshotService
         int $snapshotId,
         int $tenantId,
         int $hotelId,
-        ?array $currentOverview = null
+        ?array $currentOverview = null,
+        ?array $comparisonContexts = null
     ): ?array {
         if ($snapshotId <= 0 || $tenantId <= 0 || $hotelId <= 0) {
             throw new InvalidArgumentException('revenue_decision_snapshot_scope_invalid');
@@ -179,7 +185,7 @@ final class RevenueDecisionSnapshotService
         if (!is_array($row)) {
             return null;
         }
-        return $this->finishReadback($this->hydrateAndVerify($row), $currentOverview);
+        return $this->finishReadback($this->hydrateAndVerify($row), $currentOverview, $comparisonContexts);
     }
 
     /** @return array<string,mixed>|null */
@@ -188,7 +194,8 @@ final class RevenueDecisionSnapshotService
         int $hotelId,
         string $businessDate,
         string $platform,
-        ?array $currentOverview = null
+        ?array $currentOverview = null,
+        ?array $comparisonContexts = null
     ): ?array {
         if ($tenantId <= 0 || $hotelId <= 0) {
             throw new InvalidArgumentException('revenue_decision_snapshot_scope_invalid');
@@ -206,7 +213,71 @@ final class RevenueDecisionSnapshotService
         if (!is_array($row)) {
             return null;
         }
-        return $this->finishReadback($this->hydrateAndVerify($row), $currentOverview);
+        return $this->finishReadback($this->hydrateAndVerify($row), $currentOverview, $comparisonContexts);
+    }
+
+    /** Saved content only; this does not verify current evidence or operating permissions. */
+    public function readHistory(
+        int $tenantId, int $hotelId, string $businessDate, string $platform,
+        int $beforeId = 0, int $limit = 20
+    ): array {
+        $businessDate = $this->date($businessDate);
+        $platform = $this->platform($platform);
+        return $this->readSavedHistoryPage($tenantId, $hotelId,
+            ['business_date' => $businessDate, 'platform' => $platform], $beforeId, $limit);
+    }
+
+    /** Explicit saved-hotel scope; it never supplies current OTA date options. */
+    public function readHotelHistory(int $tenantId, int $hotelId, int $beforeId = 0, int $limit = 20): array
+    {
+        return $this->readSavedHistoryPage($tenantId, $hotelId, [], $beforeId, $limit);
+    }
+
+    private function readSavedHistoryPage(
+        int $tenantId, int $hotelId, array $filters, int $beforeId, int $limit
+    ): array {
+        if ($tenantId <= 0 || $hotelId <= 0 || $beforeId < 0 || $limit < 1 || $limit > 20) {
+            throw new InvalidArgumentException('revenue_decision_snapshot_history_scope_invalid');
+        }
+        $this->assertSchemaReady();
+        $query = Db::name('revenue_decision_snapshots')
+            ->where('tenant_id', $tenantId)->where('system_hotel_id', $hotelId);
+        foreach ($filters as $field => $value) $query->where($field, $value);
+        if ($beforeId > 0) $query->where('id', '<', $beforeId);
+        $rows = $query->order('id', 'desc')->limit($limit + 1)->select()->toArray();
+        $hasMore = count($rows) > $limit;
+        $items = [];
+        foreach (array_slice($rows, 0, $limit) as $row) {
+            $snapshot = $this->finishReadback($this->hydrateAndVerify($row), null);
+            $items[] = array_intersect_key($snapshot, array_flip([
+                'id', 'contract_version', 'tenant_id', 'system_hotel_id', 'business_date',
+                'platform', 'as_of_date', 'as_of_date_contract_version', 'created_at',
+                'content_digest', 'visible_model_digest', 'evidence_digest',
+                'persistence_status', 'evidence_identity_status',
+            ]));
+        }
+        return [
+            'contract_version' => 'revenue_decision_snapshot_history.v1',
+            'scope_mode' => $filters === [] ? 'saved_hotel_history' : 'saved_business_date_history',
+            'scope' => ['tenant_id' => $tenantId, 'system_hotel_id' => $hotelId] + $filters,
+            'items' => $items,
+            'next_before_id' => $hasMore ? (int)$items[count($items) - 1]['id'] : null,
+            'read_only' => true,
+            'current_evidence_verified' => false,
+        ];
+    }
+
+    public function readHistoricalExact(
+        int $snapshotId, int $tenantId, int $hotelId, string $businessDate, string $platform
+    ): ?array {
+        $businessDate = $this->date($businessDate);
+        $platform = $this->platform($platform);
+        $snapshot = $this->readExact($snapshotId, $tenantId, $hotelId);
+        if ($snapshot !== null && ($snapshot['business_date'] !== $businessDate
+            || $snapshot['platform'] !== $platform)) {
+            throw new RuntimeException('revenue_decision_snapshot_history_scope_mismatch', 409);
+        }
+        return $snapshot;
     }
 
     /**
@@ -224,7 +295,8 @@ final class RevenueDecisionSnapshotService
         string $snapshotDigest,
         string $opportunityKey,
         string $opportunityDigest,
-        array $currentOverview
+        array $currentOverview,
+        ?array $comparisonContexts = null
     ): array {
         $businessDate = $this->date($businessDate);
         $platform = $this->platform($platform);
@@ -239,7 +311,7 @@ final class RevenueDecisionSnapshotService
             throw new RuntimeException('revenue_decision_snapshot_action_lineage_invalid', 409);
         }
 
-        $snapshot = $this->readExact($snapshotId, $tenantId, $hotelId, $currentOverview);
+        $snapshot = $this->readExact($snapshotId, $tenantId, $hotelId, $currentOverview, $comparisonContexts);
         if (!is_array($snapshot)
             || (string)($snapshot['business_date'] ?? '') !== $businessDate
             || (string)($snapshot['platform'] ?? '') !== $platform
@@ -273,9 +345,10 @@ final class RevenueDecisionSnapshotService
         int $hotelId,
         int $actorId,
         string $opportunityKey,
-        array $currentOverview
+        array $currentOverview,
+        ?array $comparisonContexts = null
     ): array {
-        $snapshot = $this->readExact($snapshotId, $tenantId, $hotelId, $currentOverview);
+        $snapshot = $this->readExact($snapshotId, $tenantId, $hotelId, $currentOverview, $comparisonContexts);
         if (!is_array($snapshot)) {
             throw new RuntimeException('revenue_decision_snapshot_not_found', 404);
         }
@@ -322,6 +395,10 @@ final class RevenueDecisionSnapshotService
             'readback_verified' => true,
             'verification_status' => 'readback_verified',
         ];
+        // Server-loaded inputs are transient; action cards persist only immutable lineage pointers.
+        if ($comparisonContexts !== null) {
+            $currentOverview['cockpit_comparison_contexts'] = $comparisonContexts;
+        }
         $payload = (new RevenueCockpitApprovalService())->createFromOverview(
             $currentOverview,
             $tenantId,
@@ -372,7 +449,7 @@ final class RevenueDecisionSnapshotService
     }
 
     /** @return array<string,mixed> */
-    private function finishReadback(array $snapshot, ?array $currentOverview): array
+    private function finishReadback(array $snapshot, ?array $currentOverview, ?array $comparisonContexts = null): array
     {
         $status = 'not_checked';
         if (is_array($currentOverview)) {
@@ -391,6 +468,10 @@ final class RevenueDecisionSnapshotService
                 $status = hash_equals((string)$snapshot['evidence_digest'], self::digest($currentRefs))
                     ? 'matched_current'
                     : 'stale_current_evidence';
+                if ($status === 'matched_current') {
+                    $status = (new RevenueDecisionComparisonEvidenceService())
+                        ->currentnessStatus($snapshot, $comparisonContexts) ?? $status;
+                }
             }
         }
         $snapshot['persistence_status'] = 'readback_verified';
@@ -499,6 +580,7 @@ final class RevenueDecisionSnapshotService
                 $kind = (string)($card['kind'] ?? '');
                 if (!in_array($kind, ['metric', 'comparison', 'gap', 'opportunity', 'anomaly'], true)
                     || in_array($status, ['readback_verified', 'derived_verified', 'verified', 'ready', 'ok'], true)
+                    || ($kind === 'opportunity' && in_array($status, ['actionable', 'no_signal'], true))
                 ) {
                     continue;
                 }

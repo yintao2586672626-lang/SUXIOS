@@ -643,7 +643,7 @@ test('Ctrip manual execution uses platform authorization and legacy Cookie stora
   assert.match(fetchCtripData, /runCtripFetchDataFlow\(\{/);
   assert.match(fetchCtripData, /const preparingConfig = ctripManualFetchConfigProofPending\(\);/);
   assert.doesNotMatch(fetchCtripData, /ensureCtripConfigSecret|cookies|auth_data/);
-  assert.match(fetchCtripData, /finally \{\s*if \(preparingConfig\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
+  assert.match(fetchCtripData, /finally \{\s*if \(isActive\(\)\) \{\s*fetchingData\.value = false;\s*\}\s*\}/);
   assert.match(fetchCtripData, /body: JSON\.stringify\(requestBody\)/);
   assert.match(ctripStatic, /const isCtripRankingFormAlignedWithConfig = \(form = \{\}, config = \{\}, options = \{\}\) =>/);
   assert.match(ctripStatic, /if \(selectedConfig && !isCtripRankingFormAlignedWithConfig\(form, selectedConfig, \{ selectedHotelId: selectedCtripHotelId \}\)\) \{/);
@@ -3556,13 +3556,13 @@ test('Ctrip profile field config tab reuses recent list and sample reads', () =>
   assert.match(html, /requireOnlineDataComponent\('CtripProfileFieldConfigPanelBody'\)/);
   assert.match(html, /void ensureCtripProfileFieldConfigPanelReady\(\)\.catch/);
   assert.match(html, /<ctrip-profile-field-config-panel\s+v-if="onlineDataTab === 'profile-fields' && user\?\.is_super_admin"\s+:ctx="\$root">/);
-  assert.match(html, /data-testid="ctrip-profile-field-config-loading"/);
-  assert.match(ctripProfileFieldConfigPanel, /components\.CtripProfileFieldConfigPanelBody/);
-  assert.match(ctripProfileFieldConfigPanel, /data-testid=\\?"ctrip-profile-field-config-panel\\?"/);
-  assert.match(ctripProfileFieldConfigPanel, /return new Proxy\(\{\}, \{/);
-  assert.match(ctripProfileFieldConfigPanel, /return props\.ctx\?\.\[key\] \?\? target\[key\];/);
-  assert.match(ctripProfileFieldConfigPanel, /props\.ctx\[key\] = value;/);
-  assert.match(ctripProfileFieldConfigPanel, /getOwnPropertyDescriptor\(\) \{/);
+  assert.match(html, /'data-testid': 'ctrip-profile-field-config-loading'/);
+  assert.match(ctripProfileFieldConfigPanel, /CtripProfileFieldConfigPanelBody/);
+  assert.match(ctripProfileFieldConfigPanel, /"data-testid":"ctrip-profile-field-config-panel"/);
+  assert.match(ctripProfileFieldConfigPanel, /render:/);
+  assert.doesNotMatch(ctripProfileFieldConfigPanel, /template:/);
+  assert.match(ctripProfileFieldConfigPanel, /new Proxy/);
+  assert.match(ctripProfileFieldConfigPanel, /getOwnPropertyDescriptor/);
   assert.doesNotMatch(html, /携程登录会话字段配置/);
 });
 
@@ -4838,7 +4838,11 @@ test('Operation action loads reject stale request and hotel responses', () => {
   );
 
   assert.match(operationActionsLoader, /const requestSeq = \+\+operationActionsRequestSeq;/);
-  assert.match(operationActionsLoader, /requestSeq === operationActionsRequestSeq\s*&& requestHotelId === String\(operationFilters\.value\.hotel_id \|\| ''\)\.trim\(\)/);
+  const scopeGuard = operationActionsLoader.match(/const isCurrentRequest = \(\) => \(([\s\S]*?)\n\s*\);/)?.[1] || '';
+  assert.match(scopeGuard, /requestSeq === operationActionsRequestSeq/);
+  assert.match(scopeGuard, /&& isAuthSessionCurrent\(requestSession\)/);
+  assert.match(scopeGuard, /&& requestPage === currentPage\.value/);
+  assert.match(scopeGuard, /&& requestHotelId === String\(operationFilters\.value\.hotel_id \|\| ''\)\.trim\(\)/);
   assert.match(operationActionsLoader, /const \[actionResult, flowResult, closureResult, , learningResult\] = await Promise\.allSettled\([\s\S]*if \(!isCurrentRequest\(\)\) return;/);
   assert.match(operationActionsLoader, /catch \(error\) \{\s*if \(!isCurrentRequest\(\)\) return;/);
   assert.match(operationActionsLoader, /finally \{\s*if \(requestSeq === operationActionsRequestSeq\) \{\s*operationLoading\.value\.actions = false;/);

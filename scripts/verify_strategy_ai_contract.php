@@ -2,98 +2,63 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
-
-use app\controller\StrategySimulation;
-
-function fail_strategy_ai_contract(string $message): void
-{
-    fwrite(STDERR, $message . PHP_EOL);
-    exit(1);
+// A worktree can share vendor; bind app classes to this verifier's checkout.
+foreach (spl_autoload_functions() ?: [] as $autoloadFunction) {
+    $loader = is_array($autoloadFunction) ? ($autoloadFunction[0] ?? null) : null;
+    if ($loader instanceof \Composer\Autoload\ClassLoader) {
+        $loader->setPsr4('app\\', [dirname(__DIR__) . '/app']);
+    }
 }
+require_once __DIR__ . '/../vendor/topthink/framework/src/helper.php';
+new \think\App(dirname(__DIR__));
+
+use app\controller\Base;
+use app\controller\StrategySimulation;
 
 function assert_strategy_ai_contract(bool $condition, string $message): void
 {
     if (!$condition) {
-        fail_strategy_ai_contract($message);
+        fwrite(STDERR, $message . PHP_EOL);
+        exit(1);
     }
 }
 
-$source = (string)file_get_contents(__DIR__ . '/../app/controller/StrategySimulation.php');
-$publicSource = (string)file_get_contents(__DIR__ . '/../public/index.html');
-
-assert_strategy_ai_contract(
-    str_contains($source, 'use app\\service\\LlmClient;'),
-    'strategy simulation must use the configured LlmClient instead of only local rules'
-);
-assert_strategy_ai_contract(
-    str_contains($source, 'buildAiStrategyEvaluation'),
-    'strategy simulation must build an AI evaluation from the configured model'
-);
-assert_strategy_ai_contract(
-    str_contains($source, "'ai_evaluation'"),
-    'strategy recommendation payload must include ai_evaluation for save/detail echo'
-);
-assert_strategy_ai_contract(
-    str_contains($source, "'ai_data_available'") && str_contains($source, "'ai_data_used'"),
-    'strategy data snapshot must expose AI availability separately from map/POI external data'
-);
-assert_strategy_ai_contract(
-    str_contains($source, 'buildAiPoiSearch') && str_contains($source, "'ai_search_used'") && str_contains($source, "'ai_model_label'"),
-    'strategy simulation must expose DeepSeek + MIMO AI search status for map/POI gaps'
-);
-
 $ref = new ReflectionClass(StrategySimulation::class);
-assert_strategy_ai_contract($ref->hasMethod('buildDataSnapshot'), 'strategy data snapshot method is required');
+assert_strategy_ai_contract(realpath((string)$ref->getFileName()) === realpath(__DIR__ . '/../app/controller/StrategySimulation.php'), 'strategy verifier must use this checkout');
+foreach (['simulate' => [], 'createExecutionIntent' => [37], 'archive' => [37]] as $action => $arguments) {
+    // No request, service, LLM, map client or DB state exists in this probe.
+    $controller = $ref->newInstanceWithoutConstructor();
+    assert_strategy_ai_contract($controller->$action(...$arguments)->getCode() === 401, $action . ': authentication must precede retirement');
+    (new ReflectionProperty(Base::class, 'currentUser'))->setValue($controller, (object)['id' => 3]);
+    $response = $controller->$action(...$arguments);
+    assert_strategy_ai_contract($response->getCode() === 410, $action . ': new generation/execution/archive must be retired');
+    assert_strategy_ai_contract(($response->getData()['data']['status'] ?? '') === 'retired_read_only', $action . ': retirement status must be explicit');
+    assert_strategy_ai_contract(($response->getData()['data']['history_preserved'] ?? false) === true, $action . ': existing history must remain preserved');
+}
+foreach (['records', 'detail', 'formatRecord', 'applyTenantScope'] as $method) {
+    assert_strategy_ai_contract($ref->hasMethod($method), 'strategy history boundary missing: ' . $method);
+}
+assert_strategy_ai_contract(!$ref->hasMethod('buildAiStrategyEvaluation') && !$ref->hasMethod('collectExternalData'), 'retired AI/POI generators must not remain executable');
 
+// Read a fixed synthetic historical snapshot; do not regenerate or call a model.
+$row = [
+    'id' => 37, 'tenant_id' => 9,
+    'input_json' => ['hotel_id' => 7, 'ota_target_date' => '2026-08-13'],
+    'score_json' => ['total_score' => 0, 'decision_ready' => false, 'data_gaps' => ['market_evidence_missing']],
+    'data_snapshot_json' => [
+        'ai_data_available' => true, 'ai_data_used' => false,
+        'external_data_available' => false, 'ai_search_used' => false,
+        'status' => 'unverified', 'data_date' => '2026-08-13', 'source' => 'ctrip',
+    ],
+];
 $controller = $ref->newInstanceWithoutConstructor();
-$method = $ref->getMethod('buildDataSnapshot');
-$method->setAccessible(true);
-
-$snapshot = $method->invokeArgs($controller, [
-    [
-        'data_sources' => ['daily_reports'],
-        'missing_data' => [],
-    ],
-    [
-        'available' => false,
-        'used' => false,
-        'reason' => 'missing_api_key',
-        'freshness' => 'external_not_configured',
-        'source_summary' => ['外部地图数据未接入，当前未使用 POI 推演'],
-        'missing_data' => ['AMAP_KEY', 'BAIDU_MAP_KEY'],
-        'ai_available' => true,
-        'ai_used' => true,
-        'ai_source_summary' => 'AI模型已接入：deepseek_chat',
-        'ai_model_key' => 'deepseek_chat',
-        'ai_model_label' => 'DeepSeek + MIMO',
-        'ai_search_available' => true,
-        'ai_search_used' => true,
-        'ai_search_provider' => 'DeepSeek + MIMO',
-        'ai_poi_search' => [
-            'summary' => 'AI搜索已补充周边POI判断，仍需地图或实地复核。',
-        ],
-        'ai_error' => '',
-    ],
-]);
-
-assert_strategy_ai_contract(($snapshot['external_data_available'] ?? true) === false, 'map/POI external status must keep its original meaning');
-assert_strategy_ai_contract(($snapshot['ai_data_available'] ?? false) === true, 'AI availability must be shown when DeepSeek config exists');
-assert_strategy_ai_contract(($snapshot['ai_data_used'] ?? false) === true, 'AI usage must be shown when the AI result is generated');
-assert_strategy_ai_contract(($snapshot['ai_search_used'] ?? false) === true, 'AI search usage must be shown when MIMO fills map/POI gap');
-assert_strategy_ai_contract(($snapshot['ai_model_label'] ?? '') === 'DeepSeek + MIMO', 'AI model label must show DeepSeek + MIMO instead of raw model key only');
-assert_strategy_ai_contract(in_array('AI模型已接入：deepseek_chat', $snapshot['source_summary'] ?? [], true), 'AI source summary must be included in data口径');
-
-assert_strategy_ai_contract(
-    str_contains($publicSource, 'strategyAiSourceLabel') && str_contains($publicSource, 'ai_data_used'),
-    'frontend strategy result must render AI data status instead of only external map status'
-);
-assert_strategy_ai_contract(
-    str_contains($publicSource, 'strategyAiModelDisplayLabel') && str_contains($publicSource, 'strategyPoiDataSourceLabel') && str_contains($publicSource, 'AI搜索') && str_contains($publicSource, 'DeepSeek + MIMO'),
-    'frontend strategy data rows must show DeepSeek + MIMO and AI search for map/POI'
-);
-assert_strategy_ai_contract(
-    str_contains($publicSource, '<h3 class="font-bold text-gray-800">AI赋能战略推演结果</h3>') && str_contains($publicSource, 'AI推演结论'),
-    'frontend strategy result must label the result block as AI赋能战略推演结果'
-);
-
-echo 'Strategy AI contract verification passed.' . PHP_EOL;
+$formatter = $ref->getMethod('formatRecord');
+$detail = $formatter->invoke($controller, $row, true);
+$list = $formatter->invoke($controller, $row, false);
+assert_strategy_ai_contract($detail['data_snapshot'] === $row['data_snapshot_json'], 'historical AI/map/source/date flags must read back exactly');
+assert_strategy_ai_contract($detail['total_score'] === 0 && $list['total_score'] === 0, 'observed historical zero must survive list/detail');
+assert_strategy_ai_contract($detail['decision_ready'] === false, 'historical missing evidence must not become decision-ready');
+assert_strategy_ai_contract($detail['input']['hotel_id'] === 7 && $detail['_execution_source_tenant_id'] === 9, 'historical hotel and tenant identities must remain exact');
+$missing = $formatter->invoke($controller, ['id' => 38, 'score_json' => []], false);
+assert_strategy_ai_contract($missing['total_score'] === null, 'missing historical score must not become zero');
+echo 'Strategy retired-write and historical-truth contract verification passed.' . PHP_EOL;

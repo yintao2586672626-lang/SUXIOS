@@ -131,6 +131,21 @@ final class RevenueCockpitIntentProvenanceService
         return $overview;
     }
 
+    /** Same-scope current baseline reads also used by snapshot/lineage checks; no operation writes. */
+    public function comparisonContextsForModel(array $model, int $tenantId, int $hotelId, string $platform): array
+    {
+        $contexts = []; $loaded = [];
+        foreach (['previous' => 'previousDate', 'same_weekday' => 'sameWeekdayDate'] as $basis => $key) {
+            $date = (string)($model[$key] ?? '');
+            $contexts[$basis . '_date'] = $date;
+            if ($date !== '' && !isset($loaded[$date])) {
+                $loaded[$date] = $this->currentOverview($tenantId, $hotelId, $this->date($date), $platform);
+            }
+            $contexts[$basis . '_overview'] = $date === '' ? [] : $loaded[$date];
+        }
+        return $contexts;
+    }
+
     /**
      * @return array{business_date:string,evidence_refs:list<array<string,mixed>>,cockpit_scope:array<string,mixed>}
      */
@@ -324,7 +339,7 @@ final class RevenueCockpitIntentProvenanceService
                         'data_date' => (string)($pmsProvenance['data_date'] ?? ''),
                         'readback_status' => (string)($pmsProvenance['readback_status'] ?? ''),
                     ],
-                    'facts' => is_array($pms['facts'] ?? null) ? $pms['facts'] : [],
+                    'facts' => (array)$pmsSelection['facts'],
                     'fact_statuses' => is_array($pms['fact_statuses'] ?? null)
                         ? $pms['fact_statuses']
                         : [],
@@ -521,6 +536,15 @@ final class RevenueCockpitIntentProvenanceService
         }
         $sourceRefs = $this->decode((string)($row['source_refs_json'] ?? ''));
         $visibleModel = $this->decode((string)($row['visible_model_json'] ?? ''));
+        $comparisonStatus = (new RevenueDecisionComparisonEvidenceService())->currentnessStatus([
+            'tenant_id' => (int)$scope['tenant_id'], 'system_hotel_id' => (int)$scope['hotel_id'],
+            'business_date' => (string)$scope['business_date'], 'platform' => (string)$scope['platform'],
+            'visible_model' => $visibleModel,
+            'evidence_summary' => $this->decode((string)($row['evidence_summary_json'] ?? '')),
+        ], null, $this->overviewReader);
+        if ($comparisonStatus !== null) {
+            throw new RuntimeException('revenue_decision_snapshot_action_lineage_' . $comparisonStatus, 409);
+        }
         $this->assertSnapshotAsOfDateCurrent($visibleModel);
         $storedEvidenceDigest = strtolower(trim((string)($row['evidence_digest'] ?? '')));
         $storedVisibleDigest = strtolower(trim((string)($row['visible_model_digest'] ?? '')));

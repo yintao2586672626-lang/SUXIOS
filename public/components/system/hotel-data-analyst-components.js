@@ -932,7 +932,7 @@
                     'data-role-key': 'hotel_data_analyst',
                     'data-contract-version': 'hotel_data_analyst.v1',
                 }, [
-                    h('h3', { class: 'text-xl font-bold' }, [
+                    h('h3', { class: 'text-xl font-bold', style: { color: '#f8fafc' } }, [
                         h('i', { class: 'fas fa-chart-pie mr-2 text-[#dcc591]' }),
                         '酒店数据分析师 ',
                         h('small', { class: 'text-xs text-emerald-200' }, '已接入真实入口'),

@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "stable_key": "global:user_source:qiansu_talent_growth_20260926",
+  "seed_owner": "suxios.qiansu_talent_growth_absorption",
+  "title": "黔宿酒店人才成长系统｜源码机制与宿析OS适配边界",
+  "description": "用户提供的独立人才成长系统源码包。仅作来源可追溯的产品机制参考；不包含当前酒店事实，不授权部署、账号操作、培训任务或外部写入。",
+  "source": {
+    "filename": "部署包.zip",
+    "sha256": "2a7798729f84c056f72f061dfc3a9b7581ea48ff6a9cbcc70139465cef6e8e63",
+    "bytes": 5189993,
+    "claimed_product": "黔宿酒店人才成长系统",
+    "claimed_release_date": "2026-09-26",
+    "source_type": "user_provided_source_archive",
+    "source_file_count": 174,
+    "license_status": "license_file_not_found",
+    "business_data_status": "archive_readme_says_no_business_data;not_independently_proven",
+    "runtime_status": "training_cycle_real_services_reproduced_in_isolated_sqlite;other_source_business_paths_not_run",
+    "test_status": "deployment_contract_12_pass_1_windows_shell_failure"
+  },
+  "boundary": {
+    "knowledge_scope": "global_product_reference",
+    "evidence_level": "user_provided_source_static_review",
+    "reference_only": true,
+    "decision_safe": false,
+    "task_draft_safe": false,
+    "contains_current_hotel_fact": false,
+    "contains_current_ota_fact": false,
+    "external_write_authorized": false,
+    "allowed_uses": ["人工检索", "产品设计对照", "形成有证据门的实现候选"],
+    "blocked_uses": ["自动员工评分", "自动培训派发", "当前酒店经营事实", "OTA或PMS写入", "外部通知", "生产部署", "复制未明许可的源码"]
+  },
+  "known_unknowns": [
+    "已重放来源培训周期真实服务；未运行来源员工学习、考试和完整浏览器业务路径",
+    "无用户酒店的员工、课程或现场效果数据",
+    "源码包未附许可文件，不能推断代码再分发许可",
+    "来源测试仅覆盖部署契约和一份浏览器用例，发布说明中的构建通过未独立复核"
+  ],
+  "entries": [
+    {
+      "key": "source_to_reviewed_candidate",
+      "title": "资料分段到人工审核候选",
+      "disposition": "absorption_candidate",
+      "maturity": "understood",
+      "source_files": ["apps/api/src/modules/document-ingestion/service.ts", "apps/api/src/modules/content-studio/service.ts"],
+      "target_entry": "知识中心导入与知识晋级工作台",
+      "contract": "按酒店与文件哈希去重，解析成可定位片段，再生成带片段引用的候选；允许人工修订、排除、合并或拆分，审核通过后才发布。解析或分析失败应保留失败码，不能显示为已发布。",
+      "current_suxios_baseline": "已本地实现原文件指纹去重、文本分段、字段引用核对、参考稿编辑/复制/多来源合并及版本冲突；保留参考门禁。原生数据库集成测试通过，来源文档处理服务未重放。",
+      "reproduction_gap": "缺来源同题文件的处理结果与失败样例重放，未验证宿析现有入口的相同输入输出。",
+      "boundary": "参考知识和未审核候选不能成为酒店经营事实或自动执行依据。"
+    },
+    {
+      "key": "evidence_gated_training_cycle",
+      "title": "培训任务以证据完成，并在后续周期核验效果",
+      "disposition": "absorption_candidate",
+      "maturity": "reproduced",
+      "source_files": ["apps/api/src/modules/training-cycles/service.ts", "apps/api/src/modules/training-cycles/task-evidence.ts"],
+      "target_entry": "运营管理中的店长能力案例、带教建议与复查",
+      "contract": "同员工同周期只生成一次能力快照；只有被观测的弱项进入干预。培训任务必须挂完成证据，全部完成后进入待验证；下一周期同维度有实际观测，才能比较前后结果。缺任务证据或缺后测事实时禁止判有效。",
+      "current_suxios_baseline": "原生带教计划已接入店长案例：原因分类决定方法，证据与复查分别保存，支持补录、延期和复发，复查可整理脱敏参考知识；不更改能力分。真实控制器/组件在隔离样例中通过；用户明确授权后本地共享MySQL两张表已新增并回读，登录账号与现场效果仍待验证。",
+      "reproduction_gap": "来源真实培训服务通过10项隔离检查；原生服务与组件通过合成数据验收，尚无登录账号、真实人员前后实操和现场效果证据。",
+      "boundary": "员工能力不得从OTA渠道指标、店长评分或缺失数据自动推断；人工复核和人员权限不可省略。"
+    },
+    {
+      "key": "versioned_course_update",
+      "title": "课程修订保留历史并检查当前版本冲突",
+      "disposition": "absorption_candidate",
+      "maturity": "understood",
+      "source_files": ["apps/api/src/modules/course-evolution/service.ts"],
+      "target_entry": "知识晋级的版本与审核记录；将来有课程入口后再评估课程版本",
+      "contract": "已发布课程生成独立草稿；提交者必须声明预期当前版本，发布时再核对，冲突则拒绝。新旧版本、来源与引用关系保留；已有学习记录的课程不直接硬删除。",
+      "current_suxios_baseline": "参考SOP保留新旧版本并校验expected_chunk_id；既有正式晋级接口新增预期行版本和修订ID，拒绝旧页面覆盖。原生冲突测试通过；没有完整课程和学习记录实体。",
+      "reproduction_gap": "未重放来源版本冲突与历史学习记录样例。",
+      "boundary": "不能把课程草稿或AI修订当已批准培训标准。"
+    },
+    {
+      "key": "missing_external_adapter_is_failed",
+      "title": "未接入外部系统时显式失败",
+      "disposition": "store_only",
+      "maturity": "observed",
+      "source_files": ["docs/PRODUCTION_DEPLOYMENT.md", "apps/api/src/server-external-adapters.ts"],
+      "target_entry": "宿析OS现有OTA与外部动作失败状态守卫",
+      "contract": "来源文档声明PMS、收益和企微未接入时生成失败状态，AI密钥缺失时不伪装为模拟成功。宿析OS沿用自己的失败收据与证据边界，不移植来源适配器。",
+      "current_suxios_baseline": "已有缺失、失败、未核验的独立状态要求。",
+      "reproduction_gap": "来源外部适配器未现场运行；文档声明不能代替行为证据。",
+      "boundary": "不据此宣称任何外部平台已连接。"
+    },
+    {
+      "key": "deployment_and_credentials",
+      "title": "部署与凭证步骤只作隔离的来源说明",
+      "disposition": "reject_or_quarantine",
+      "maturity": "not_applicable",
+      "source_files": ["DEPLOYMENT_GUIDE.md", "docs/PRODUCTION_DEPLOYMENT.md", "deploy/setup.sh"],
+      "target_entry": "无",
+      "contract": "包内初始化、备份、恢复、账号和密钥步骤属于独立系统运维说明。",
+      "current_suxios_baseline": "宿析OS采用自己的运行与发布流程。",
+      "reproduction_gap": "不适用；本任务没有部署或账号授权。",
+      "boundary": "不执行安装、部署、账号初始化、密钥设置、数据迁移或外部发送。"
+    }
+  ]
+}

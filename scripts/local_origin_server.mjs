@@ -4,8 +4,10 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { gzip as gzipCallback } from 'node:zlib';
+import { createHash } from 'node:crypto';
 
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const originCodeSha256 = createHash('sha256').update(fs.readFileSync(fileURLToPath(import.meta.url))).digest('hex');
 const defaultPublicRoot = path.resolve(scriptDirectory, '..', 'public');
 const gzipAsync = promisify(gzipCallback);
 const staticGzipLevel = 6;
@@ -50,6 +52,30 @@ const compressibleStaticExtensions = new Set([
   '.css', '.html', '.js', '.json', '.map', '.svg', '.txt',
 ]);
 const healthFailureThreshold = 2;
+const healthDiagnosticMaximumBytes = 16 * 1024;
+const healthDiagnosticCheckNames = [
+  'application', 'database', 'local_state', 'cache', 'lock',
+  'database_schema', 'competitor_report_idempotency',
+];
+const healthDiagnosticStates = new Set(['ok', 'unavailable', 'upgrade_required', 'development_fallback', 'not_enforced']);
+
+function sanitizeHealthDiagnostic(body) {
+  try {
+    const payload = JSON.parse(body);
+    if (payload?.status !== 'unavailable' || !payload.checks || typeof payload.checks !== 'object' || Array.isArray(payload.checks)) return null;
+    const checks = Object.fromEntries(healthDiagnosticCheckNames
+      .map((name) => [name, payload.checks[name]])
+      .filter(([, value]) => healthDiagnosticStates.has(value)));
+    if (Object.keys(checks).length === 0) return null;
+    return {
+      status: 'unavailable', production_runtime_ready: false,
+      ...(payload.runtime_mode === 'development_fallback' ? { runtime_mode: payload.runtime_mode } : {}),
+      checks,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function parseInteger(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ''), 10);
@@ -141,12 +167,14 @@ function createBackendPool(backends, {
     healthy: false,
     consecutiveHealthFailures: 0,
     activeProxyRequests: 0,
+    healthDiagnostic: null,
     checking: null,
     agent: new http.Agent({ keepAlive: true, maxSockets: 32 }),
   }));
   let cursor = 0;
 
-  const recordHealthResult = (worker, healthy) => {
+  const recordHealthResult = (worker, healthy, diagnostic = null) => {
+    worker.healthDiagnostic = diagnostic;
     if (healthy) {
       worker.healthy = true;
       worker.consecutiveHealthFailures = 0;
@@ -168,6 +196,12 @@ function createBackendPool(backends, {
   const checkWorker = (worker) => {
     if (worker.checking) return worker.checking;
     worker.checking = new Promise((resolve) => {
+      let settled = false;
+      const finish = (healthy, diagnostic = null) => {
+        if (settled) return;
+        settled = true;
+        resolve(recordHealthResult(worker, healthy, diagnostic));
+      };
       const probe = http.request({
         protocol: worker.backend.protocol,
         hostname: worker.backend.hostname,
@@ -177,14 +211,35 @@ function createBackendPool(backends, {
         agent: worker.agent,
         headers: { Connection: 'keep-alive' },
       }, (probeResponse) => {
-        probeResponse.resume();
+        const captureDiagnostic = probeResponse.statusCode === 503
+          && /^application\/json(?:\s*;|$)/i.test(String(probeResponse.headers['content-type'] || ''));
+        const chunks = [];
+        let bytes = 0;
+        if (captureDiagnostic) {
+          probeResponse.on('data', (chunk) => {
+            if (settled) return;
+            bytes += chunk.length;
+            if (bytes > healthDiagnosticMaximumBytes) {
+              finish(false);
+              probeResponse.destroy();
+              probe.destroy();
+              return;
+            }
+            chunks.push(chunk);
+          });
+        } else {
+          probeResponse.resume();
+        }
+        probeResponse.once('aborted', () => finish(false));
+        probeResponse.once('error', () => finish(false));
         probeResponse.once('end', () => {
-          resolve(recordHealthResult(worker, probeResponse.statusCode === 200));
+          finish(probeResponse.statusCode === 200, captureDiagnostic
+            ? sanitizeHealthDiagnostic(Buffer.concat(chunks).toString('utf8')) : null);
         });
       });
       probe.setTimeout(healthCheckTimeoutMs, () => probe.destroy(new Error('health check timeout')));
       probe.once('error', () => {
-        resolve(recordHealthResult(worker, false));
+        finish(false);
       });
       probe.end();
     }).finally(() => {
@@ -217,7 +272,11 @@ function createBackendPool(backends, {
     },
     markUnhealthy(worker) {
       worker.healthy = false;
+      worker.healthDiagnostic = null;
       worker.consecutiveHealthFailures = healthFailureThreshold;
+    },
+    healthFailureDiagnostic() {
+      return workers.find((worker) => worker.healthDiagnostic)?.healthDiagnostic || null;
     },
     close() {
       clearInterval(interval);
@@ -463,6 +522,8 @@ function proxyToBackend(request, response, worker, backendPool, retriesRemaining
       if (!response.destroyed) response.destroy();
     });
     const responseHeaders = copyProxyHeaders(upstreamResponse.headers);
+    delete responseHeaders['x-suxios-origin-code-sha256'];
+    responseHeaders['X-SUXIOS-Origin-Code-SHA256'] = originCodeSha256;
     responseHeaders['X-SUXIOS-Backend-Pool-Size'] = String(backendPool.size);
     response.writeHead(
       upstreamResponse.statusCode || 502,
@@ -500,7 +561,17 @@ function proxyToBackend(request, response, worker, backendPool, retriesRemaining
   }
 }
 
-function respondNoHealthyBackend(request, response) {
+function safeBackendFailure(healthDiagnostic) {
+  if (healthDiagnostic?.checks.database === 'unavailable') {
+    return { code: 503, error_code: 'local_database_unavailable', message: '本地数据库暂不可用，请恢复 MySQL 服务后重试。' };
+  }
+  if (healthDiagnostic?.checks.database_schema === 'upgrade_required') {
+    return { code: 503, error_code: 'local_database_upgrade_required', message: '本地数据库结构需要升级，请完成升级后重试。' };
+  }
+  return { code: 503, message: healthDiagnostic ? '本机服务依赖未就绪，请检查服务健康状态后重试。' : '没有可用的本机 PHP worker' };
+}
+
+function respondNoHealthyBackend(request, response, healthDiagnostic = null, exposeHealthDiagnostic = false) {
   const isApiRequest = requestPathname(request.url).startsWith('/api/');
   response.writeHead(503, {
     'Content-Type': isApiRequest
@@ -509,7 +580,9 @@ function respondNoHealthyBackend(request, response) {
     'Cache-Control': 'no-store',
   });
   response.end(isApiRequest
-    ? JSON.stringify({ code: 503, message: '没有可用的本机 PHP worker' })
+    ? JSON.stringify(exposeHealthDiagnostic && healthDiagnostic
+      ? { code: 503, message: '本机 PHP worker 的依赖健康检查未就绪', ...healthDiagnostic }
+      : safeBackendFailure(healthDiagnostic))
     : 'No healthy local PHP worker is available');
 }
 
@@ -533,13 +606,16 @@ export function createLocalOriginServer({
   const proxyRequest = async (request, response) => {
     const worker = await backendPool.nextHealthy();
     if (!worker) {
-      respondNoHealthyBackend(request, response);
+      const isHealthRead = canRetryReadRequest(request)
+        && requestPathname(request.url) === requestPathname(healthPath);
+      respondNoHealthyBackend(request, response, backendPool.healthFailureDiagnostic(), isHealthRead);
       return;
     }
     proxyToBackend(request, response, worker, backendPool);
   };
 
   const server = http.createServer((request, response) => {
+    response.setHeader('X-SUXIOS-Origin-Code-SHA256', originCodeSha256);
     if (request.method === 'GET' || request.method === 'HEAD') {
       const filePath = staticFilePath(normalizedPublicRoot, request.url);
       if (filePath) {

@@ -1,0 +1,48 @@
+{
+  "version": "joydo-jhira-field-code-review-20261002-v1",
+  "source_url": "https://joydo.us.ci/index.full",
+  "reviewed_on": "2026-10-02",
+  "usage_policy": "reference_only",
+  "automatic_application_authorized": false,
+  "fingerprint_scope": "retained derived metadata and authored methods, not entire website",
+  "server_source_available": false,
+  "website_code_executed": false,
+  "retained_files": [
+    {
+      "file": "sources/structural-inventory.json",
+      "sha256": "71A89650397328C3080EBCCCCD5E820A11E6D76E994BD447FF93FF6D72CDF58F"
+    },
+    {
+      "file": "sources/custom-control-inventory.json",
+      "sha256": "900AE44C6D6748527C114D59E379919E794B6B51803B1DD51883387E9701310A"
+    },
+    {
+      "file": "sources/function-inventory.json",
+      "sha256": "DB82788B38ED2A14CFADFBCA77DADB9C0A255FAC13CD2D0C4489582DCEE2027C"
+    },
+    {
+      "file": "sources/field-review.json",
+      "sha256": "BFE9F3833B3DE757E028BA41E6923622E47A6B1C13CA258AC98CE4568CBC9376"
+    },
+    {
+      "file": "sources/function-review.json",
+      "sha256": "E2335A5262B8DAFDA39D48274064762B027BA7BE5B3A5DA9646DD12685A895A4"
+    },
+    {
+      "file": "sources/suxios-module-mapping.json",
+      "sha256": "9D9D765598FE2816618458F01BAC820065FCFD9065BB1FBD302658B3F3826FE6"
+    },
+    {
+      "file": "sources/core-observations.json",
+      "sha256": "3A7DB0EB0E1E703FB3AE0B249CFE22A456CF35267C6ABD9604F8A22DEE0453C6"
+    },
+    {
+      "file": "knowledge-pack.json",
+      "sha256": "F7D2B39E88654DABDB9425E43C5A7E44186A46FE8B89A5E646BC5F3A839DDF50"
+    }
+  ],
+  "local_replay_script": {
+    "file": "scripts/verify_joydo_field_code_review.php",
+    "sha256": "0544E0CDF6B9DF9E2BAB39DBF96599AFBA034169613D0149924477B17870933B"
+  }
+}

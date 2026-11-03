@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { loadFrontendTemplateSource } from '../../scripts/lib/frontend_template_source.mjs';
 
 const appMain = readFileSync('public/app-main.js', 'utf8');
-const template = readFileSync(
-  'resources/frontend/templates/fragments/23b-page-ai-workbench.html',
-  'utf8',
-);
+const template = loadFrontendTemplateSource(process.cwd()).template;
 const style = readFileSync('public/style.css', 'utf8');
+const homeStatic = readFileSync('public/home-static.js', 'utf8');
+const compassStyle = readFileSync('public/compass-authority-polish.css', 'utf8');
 
 assert.match(
   appMain,
@@ -38,15 +38,15 @@ assert.match(
   /diagnostic_matched_points[\s\S]*另 \$\{excludedSamples\} 个仅诊断/,
   'matured forecasts without verified source evidence must stay visible but not inflate operational samples',
 );
-assert.match(
+assert.doesNotMatch(
   template,
-  /data-testid="home-temporal-backtest-matrix"[\s\S]*指标 × 预测周期独立回测[\s\S]*总命中率只作诊断/,
-  'the workbench must expose the independent backtest matrix',
+  /data-testid="home-temporal-backtest-matrix"/,
+  'the retired workbench backtest matrix has no active entry; active model gates remain tested above',
 );
-assert.match(
+assert.doesNotMatch(
   template,
-  /data-testid="home-temporal-operation-review"[\s\S]*审批通过后才生成运营任务[\s\S]*不自动调价[\s\S]*送人工审核/,
-  'the workbench must keep human approval before task creation and forbid automatic pricing',
+  /data-testid="home-temporal-operation-review"/,
+  'the retired workbench review panel is absent; the retained execution-intent bridge still enforces approval below',
 );
 assert.match(
   appMain,
@@ -55,21 +55,21 @@ assert.match(
 );
 assert.match(
   template,
-  /class="dual-ota-temporal-detail" :title="card\.fullDetail \|\| card\.detail"/,
-  'full temporal evidence wording must remain available without cluttering the card',
+  /<home-business-time-axis[\s\S]*:model="homeBusinessTimeModel"[\s\S]*:selected-hotel-id="homeTemporalSelectedHotelId"[\s\S]*@generate="generateHomeTemporalForecast"/,
+  'the active time-axis binds the current evidence model and explicit hotel to forecast generation',
 );
 assert.match(
-  template,
-  /dual-ota-compare-copy">同期对比<\/span>[\s\S]*dual-ota-compare-switch/,
-  'the comparison label and switch must be rendered as one compact control group',
+  homeStatic,
+  /const HomeBusinessTimeAxis[\s\S]*h\('p', null, stage\.detail\)[\s\S]*h\('button',[\s\S]*type: 'button',[\s\S]*disabled: this\.generating \|\| !this\.selectedHotelId/,
+  'the current component renders each evidence detail and exposes a native button with hotel and busy gates',
 );
-assert.match(
+assert.doesNotMatch(
   style,
-  /\.dual-ota-compare-toggle \{[\s\S]*?justify-content: center;[\s\S]*?gap: 8px;[\s\S]*?padding: 7px 10px;/,
-  'the comparison control must keep its label and switch adjacent',
+  /data-current-page="ai-workbench"|\.dual-ota-compare-toggle/,
+  'retired workbench comparison styling has no active CSS entry',
 );
 assert.match(
-  style,
-  /\.dual-ota-compare-toggle\.is-active \.dual-ota-compare-switch::after \{[\s\S]*?transform: translateX\(12px\);/,
-  'the compact comparison switch must retain a visible selected state',
+  compassStyle,
+  /@media \(max-width: 599px\)[\s\S]*\.home-temporal-grid \{ grid-template-columns: minmax\(0, 1fr\); \}/,
+  'the actual Compass time-axis retains its mobile single-column layout',
 );

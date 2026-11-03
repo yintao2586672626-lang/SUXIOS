@@ -704,6 +704,81 @@ final class OtaLocalCollectorServiceTest extends TestCase
         self::assertNull($stored['lease_expires_at']);
     }
 
+    public function testResultUploadResumeRenewsOnlyTheOriginalAttempt(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->leasedCollectionFixture($service, 'Upload recovery');
+        $task = $fixture['task'];
+        Db::name('ota_local_collector_tasks')->where('id', $task['id'])->update([
+            'lease_expires_at' => '2000-01-01 00:00:00',
+        ]);
+        $identity = ['result_id' => 'fixture-result-upload-001', 'result_hash' => str_repeat('a', 64), 'attempt' => (int)$task['attempt']];
+        $count = Db::name('ota_local_collector_tasks')->count();
+        $resumed = $service->resumeResultUpload($fixture['pair']['device_public_id'], $fixture['pair']['device_token'], (int)$task['id'], $identity);
+        self::assertSame('upload_ready', $resumed['status']);
+        self::assertSame($identity['result_hash'], $resumed['result_hash']);
+        self::assertNotSame($task['lease_token'], $resumed['lease_token']);
+        $stored = Db::name('ota_local_collector_tasks')->where('id', $task['id'])->find();
+        self::assertSame((int)$task['attempt'], (int)$stored['attempt']);
+        self::assertSame($count, Db::name('ota_local_collector_tasks')->count(), 'Upload recovery must not schedule another capture.');
+        self::assertSame(hash('sha256', $resumed['lease_token']), $stored['lease_token_hash']);
+        self::assertStringNotContainsString($resumed['lease_token'], (string)$stored['request_json']);
+        self::assertStringContainsString('upload_pending', (string)$stored['request_json']);
+        try {
+            $service->submitTaskResult($fixture['pair']['device_public_id'], $fixture['pair']['device_token'], (int)$task['id'], [
+                'lease_token' => $resumed['lease_token'], 'success' => true, 'rows' => [],
+            ]);
+            self::fail('A result-only lease must not authorize an unbound legacy result body.');
+        } catch (RuntimeException $exception) {
+            self::assertSame(409, $exception->getCode());
+        }
+    }
+
+    public function testResultUploadResumeRejectsChangedAttemptAndChangedPayload(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->leasedCollectionFixture($service, 'Upload fence');
+        $task = $fixture['task'];
+        $identity = ['result_id' => 'fixture-result-upload-002', 'result_hash' => str_repeat('b', 64), 'attempt' => (int)$task['attempt']];
+        $service->resumeResultUpload($fixture['pair']['device_public_id'], $fixture['pair']['device_token'], (int)$task['id'], $identity);
+        foreach ([array_replace($identity, ['result_hash' => str_repeat('c', 64)]), array_replace($identity, ['attempt' => (int)$task['attempt'] + 1])] as $different) {
+            try {
+                $service->resumeResultUpload($fixture['pair']['device_public_id'], $fixture['pair']['device_token'], (int)$task['id'], $different);
+                self::fail('Changed result or capture attempt must not acquire an upload lease.');
+            } catch (RuntimeException $exception) {
+                self::assertSame(409, $exception->getCode());
+            }
+        }
+        self::assertSame(0, Db::name('online_daily_data')->count());
+    }
+
+    public function testResultUploadResumeCannotBorrowAnotherDevicesTask(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->leasedCollectionFixture($service, 'Upload owner');
+        $other = $service->pairDevice([
+            'pair_code' => $service->createPairCode($this->actor(), ['device_name' => 'Different device'])['pair_code'],
+            'device_platform' => 'windows',
+        ]);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionCode(404);
+        $service->resumeResultUpload($other['device_public_id'], $other['device_token'], (int)$fixture['task']['id'], [
+            'result_id' => 'fixture-result-upload-003', 'result_hash' => str_repeat('d', 64), 'attempt' => (int)$fixture['task']['attempt'],
+        ]);
+    }
+
+    public function testResultUploadResumeDoesNotReviveRevokedAccount(): void
+    {
+        $service = new OtaLocalCollectorService();
+        $fixture = $this->leasedCollectionFixture($service, 'Revoked upload');
+        Db::name('ota_local_collector_accounts')->where('id', $fixture['task']['account_id'])->update(['status' => 'revoked']);
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionCode(403);
+        $service->resumeResultUpload($fixture['pair']['device_public_id'], $fixture['pair']['device_token'], (int)$fixture['task']['id'], [
+            'result_id' => 'fixture-result-upload-004', 'result_hash' => str_repeat('e', 64), 'attempt' => (int)$fixture['task']['attempt'],
+        ]);
+    }
+
     public function testLeaseRecoveryUsesRowLockAndExactSnapshotCas(): void
     {
         $source = (string)file_get_contents(
@@ -995,6 +1070,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
         string $variant,
         bool $expectSuccess
     ): void {
+        $committedFinalization = [];
         $service = new OtaLocalCollectorService(
             static function (
                 $owner,
@@ -1103,6 +1179,19 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     $result['deterministic_readback'] = $deterministicReadback;
                 }
                 return $result;
+            },
+            deliveryEvidenceStore: new \app\service\OtaLocalCollectorEvidenceStore((string)getenv('SUXIOS_CACHE_PATH') . '/delivery-evidence'),
+            canonicalHistoryFinalizer: static function (array $receipt, int $tenantId, int $hotelId) use (&$committedFinalization, $variant): array {
+                $reader = new \PDO('sqlite:' . self::$databasePath);
+                $committedFinalization[] = (int)$reader->query('SELECT COUNT(*) FROM online_daily_data')->fetchColumn();
+                if ($variant === 'finalizer_failure') {
+                    throw new RuntimeException('Synthetic finalizer failure after upload commit');
+                }
+                return [
+                    'status' => 'blocked', 'tenant_id' => $tenantId, 'hotel_id' => $hotelId,
+                    'target_date' => $receipt['target_date'], 'canonical_history_complete' => false,
+                    'platform_results' => [], 'sensitive_values_exposed' => false,
+                ];
             }
         );
         $actor = $this->actor();
@@ -1144,12 +1233,7 @@ final class OtaLocalCollectorServiceTest extends TestCase
             'data_date' => '2026-07-23',
         ]);
         $task = $service->nextTask($paired['device_public_id'], $paired['device_token'])['task'];
-        $result = $service->submitTaskResult(
-            $paired['device_public_id'],
-            $paired['device_token'],
-            (int)$task['id'],
-            [
-                'lease_token' => $task['lease_token'],
+        $input = [
                 'success' => true,
                 'capture_summary' => [
                     'platform_identity_validation' => [
@@ -1171,14 +1255,68 @@ final class OtaLocalCollectorServiceTest extends TestCase
                     'order_filling_num' => 9,
                     'order_submit_num' => 4,
                 ]],
-            ]
+        ];
+        if ($variant === 'delivery_replay') {
+            $input['rows'][0]['guestName'] = 'Synthetic Guest';
+            $input['rows'][0]['phone'] = '13700001111';
+            $input['rows'][0]['orderId'] = 'SYNTHETIC-ORDER-0001';
+            $json = json_encode($input, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            $identity = ['result_id' => 'fixture-replay-result-001', 'result_hash' => hash('sha256', $json), 'attempt' => (int)$task['attempt']];
+            $upload = $service->resumeResultUpload($paired['device_public_id'], $paired['device_token'], (int)$task['id'], $identity);
+            $input = $identity + ['result_json' => $json, 'lease_token' => $upload['lease_token']];
+        } else {
+            $input['lease_token'] = $task['lease_token'];
+        }
+        $result = $service->submitTaskResult(
+            $paired['device_public_id'], $paired['device_token'], (int)$task['id'], $input
         );
 
         if ($expectSuccess) {
             self::assertSame('success', $result['status']);
+            self::assertSame([2], $committedFinalization, 'The finalizer must read already-committed business rows.');
+            self::assertSame('blocked', $result['summary']['canonical_history']['status']);
+            if ($variant === 'finalizer_failure') {
+                self::assertSame('canonical_finalization_failed', $result['summary']['canonical_history']['reason']);
+                self::assertSame('success', Db::name('ota_local_collector_tasks')->where('id', $task['id'])->value('status'));
+            }
             self::assertTrue($result['summary']['run_readback_scope_verified']);
             self::assertSame(12, $result['summary']['run_readback']['tenant_id']);
             self::assertSame([7001, 7002], $result['summary']['deterministic_readback']['row_ids']);
+            if ($variant === 'delivery_replay') {
+                self::assertSame('accepted', $result['delivery']['status']);
+                self::assertTrue($result['delivery']['evidence']['replayable']);
+                $evidence = $service->resultEvidence($actor, (int)$task['id'], $identity['result_hash']);
+                self::assertSame('reference_only', $evidence['data_quality']);
+                self::assertSame(102, $evidence['scope']['system_hotel_id']);
+                self::assertSame('2026-07-23', $evidence['scope']['business_date']);
+                self::assertSame(688, $evidence['business_result']['rows'][0]['order_amount']);
+                $encodedEvidence = json_encode($evidence, JSON_THROW_ON_ERROR);
+                self::assertStringNotContainsString('Synthetic Guest', $encodedEvidence);
+                self::assertStringNotContainsString('13700001111', $encodedEvidence);
+                self::assertStringNotContainsString('SYNTHETIC-ORDER-0001', $encodedEvidence);
+                try {
+                    $service->resultEvidence($this->actorWithHotels([101]), (int)$task['id'], $identity['result_hash']);
+                    self::fail('An evidence link cannot bypass hotel permissions.');
+                } catch (RuntimeException $exception) {
+                    self::assertSame(403, $exception->getCode());
+                }
+                $replayed = $service->submitTaskResult($paired['device_public_id'], $paired['device_token'], (int)$task['id'], $input);
+                self::assertSame($result['delivery'], $replayed['delivery']);
+                self::assertTrue($replayed['replayed']);
+                $resumed = $service->resumeResultUpload($paired['device_public_id'], $paired['device_token'], (int)$task['id'], $identity);
+                self::assertSame($result['delivery'], $resumed['delivery']);
+                self::assertArrayNotHasKey('lease_token', $resumed);
+                self::assertSame(2, Db::name('online_daily_data')->count(), 'Lost ACK must not import rows twice.');
+                // A later attempt cannot erase the prior result receipt.
+                Db::name('ota_local_collector_tasks')->where('id', $task['id'])->update([
+                    'attempt' => (int)$task['attempt'] + 1, 'status' => 'leased',
+                ]);
+                $nextIdentity = array_replace($identity, ['attempt' => $identity['attempt'] + 1, 'result_id' => 'fixture-replay-result-002']);
+                $nextUpload = $service->resumeResultUpload($paired['device_public_id'], $paired['device_token'], (int)$task['id'], $nextIdentity);
+                self::assertSame('upload_ready', $nextUpload['status'], 'Identical content from a new attempt is not an old-result conflict.');
+                $again = $service->resumeResultUpload($paired['device_public_id'], $paired['device_token'], (int)$task['id'], $identity);
+                self::assertSame($result['delivery'], $again['delivery']);
+            }
             return;
         }
         self::assertNotSame('success', $result['status']);
@@ -1190,6 +1328,8 @@ final class OtaLocalCollectorServiceTest extends TestCase
     {
         return [
             'success' => ['success', true],
+            'delivery replay after lost ACK' => ['delivery_replay', true],
+            'failed post-commit finalizer keeps saved result' => ['finalizer_failure', true],
             'tenant mismatch' => ['tenant_mismatch', false],
             'data source mismatch' => ['data_source_mismatch', false],
             'mapping data source mismatch' => ['mapping_data_source_mismatch', false],

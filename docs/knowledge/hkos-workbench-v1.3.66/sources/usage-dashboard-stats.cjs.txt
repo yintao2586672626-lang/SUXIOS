@@ -1,0 +1,485 @@
+// src/usage-dashboard-stats.cjs
+var require_usage_dashboard_stats = __commonJS({
+  "src/usage-dashboard-stats.cjs"(exports2, module2) {
+    var { DAY_LINES } = require_usage_dashboard_quotes();
+    var { GIFT_DEFS } = require_usage_dashboard_gifts();
+    var LINES = Object.freeze([
+      { k: "accum", nm: "\u79EF\u7D2F", sub: "\u5B58\u4E86\u591A\u5C11", ranks: ["\u62FE\u9875\u8005", "\u7B51\u57FA\u8005", "\u6210\u5377\u8005"] },
+      { k: "link", nm: "\u8FDE\u63A5", sub: "\u7EC7\u5F97\u591A\u5BC6", ranks: ["\u7275\u7EBF\u8005", "\u7EC7\u7F51\u8005", "\u7ED3\u8109\u8005"] },
+      { k: "order", nm: "\u6574\u7406", sub: "\u7406\u5F97\u591A\u6E05", ranks: ["\u5F52\u4F4D\u8005", "\u6E05\u9053\u8005", "\u79E9\u5E8F\u4E3B"] },
+      { k: "out", nm: "\u4EA7\u51FA", sub: "\u9020\u4E86\u591A\u5C11", ranks: ["\u5F00\u7B14\u8005", "\u5361\u7247\u5320\u4EBA", "\u62A5\u544A\u5927\u5E08", "\u8BB2\u64AD\u8005", "\u7ACB\u8A00\u8005"] },
+      { k: "prof", nm: "\u4E13\u4E1A", sub: "\u94BB\u5F97\u591A\u6DF1", ranks: ["\u91C7\u98CE\u8005", "\u7701\u601D\u8005", "\u6388\u4E1A\u8005", "\u8BCA\u7597\u8005", "\u638C\u5C40\u8005"] },
+      { k: "habit", nm: "\u575A\u6301", sub: "\u5B88\u4E86\u591A\u4E45", ranks: ["\u8D77\u6B65\u8005", "\u6052\u5B88\u8005", "\u4E0D\u8F8D\u8005"] },
+      { k: "impact", nm: "\u5F71\u54CD", sub: "\u88AB\u7528\u591A\u5C11", ranks: ["\u88AB\u5F15\u8005", "\u88AB\u8350\u8005", "\u88AB\u4F20\u4E60\u8005"] }
+    ]);
+    var RANKS = Object.freeze([
+      { name: "\u521D\u5B66\u8005", at: 0 },
+      { name: "\u7B14\u5F55\u8005", at: 3 },
+      { name: "\u6574\u7406\u8005", at: 7 },
+      { name: "\u6C47\u7F16\u8005", at: 12 },
+      { name: "\u8457\u8FF0\u8005", at: 17 },
+      { name: "\u4F20\u706F\u8005", at: 22 }
+    ]);
+    var OUTPUT_KINDS = Object.freeze([
+      { id: "card", label: "\u77E5\u8BC6\u5361\u7247", patterns: ["\u77E5\u8BC6\u5361\u7247", "\u5361\u7247"] },
+      { id: "script", label: "\u53E3\u64AD\u7A3F", patterns: ["\u53E3\u64AD", "\u77ED\u89C6\u9891\u811A\u672C", "\u6587\u6848\u7A3F"] },
+      { id: "course", label: "\u8BFE\u7A0B / \u6559\u6848 / \u4EFB\u52A1\u5355", patterns: ["\u6559\u6848", "\u8BFE\u7A0B", "\u4EFB\u52A1\u5355", "\u8BFE\u4EF6"] },
+      { id: "report", label: "\u62A5\u544A / \u6750\u6599", patterns: ["\u62A5\u544A", "\u65B9\u6848", "\u6750\u6599", "\u8BCA\u65AD\u4E66"] },
+      { id: "daily", label: "\u7ECF\u8425\u65E5\u62A5", patterns: ["\u7ECF\u8425\u65E5\u62A5", "\u65E5\u62A5"] },
+      { id: "review", label: "\u590D\u76D8\u8BB0\u5F55", patterns: ["\u590D\u76D8", "\u5468\u62A5", "\u6708\u5EA6\u603B\u7ED3"] },
+      { id: "case", label: "\u6848\u4F8B", patterns: ["\u6848\u4F8B"] }
+    ]);
+    var GIFT_GATE = Object.freeze({
+      accum: "\u6210\u5377\u8005",
+      link: "\u7ED3\u8109\u8005",
+      order: "\u79E9\u5E8F\u4E3B",
+      out: "\u7ACB\u8A00\u8005",
+      prof: "\u638C\u5C40\u8005",
+      habit: "\u4E0D\u8F8D\u8005",
+      impact: "\u88AB\u4F20\u4E60\u8005"
+    });
+    var FEATURE_LABELS = Object.freeze({
+      dashboard: "\u5DE5\u4F5C\u53F0\u603B\u89C8",
+      knowledge: "\u77E5\u8BC6\u4E2D\u5FC3",
+      graph: "\u77E5\u8BC6\u56FE\u8C31",
+      inbox: "AI Inbox",
+      projects: "\u9879\u76EE\u4E0E\u4EA4\u4ED8",
+      analytics: "\u77E5\u8BC6\u5206\u6790",
+      agents: "AI \u667A\u80FD\u52A9\u624B",
+      support: "\u652F\u6301\u4E0E\u4EA4\u4ED8",
+      skills: "Skills \u5DE5\u4F5C\u53F0"
+    });
+    var PERSONA_LABELS = Object.freeze({
+      advisor: "\u987E\u95EE / \u57F9\u8BAD\u8BB2\u5E08",
+      agency: "\u4EE3\u8FD0\u8425\u670D\u52A1\u5546",
+      operator: "\u9152\u5E97\u7ECF\u8425\u8005\uFF08\u5355\u5E97\uFF09",
+      group: "\u591A\u5E97 / \u591A\u7269\u4E1A\u603B\u90E8"
+    });
+    function dayKey(ms) {
+      const d = new Date(ms);
+      if (Number.isNaN(d.getTime())) return "";
+      const p = (n) => (n < 10 ? "0" : "") + n;
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+    function addDays(day, delta) {
+      const [y, m, d] = String(day).split("-").map(Number);
+      const t = new Date(Date.UTC(y, m - 1, d) + delta * 864e5);
+      const p = (n) => (n < 10 ? "0" : "") + n;
+      return `${t.getUTCFullYear()}-${p(t.getUTCMonth() + 1)}-${p(t.getUTCDate())}`;
+    }
+    function toUtcMs(day) {
+      const [y, m, d] = String(day).split("-").map(Number);
+      return Date.UTC(y, m - 1, d);
+    }
+    function computeStreaks(days, today) {
+      const set = new Set(days);
+      let current = 0;
+      let cursor = set.has(today) ? today : addDays(today, -1);
+      if (set.has(cursor)) {
+        while (set.has(cursor)) {
+          current += 1;
+          cursor = addDays(cursor, -1);
+        }
+      }
+      const sorted = [...set].sort();
+      let best = 0;
+      let run = 0;
+      let prev = null;
+      for (const day of sorted) {
+        if (prev && toUtcMs(day) - toUtcMs(prev) === 864e5) run += 1;
+        else run = 1;
+        best = Math.max(best, run);
+        prev = day;
+      }
+      return { current, best };
+    }
+    function numberText(n) {
+      return Number(n || 0).toLocaleString("en-US");
+    }
+    function topSection(path2) {
+      const parts = String(path2 || "").split("/");
+      return parts.length > 1 ? parts[0] : "";
+    }
+    function noteKindId(note) {
+      const haystack = [
+        ...Array.isArray(note.tags) ? note.tags : [],
+        String(note.folder || ""),
+        topSection(note.path),
+        String(note.type || ""),
+        String(note.path || "")
+      ].join(" ").toLowerCase();
+      for (const kind of OUTPUT_KINDS) {
+        if (kind.patterns.some((p) => haystack.includes(p.toLowerCase()))) return kind.id;
+      }
+      return "";
+    }
+    function collectFacts(input) {
+      const notes = Array.isArray(input.notes) ? input.notes : [];
+      const today = input.today || dayKey(Date.now());
+      const byDay = /* @__PURE__ */ new Map();
+      const activeDaySet = /* @__PURE__ */ new Set();
+      const createdMonths = /* @__PURE__ */ new Map();
+      const tagCounts = /* @__PURE__ */ new Map();
+      const kindCounts = /* @__PURE__ */ new Map();
+      const sections = /* @__PURE__ */ new Set();
+      const indexSections = /* @__PURE__ */ new Set();
+      const folderCounts = /* @__PURE__ */ new Map();
+      let linkCount = 0;
+      let createdFirst = "";
+      let lastDay = "";
+      let thisMonthNew = 0;
+      let lastMonthNew = 0;
+      let outputsTotal = 0;
+      const thisMonth = today.slice(0, 7);
+      const lastMonth = (() => {
+        const [y, m] = today.split("-").map(Number);
+        const d = new Date(Date.UTC(y, m - 2, 1));
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+      })();
+      for (const note of notes) {
+        const modified = note.modifiedDay || note.createdDay || "";
+        if (modified) {
+          byDay.set(modified, (byDay.get(modified) || 0) + 1);
+          activeDaySet.add(modified);
+          if (!lastDay || modified > lastDay) lastDay = modified;
+        }
+        const created = note.createdDay || modified;
+        if (created) {
+          createdMonths.set(created.slice(0, 7), (createdMonths.get(created.slice(0, 7)) || 0) + 1);
+          if (!createdFirst || created < createdFirst) createdFirst = created;
+        }
+        if ((created || "").slice(0, 7) === thisMonth) thisMonthNew += 1;
+        if ((created || "").slice(0, 7) === lastMonth) lastMonthNew += 1;
+        (Array.isArray(note.tags) ? note.tags : []).forEach((tag) => {
+          const key = String(tag || "").replace(/^#/, "").trim();
+          if (key) tagCounts.set(key, (tagCounts.get(key) || 0) + 1);
+        });
+        const folder = String(note.folder || "") || topSection(note.path) || "\u6839\u76EE\u5F55";
+        folderCounts.set(folder, (folderCounts.get(folder) || 0) + 1);
+        const section = topSection(note.path);
+        if (section) {
+          sections.add(section);
+          const base = String(note.path || "").split("/").pop() || "";
+          if (/(索引|目录|moc|index|_index|总览)/i.test(base)) indexSections.add(section);
+        }
+        linkCount += Number(note.links || 0);
+        const kind = note.kindId || noteKindId(note);
+        if (kind) {
+          kindCounts.set(kind, (kindCounts.get(kind) || 0) + 1);
+          outputsTotal += 1;
+        }
+      }
+      const inboxFolder = [...sections].find((name) => /inbox/i.test(name)) || "";
+      const inboxCount = typeof input.inboxCount === "number" ? input.inboxCount : notes.filter((note) => topSection(note.path) === inboxFolder).length;
+      const usage = input.usage || {};
+      const aiCitations = Number(usage.aiCitations || 0);
+      const streaks = computeStreaks([...activeDaySet], today);
+      const yearSet = new Set([...activeDaySet].map((d) => d.slice(0, 4)));
+      yearSet.add(today.slice(0, 4));
+      const years = [...yearSet].sort();
+      const byYear = {};
+      const yearStats = {};
+      for (const year of years) {
+        const days = {};
+        for (const [day, n] of byDay) if (day.startsWith(year)) days[day] = n;
+        const dayList = Object.keys(days).sort();
+        const yearStreaks = computeStreaks(dayList, today);
+        byYear[year] = days;
+        yearStats[year] = {
+          activeDays: dayList.length,
+          bestStreak: yearStreaks.best,
+          lastDay: dayList.length ? dayList[dayList.length - 1] : "\u2014"
+        };
+      }
+      return {
+        today,
+        noteCount: notes.length,
+        linkCount,
+        tagCount: tagCounts.size,
+        topTags: [...tagCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])),
+        sectionCount: sections.size,
+        indexSections: indexSections.size,
+        inboxCount,
+        activeDays: activeDaySet.size,
+        currentStreak: streaks.current,
+        bestStreak: streaks.best,
+        firstDay: createdFirst || lastDay || today,
+        lastDay: lastDay || "\u2014",
+        thisMonthNew,
+        lastMonthNew,
+        kindCounts,
+        kindList: OUTPUT_KINDS.map((kind) => ({ ...kind, count: kindCounts.get(kind.id) || 0 })),
+        outputsTotal,
+        aiCitations,
+        folderCounts,
+        years,
+        byYear,
+        yearStats,
+        usage,
+        hotelName: input.hotelProfile && input.hotelProfile.hotelName ? String(input.hotelProfile.hotelName) : ""
+      };
+    }
+    function ratioPct(have, need) {
+      if (!need) return 0;
+      return Math.max(0, Math.min(100, Math.round(have / need * 100)));
+    }
+    function buildBadges(f) {
+      const kind = (id) => f.kindCounts.get(id) || 0;
+      const progress = (have, need, unit) => have >= need ? `\u73B0\u6709 ${numberText(have)}${unit || ""}` : `${numberText(have)} / ${numberText(need)}${unit || ""}`;
+      const gapText = (have, need, unit) => {
+        const gap = Math.max(0, need - have);
+        return gap ? ` \xB7 \u8FD8\u5DEE ${numberText(gap)}${unit || ""}` : " \xB7 \u5DF2\u8FBE\u6210";
+      };
+      const defs = [
+        { line: "accum", rank: "\u62FE\u9875\u8005", nm: "\u5F00\u5377\u6709\u76CA", tier: "gold", lvl: "\u5165\u95E8", eta: "\u9884\u8BA1 1 \u5468\u5185", cond: "\u521B\u5EFA\u7B2C 1 \u7BC7\u7B14\u8BB0", have: () => f.noteCount, need: () => 1, unit: " \u7BC7" },
+        { line: "accum", rank: "\u7B51\u57FA\u8005", nm: "\u767E\u7BC7\u7B51\u57FA", tier: "gold", lvl: "\u8FDB\u9636", eta: "\u9884\u8BA1 1\u20133 \u4E2A\u6708", cond: "\u7D2F\u8BA1 100 \u7BC7\u77E5\u8BC6", have: () => f.noteCount, need: () => 100, unit: " \u7BC7" },
+        { line: "accum", rank: "\u6210\u5377\u8005", nm: "\u4E94\u5343\u6210\u5377", tier: "gold", lvl: "\u5927\u5E08", eta: "\u9884\u8BA1 6\u201312 \u4E2A\u6708", cond: "\u7D2F\u8BA1 5,000 \u7BC7\u77E5\u8BC6", have: () => f.noteCount, need: () => 5e3, unit: " \u7BC7" },
+        { line: "link", rank: "\u7275\u7EBF\u8005", nm: "\u5343\u4E1D\u4E07\u7F15", tier: "gold", lvl: "\u5165\u95E8", eta: "\u9884\u8BA1 1 \u5468\u5185", cond: "\u77E5\u8BC6\u8FDE\u63A5\u8FBE 500 \u6761", have: () => f.linkCount, need: () => 500, unit: " \u6761" },
+        { line: "link", rank: "\u7EC7\u7F51\u8005", nm: "\u7EC7\u7F51\u4EBA", tier: "silver", lvl: "\u8FDB\u9636", eta: "\u9884\u8BA1 1\u20133 \u4E2A\u6708", cond: "\u77E5\u8BC6\u8FDE\u63A5\u8FBE 2,000 \u6761", have: () => f.linkCount, need: () => 2e3, unit: " \u6761" },
+        { line: "link", rank: "\u7ED3\u8109\u8005", nm: "\u8DE8\u5E93\u8FDE\u63A5", tier: "gold", lvl: "\u5927\u5E08", eta: "\u9884\u8BA1 6\u201312 \u4E2A\u6708", cond: "\u8FDE\u63A5\u8986\u76D6 \u2265 12 \u4E2A\u77E5\u8BC6\u5206\u533A", have: () => f.linkedSections, need: () => 12, unit: " \u5206\u533A", noGap: true },
+        { line: "order", rank: "\u5F52\u4F4D\u8005", nm: "\u6574\u7406\u80FD\u624B", tier: "bronze", lvl: "\u5165\u95E8", eta: "\u9884\u8BA1 1 \u5468\u5185", cond: "00_AI Inbox \u79EF\u538B\u964D\u5230 20 \u6761\u4EE5\u5185", have: () => f.inboxCount, need: () => 20, unit: " \u6761", inverse: true },
+        { line: "order", rank: "\u6E05\u9053\u8005", nm: "\u65E5\u6E05\u65E5\u7ED3", tier: "silver", lvl: "\u8FDB\u9636", eta: "\u9884\u8BA1 1\u20133 \u4E2A\u6708", cond: "Inbox \u79EF\u538B \u2264 5 \u6761\u5E76\u4FDD\u6301 30 \u5929", have: () => f.inboxFreeStreak, need: () => 30, unit: " \u5929" },
+        { line: "order", rank: "\u79E9\u5E8F\u4E3B", nm: "\u5206\u533A\u6709\u5E8F", tier: "gold", lvl: "\u5927\u5E08", eta: "\u9884\u8BA1 6\u201312 \u4E2A\u6708", cond: "\u6BCF\u4E2A\u77E5\u8BC6\u5206\u533A\u90FD\u6709\u7D22\u5F15\u9875", have: () => f.indexSections, need: () => f.sectionCount, unit: " \u5206\u533A" },
+        { line: "out", rank: "\u5F00\u7B14\u8005", nm: "\u9996\u4EFD\u4EA7\u51FA", tier: "bronze", lvl: "\u5165\u95E8", eta: "\u9884\u8BA1 1 \u5468\u5185", cond: "\u4EA7\u51FA\u7B2C 1 \u4EF6\u6210\u679C\u7269", have: () => f.outputsTotal, need: () => 1, unit: " \u4EF6" },
+        { line: "out", rank: "\u5361\u7247\u5320\u4EBA", nm: "\u56FE\u6587\u5E76\u8302", tier: "bronze", lvl: "\u8FDB\u9636", eta: "\u9884\u8BA1 1\u20133 \u4E2A\u6708", cond: "\u77E5\u8BC6\u5361\u7247 5 \u5F20", have: () => kind("card"), need: () => 5, unit: " \u5F20" },
+        { line: "out", rank: "\u62A5\u544A\u5927\u5E08", nm: "\u8A00\u4E4B\u6709\u636E", tier: "silver", lvl: "\u8FDB\u9636", eta: "\u9884\u8BA1 1\u20133 \u4E2A\u6708", cond: "\u62A5\u544A / \u6750\u6599 10 \u4EFD", have: () => kind("report"), need: () => 10, unit: " \u4EFD" },
+        { line: "out", rank: "\u8BB2\u64AD\u8005", nm: "\u53E3\u64AD\u5341\u8FDE", tier: "silver", lvl: "\u7CBE\u82F1", eta: "\u9884\u8BA1 3\u20136 \u4E2A\u6708", cond: "\u53E3\u64AD\u7A3F 10 \u6761", have: () => kind("script"), need: () => 10, unit: " \u6761" },
+        { line: "out", rank: "\u7ACB\u8A00\u8005", nm: "\u8457\u4F5C\u7B49\u8EAB", tier: "gold", lvl: "\u5927\u5E08", eta: "\u9884\u8BA1 6\u201312 \u4E2A\u6708", cond: "\u7D2F\u8BA1\u4EA7\u51FA 600 \u4EF6\u6210\u679C\u7269", have: () => f.outputsTotal, need: () => 600, unit: " \u4EF6" },
+        { line: "prof", rank: "\u91C7\u98CE\u8005", nm: "\u6848\u4F8B\u5F00\u5C71", tier: "bronze", lvl: "\u5165\u95E8", eta: "\u9884\u8BA1 1 \u5468\u5185", cond: "\u9996\u7BC7\u6848\u4F8B\u5165\u5E93", have: () => kind("case"), need: () => 1, unit: " \u7BC7" },
+        { line: "prof", rank: "\u7701\u601D\u8005", nm: "\u590D\u76D8\u5F52\u6863", tier: "bronze", lvl: "\u8FDB\u9636", eta: "\u9884\u8BA1 1\u20133 \u4E2A\u6708", cond: "\u9996\u4EFD\u590D\u76D8\u5F52\u6863", have: () => kind("review"), need: () => 1, unit: " \u4EFD" },
+        { line: "prof", rank: "\u6388\u4E1A\u8005", nm: "\u8BB2\u5E08 \xB7 \u6559\u6848\u5341\u4EFD", tier: "silver", hot: "advisor", lvl: "\u8FDB\u9636", eta: "\u9884\u8BA1 1\u20133 \u4E2A\u6708", cond: "\u6559\u6848 / \u4EFB\u52A1\u5355 10 \u4EFD", have: () => kind("course"), need: () => 10, unit: " \u4EFD" },
+        { line: "prof", rank: "\u8BCA\u7597\u8005", nm: "\u4EE3\u8FD0\u8425 \xB7 \u95E8\u5E97\u590D\u76D8", tier: "silver", hot: "agency", lvl: "\u7CBE\u82F1", eta: "\u9884\u8BA1 3\u20136 \u4E2A\u6708", cond: "\u95E8\u5E97\u590D\u76D8 5 \u4EFD", have: () => kind("review"), need: () => 5, unit: " \u4EFD" },
+        { line: "prof", rank: "\u638C\u5C40\u8005", nm: "\u7ECF\u8425\u8005 \xB7 \u7ECF\u8425\u65E5\u62A5", tier: "silver", hot: "operator", lvl: "\u5927\u5E08", eta: "\u9884\u8BA1 6\u201312 \u4E2A\u6708", cond: "\u7ECF\u8425\u65E5\u62A5 300 \u4EFD", have: () => kind("daily"), need: () => 300, unit: " \u4EFD" },
+        { line: "habit", rank: "\u8D77\u6B65\u8005", nm: "\u4E03\u65E5\u4E0D\u8F8D", tier: "silver", lvl: "\u5165\u95E8", eta: "\u9884\u8BA1 1 \u5468\u5185", cond: "\u8FDE\u7EED\u8BB0\u5F55 7 \u5929", have: () => f.bestStreak, need: () => 7, unit: " \u5929" },
+        { line: "habit", rank: "\u6052\u5B88\u8005", nm: "\u6708\u5EA6\u5728\u573A", tier: "gold", lvl: "\u8FDB\u9636", eta: "\u9884\u8BA1 1\u20133 \u4E2A\u6708", cond: "\u8FDE\u7EED\u8BB0\u5F55 30 \u5929", have: () => f.bestStreak, need: () => 30, unit: " \u5929" },
+        { line: "habit", rank: "\u4E0D\u8F8D\u8005", nm: "\u767E\u65E5\u4E0D\u8F8D", tier: "gold", lvl: "\u5927\u5E08", eta: "\u9884\u8BA1 6\u201312 \u4E2A\u6708", cond: "\u8FDE\u7EED\u8BB0\u5F55 100 \u5929", have: () => f.bestStreak, need: () => 100, unit: " \u5929" },
+        { line: "impact", rank: "\u88AB\u5F15\u8005", nm: "\u88AB\u5F15\u7528", tier: "gold", lvl: "\u5165\u95E8", eta: "\u9884\u8BA1 1 \u5468\u5185", cond: "AI \u56DE\u7B54\u5F15\u7528\u4F60\u7684\u7B14\u8BB0 1 \u6B21", have: () => f.aiCitations, need: () => 1, unit: " \u6B21" },
+        { line: "impact", rank: "\u88AB\u8350\u8005", nm: "\u88AB\u501F\u9274", tier: "silver", lvl: "\u7CBE\u82F1", eta: "\u9884\u8BA1 3\u20136 \u4E2A\u6708", cond: "AI \u56DE\u7B54\u5F15\u7528 20 \u6B21", have: () => f.aiCitations, need: () => 20, unit: " \u6B21" },
+        { line: "impact", rank: "\u88AB\u4F20\u4E60\u8005", nm: "\u88AB\u4F20\u4E60", tier: "gold", lvl: "\u5927\u5E08", eta: "\u9884\u8BA1 6\u201312 \u4E2A\u6708", cond: "AI \u56DE\u7B54\u5F15\u7528 100 \u6B21", have: () => f.aiCitations, need: () => 100, unit: " \u6B21" }
+      ];
+      const giftRanks = new Set(Object.values(GIFT_GATE));
+      return defs.map((def) => {
+        const have = Number(def.have() || 0);
+        const need = Number(def.need() || 0);
+        const ok = def.inverse ? have <= need : need > 0 && have >= need;
+        const master = giftRanks.has(def.rank);
+        const pct = ok ? 100 : def.inverse ? have > 0 ? Math.max(0, Math.min(99, Math.round(need / have * 100))) : 100 : ratioPct(have, need);
+        const pt = def.noGap ? ok ? `\u73B0\u6709 ${numberText(have)}${def.unit} \xB7 \u5DF2\u8FBE\u6210` : `${numberText(have)} / ${numberText(need)}${def.unit} \xB7 \u8FD8\u5DEE ${numberText(Math.max(0, need - have))}${def.unit}` : def.inverse ? `\u5F53\u524D\u79EF\u538B ${numberText(have)}${def.unit}${ok ? " \xB7 \u5DF2\u8FBE\u6210" : ""}` : `${progress(have, need, def.unit)}${gapText(have, need, def.unit)}`;
+        return {
+          line: def.line,
+          rank: def.rank,
+          nm: def.nm,
+          tier: def.tier,
+          hot: def.hot || null,
+          lvl: def.lvl,
+          eta: def.eta,
+          cond: def.cond,
+          unit: def.unit.trim(),
+          inverse: Boolean(def.inverse),
+          ok,
+          pct,
+          pt,
+          gift: master,
+          have,
+          need
+        };
+      });
+    }
+    function buildRoles(f) {
+      const kind = (id) => f.kindCounts.get(id) || 0;
+      const total = f.outputsTotal;
+      const activeCard = (num, unit, cn) => num > 0 ? { num, unit, cn } : { num: 0, unit: "", cn: "\u672A\u5F00\u59CB" };
+      const idleCard = (cn, cta) => ({ num: 0, unit: "", cn, cta });
+      return {
+        advisor: {
+          label: PERSONA_LABELS.advisor,
+          hot: "advisor",
+          cards: [
+            { cat: "\u6559\u5B66\u8D44\u4EA7", ...activeCard(kind("course"), "\u4EFD", "\u8BFE\u7A0B / \u6559\u6848 / \u4EFB\u52A1\u5355") },
+            { cat: "\u6848\u4F8B\u6C89\u6DC0", ...activeCard(kind("case"), "\u7BC7", "\u6848\u4F8B\u5E93") },
+            { cat: "\u77E5\u8BC6\u8D44\u4EA7", ...activeCard(f.noteCount, "\u7BC7", "\u77E5\u8BC6\u8D44\u4EA7\u603B\u91CF") },
+            { cat: "\u5185\u5BB9\u4EA7\u51FA", ...activeCard(kind("script"), "\u6761", "\u53E3\u64AD\u7A3F") }
+          ]
+        },
+        agency: {
+          label: PERSONA_LABELS.agency,
+          hot: "agency",
+          cards: [
+            { cat: "\u4EA4\u4ED8\u590D\u76D8", ...activeCard(kind("review"), "\u4EFD", "\u590D\u76D8\u8BB0\u5F55") },
+            { cat: "\u4EA4\u4ED8\u6750\u6599", ...activeCard(kind("report"), "\u4EFD", "\u62A5\u544A / \u6750\u6599") },
+            f.hotelName ? { cat: "\u5BA2\u6237\u95E8\u5E97", num: 1, unit: "\u5BB6", cn: f.hotelName } : { cat: "\u5BA2\u6237\u95E8\u5E97", ...idleCard("\u672A\u5F00\u59CB", "\u5EFA\u7ACB\u7B2C 1 \u4E2A\u5BA2\u6237\u95E8\u5E97\u6863\u6848") },
+            { cat: "\u751F\u4EA7\u8D44\u4EA7", ...activeCard(total, "\u4EF6", "\u6210\u679C\u7269\u603B\u91CF") }
+          ]
+        },
+        operator: {
+          label: PERSONA_LABELS.operator,
+          hot: "operator",
+          cards: [
+            kind("daily") > 0 ? { cat: "\u7ECF\u8425\u65E5\u62A5", num: kind("daily"), unit: "\u4EFD", cn: "\u672C\u673A\u8BB0\u5F55" } : { cat: "\u7ECF\u8425\u65E5\u62A5", ...idleCard("\u672A\u5F00\u59CB", "\u7ED1\u5B9A\u95E8\u5E97\u540E\u5F00\u59CB\u8BB0\u5F55") },
+            f.hotelName ? { cat: "\u6570\u636E\u63A5\u5165", num: 1, unit: "\u5BB6", cn: f.hotelName } : { cat: "\u6570\u636E\u63A5\u5165", ...idleCard("\u672A\u5F00\u59CB", "\u7ED1\u5B9A\u95E8\u5E97\u540E\u63A5\u5165") },
+            { cat: "\u77E5\u8BC6\u8D44\u4EA7", ...activeCard(f.noteCount, "\u7BC7", "\u6362\u89C6\u89D2\u4E0D\u6362\u5BB6\u5E95") },
+            { cat: "\u7D2F\u8BA1\u6D3B\u8DC3", ...activeCard(f.activeDays, "\u5929", "\u672C\u673A\u4F7F\u7528\u5929\u6570") }
+          ]
+        },
+        group: {
+          label: PERSONA_LABELS.group,
+          hot: "group",
+          cards: [
+            f.hotelName ? { cat: "\u8986\u76D6\u95E8\u5E97", num: 1, unit: "\u5BB6", cn: "\u5F53\u524D 1 \u5BB6" } : { cat: "\u8986\u76D6\u95E8\u5E97", ...idleCard("\u672A\u5F00\u59CB", "\u63A5\u5165\u7B2C 2 \u5BB6\u95E8\u5E97\u540E\u5F00\u59CB") },
+            (() => {
+              const standard = kind("course") + kind("report");
+              return { cat: "\u6807\u51C6\u5316\u6587\u6863", ...activeCard(standard, "\u4EFD", "\u6559\u6848 / \u62A5\u544A / \u89C4\u5219") };
+            })(),
+            { cat: "\u8DE8\u5E97\u6848\u4F8B", ...activeCard(kind("case"), "\u7BC7", "\u6848\u4F8B\u5E93") },
+            { cat: "\u77E5\u8BC6\u8D44\u4EA7", ...activeCard(f.noteCount, "\u7BC7", "\u77E5\u8BC6\u8D44\u4EA7\u603B\u91CF") }
+          ]
+        }
+      };
+    }
+    function buildAdvice(f, badges) {
+      const kind = (id) => f.kindCounts.get(id) || 0;
+      const rows = [];
+      const lineName = (key) => (LINES.find((line) => line.k === key) || { nm: "\u6210\u679C" }).nm;
+      const pending = badges.filter((b) => !b.ok && b.need > 0);
+      const closest = pending.slice().sort((a, b) => b.have / b.need - a.have / a.need)[0];
+      if (closest) {
+        const gap = Math.max(0, closest.need - closest.have);
+        rows.push([
+          `\u6700\u63A5\u8FD1\u7684\u4E00\u679A\uFF1A\u300C${closest.nm}\u300D`,
+          closest.inverse ? `\u5F53\u524D\u79EF\u538B ${numberText(closest.have)}${closest.unit}\uFF0C\u6E05\u5230 ${numberText(closest.need)}${closest.unit}\u4EE5\u5185\u5373\u70B9\u4EAE\u300C${closest.rank}\u300D\u3002` : `\u8FD8\u5DEE ${numberText(gap)}${closest.unit}\uFF08\u5F53\u524D ${numberText(closest.have)}${closest.unit}\uFF09\u3002\u70B9\u4EAE\u540E\u300C${lineName(closest.line)}\u300D\u8FD9\u6761\u7EBF\u5F80\u524D\u8D70\u4E00\u9636\u3002`
+        ]);
+      }
+      const density = f.noteCount ? f.linkCount / f.noteCount : 0;
+      rows.push([
+        density >= 3 ? "\u8FDE\u63A5\u5BC6\u5EA6\u5728\u5065\u5EB7\u533A" : "\u8FDE\u63A5\u5BC6\u5EA6\u504F\u4F4E",
+        density >= 3 ? `\u8FDE\u63A5\u5BC6\u5EA6 ${density.toFixed(1)}\uFF08\u5065\u5EB7\u533A 3\u20135\uFF09\uFF0C\u4FDD\u6301\u8FD9\u4E2A\u91CF\u7EA7\u5C31\u80FD\u81EA\u7136\u957F\u51FA\u4E3B\u9898\u805A\u7C7B\u3002` : `\u8FDE\u63A5\u5BC6\u5EA6 ${density.toFixed(1)}\uFF08\u5065\u5EB7\u533A 3\u20135\uFF09\uFF1A\u7ED9\u65B0\u7B14\u8BB0\u8865 2 \u6761\u51FA\u94FE\uFF0C\u6BD4\u518D\u5199 10 \u7BC7\u66F4\u6709\u7528\u3002`
+      ]);
+      if (f.bestStreak < 7 && (!closest || closest.line !== "habit")) {
+        rows.push([
+          `\u8FDE\u7EED\u8BB0\u5F55 ${f.bestStreak} \u5929\uFF0C\u5230 7 \u5929\u70B9\u4EAE\u300C\u4E03\u65E5\u4E0D\u8F8D\u300D`,
+          `\u5386\u53F2\u6700\u957F\u8FDE\u7EED ${f.bestStreak} \u5929\uFF0C\u5F53\u524D\u8FDE\u7EED ${f.currentStreak} \u5929\u2014\u2014\u6BCF\u5929\u8BB0\u4E00\u6761\u5C31\u80FD\u7EED\u4E0A\u3002`
+        ]);
+      }
+      const kindGap = f.kindList.filter((k) => k.count > 0 && !["case", "review"].includes(k.id)).sort((a, b) => a.count - b.count)[0];
+      if (kindGap) {
+        rows.push([
+          `\u6700\u8584\u7684\u4E00\u7C7B\u4EA7\u51FA\uFF1A${kindGap.label}`,
+          `\u76EE\u524D ${numberText(kindGap.count)} \u4EF6\uFF0C\u662F\u4EA7\u51FA\u7ED3\u6784\u91CC\u6700\u77ED\u7684\u4E00\u5757\uFF1B\u8865\u4E0A\u5B83\u4F1A\u540C\u65F6\u62AC\u9AD8\u89D2\u8272\u89C6\u89D2\u7684\u4E3B\u6307\u6807\u3002`
+        ]);
+      }
+      return rows.slice(0, 3);
+    }
+    function buildComposite(roles) {
+      const order = ["advisor", "agency", "operator", "group"];
+      const reps = [];
+      const idle = [];
+      for (const id of order) {
+        const role = roles[id];
+        const first = role.cards[0];
+        if (first.num > 0) reps.push({ id, label: role.label, num: first.num, unit: first.unit, cn: first.cn });
+        else idle.push({ id, label: role.label, hint: first.cta || "\u8FD8\u6CA1\u6709\u6570\u636E" });
+      }
+      return { reps, idle };
+    }
+    function buildUseRank(f) {
+      const usage = f.usage || {};
+      const rows = [];
+      const features = Object.entries(usage.featureOpens || {}).sort((a, b) => b[1] - a[1]);
+      const folders = Object.entries(usage.folderOpens || {}).sort((a, b) => b[1] - a[1]);
+      const searches = Object.entries(usage.searches || {}).sort((a, b) => b[1] - a[1]);
+      if (features[0]) rows.push({ nm: FEATURE_LABELS[features[0][0]] || features[0][0], t: "\u6253\u5F00\u6B21\u6570", v: features[0][1], u: "\u6B21" });
+      if (searches[0]) rows.push({ nm: `\u641C\u7D22\uFF1A${searches[0][0]}`, t: "\u641C\u7D22\u8BCD", v: searches[0][1], u: "\u6B21" });
+      if (folders[0]) rows.push({ nm: folders[0][0], t: "\u6700\u5E38\u8BBF\u95EE\u76EE\u5F55", v: folders[0][1], u: "\u6B21" });
+      if (features[1]) rows.push({ nm: FEATURE_LABELS[features[1][0]] || features[1][0], t: "\u6253\u5F00\u6B21\u6570", v: features[1][1], u: "\u6B21" });
+      if (features[2]) rows.push({ nm: FEATURE_LABELS[features[2][0]] || features[2][0], t: "\u6253\u5F00\u6B21\u6570", v: features[2][1], u: "\u6B21" });
+      return rows.slice(0, 5);
+    }
+    function buildUsageDashboardStats2(input = {}) {
+      const facts = collectFacts(input);
+      const linkedSections = Number.isFinite(input.linkedSections) ? input.linkedSections : facts.sectionCount;
+      facts.linkedSections = linkedSections;
+      facts.inboxFreeStreak = Number(input.usage && input.usage.inboxFreeStreak ? input.usage.inboxFreeStreak : 0);
+      const badges = buildBadges(facts);
+      const roles = buildRoles(facts);
+      const unlocked = badges.filter((b) => b.ok).length;
+      const total = badges.length;
+      const rankIndex = Math.max(0, RANKS.filter((r) => unlocked >= r.at).length - 1);
+      const rank = RANKS[rankIndex];
+      const nextRank = RANKS[rankIndex + 1];
+      const kindList = facts.kindList.filter((k) => k.count > 0).sort((a, b) => b.count - a.count);
+      const otherCount = kindList.slice(3).reduce((sum, k) => sum + k.count, 0);
+      const top3 = kindList.slice(0, 3).map((k) => `${k.label} ${k.count}`).join(" \xB7 ") + (kindList.length > 3 ? ` \xB7 \u5176\u4F59 ${kindList.length - 3} \u7C7B ${otherCount}` : "");
+      const spine = [
+        { k: "\u77E5\u8BC6\u6761\u76EE", v: facts.noteCount, u: "\u7BC7", d: `\u672C\u6708\u65B0\u589E ${numberText(facts.thisMonthNew)} \u7BC7 \xB7 \u4E0A\u6708\u65B0\u589E ${numberText(facts.lastMonthNew)} \u7BC7` },
+        { k: "\u77E5\u8BC6\u8FDE\u63A5", v: facts.linkCount, u: "\u6761", d: `\u6709\u8FDE\u63A5\u7684\u5206\u533A ${facts.linkedSections} \u4E2A \xB7 \u8986\u76D6 ${Math.round(facts.linkedSections / Math.max(1, facts.sectionCount) * 100)}%` },
+        { k: "\u7D2F\u8BA1\u6D3B\u8DC3", v: facts.activeDays, u: "\u5929", d: `\u5F53\u524D\u8FDE\u7EED ${facts.currentStreak} \u5929 \xB7 \u5386\u53F2\u6700\u957F ${facts.bestStreak} \u5929` },
+        { k: "\u6210\u679C\u7269", v: facts.outputsTotal, u: "\u4EF6", d: top3 || "\u8FD8\u6CA1\u6709\u6210\u679C\u7269" },
+        { k: "\u77E5\u8BC6\u5206\u533A", v: facts.sectionCount, u: "\u4E2A", d: `\u4E3B\u9898\u6807\u7B7E ${facts.tagCount} \xB7 \u9996\u7BC7 ${facts.firstDay.slice(5)}` }
+      ];
+      const persona = PERSONA_LABELS[input.persona] ? input.persona : "advisor";
+      const lensViews = [
+        { id: "follow", name: `\u8DDF\u968F\u8EAB\u4EFD\uFF08${PERSONA_LABELS[persona]}\uFF09`, mode: "follow" },
+        { id: "all", name: "\u7EFC\u5408\u89C6\u89D2 \xB7 \u6BCF\u4E2A\u89D2\u8272\u4E00\u5F20\u4EE3\u8868\u5361", mode: "all" },
+        ...Object.keys(PERSONA_LABELS).map((id) => ({ id, name: PERSONA_LABELS[id], mode: "role", role: id }))
+      ];
+      return {
+        generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        customerMode: Boolean(input.customerMode),
+        persona,
+        initial: {
+          heatMode: ["day", "week", "cum"].includes(input.initial && input.initial.heatMode) ? input.initial.heatMode : "day",
+          lens: input.initial && input.initial.lens || "follow",
+          menu: null
+        },
+        headline: {
+          sub: `\u4F60\u5DF2\u7ECF\u628A ${numberText(facts.noteCount)} \u7BC7\u77E5\u8BC6\u8FDE\u6210 ${numberText(facts.linkCount)} \u6761\u5173\u7CFB\uFF0C\u4EA7\u51FA ${numberText(facts.outputsTotal)} \u4EF6\u6210\u679C\u7269\u2014\u2014\u79EF\u7D2F\u770B\u5F97\u89C1\u3001\u91CC\u7A0B\u7891\u88AB\u627F\u8BA4\u3001\u4E0B\u4E00\u6B65\u6709\u65B9\u5411\u3002`
+        },
+        spine,
+        lensViews,
+        roles,
+        composite: buildComposite(roles),
+        advice: buildAdvice(facts, badges),
+        heat: {
+          years: facts.years,
+          byYear: facts.byYear,
+          yearStats: facts.yearStats,
+          firstDay: facts.firstDay,
+          totalRecords: facts.noteCount
+        },
+        heatHints: { day: "\u989C\u8272\u8D8A\u6DF1 = \u5F53\u5929\u8BB0\u5F55\u8D8A\u591A", week: "\u6BCF\u4E00\u5217 = \u4E00\u5468\uFF08\u8D8A\u6DF1\u8D8A\u591A\uFF09", cum: "\u6BCF\u4E00\u683C = \u622A\u81F3\u5F53\u5929\u7684\u7D2F\u8BA1\uFF08\u8D8A\u6DF1\u8D8A\u591A\uFF09" },
+        quotes: DAY_LINES,
+        lines: LINES.map((line) => ({ ...line, ranks: [...line.ranks] })),
+        badges: badges.map(({ have, need, ...rest }) => rest),
+        gifts: GIFT_DEFS,
+        giftDefaults: {
+          on: Object.fromEntries(LINES.map((line) => [line.k, true])),
+          gate: { ...GIFT_GATE }
+        },
+        achievement: {
+          rankName: rank.name,
+          unlocked,
+          total,
+          nextText: nextRank ? `\u8DDD\u300C${nextRank.name}\u300D\u8FD8\u5DEE ${Math.max(0, nextRank.at - unlocked)} \u679A` : "\u5DF2\u662F\u6700\u9AD8\u6BB5\u4F4D"
+        },
+        useRank: buildUseRank(facts),
+        useRankEmptyText: "\u672C\u673A\u4F7F\u7528\u8BB0\u5F55\u4ECE\u672C\u7248\u5F00\u59CB\u7D2F\u8BA1\u2014\u2014\u7528\u51E0\u5929\u540E\uFF0C\u8FD9\u91CC\u4F1A\u51FA\u73B0\u4F60\u6700\u5E38\u6253\u5F00\u7684\u529F\u80FD\u4E0E\u76EE\u5F55\u3002",
+        outRank: [
+          ...kindList.slice(0, 5).map((k) => ({ nm: k.label, v: k.count })),
+          ...kindList.length > 5 ? [{ nm: `\u5176\u4ED6 ${kindList.length - 5} \u7C7B`, v: kindList.slice(5).reduce((sum, k) => sum + k.count, 0) }] : []
+        ]
+      };
+    }
+    module2.exports = {
+      buildUsageDashboardStats: buildUsageDashboardStats2,
+      LINES,
+      RANKS,
+      OUTPUT_KINDS,
+      GIFT_GATE,
+      PERSONA_LABELS,
+      FEATURE_LABELS,
+      dayKey,
+      computeStreaks,
+      noteKindId
+    };
+  }
+});

@@ -1,0 +1,76 @@
+// src/core/controlled-source-policy.cjs
+var require_controlled_source_policy = __commonJS({
+  "src/core/controlled-source-policy.cjs"(exports2, module2) {
+    "use strict";
+    var DISTRIBUTABLE_RIGHTS = /* @__PURE__ */ new Set(["OWNER_ORIGINAL", "HKOS_ORIGINAL", "LICENSED_FOR_DISTRIBUTION"]);
+    var INTERNAL_ONLY = /* @__PURE__ */ new Set(["internal_ai", "internal_only", "owner_only", "private", "restricted", "confidential"]);
+    var REJECTED_STATES = /* @__PURE__ */ new Set([
+      "private",
+      "restricted",
+      "confidential",
+      "owner_only",
+      "needs_verification",
+      "candidate",
+      "draft",
+      "raw",
+      "archived",
+      "superseded",
+      "deprecated",
+      "\u79C1\u5BC6",
+      "\u53D7\u9650",
+      "\u673A\u5BC6",
+      "\u4EC5\u6240\u6709\u8005",
+      "\u5F85\u9A8C\u8BC1",
+      "\u5019\u9009",
+      "\u5F85\u5904\u7406",
+      "\u8349\u7A3F",
+      "\u539F\u59CB",
+      "\u5F52\u6863",
+      "\u5DF2\u5F52\u6863",
+      "\u5DF2\u66FF\u4EE3",
+      "\u5DF2\u5E9F\u5F03"
+    ]);
+    function externalUseDenied(value) {
+      return value === false || ["no", "false"].includes(String(value ?? "").trim().toLocaleLowerCase("en-US"));
+    }
+    function hasInternalScope(value) {
+      const scopes = Array.isArray(value) ? value : [value];
+      return scopes.some((scope) => String(scope ?? "").split(/[,，;；\s]+/u).some((part) => INTERNAL_ONLY.has(part.trim().toLocaleLowerCase("en-US"))));
+    }
+    function hasAllowedControlledState2(frontmatter) {
+      if (!frontmatter || frontmatter.canonical === false || frontmatter.approved === false || frontmatter.superseded_by) return false;
+      return [frontmatter.privacy, frontmatter.publish_scope, frontmatter.lifecycle, frontmatter.status].every((field) => {
+        if (field === void 0 || field === null) return true;
+        const values = Array.isArray(field) ? field : [field];
+        return values.length > 0 && values.every((value) => {
+          if (typeof value !== "string" || !value.trim()) return false;
+          return value.trim().toLocaleLowerCase("en-US").split(/[,，;；\s]+/u).every((part) => !REJECTED_STATES.has(part) && !part.startsWith("superseded") && !part.startsWith("\u5DF2\u66FF\u4EE3"));
+        });
+      });
+    }
+    function mayProjectControlledSource2(frontmatter) {
+      if (!frontmatter || frontmatter.approved !== true || !hasAllowedControlledState2(frontmatter)) return false;
+      if (!DISTRIBUTABLE_RIGHTS.has(String(frontmatter.distributionRight || "").toUpperCase())) return false;
+      if (typeof frontmatter.rightsEvidenceId !== "string" || !frontmatter.rightsEvidenceId.trim()) return false;
+      if (externalUseDenied(frontmatter.external_use)) return false;
+      if (hasInternalScope(frontmatter.publish_scope)) return false;
+      return true;
+    }
+    function mayUseLocalContentStudioSource2(frontmatter, now = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA")) {
+      if (!frontmatter || frontmatter.approved !== true || frontmatter.allowLocalContentStudio !== true || !hasAllowedControlledState2(frontmatter)) return false;
+      const right = String(frontmatter.distributionRight || "").toUpperCase();
+      if (right !== "CUSTOMER_PRIVATE" && !DISTRIBUTABLE_RIGHTS.has(right)) return false;
+      if (typeof frontmatter.rightsEvidenceId !== "string" || !frontmatter.rightsEvidenceId.trim()) return false;
+      if (typeof frontmatter.version !== "string" || !frontmatter.version.trim()) return false;
+      if (typeof frontmatter.approvedBy !== "string" || !frontmatter.approvedBy.trim()) return false;
+      if (typeof frontmatter.approvedAt !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(frontmatter.approvedAt)) return false;
+      if (typeof frontmatter.reviewDueAt !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(frontmatter.reviewDueAt)) return false;
+      if ([frontmatter.approvedAt, frontmatter.reviewDueAt].some((date) => !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date)) return false;
+      if (frontmatter.reviewDueAt < frontmatter.approvedAt || frontmatter.reviewDueAt < now.slice(0, 10) || frontmatter.approvedAt > now.slice(0, 10)) return false;
+      if (externalUseDenied(frontmatter.external_use)) return false;
+      return !hasInternalScope(frontmatter.publish_scope);
+    }
+    module2.exports = Object.freeze({ hasAllowedControlledState: hasAllowedControlledState2, mayProjectControlledSource: mayProjectControlledSource2, mayUseLocalContentStudioSource: mayUseLocalContentStudioSource2 });
+  }
+});
+

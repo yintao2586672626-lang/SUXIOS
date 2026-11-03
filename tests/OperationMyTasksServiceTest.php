@@ -106,6 +106,36 @@ final class OperationMyTasksServiceTest extends TestCase
         self::assertNotSame($first['intent_id'], $result['list'][0]['id']);
     }
 
+    public function testReadbackExcludedTaskReportsActualReturnedCountAndRecovers(): void
+    {
+        $mine = $this->insertAssignedTask(9, 'pending_execute', 0, 7, 7);
+        Db::name('operation_execution_intents')->where('id', $mine['intent_id'])->update([
+            'status' => 'cancelled',
+        ]);
+        $service = new OperationManagementService();
+        $excluded = $service->myExecutionTasks([7], 7, 9, ['limit' => 100]);
+
+        self::assertSame('partial', $excluded['data_status']);
+        self::assertSame(1, $excluded['matched_total']);
+        self::assertSame(0, $excluded['returned_count']);
+        self::assertSame([], $excluded['list']);
+        self::assertTrue($excluded['truncated']);
+        self::assertSame(9, $excluded['scope']['user_id']);
+        $gaps = array_column($excluded['data_gaps'], 'message', 'code');
+        self::assertArrayHasKey('operation_my_tasks_readback_excluded', $gaps);
+        self::assertSame('my tasks returned 0 of 1 matched tasks', $gaps['operation_my_tasks_truncated']);
+
+        Db::name('operation_execution_intents')->where('id', $mine['intent_id'])->update([
+            'status' => 'approved',
+        ]);
+        $restored = $service->myExecutionTasks([7], 7, 9, ['limit' => 100]);
+        self::assertSame('ok', $restored['data_status']);
+        self::assertSame(1, $restored['returned_count']);
+        self::assertSame([$mine['intent_id']], array_column($restored['list'], 'id'));
+        self::assertFalse($restored['truncated']);
+        self::assertSame([], $restored['data_gaps']);
+    }
+
     public function testTaskFromPreviousHotelTenantIsExcluded(): void
     {
         $this->insertAssignedTask(9, 'pending_execute', 0, 7, 8);

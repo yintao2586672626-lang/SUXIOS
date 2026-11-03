@@ -1,0 +1,232 @@
+{
+  "version": "geo-repository-20261102-v1",
+  "source_url": "https://github.com/lzy27272/GEO",
+  "source_ref": "ac07b6b6a79a6a3a1c489866ec2959d8d1b778a7",
+  "source_tree_sha": "bb63344213659d800aef9c86ddcf8b6354e35739",
+  "observed_date": "2026-11-02",
+  "usage_policy": "reference_only",
+  "automatic_application_authorized": false,
+  "license": "No LICENSE/COPYING file observed in locked tree; code redistribution permission not established",
+  "cache_path": "output/learning/geo-repository-20261102/sources",
+  "cached_file_count": 36,
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 5285,
+      "git_blob_sha": "8f3604b2fcb58980492456522e72fc9ba391b7d9",
+      "sha256": "6c636f59825982b6afd71fc582dfd55a400980a8c026ef012b3a5597b3369e08"
+    },
+    {
+      "path": "docs/01-mvp-scope.md",
+      "bytes": 3549,
+      "git_blob_sha": "c49c240786b773fdb0efb1359109c287927a916d",
+      "sha256": "b557590ee31eb2e56dda45c4031085563144ada8cfb73fcee9e3f2b66bb36245"
+    },
+    {
+      "path": "docs/05-content-engine.md",
+      "bytes": 2240,
+      "git_blob_sha": "0be36d53fca1f68ca9dbdefd99080e3db87f4196",
+      "sha256": "bc4ba548686c94e0713b2d36ce335d1e6fe3f31a076bd4711e026ea4ad393c4e"
+    },
+    {
+      "path": "docs/06-company-brain.md",
+      "bytes": 6065,
+      "git_blob_sha": "d6f98f15ca1077766e216d6ded4605f9f67e767c",
+      "sha256": "6a496cf8fa6dd4eb2a8fd1c356df1b52c8194c2fcd102af6a7b67de809feb84a"
+    },
+    {
+      "path": "docs/07-knowledge-relations.md",
+      "bytes": 5358,
+      "git_blob_sha": "a9ea81c17f7b90087282d58f5bb6753f8d4ba387",
+      "sha256": "585c851a1c030f525ad63de189107c31b1b03c2a925ef57184dd62dd59b86d3a"
+    },
+    {
+      "path": "docs/08-brain-decisions.md",
+      "bytes": 3347,
+      "git_blob_sha": "767d5948822ae933e5c33405fce0428e4bc4ce39",
+      "sha256": "d672e39afc7db20ec5b0ab7468a7028666a0acd3e6f7f14c69b7d316b11a7cb9"
+    },
+    {
+      "path": "docs/09-brain-strategy.md",
+      "bytes": 6812,
+      "git_blob_sha": "5001da9fc427724454061f1179f462dac39a4c71",
+      "sha256": "9ce46ba8096ca2f442b3954fe49fab9a61232dc4a61c2e345abab92b8abd34ce"
+    },
+    {
+      "path": "docs/10-content-agents.md",
+      "bytes": 5652,
+      "git_blob_sha": "9def64b42aac056672950d1dbd9808ac4d213ae7",
+      "sha256": "08557c7f5d5840805c9add25e8ea0942217419e841d906a33cc68812ba220f16"
+    },
+    {
+      "path": "docs/11-geo-opportunities.md",
+      "bytes": 6641,
+      "git_blob_sha": "2ca9ef07022e97fe97a3496435991f57bf762da4",
+      "sha256": "7669eb5adc2846e0e1e0286fcbdc94bbfe8b678c5e9cf595b65fa3e583c4eaed"
+    },
+    {
+      "path": "docs/12-ai-opportunity-engine.md",
+      "bytes": 4790,
+      "git_blob_sha": "6700ecf58ea130d28ce8e951aa0d4558d25ba0bd",
+      "sha256": "6e44a38689e36058786864a8fcaf92b70867590dbe74494319c8307257223b00"
+    },
+    {
+      "path": "docs/13-ai-task-queue.md",
+      "bytes": 5355,
+      "git_blob_sha": "a61ef7c2240870c2b34c181b60508f8e291d156f",
+      "sha256": "ef93445fade96cb1d0658ff9edfe6eac6fa862bb9b33abd4d94b5b32f4db5272"
+    },
+    {
+      "path": "package.json",
+      "bytes": 1349,
+      "git_blob_sha": "813a194d10ad3fcd1e9830c1d2fb9df9930a8dec",
+      "sha256": "2edd2e23ae3a3a6c69c21cd434a7087efff67f9b852b68aab6b809390b09ba0f"
+    },
+    {
+      "path": "src/lib/ai-task-calls.ts",
+      "bytes": 2661,
+      "git_blob_sha": "b4fcdf93e908bcee688bca00317474340311b131",
+      "sha256": "010ec8e808742e48a7ce808dfe7ddd7a961f1196d5b903700ff3ff6ce8a70058"
+    },
+    {
+      "path": "src/lib/ai-task-queue.ts",
+      "bytes": 8037,
+      "git_blob_sha": "6d4261eae2d46fad706c09223bbe34bb8f298318",
+      "sha256": "6ec1c723c0c7557e6af16bea86b62a9ecead9eeef8539641e9a815d37b22ccdd"
+    },
+    {
+      "path": "src/lib/ai-task-worker.ts",
+      "bytes": 1774,
+      "git_blob_sha": "687c0da29e1ec9ea2a6ebe29439f49d5caf4ba1f",
+      "sha256": "b4aada2498a989d02e9495aeac74d31a40fe045aea3ed1c0eacb8e6e69c0f715"
+    },
+    {
+      "path": "src/lib/brain-matching.ts",
+      "bytes": 16950,
+      "git_blob_sha": "d2cdeb983abfddf9858b564cae12b61b7d932068",
+      "sha256": "f7240640c9ff401962bc78fe96194356476a2f5baa1a50e78429f9e854d454fb"
+    },
+    {
+      "path": "src/lib/brain-shared.ts",
+      "bytes": 9818,
+      "git_blob_sha": "ded7480943dc272132973c6b2591bdb658f75cf9",
+      "sha256": "d5d58950417ce08433bfc3a02098d7db0ecdd6476f78c22406f76331c5f06d03"
+    },
+    {
+      "path": "src/lib/brand-retrieval.ts",
+      "bytes": 2599,
+      "git_blob_sha": "0c38ccf45625dc78eae15dc077d5ee1ff52ed4b2",
+      "sha256": "503de0336273f0d1fc0e91c049de2431f6a5622ee7671c5dc2c379ba15c5b20d"
+    },
+    {
+      "path": "src/lib/db.ts",
+      "bytes": 986,
+      "git_blob_sha": "4334761143d334455445c64020057251ba80662c",
+      "sha256": "4bea05f311a22eb389de9465042891a73c818a3abeebfbc72a851c087ac49468"
+    },
+    {
+      "path": "src/lib/engine.ts",
+      "bytes": 3872,
+      "git_blob_sha": "fd5787140d0d6489e00a44a8281380f4eb53ec1b",
+      "sha256": "2bdd0b5594d6f9bb02edcf9d582c8be0f140ceda0113afe1ee8f3554f233deb7"
+    },
+    {
+      "path": "src/lib/model-client.ts",
+      "bytes": 3736,
+      "git_blob_sha": "979e897724e5dba0ffee793ce915b71d8ba56f00",
+      "sha256": "cde6dabd5ae88686d032d5c258065e6b9198b0b5ea63195c396d5bb0c14906c0"
+    },
+    {
+      "path": "src/lib/model-errors.ts",
+      "bytes": 1583,
+      "git_blob_sha": "cc938aa0b7c0e1440a57ee0a000d1fc9b415a24e",
+      "sha256": "13d8a1e7c17c7e5866287ade0133464028cf108bafdbb7d47c41b36d438d31bb"
+    },
+    {
+      "path": "src/lib/mutations.ts",
+      "bytes": 21999,
+      "git_blob_sha": "cce0cb687417dc9e1c6a54010af8cca1c049c3ea",
+      "sha256": "593bddf9dd0848ba05b4f92d2975bbdf3ad41ac7d2eb4be91cbc817193887284"
+    },
+    {
+      "path": "src/lib/opportunity-generation-shared.ts",
+      "bytes": 3414,
+      "git_blob_sha": "8f4004f92651a6180e779b7c984b7f0ebe604418",
+      "sha256": "301f17294fe16a4ee9aa854d5190c5fd95591fc4a330613bc4713546f269874c"
+    },
+    {
+      "path": "src/lib/opportunity-generation.ts",
+      "bytes": 17189,
+      "git_blob_sha": "da3ae29723c985a80c8147f216f3a3a4184a5b24",
+      "sha256": "c604baddbd1278c262efec9379c7a9bc620065133d08130efc223447f68332b1"
+    },
+    {
+      "path": "src/lib/opportunity-scoring.ts",
+      "bytes": 8680,
+      "git_blob_sha": "f1103173d696026f7ef6ea084662d544d2d425b2",
+      "sha256": "699fe2c10e67d6ce41e2175c08ca9028aa77c6062ad3bd4d7642cc3da03c9abc"
+    },
+    {
+      "path": "src/lib/opportunity-shared.ts",
+      "bytes": 4109,
+      "git_blob_sha": "6052b15f8f6f3a2884ef85ae0ed629344db44eb7",
+      "sha256": "412904bf052034b0bdc50d478b490c489fca29394fbd403e3e9409476fd13f66"
+    },
+    {
+      "path": "src/lib/production-source.ts",
+      "bytes": 7595,
+      "git_blob_sha": "94429eed153094ad5a37e95f39eee10b09959ffb",
+      "sha256": "8bb5d66abe5d46780a083463c2a3030da32e21a61cebb484a21fe17c470b9bb8"
+    },
+    {
+      "path": "src/lib/service-utils.ts",
+      "bytes": 1373,
+      "git_blob_sha": "2882d81f824d26214e189541bea30b13feadb237",
+      "sha256": "0e65ba236392bc89f2172b165b6f2fa0e30bb29208824ede433a8282bedee4d8"
+    },
+    {
+      "path": "src/lib/shared.ts",
+      "bytes": 5326,
+      "git_blob_sha": "4ac54e41f65d2de1276dec3eaf303a0c9b524553",
+      "sha256": "62453137b53fe446a6c957d307b247ebf6ddaf3f33f54781588e796304e0de95"
+    },
+    {
+      "path": "src/lib/snapshot.ts",
+      "bytes": 1040,
+      "git_blob_sha": "e2696b785ac29c185efa57280028d4eb5c8dca2e",
+      "sha256": "d110b86b5affd540eacc2e08516cd3853aa41b2b3f0625c291e72d2bf3b42d60"
+    },
+    {
+      "path": "src/lib/strategy-plan.ts",
+      "bytes": 7279,
+      "git_blob_sha": "49aed75d77a1cd7eea5b8bb1d5fda9a4cea95928",
+      "sha256": "9ac5a57e1c6c8908243f18f64d9b12eabc4ba06262cf259df05da7ed860cf36d"
+    },
+    {
+      "path": "src/lib/strategy-provider.ts",
+      "bytes": 7356,
+      "git_blob_sha": "cd613d5181e3e9384f1f8237b23baa2fcafb5b0f",
+      "sha256": "b86efe8f56979e89eb671b8972053fd5109233dee551aba36a046c07671e9468"
+    },
+    {
+      "path": "tests/brain-matching.test.ts",
+      "bytes": 12441,
+      "git_blob_sha": "f5961c55f1cc01c4f4a0429f1006693c6519a222",
+      "sha256": "3b6af283797253d68986440df49fd72472cadc35773fec5c15ee9aae4fa6bd72"
+    },
+    {
+      "path": "tests/model-retry.test.ts",
+      "bytes": 2119,
+      "git_blob_sha": "be74e4f7b4056e4735cf2d31a2e15c614fc7928b",
+      "sha256": "80d127c184fcd1ab84a8a0c523134b36ce8c42d2cfced6682539990cce615a90"
+    },
+    {
+      "path": "tests/opportunities.test.ts",
+      "bytes": 13951,
+      "git_blob_sha": "73e5262631e354cab6c89c99eb66befb7b78c19c",
+      "sha256": "508c2002d0a03553b8132101e84f1e2226a8a77e113c270a5d195a189ae6d6d2"
+    }
+  ],
+  "review_boundary": "Selected docs and source mechanisms reviewed; cached files include targeted excerpts, not full repository audit",
+  "execution_boundary": "Seven reviewed local TypeScript modules plus queue pure prefix and grade function; built-in type transformation and import URL rewriting only; no network, database, model, queue worker, seed or startup script executed"
+}

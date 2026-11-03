@@ -354,7 +354,9 @@ test('public login shell defers the authenticated application asset chain', () =
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style-startup.min.css')?.phase, 'startup');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'style.min.css')?.phase, 'after-first-paint');
   assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'ai-custom.css')?.phase, 'after-first-paint');
-  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'compass-authority-polish.css')?.phase, 'after-first-paint');
+  // The default Compass landing does not load the deferred page group. Its
+  // semantic panel/empty-state styles must be available before first render.
+  assert.equal(entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'compass-authority-polish.css')?.phase, 'startup');
   assert.equal(
     entries.find((entry) => stripFrontendAssetQuery(entry.src) === 'app-deferred-helpers.min.js')?.phase,
     'after-first-paint',
@@ -848,11 +850,11 @@ test('public login keeps the same-origin transport warm without delaying submit'
   assert(warmupAwait < 0 || warmupAwait > loginRequest, 'connection warmup must never delay the login request');
 });
 
-test('dual OTA loss-chain grid follows the actual node count', () => {
-  assert.match(
-    style,
-    /grid-template-columns:\s*repeat\(var\(--dual-ota-loss-columns,\s*5\),\s*minmax\(0,\s*1fr\)\)/,
-  );
+test('retired dual OTA loss-chain grid has no active template or stylesheet entry', () => {
+  const template = fs.readFileSync('resources/frontend/app-template.html', 'utf8');
+  assert.doesNotMatch(template, /dual-ota-loss-node|dual-ota-loss-columns|home-ai-workbench/);
+  assert.doesNotMatch(style, /--dual-ota-loss-columns/);
+  assert.doesNotMatch(style, /data-current-page="ai-workbench"/);
 });
 
 test('authenticated dashboard defers secondary API requests beyond the first measurement window', () => {

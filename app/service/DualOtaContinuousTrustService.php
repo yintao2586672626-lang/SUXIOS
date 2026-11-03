@@ -1836,8 +1836,8 @@ final class DualOtaContinuousTrustService
     {
         try {
             return !empty(Db::query("SHOW TABLES LIKE '" . addslashes($table) . "'"));
-        } catch (\Throwable) {
-            return false;
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('dual_ota_continuous_trust_read_failed', 0, $e);
         }
     }
 
@@ -1853,8 +1853,8 @@ final class DualOtaContinuousTrustService
                 static fn(array $row): string => (string)($row['Field'] ?? ''),
                 $rows
             ), true);
-        } catch (\Throwable) {
-            $this->columns[$table] = [];
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('dual_ota_continuous_trust_read_failed', 0, $e);
         }
         return $this->columns[$table];
     }

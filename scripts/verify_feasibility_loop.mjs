@@ -1,6 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readRouteContractSource } from './lib/route_contract_source.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -39,12 +40,24 @@ const checks = [
       'public function buildFeasibilityReadiness(array $input, array $snapshot, array $report): array',
       'public function readinessSummaryFromRows(array $rows): array',
       '$tenantId = $this->tenantIdForUser($userId)',
-      '$snapshot = $this->buildSnapshot($input, $tenantId)',
-      "'tenant_id' => $tenantId",
       "'feasibility_readiness' => $readiness",
       'private function applyTenantScope',
       "where('tenant_id', $tenantId)",
-      'private function buildTenantSnapshotQuery',
+      'public function executionHotelId(array $record): int',
+      'public function assertExecutionHotelMatches(array $record, int $hotelId): int',
+      'feasibility report hotel scope missing',
+      'feasibility report hotel scope conflict',
+      'feasibility report hotel scope mismatch',
+      "'source_snapshot_digest' => SourceBackedExecutionIntentIdentityService::snapshotDigest('feasibility_report'",
+      'private function financialScenariosReady',
+      'private function normalizeReportFinancialScenarios',
+      "'metric_truth'",
+      "'truth_context'",
+      "'input_truth_context'",
+      "'ota_truth_context'",
+      "'source_scope' => $this->feasibilitySourceScope($snapshot)",
+      "'recommendation_quality'",
+      'AiDecisionQualityService',
       'private function tenantIdForUser',
       "DatabaseSchemaRequirement::assertTableColumns('feasibility_reports'",
       "'id', 'tenant_id', 'project_name'",
@@ -74,7 +87,7 @@ const checks = [
   },
   {
     file: 'resources/frontend/app-template.html',
-    contains: [
+    absent: [
       'aiFeasibilityRecords',
       'loadFeasibilityDetail',
       'reuseFeasibilityRecord',
@@ -85,7 +98,7 @@ const checks = [
   },
   {
     file: 'public/app-main.js',
-    contains: [
+    absent: [
       'loadFeasibilityRecords',
       'loadFeasibilityDetail',
       'reuseFeasibilityRecord',
@@ -104,26 +117,44 @@ for (const check of checks) {
     continue;
   }
 
-  const content = readFileSync(path, 'utf8');
-  for (const needle of check.contains) {
+  const content = check.file === 'route/app.php' ? readRouteContractSource(root) : readFileSync(path, 'utf8');
+  for (const needle of check.contains || []) {
     if (!content.includes(needle)) {
       failures.push(`${check.file} missing contract: ${needle}`);
     }
   }
+  for (const needle of check.absent || []) {
+    if (content.includes(needle)) failures.push(`${check.file} retains retired UI contract: ${needle}`);
+  }
+}
+
+const routes = readRouteContractSource(root);
+const feasibilityWrites = routes.split('\n').filter(line => /Route::(?:post|delete|put|patch)\('\/feasibility-report/.test(line));
+if (feasibilityWrites.length !== 4) failures.push('all four retired feasibility mutations must remain registered for deterministic 410 responses');
+for (const line of feasibilityWrites) if (!line.includes('RetiredFeatureReadOnly::class')) failures.push('feasibility mutation lacks retired middleware: ' + line.trim());
+const retiredMiddleware = readFileSync(join(root, 'app/middleware/RetiredFeatureReadOnly.php'), 'utf8');
+for (const needle of ["'code' => 410", "'status' => 'retired_read_only'", "'history_preserved' => true"]) if (!retiredMiddleware.includes(needle)) failures.push('retired response contract missing: ' + needle);
+const feasibilityService = readFileSync(join(root, 'app/service/FeasibilityReportService.php'), 'utf8');
+for (const method of ['generate', 'regenerate', 'archive']) {
+  const body = extractMethod(feasibilityService, method);
+  if (!body.includes("throw new \\RuntimeException('retired_read_only', 410)")) failures.push('retired service mutation must fail before generation or persistence: ' + method);
 }
 
 const agentPath = join(root, 'app/controller/Agent.php');
 if (existsSync(agentPath)) {
   const agentContent = readFileSync(agentPath, 'utf8');
-  for (const method of ['feasibilityReportGenerate', 'feasibilityReportDetail', 'feasibilityReportRegenerate', 'feasibilityReportList', 'feasibilityReportArchive']) {
+  for (const method of ['feasibilityReportGenerate', 'feasibilityReportDetail', 'feasibilityReportRegenerate', 'feasibilityReportList', 'feasibilityReportArchive', 'createFeasibilityExecutionIntent']) {
     const body = extractMethod(agentContent, method);
     if (!body) failures.push(`Agent::${method} missing`);
     if (body.includes('$this->checkAdmin();')) {
       failures.push(`Agent::${method} must not require super admin`);
     }
-    if (!body.includes('$this->checkLogin();')) {
+    const isHistoricalRead = ['feasibilityReportDetail', 'feasibilityReportList'].includes(method);
+    if (isHistoricalRead && !body.includes('$this->checkLogin();')) {
       failures.push(`Agent::${method} must require login`);
     }
+    if (!isHistoricalRead && (!body.includes('if (!$this->currentUser)') || !body.includes("$this->error('请先登录', 401)") || !body.includes("RetiredFeatureReadOnly::response('可研报告')"))) failures.push(`Agent::${method} must return 401 before its retired 410 response`);
+    if (isHistoricalRead && !body.includes('$this->currentUser->isSuperAdmin()')) failures.push(`Agent::${method} must pass its authenticated owner/super-admin scope to history service`);
   }
 }
 

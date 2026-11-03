@@ -1,0 +1,56 @@
+{
+  "version": "joydo-jhira-other-reference-20261001-v1",
+  "reviewed_at": "2026-10-01 21:13:15",
+  "review_due_at": "2026-11-01 23:59:59",
+  "task_mode": "classify",
+  "entries": [
+    {
+      "key": "foundation_readiness", "title": "JHIRA其他板块深学：基础范围与联动证据就绪",
+      "summary": "区位、客源、销售时段和渠道用于组织调研；表单完整、模块启用和真实证据可用分别记录，空启用集合不冒充全部就绪。",
+      "query": "JHIRA其他板块深学 基础范围 联动证据就绪", "source_section": "#basic", "maturity": "understood",
+      "method": ["字段保留酒店/项目、日期、来源、质量；客源标签不能自动变成需求份额。", "未选择、缺输入、假设、待核对和同范围证据可用分别回显。", "12小时订房窗口不自动缩减物理可售间夜；完整度不是事实核验率。", "报告声明启用模块及未覆盖范围，空集合不能显示全部正式就绪。", "复用FeasibilityReportService已有区位客源输入，不新建平行基础资料库。"],
+      "known_unknowns": ["源站联动配置保存和数据连接未验证", "真实区位需求和客源占比未核对", "宿析结构化客源时段及证据字段未接入"],
+      "gates": {"mechanism": "pass_state_separation_contract", "value": "pass_existing_feasibility_input_reuse", "reproduction": "partial_visible_states_and_local_counterexamples", "integration": "not_done"}
+    },
+    {
+      "key": "debt_service", "title": "JHIRA其他板块深学：逐期偿债与现金范围",
+      "summary": "按还本方式逐期核对本金、利息、费用与余额；借款流入不作经营收入，DSCR分子与债务服务保持同期间同范围。源站仅零借款观察。",
+      "query": "JHIRA其他板块深学 逐期偿债 现金范围", "source_section": "#finance", "maturity": "understood",
+      "method": ["贷款本金、起息、利率类型、期限、还本方式和费用来源缺一项则标缺输入。", "逐期本金守恒，名义月计息与每期分币尾差明确；等额本金、等额本息、到期还本现金不同。", "融资流入与债务服务分开，利息已计入费用时现金调整不能二扣。", "DSCR采用约定同期间可偿债现金/债务服务；无债务为不适用，未知债务不填零。", "按月检查到期集中还本，年度覆盖不证明每期现金可付。", "复用现有financing_net_cash和资金台账，来源自有资金与投资用途差异只作范围核对。"],
+      "known_unknowns": ["源站非零贷款、还本方式和保存未验证", "真实合同利率计息及费用范围未核对", "DSCR分子和阈值依合同定义", "宿析专用借款计划尚未集成"],
+      "gates": {"mechanism": "pass_explicit_synthetic_amortization_contract", "value": "pass_existing_scenario_cash_adjustment_reuse", "reproduction": "pass_local_schedules_only_source_nonzero_not_verified", "integration": "not_done"}
+    },
+    {
+      "key": "target_contract", "title": "JHIRA其他板块深学：目标回本与剩余合同余量",
+      "summary": "用同范围剩余投资与净现金反推期限目标，超过100%只否定该目标；合同余量使用同基准日真实剩余期，不以测算年数替代。",
+      "query": "JHIRA其他板块深学 目标回本 剩余合同余量", "source_section": "#payback", "maturity": "validated",
+      "method": ["实际已收回来自对应资金台账，经营利润不自行冲减投资。", "稳定简化目标入住率=(固定+债务现金+剩余投资/目标月数)/(可售间夜×单间贡献)。", "目标超过100%仅该期限不可达；无贡献或恒定非正现金时不输出正有限回本。", "合同剩余期和回本剩余期保持同基准、同月/年口径，缺合同或无回本时余量未知。", "正零负余量分别回显；续租未批准不纳入，测算年数不冒充剩余租约。", "复用InvestmentScenarioService的输入版本与快照，手工价格与辅助滑块一致性另需实测。"],
+      "known_unknowns": ["源站真实合同日期和价格超滑块上限行为未验证", "完整税后现金及实际投资者回收未核对", "宿析合同余量字段和保存未集成"],
+      "gates": {"mechanism": "pass_bounded_target_and_contract_math", "value": "pass_existing_payback_and_snapshot_reuse", "reproduction": "pass_visible_sample_and_local_boundaries", "integration": "not_done"}
+    },
+    {
+      "key": "ota_comparability", "title": "JHIRA其他板块深学：OTA观察与竞对可比性",
+      "summary": "排名观察保留搜索环境和区间，列表详情预订分别核对；填写进度不当平台分，竞对同范围可比，排名不推曝光订单。",
+      "query": "JHIRA其他板块深学 OTA观察 竞对可比性", "source_section": "#digital-asset-audit", "maturity": "understood",
+      "method": ["绑定酒店、平台、实际搜索词、时间、入住日期、设备登录定位和筛选排序。", "保留排名区间与已检查结果范围，首页需页面容量证据；缺排名为null不填0。", "进度0/N是未填写，不是平台质量得分；AI模板输出不证明实际采集或模型调用。", "竞对比较先核同平台日期关键词与环境，缺范围或错配则不可比。", "列表、详情、预订分别记录证据，排名曝光点击订单及转化分母保持不同事实。", "复用携程经营雷达与摘要回读；来源采集审核锁定仍未接入且当前写台账禁用。"],
+      "known_unknowns": ["源站排名权重和平台健康分定义未验证", "截图上传、非空诊断、竞对保存和源站回读未执行", "真实OTA采集与经营因果未证实"],
+      "gates": {"mechanism": "pass_context_and_evidence_contract", "value": "pass_existing_channel_radar_reuse", "reproduction": "partial_visible_missing_states_and_existing_radar_counterexamples", "integration": "not_done"}
+    },
+    {
+      "key": "report_snapshot", "title": "JHIRA其他板块深学：报告版本与分阶段复核",
+      "summary": "预览、机器校验、人工复核、正式导出和投决执行分别判断；冻结同版本输入与证据，修改后旧复核失效，多格式需实际制品比对。",
+      "query": "JHIRA其他板块深学 报告版本 分阶段复核", "source_section": "#report; #pre-investment-report", "maturity": "understood",
+      "method": ["冻结酒店日期、输入摘要、模型、启用模块、来源缺口、受众和模板版本。", "预览允许带边界假设；正式交付另检同范围证据、人工复核、版本与权限。", "输入变化后旧快照复核失效，不能靠全部勾选或完整度判定经营批准。", "共享模板不证明文件一致；实际导出后比较关键值、日期、缺口与制品哈希。", "源站本轮3/6且下载禁用，六项定义未确认；宿析8项准备度与pending复核不能机械等价。", "复用可研readiness及经营报告spec/artifact，各报告引用所选模型已保存结果，不新建平行导出器。"],
+      "known_unknowns": ["源站六项检查完整定义和状态变化原因未验证", "源站多格式导出文件和服务端权限未验证", "宿析pending与正式导出阻断合同未实测或新增"],
+      "gates": {"mechanism": "pass_versioned_review_contract", "value": "pass_existing_readiness_and_artifacts_reuse", "reproduction": "partial_visible_export_lock_and_local_state_counterexamples", "integration": "not_done"}
+    },
+    {
+      "key": "geo_evidence", "title": "JHIRA其他板块深学：GEO提及与效果证据分层",
+      "summary": "公开页仅展示关键词扩展和多模型监控思路；提及、引用、事实一致与成交逐级测量，公开宣传不证明优化效果。",
+      "query": "JHIRA其他板块深学 GEO提及 效果证据分层", "source_section": "https://geo.joydorms.com/ public landing", "maturity": "observed",
+      "method": ["以可核实酒店知识组织品牌、设施政策和场景问题，问题集留版本。", "观察保留模型时间、地区联网状态、问题与响应引用；不得传账号和私有客户经营数据。", "品牌提及、来源引用、事实一致性和成交分别记录，缺响应保持未知，明确未提及才记0。", "不同模型或问题集先标不可比，回答排序不冒充OTA排名。", "单次提及或公开排名提升宣传不证明长期可见度、真实流量或订单增长。", "本轮仅公开介绍，未企业登录、调用模型或接入自动内容执行。"],
+      "known_unknowns": ["企业后台实际功能与权限未知", "优化算法、模型调用、测量保存和回读未验证", "排名提升与获客因果没有实际样本"],
+      "gates": {"mechanism": "observed_public_product_positioning_only", "value": "potential_versioned_visibility_measurement", "reproduction": "not_passed_public_page_and_local_counterexamples_only", "integration": "not_done"}
+    }
+  ]
+}

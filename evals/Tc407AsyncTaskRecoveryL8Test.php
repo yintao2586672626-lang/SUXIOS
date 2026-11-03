@@ -572,7 +572,8 @@ final class Tc407AsyncTaskRecoveryL8Test extends TestCase
 
             public function hasHotelPermission(int $hotelId, string $permission): bool
             {
-                return $hotelId === 407 && $permission === 'can_fetch_online_data';
+                return $hotelId === 407
+                    && in_array($permission, ['can_fetch_online_data', 'can_view_online_data'], true);
             }
 
             public function getPermittedHotelIds(): array

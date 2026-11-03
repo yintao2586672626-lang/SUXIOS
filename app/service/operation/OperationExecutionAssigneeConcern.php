@@ -92,9 +92,10 @@ trait OperationExecutionAssigneeConcern
         }
         if ($matchedTotal > count($items)) {
             $truncated = true;
+            $returnedCount = count($items);
             $dataGaps[] = [
                 'code' => 'operation_my_tasks_truncated',
-                'message' => "my tasks returned {$limit} of {$matchedTotal} matched tasks",
+                'message' => "my tasks returned {$returnedCount} of {$matchedTotal} matched tasks",
             ];
         }
         return compact('items', 'summaryItems', 'matchedTotal', 'truncated');

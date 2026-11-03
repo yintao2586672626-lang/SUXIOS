@@ -1,0 +1,649 @@
+{
+  "schema_version": "reference-storage-verification.v1",
+  "verified_on": "2026-10-01",
+  "script": {
+    "file": "scripts/sync_joydo_jhira_knowledge.php",
+    "sha256": "1C421B0968B5037A3F64821DA1DDD1EC592E80AA198841409209395C0FFF5C3D",
+    "php_syntax": "passed"
+  },
+  "source_files": [
+    {
+      "file": "sources/method-review.md",
+      "sha256": "498CA83836F7CAED501FCAE04705BE90197C13BD38B3B6AC94B0CF1CA90B5F40"
+    },
+    {
+      "file": "README.md",
+      "sha256": "3CC019F8CD90C24CB301F8DF152BF0E3588BDA6331FC2291FB51586EB7E1C20B"
+    },
+    {
+      "file": "knowledge-pack.json",
+      "sha256": "86374755CEF6434BBD77485C8CCB84659EF7B59E5640D33B6DBBA5E6BC1FEEDF"
+    }
+  ],
+  "preview": {
+    "exit_code": 0,
+    "result": {
+      "status": "validated",
+      "mode": "preview",
+      "profile": "measurement",
+      "entries": 4,
+      "retained_hashes_verified": 3,
+      "source_arithmetic": "not_applicable_official_method_reference",
+      "unreachable_target": "not_applicable",
+      "gate_cases_passed": 16,
+      "usage_policy": "reference_only",
+      "capability_disposition": "absorption_candidate",
+      "business_integration": false,
+      "existing_same_source_units": []
+    }
+  },
+  "persist": {
+    "exit_code": 0,
+    "result": {
+      "status": "success",
+      "mode": "persist",
+      "profile": "measurement",
+      "entries": 4,
+      "retained_hashes_verified": 3,
+      "source_arithmetic": "not_applicable_official_method_reference",
+      "unreachable_target": "not_applicable",
+      "gate_cases_passed": 16,
+      "usage_policy": "reference_only",
+      "capability_disposition": "absorption_candidate",
+      "business_integration": false,
+      "actions": {
+        "package_dilution_units": "inserted",
+        "usage_measurement_protocol": "inserted",
+        "service_event_conversion": "inserted",
+        "loss_reason_evidence": "inserted"
+      },
+      "readback": [
+        {
+          "key": "package_dilution_units",
+          "unit_id": 119,
+          "chunk_id": 976,
+          "content_digest": "c540bdae5aefb1f50d86ab21e7ae1b9f8509fe40f3a0b3033cad48b2cf583068",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        },
+        {
+          "key": "usage_measurement_protocol",
+          "unit_id": 120,
+          "chunk_id": 977,
+          "content_digest": "b5fe437ca257269af88dc1c52dacd83e71ef29c908d31fd6dd0e778596af616b",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        },
+        {
+          "key": "service_event_conversion",
+          "unit_id": 121,
+          "chunk_id": 978,
+          "content_digest": "0ab8628b6303bf8f373af5c17d2af956d552db7886c75a380f9e62b4faf30948",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        },
+        {
+          "key": "loss_reason_evidence",
+          "unit_id": 122,
+          "chunk_id": 979,
+          "content_digest": "0d3b6dbc5bdb7013992db8e5e6064e66eb195a6c715e92ff148e7901d6f38102",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        }
+      ],
+      "cross_hotel_cases_passed": 4,
+      "verification_scope": "local_reference_database_and_existing_retrieval_service_no_llm_or_ota_call"
+    }
+  },
+  "verify": {
+    "exit_code": 0,
+    "result": {
+      "status": "success",
+      "mode": "verify",
+      "profile": "measurement",
+      "entries": 4,
+      "retained_hashes_verified": 3,
+      "source_arithmetic": "not_applicable_official_method_reference",
+      "unreachable_target": "not_applicable",
+      "gate_cases_passed": 16,
+      "usage_policy": "reference_only",
+      "capability_disposition": "absorption_candidate",
+      "business_integration": false,
+      "actions": [],
+      "readback": [
+        {
+          "key": "package_dilution_units",
+          "unit_id": 119,
+          "chunk_id": 976,
+          "content_digest": "c540bdae5aefb1f50d86ab21e7ae1b9f8509fe40f3a0b3033cad48b2cf583068",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        },
+        {
+          "key": "usage_measurement_protocol",
+          "unit_id": 120,
+          "chunk_id": 977,
+          "content_digest": "b5fe437ca257269af88dc1c52dacd83e71ef29c908d31fd6dd0e778596af616b",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        },
+        {
+          "key": "service_event_conversion",
+          "unit_id": 121,
+          "chunk_id": 978,
+          "content_digest": "0ab8628b6303bf8f373af5c17d2af956d552db7886c75a380f9e62b4faf30948",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        },
+        {
+          "key": "loss_reason_evidence",
+          "unit_id": 122,
+          "chunk_id": 979,
+          "content_digest": "0d3b6dbc5bdb7013992db8e5e6064e66eb195a6c715e92ff148e7901d6f38102",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        }
+      ],
+      "cross_hotel_cases_passed": 4,
+      "verification_scope": "local_reference_database_and_existing_retrieval_service_no_llm_or_ota_call"
+    }
+  },
+  "repeat_persist": {
+    "exit_code": 0,
+    "result": {
+      "status": "success",
+      "mode": "persist",
+      "profile": "measurement",
+      "entries": 4,
+      "retained_hashes_verified": 3,
+      "source_arithmetic": "not_applicable_official_method_reference",
+      "unreachable_target": "not_applicable",
+      "gate_cases_passed": 16,
+      "usage_policy": "reference_only",
+      "capability_disposition": "absorption_candidate",
+      "business_integration": false,
+      "actions": {
+        "package_dilution_units": "unchanged",
+        "usage_measurement_protocol": "unchanged",
+        "service_event_conversion": "unchanged",
+        "loss_reason_evidence": "unchanged"
+      },
+      "readback": [
+        {
+          "key": "package_dilution_units",
+          "unit_id": 119,
+          "chunk_id": 976,
+          "content_digest": "c540bdae5aefb1f50d86ab21e7ae1b9f8509fe40f3a0b3033cad48b2cf583068",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        },
+        {
+          "key": "usage_measurement_protocol",
+          "unit_id": 120,
+          "chunk_id": 977,
+          "content_digest": "b5fe437ca257269af88dc1c52dacd83e71ef29c908d31fd6dd0e778596af616b",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        },
+        {
+          "key": "service_event_conversion",
+          "unit_id": 121,
+          "chunk_id": 978,
+          "content_digest": "0ab8628b6303bf8f373af5c17d2af956d552db7886c75a380f9e62b4faf30948",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        },
+        {
+          "key": "loss_reason_evidence",
+          "unit_id": 122,
+          "chunk_id": 979,
+          "content_digest": "0d3b6dbc5bdb7013992db8e5e6064e66eb195a6c715e92ff148e7901d6f38102",
+          "readback": "exact",
+          "retrieval": "matched",
+          "decision_safe": false,
+          "task_draft_safe": false,
+          "external_write_authorized": false
+        }
+      ],
+      "cross_hotel_cases_passed": 4,
+      "verification_scope": "local_reference_database_and_existing_retrieval_service_no_llm_or_ota_call"
+    }
+  },
+  "compatibility_previews": [
+    {
+      "profile": "overview",
+      "exit_code": 0,
+      "status": "validated",
+      "mode": "preview",
+      "entries": 3,
+      "retained_hashes_verified": 4,
+      "gate_cases_passed": 12
+    },
+    {
+      "profile": "cost",
+      "exit_code": 0,
+      "status": "validated",
+      "mode": "preview",
+      "entries": 3,
+      "retained_hashes_verified": 6,
+      "gate_cases_passed": 12
+    },
+    {
+      "profile": "other",
+      "exit_code": 0,
+      "status": "validated",
+      "mode": "preview",
+      "entries": 6,
+      "retained_hashes_verified": 7,
+      "gate_cases_passed": 24
+    }
+  ],
+  "compatibility_verifications": [
+    {
+      "profile": "overview",
+      "exit_code": 0,
+      "result": {
+        "status": "success",
+        "mode": "verify",
+        "profile": "overview",
+        "entries": 3,
+        "retained_hashes_verified": 4,
+        "source_arithmetic": "matched_visible_simplified_sample",
+        "unreachable_target": "matched_171_79_percent",
+        "gate_cases_passed": 12,
+        "usage_policy": "reference_only",
+        "capability_disposition": "absorption_candidate",
+        "business_integration": false,
+        "actions": [],
+        "readback": [
+          {
+            "key": "cashflow_payback",
+            "unit_id": 103,
+            "chunk_id": 960,
+            "content_digest": "c55ce5e31772a23d8f947afe13bb593e88be61c770f152ccd7d75296883f2c1f",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          },
+          {
+            "key": "ota_visibility",
+            "unit_id": 104,
+            "chunk_id": 961,
+            "content_digest": "473430f8f96dac79583467b578d6e7ebc4b74f9ec751c322185873f44ed69039",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          },
+          {
+            "key": "report_readiness",
+            "unit_id": 105,
+            "chunk_id": 962,
+            "content_digest": "cd99dd061fec7268c9918aae911ebf4e14a9805aab65d6893d5a96792d94372c",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          }
+        ],
+        "cross_hotel_cases_passed": 3,
+        "verification_scope": "local_reference_database_and_existing_retrieval_service_no_llm_or_ota_call"
+      }
+    },
+    {
+      "profile": "cost",
+      "exit_code": 0,
+      "result": {
+        "status": "success",
+        "mode": "verify",
+        "profile": "cost",
+        "entries": 3,
+        "retained_hashes_verified": 6,
+        "source_arithmetic": "matched_visible_simplified_sample",
+        "unreachable_target": "matched_171_79_percent",
+        "gate_cases_passed": 12,
+        "usage_policy": "reference_only",
+        "capability_disposition": "absorption_candidate",
+        "business_integration": false,
+        "cost_replay": {
+          "status": "passed",
+          "cases_passed": 24,
+          "cases": [
+            "visible_standard_sample",
+            "visible_breakeven_simple_payback",
+            "source_assumed_usage_arithmetic",
+            "conditional_precision_profit_reversal",
+            "cost_delta_propagates_to_profit",
+            "same_scope_denominator_identity",
+            "observed_mixed_denominator_reproduced",
+            "volume_changes_variable_not_fixed_cost",
+            "unknown_and_zero_denominators",
+            "zero_occupancy_retains_fixed_cost",
+            "invalid_contribution_and_unreachable_target",
+            "unreachable_target_does_not_exclude_longer_payback",
+            "net_adr_commission_not_deducted_twice",
+            "synthetic_bottle_to_guest_to_sold_night",
+            "missing_units_block_automatic_adoption",
+            "inventory_consumption_differs_from_purchase",
+            "inventory_missing_negative_and_explicit_zero",
+            "writeoff_not_double_counted_as_consumption",
+            "source_switch_recorded_as_unverified",
+            "existing_calculator_standard_mapping",
+            "existing_calculator_unknown_cash_not_zero_filled",
+            "existing_calculator_rent_duplicate_exposed",
+            "existing_calculator_conditional_precision_mapping",
+            "calculator_fingerprint_stable_during_replay"
+          ],
+          "standard_sample": {
+            "sold": 975,
+            "revenue": 156000,
+            "cost": 118598,
+            "cash_proxy": 37402,
+            "cost_ratio": 0.7602435897435897,
+            "breakeven": 0.4621257785814748,
+            "simple_payback_years": 6.684134538259986
+          },
+          "conditional_precision_sample": {
+            "sold": 975,
+            "revenue": 156000,
+            "cost": 160901.3,
+            "cash_proxy": -4901.299999999988,
+            "cost_ratio": 1.0314185897435897,
+            "breakeven": 0.6865774116031582,
+            "simple_payback_years": null
+          },
+          "configuration_total": 61.64,
+          "source_assumed_precision": 49.168000000000006,
+          "mixed_denominator_cost_ratio": 0.8520512820512821,
+          "same_scope_cost_per_available": 79.06533333333333,
+          "local_mapping": {
+            "model_version": "investment-scenario-v1.2",
+            "calculator_sha256": "BD72381D979305B31C15CF0DA49013AB16E288E38F6563E6D606553B1C515D8F",
+            "annualization_days": 360,
+            "annual_cash_proxy": 448824,
+            "cash_adjustments": "unknown",
+            "scenario_cashflow": null,
+            "saved": false
+          },
+          "source_switch_propagation_verified": false,
+          "business_integration": false,
+          "scope": "reference_arithmetic_and_existing_pure_calculator_no_database_or_business_write"
+        },
+        "actions": [],
+        "readback": [
+          {
+            "key": "consumption_basis",
+            "unit_id": 106,
+            "chunk_id": 963,
+            "content_digest": "1f1fc374dee23620f5a0463c41dd4467971311d94cce9e4edc741744a610c0a6",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          },
+          {
+            "key": "denominators_dedup",
+            "unit_id": 107,
+            "chunk_id": 964,
+            "content_digest": "7b8235ca226ce99631c324c8a7d0703640caf2474c3702e788a71093d465b941",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          },
+          {
+            "key": "selection_review",
+            "unit_id": 108,
+            "chunk_id": 965,
+            "content_digest": "17842f679142be508ea45ca8c5fd05a1108b11e3606cfde312416fbfc03cd41a",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          }
+        ],
+        "cross_hotel_cases_passed": 3,
+        "verification_scope": "local_reference_database_and_existing_retrieval_service_no_llm_or_ota_call"
+      }
+    },
+    {
+      "profile": "other",
+      "exit_code": 0,
+      "result": {
+        "status": "success",
+        "mode": "verify",
+        "profile": "other",
+        "entries": 6,
+        "retained_hashes_verified": 7,
+        "source_arithmetic": "matched_visible_simplified_sample",
+        "unreachable_target": "matched_171_79_percent",
+        "gate_cases_passed": 24,
+        "usage_policy": "reference_only",
+        "capability_disposition": "absorption_candidate",
+        "business_integration": false,
+        "other_replay": {
+          "status": "passed",
+          "cases_passed": 38,
+          "cases": [
+            "sales_window_not_physical_inventory_fraction",
+            "empty_enabled_or_selected_not_evidence_ready",
+            "source_funding_scope_gap_not_verified_funding_fact",
+            "equal_principal_principal_and_cash_conservation",
+            "equal_payment_principal_and_cash_conservation",
+            "balloon_principal_and_cash_conservation",
+            "equal_principal_known_arithmetic",
+            "balloon_maturity_concentration_not_annual_average",
+            "repayment_method_changes_interest_and_timing",
+            "zero_rate_and_integer_fen_remainder",
+            "missing_loan_contract_not_zero_filled",
+            "dscr_known_zero_missing_and_no_debt_distinct",
+            "dscr_numerator_before_same_debt_service",
+            "visible_target_and_remaining_payback",
+            "short_target_unreachable_longer_payback_valid",
+            "debt_target_and_missing_period",
+            "target_invalid_or_unknown_capacity_and_contribution",
+            "remaining_investment_zero_and_nonpositive_cash",
+            "contract_positive_zero_negative_and_unknown",
+            "ota_competitor_context_matching",
+            "competitor_identity_and_comparable_window",
+            "rank_interval_no_midpoint_or_unknown_homepage",
+            "source_ota_missing_collection_and_permission_preserved",
+            "report_known_checks_missing_and_empty",
+            "report_review_version_and_permission_separate",
+            "report_stale_input_and_hotel_mismatch",
+            "source_preview_not_formal_export_or_parity",
+            "geo_missing_mention_citation_and_fact_separated",
+            "geo_public_claims_and_cross_model_not_effect_evidence",
+            "existing_radar_missing_no_score_or_action",
+            "existing_radar_history_not_current_fact",
+            "existing_radar_wrong_platform_rejected",
+            "existing_scenario_debt_cash_not_profit_scope",
+            "existing_scenario_loan_inflow_not_operating_income",
+            "existing_report_spec_pending_not_rendered_or_verified",
+            "stable_investmentscenariocalculator",
+            "stable_ctripoperatingradardiagnosisservice",
+            "stable_aidailyreportpresentationspecservice"
+          ],
+          "synthetic_debt_service_yuan": {
+            "equal_principal": 639000,
+            "equal_payment": 639711.27,
+            "balloon": 672000
+          },
+          "synthetic_dscr": {
+            "status": "calculated",
+            "ratio": 0.8763693270735524
+          },
+          "source_sample_replayed_payback_years": 6.684134538259986,
+          "conditional_contract_margin_years": 1.3158654617400138,
+          "source_display_contract_margin_years": 1.32,
+          "runtime_baselines": {
+            "file_hashes": {
+              "app/service/InvestmentScenarioCalculator.php": "BD72381D979305B31C15CF0DA49013AB16E288E38F6563E6D606553B1C515D8F",
+              "app/service/CtripOperatingRadarDiagnosisService.php": "C9C3C9375BD882F56BBC0727EE69B0E1F8167C587FD23CBD8F0FEF6935A4C161",
+              "app/service/AiDailyReportPresentationSpecService.php": "C9AAAF4AAE2866A14C1F953D0990B0E770BD7780F62181F3E12E4DF1711AF97D"
+            },
+            "radar_missing": "blocked_by_data",
+            "radar_history_scope_preserved": true,
+            "spec_review": "pending",
+            "spec_render": "not_rendered"
+          },
+          "source_nonzero_finance_verified": false,
+          "source_exports_verified": false,
+          "geo_backend_verified": false,
+          "business_integration": false,
+          "scope": "own_reference_contracts_and_pure_existing_services_no_db_llm_network_or_business_write"
+        },
+        "actions": [],
+        "readback": [
+          {
+            "key": "foundation_readiness",
+            "unit_id": 109,
+            "chunk_id": 966,
+            "content_digest": "a32fa16f7a85626a29b22911561b6d80445642931ad6835f432b6bb8fb65349a",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          },
+          {
+            "key": "debt_service",
+            "unit_id": 110,
+            "chunk_id": 967,
+            "content_digest": "ba35e3b4db4b5ecfef7b2c2ae99b5ba039bfab6de5b685676fb58e814ed67e3c",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          },
+          {
+            "key": "target_contract",
+            "unit_id": 111,
+            "chunk_id": 968,
+            "content_digest": "66a37f69fb9ad181538e2ad2f5a5bf6651a58277f2b73b3f54df460dbd3a6f01",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          },
+          {
+            "key": "ota_comparability",
+            "unit_id": 112,
+            "chunk_id": 969,
+            "content_digest": "88d7b18221d2e46595fc1211fa957987f52361ab547513bec00f558f911808c5",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          },
+          {
+            "key": "report_snapshot",
+            "unit_id": 113,
+            "chunk_id": 970,
+            "content_digest": "e91f8f03e606fa4b8fc862ec460f2051d80fcb34fba4645324a48e6a09cad91e",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          },
+          {
+            "key": "geo_evidence",
+            "unit_id": 114,
+            "chunk_id": 971,
+            "content_digest": "15443ae4ed025293645ff2fd7769b16821841887b806f8dc2b718e4bde064437",
+            "readback": "exact",
+            "retrieval": "matched",
+            "decision_safe": false,
+            "task_draft_safe": false,
+            "external_write_authorized": false
+          }
+        ],
+        "cross_hotel_cases_passed": 6,
+        "verification_scope": "local_reference_database_and_existing_retrieval_service_no_llm_or_ota_call"
+      }
+    }
+  ],
+  "summary": {
+    "new_units": 4,
+    "new_chunks": 4,
+    "repeat_inserted": 0,
+    "repeat_unchanged": 4,
+    "exact_readback": 4,
+    "runtime_retrieval_matched": 4,
+    "gate_cases_passed": 16,
+    "foreign_hotel_fixtures_passed": 4,
+    "old_units_exact_and_retrieved": 12,
+    "old_gate_cases_passed": 48,
+    "old_foreign_hotel_fixtures_passed": 12
+  },
+  "resolved_attempt": {
+    "code": "unit_metadata_conflict:truth_profile_version",
+    "cause": "existing knowledge_units.truth_profile_version varchar32; identifier shortened to cons-measure-ref-20261001-v1",
+    "rejected_by_exact_readback": true,
+    "rolled_back": "transaction rejected; subsequent preview showed no same-source units",
+    "business_tables_modified": false
+  },
+  "boundary": {
+    "database": "local_hotelx",
+    "only_reference_tables_written": [
+      "knowledge_units",
+      "knowledge_chunks"
+    ],
+    "hotel_table_read_only_for_retrieval_context": true,
+    "contains_current_hotel_fact": false,
+    "usage_policy": "reference_only",
+    "disposition": "store_only",
+    "capability_disposition": "absorption_candidate",
+    "maturity": "understood",
+    "business_page_login_verified": false,
+    "upstream_document_bytes_verified": false,
+    "hotel_actual_consumption_verified": false,
+    "business_integration": false,
+    "financial_or_tax_policy_decision": false,
+    "commit_push_deploy_performed": false
+  }
+}

@@ -2431,6 +2431,7 @@
                 preference_saving_key: '',
                 feedback_status: {},
                 journey_transition_status: '',
+                evidence_errors: {},
             });
             const journeyStorageVersion = 1;
             const widgetStorageVersion = 1;
@@ -3912,9 +3913,20 @@
                     const ctx = props.ctx || {};
                     savePendingCoach(topic);
                     if (topic.action_key === 'data-health') {
-                        ctx.currentPage = 'online-data';
-                        ctx.onlineDataTab = 'data-health';
-                        await Promise.resolve(ctx.openOnlineDataTab?.('data-health', { force: true }));
+                        if (['report', 'action'].includes(String(turn?.result?.assistant_mode || ''))) {
+                            const target = operatingEvidenceTarget(turn.result, turn);
+                            if (target.error) throw new Error(target.error);
+                            if (typeof ctx.openOperatingQuestionDataHealth !== 'function') {
+                                throw new Error('该回答的数据缺口入口尚未加载，请稍后重试。');
+                            }
+                            if (await ctx.openOperatingQuestionDataHealth(target.request) !== true) {
+                                throw new Error('该回答的数据缺口未能打开，请按原回答范围重试。');
+                            }
+                        } else {
+                            ctx.currentPage = 'online-data';
+                            ctx.onlineDataTab = 'data-health';
+                            await Promise.resolve(ctx.openOnlineDataTab?.('data-health', { force: true }));
+                        }
                     } else if (topic.action_key === 'auto-collect') {
                         await Promise.resolve(ctx.openOnlinePlatformAutoTab?.({ force: true }));
                     } else {
@@ -3977,11 +3989,72 @@
                         : '没有使用历史偏好改变本次结果。'),
                 ]);
             };
-            const openOperatingWorkspace = async () => {
-                const ctx = props.ctx || {};
-                ctx.currentPage = 'agent-center';
-                await nextTick();
-                return focusTopicAnchor(topicByKey('agent-toolbox'));
+            const operatingEvidenceTarget = (guideResult, turn) => {
+                const exact = guideResult?.operating_result;
+                const request = {
+                    id: Number(exact?.id || 0),
+                    hotel_id: Number(exact?.hotel_id || 0),
+                    platform: String(exact?.platform || ''),
+                    date_start: String(exact?.date_start || ''),
+                    date_end: String(exact?.date_end || ''),
+                    content_digest: String(exact?.content_digest || ''),
+                    precise_query_id: Number(guideResult?.precise_query_id || 0),
+                    question_text: String(exact?.question_text || turn?.query || guideResult?.original_query || ''),
+                };
+                let error = '';
+                if (!Number.isSafeInteger(request.id) || request.id <= 0) {
+                    error = '这条回答没有已保存的经营问答编号，暂时无法打开完整证据。';
+                } else if (!Number.isSafeInteger(request.hotel_id) || request.hotel_id <= 0
+                    || !request.platform
+                    || !/^\d{4}-\d{2}-\d{2}$/.test(request.date_start)
+                    || !/^\d{4}-\d{2}-\d{2}$/.test(request.date_end)
+                    || request.date_start > request.date_end
+                    || !/^[a-f0-9]{64}$/.test(request.content_digest)
+                ) {
+                    error = '这条回答缺少完整范围或回读凭证，暂时无法定位原始证据。';
+                }
+                return {
+                    key: `operating-evidence:${String(turn?.id || request.id)}`,
+                    request,
+                    error,
+                };
+            };
+            const openOperatingWorkspace = async (guideResult, turn) => {
+                if (state.value.opening_key) return false;
+                const target = operatingEvidenceTarget(guideResult, turn);
+                const setError = (message) => {
+                    state.value.evidence_errors = { ...state.value.evidence_errors, [target.key]: message };
+                };
+                setError('');
+                if (target.error) {
+                    setError(target.error);
+                    return false;
+                }
+                state.value.opening_key = target.key;
+                try {
+                    const ctx = props.ctx || {};
+                    if (!canOpenTopic(topicByKey('agent-toolbox'))) {
+                        throw new Error('当前账号没有专业问答入口权限，请联系管理员核对。');
+                    }
+                    if (typeof ctx.openOperatingQuestionEvidence !== 'function') {
+                        throw new Error('完整证据入口尚未加载，请稍后重试。');
+                    }
+                    const exact = await ctx.openOperatingQuestionEvidence(target.request);
+                    if (Number(exact?.id || 0) !== target.request.id
+                        || Number(exact?.hotel_id || 0) !== target.request.hotel_id
+                        || ['platform', 'date_start', 'date_end', 'content_digest'].some(
+                            (key) => String(exact?.[key] || '') !== target.request[key]
+                        )
+                    ) throw new Error('回读结果与这条回答的编号、范围或凭证不一致，请重试。');
+                    await nextTick();
+                    await focusTopicAnchor(topicByKey('agent-toolbox'));
+                    return true;
+                } catch (error) {
+                    setError(error?.message || '完整证据回读失败，请重试。');
+                    return false;
+                } finally {
+                    state.value.opening_key = '';
+                }
             };
             const operatingScopeText = (result) => {
                 const hotelId = Number(result?.hotel_id || 0);
@@ -3998,6 +4071,8 @@
                 const assistantMode = String(guideResult?.assistant_mode || 'guide');
                 if (!['report', 'action'].includes(assistantMode)) return null;
                 const exact = guideResult?.operating_result || null;
+                const evidenceTarget = operatingEvidenceTarget(guideResult, turn);
+                const evidenceError = evidenceTarget.error || state.value.evidence_errors[evidenceTarget.key] || '';
                 if (!exact) {
                     return h('section', {
                         class: 'sx-ai-consultant-operating-result is-blocked',
@@ -4013,10 +4088,11 @@
                                 type: 'button',
                                 onClick: (event) => openTopic(event, topicByKey('data-health'), turn),
                             }, [icon('fa-shield-alt'), h('span', '去数据健康查阻塞')]),
-                            h('button', { type: 'button', onClick: openOperatingWorkspace }, [
-                                icon('fa-arrow-right'), h('span', '打开专业问答'),
+                            h('button', { type: 'button', disabled: true }, [
+                                icon('fa-arrow-right'), h('span', '暂无已保存回答可查看'),
                             ]),
                         ]),
+                        h('p', { class: 'sx-ai-consultant-error', role: 'status' }, evidenceError),
                     ]);
                 }
                 const answer = exact.answer && typeof exact.answer === 'object' ? exact.answer : {};
@@ -4137,10 +4213,23 @@
                         : null,
                     h('button', {
                         type: 'button',
-                        'data-testid': isLatest ? 'system-guide-open-operating-workspace' : undefined,
-                        onClick: openOperatingWorkspace,
-                    }, [icon('fa-arrow-right'), h('span', assistantMode === 'action' ? '到专业页面复核草案' : '查看完整证据与引用')]),
+                        'data-testid': isLatest ? 'system-guide-open-operating-workspace' : `system-guide-open-operating-workspace-${turn?.id || exact.id}`,
+                        'data-operating-question-id': evidenceTarget.request.id || undefined,
+                        disabled: Boolean(evidenceTarget.error || state.value.opening_key),
+                        'aria-busy': state.value.opening_key === evidenceTarget.key,
+                        onClick: () => openOperatingWorkspace(guideResult, turn),
+                    }, [
+                        icon(state.value.opening_key === evidenceTarget.key ? 'fa-spinner fa-spin' : 'fa-arrow-right'),
+                        h('span', state.value.opening_key === evidenceTarget.key
+                            ? '正在打开这条回答…'
+                            : (assistantMode === 'action' ? '到专业页面复核草案' : '查看完整证据与引用')),
+                    ]),
                 ].filter(Boolean)));
+                if (evidenceError) children.push(h('p', {
+                    class: 'sx-ai-consultant-error',
+                    role: 'alert',
+                    'data-testid': `system-guide-evidence-error-${turn?.id || exact.id}`,
+                }, evidenceError));
                 return h('section', {
                     class: ['sx-ai-consultant-operating-result', blocked ? 'is-blocked' : 'is-ready', partial ? 'is-partial' : ''],
                     'data-testid': isLatest ? 'system-guide-operating-result' : undefined,

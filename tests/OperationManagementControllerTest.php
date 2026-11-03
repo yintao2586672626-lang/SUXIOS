@@ -148,6 +148,10 @@ final class OperationManagementControllerTest extends TestCase
                 'date' => '2026-09-05',
             ]));
             self::assertSame('2026-09-05', $this->responseData($controller->fullData())['date']);
+            self::assertSame(
+                ['hotel_id' => 7, 'business_date' => '2026-09-05'],
+                $this->responseData($controller->fullData())['query_scope']
+            );
 
             $requestProperty->setValue($controller, (new Request())->withGet([
                 'hotel_id' => 7,
@@ -167,6 +171,10 @@ final class OperationManagementControllerTest extends TestCase
                 'date' => '2026-09-05',
             ]));
             self::assertSame('2026-09-05', $this->responseData($controller->rootCause())['date']);
+            self::assertSame(
+                ['hotel_id' => 7, 'business_date' => '2026-09-05'],
+                $this->responseData($controller->rootCause())['query_scope']
+            );
 
             $requestProperty->setValue($controller, (new Request())->withPost([
                 'hotel_id' => 7,

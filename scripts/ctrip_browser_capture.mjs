@@ -2073,21 +2073,31 @@ function looksLikeBusinessRow(row) {
 }
 
 function normalizeBusinessRow(row, sourceUrl, requestDateEvidence = {}) {
-  const amount = numberValue(firstValue(row, ['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额']), 0);
-  const quantity = numberValue(firstValue(row, ['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚']), 0);
-  const bookOrderNum = numberValue(firstValue(row, ['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings', '成交订单数', '订单数']), 0);
-  const commentScore = normalizeScore(firstValue(row, ['commentScore', 'comment_score', 'score', 'avgScore', 'rating', 'overallScore']));
-  const yesterdayUv = numberValue(firstValue(row, ['yesterdayUv', 'yesterdayUV', 'uv', 'UV', 'visitorCount', 'detailUv', 'totalDetailNum', 'visitors', '昨日UV', '访客数']), 0);
-  const avgPrice = numberValue(firstValue(row, ['avgPrice', 'averagePrice', 'adr', 'ADR', '均价', '平均房价']), quantity > 0 ? amount / quantity : 0);
-  const conversionRate = normalizePercent(firstValue(row, ['conversionRate', 'convertionRate', 'bookRate', '成交率', '转化率']), 0);
-  const competitorUv = numberValue(firstValue(row, ['competitorUv', 'competitorUV', 'competeUv', 'competeUV', 'peerUv', 'peerUV', '竞品UV']), 0);
-  const competitorOrders = numberValue(firstValue(row, ['competitorOrders', 'competitorOrderNum', 'competeOrderNum', 'peerOrderNum', '竞品订单', '竞品订单数']), 0);
-  const competitorAmount = numberValue(firstValue(row, ['competitorAmount', 'competitorRevenue', 'competeAmount', 'peerAmount', '竞品收入', '竞品成交收入']), 0);
-  const psi = numberValue(firstValue(row, ['psi', 'PSI', 'psiScore', 'PSI值']), 0);
-  const replyRate = normalizePercent(firstValue(row, ['replyRate', 'reply_rate', '回复率']), 0);
-  const favoriteCount = numberValue(firstValue(row, ['favoriteCount', 'favorite_count', 'collectCount', '收藏数', '收藏量']), 0);
-  const visitorRank = numberValue(firstValue(row, ['visitorRank', 'visitor_rank', 'uvRank', '访客排名']), 0);
-  if (amount <= 0 && quantity <= 0 && bookOrderNum <= 0 && commentScore <= 0 && yesterdayUv <= 0 && competitorUv <= 0 && psi <= 0 && favoriteCount <= 0) {
+  // Unknown source values stay unknown; Number(null/blank) would fabricate zero.
+  const metric = keys => {
+    const value = firstValue(row, keys, null);
+    if ((typeof value !== 'number' && typeof value !== 'string')
+      || (typeof value === 'string' && value.replace(/[,%\s]/g, '') === '')) return null;
+    return numberValue(value, null);
+  };
+  const rounded = (value, scale = 1) => value === null ? null : Math.round(value * scale) / scale;
+  const amount = metric(['amount', 'Amount', 'totalAmount', 'total_amount', 'saleAmount', 'orderAmount', 'gmv', 'turnover', 'bookingAmount', '成交收入', '成交金额', '销售额']);
+  const quantity = metric(['quantity', 'Quantity', 'roomNights', 'room_nights', 'checkOutQuantity', 'roomNightCount', 'nightNum', '成交间夜', '间夜', '房晚']);
+  const bookOrderNum = metric(['bookOrderNum', 'book_order_num', 'orderCount', 'order_count', 'orderNum', 'orders', 'bookings', '成交订单数', '订单数']);
+  const rawCommentScore = metric(['commentScore', 'comment_score', 'score', 'avgScore', 'rating', 'overallScore']);
+  const commentScore = rawCommentScore === null ? null : normalizeScore(rawCommentScore);
+  const yesterdayUv = metric(['yesterdayUv', 'yesterdayUV', 'uv', 'UV', 'visitorCount', 'detailUv', 'totalDetailNum', 'visitors', '昨日UV', '访客数']);
+  const avgPrice = metric(['avgPrice', 'averagePrice', 'adr', 'ADR', '均价', '平均房价']) ?? (amount !== null && quantity > 0 ? amount / quantity : null);
+  const conversionRate = metric(['conversionRate', 'convertionRate', 'bookRate', '成交率', '转化率']);
+  const competitorUv = metric(['competitorUv', 'competitorUV', 'competeUv', 'competeUV', 'peerUv', 'peerUV', '竞品UV']);
+  const competitorOrders = metric(['competitorOrders', 'competitorOrderNum', 'competeOrderNum', 'peerOrderNum', '竞品订单', '竞品订单数']);
+  const competitorAmount = metric(['competitorAmount', 'competitorRevenue', 'competeAmount', 'peerAmount', '竞品收入', '竞品成交收入']);
+  const psi = metric(['psi', 'PSI', 'psiScore', 'PSI值']);
+  const replyRate = metric(['replyRate', 'reply_rate', '回复率']);
+  const favoriteCount = metric(['favoriteCount', 'favorite_count', 'collectCount', '收藏数', '收藏量']);
+  const visitorRank = metric(['visitorRank', 'visitor_rank', 'uvRank', '访客排名']);
+  if ([amount, quantity, bookOrderNum, commentScore, yesterdayUv, avgPrice, conversionRate,
+    competitorUv, competitorOrders, competitorAmount, psi, replyRate, favoriteCount, visitorRank].every(value => value === null)) {
     return null;
   }
 
@@ -2112,19 +2122,19 @@ function normalizeBusinessRow(row, sourceUrl, requestDateEvidence = {}) {
     dataDate,
     date_source: dateSource,
     amount,
-    quantity: Math.round(quantity),
-    bookOrderNum: Math.round(bookOrderNum),
+    quantity: rounded(quantity),
+    bookOrderNum: rounded(bookOrderNum),
     commentScore,
-    totalDetailNum: Math.round(yesterdayUv),
-    avgPrice: Math.round(avgPrice * 100) / 100,
-    convertionRate: Math.round(conversionRate * 100) / 100,
-    competitorUv: Math.round(competitorUv),
-    competitorOrderNum: Math.round(competitorOrders),
-    competitorAmount: Math.round(competitorAmount * 100) / 100,
-    psi: Math.round(psi * 100) / 100,
-    replyRate: Math.round(replyRate * 100) / 100,
-    favoriteCount: Math.round(favoriteCount),
-    visitorRank: Math.round(visitorRank),
+    totalDetailNum: rounded(yesterdayUv),
+    avgPrice: rounded(avgPrice, 100),
+    convertionRate: rounded(conversionRate === null ? null : normalizePercent(conversionRate), 100),
+    competitorUv: rounded(competitorUv),
+    competitorOrderNum: rounded(competitorOrders),
+    competitorAmount: rounded(competitorAmount, 100),
+    psi: rounded(psi, 100),
+    replyRate: rounded(replyRate === null ? null : normalizePercent(replyRate), 100),
+    favoriteCount: rounded(favoriteCount),
+    visitorRank: rounded(visitorRank),
     _source_url: sourceUrl,
     _capture_source: 'xhr:business',
     _fingerprint: JSON.stringify([resolvedHotelId, dataDate, amount, quantity, bookOrderNum, commentScore, yesterdayUv]),

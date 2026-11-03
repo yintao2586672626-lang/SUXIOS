@@ -95,6 +95,140 @@ final class OtaSourceDateQualityContractServiceTest extends TestCase
         self::assertContains('target_date_rows_missing', $contract['quality_flags']);
     }
 
+    public function testDifferentPlatformCannotReplaceTheRequestedSource(): void
+    {
+        $context = $this->context();
+        $context['source'] = 'ctrip';
+
+        $contract = (new OtaSourceDateQualityContractService())->build($context, $this->readyPlatformRow());
+
+        self::assertSame('blocked', $contract['status']);
+        self::assertSame('ctrip', $contract['source']);
+        self::assertSame('unverified', $contract['quality_status']);
+        self::assertFalse($contract['claim_allowed']);
+        self::assertContains('source_identity_mismatch', $contract['quality_flags']);
+        self::assertSame('verify_requested_ota_source', $contract['next_action']['code']);
+        self::assertSame('meituan', $contract['stages']['source_identity']['evidence']['observed_source']);
+    }
+
+    public function testUnsupportedOrExplicitlyMissingPlatformCannotBecomeReady(): void
+    {
+        foreach (['qunar', '', 'all_ota'] as $source) {
+            $row = $this->readyPlatformRow();
+            $row['platform'] = $source;
+            $contract = (new OtaSourceDateQualityContractService())->build($this->context(), $row);
+
+            self::assertSame('blocked', $contract['status'], $source);
+            self::assertFalse($contract['claim_allowed'], $source);
+            self::assertContains('source_identity_invalid', $contract['quality_flags']);
+            self::assertNull($contract['execution']['capture_entry']);
+        }
+    }
+
+    public function testDifferentBusinessDateCannotReplaceTheRequestedDate(): void
+    {
+        $row = $this->readyPlatformRow();
+        $row['targetDate'] = '2026-07-27';
+        $contract = (new OtaSourceDateQualityContractService())->build($this->context(), $row);
+
+        self::assertSame('blocked', $contract['status']);
+        self::assertSame('2026-07-28', $contract['target_date']);
+        self::assertFalse($contract['claim_allowed']);
+        self::assertSame('unverified', $contract['quality_status']);
+        self::assertContains('business_date_identity_mismatch', $contract['quality_flags']);
+        self::assertSame('verify_requested_business_date', $contract['next_action']['code']);
+        self::assertSame('2026-07-27', $contract['stages']['business_date_identity']['evidence']['observed_target_date']);
+    }
+
+    public function testMissingAndInvalidCalendarDatesNeverBecomeReady(): void
+    {
+        foreach (['', '2026-02-30', '2026-02-29', '2026-7-28', '2026-07-28 00:00:00'] as $date) {
+            $context = $this->context();
+            $context['target_date'] = $date;
+            $row = $this->readyPlatformRow();
+            $row['targetDate'] = $date;
+
+            $contract = (new OtaSourceDateQualityContractService())->build($context, $row);
+
+            self::assertSame('blocked', $contract['status'], $date);
+            self::assertFalse($contract['claim_allowed'], $date);
+            self::assertContains('business_date_identity_invalid', $contract['quality_flags']);
+            self::assertSame('verify_requested_business_date', $contract['next_action']['code']);
+        }
+    }
+
+    public function testExplicitMissingResultIdentityCannotBorrowValidRequestIdentity(): void
+    {
+        foreach (['', null] as $missing) {
+            $context = $this->context();
+            $context['source'] = 'meituan';
+            $row = $this->readyPlatformRow();
+            $row['platform'] = $missing;
+            $row['targetDate'] = $missing;
+
+            $contract = (new OtaSourceDateQualityContractService())->build($context, $row);
+
+            self::assertFalse($contract['claim_allowed']);
+            self::assertContains('source_identity_invalid', $contract['quality_flags']);
+            self::assertContains('business_date_identity_invalid', $contract['quality_flags']);
+        }
+    }
+
+    public function testExplicitMissingRequestIdentityCannotBorrowValidResultIdentity(): void
+    {
+        $context = $this->context();
+        $context['source'] = null;
+        $context['target_date'] = null;
+        $contract = (new OtaSourceDateQualityContractService())->build($context, $this->readyPlatformRow());
+
+        self::assertFalse($contract['claim_allowed']);
+        self::assertContains('source_identity_invalid', $contract['quality_flags']);
+        self::assertContains('business_date_identity_invalid', $contract['quality_flags']);
+    }
+
+    public function testInvalidDateIsResolvedBeforeRequestingLoginOrCapture(): void
+    {
+        $row = $this->readyPlatformRow();
+        $row['targetDate'] = '2026-07-27';
+        $row['profile']['statusCode'] = 'waiting_login';
+        $contract = (new OtaSourceDateQualityContractService())->build($this->context(), $row);
+
+        self::assertSame('verify_requested_business_date', $contract['next_action']['code']);
+        self::assertFalse($contract['claim_allowed']);
+    }
+
+    public function testLegacySingleIdentityCallsAndCamelCaseDateRemainCompatible(): void
+    {
+        $service = new OtaSourceDateQualityContractService();
+        $context = $this->context();
+        unset($context['target_date']);
+        self::assertTrue($service->build($context, $this->readyPlatformRow())['claim_allowed']);
+
+        $context['source'] = ' MEITUAN ';
+        $context['targetDate'] = '2026-07-28';
+        $row = $this->readyPlatformRow();
+        unset($row['platform'], $row['targetDate']);
+        $contract = $service->build($context, $row);
+        self::assertTrue($contract['claim_allowed']);
+        self::assertSame('meituan', $contract['source']);
+        self::assertSame('2026-07-28', $contract['target_date']);
+    }
+
+    public function testMatchingCtripAndLeapDayRemainAvailable(): void
+    {
+        $context = $this->context();
+        $context['source'] = 'ctrip';
+        $context['target_date'] = '2024-02-29';
+        $row = $this->readyPlatformRow();
+        $row['platform'] = 'ctrip';
+        $row['targetDate'] = '2024-02-29';
+
+        $contract = (new OtaSourceDateQualityContractService())->build($context, $row);
+        self::assertTrue($contract['claim_allowed']);
+        self::assertSame('available', $contract['quality_status']);
+        self::assertSame('consume_in_unified_report', $contract['next_action']['code']);
+    }
+
     /** @return array<string, mixed> */
     private function context(): array
     {

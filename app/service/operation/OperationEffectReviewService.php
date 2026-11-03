@@ -218,6 +218,26 @@ final class OperationEffectReviewService
                 'causality_claimed' => false,
             ]);
 
+            if (in_array($metricKey, ['revenue', 'avg_revenue', 'amount', 'income'], true)) {
+                $outcomePayload['roi_cost_basis'] = $this->outcomeService->executionRoiCostBasis(
+                    $intent, $task, $sourceEvidence
+                );
+                if (array_key_exists('roi_cost_reassessment_of', $input)) {
+                    $parent = $this->readVerified((int)$input['roi_cost_reassessment_of'], $tenantId, $hotelId, $intentId, $taskId);
+                    $this->assertFrozenSourceReadback($parent, $intent, $task, $sourceEvidence);
+                    if ($outcomePayload['roi_cost_basis']['status'] !== 'finite'
+                        || $outcomePayload['roi_cost_basis']['measurement_kind'] !== 'source_reported_cost'
+                    ) throw new InvalidArgumentException('expense reassessment requires a finite source-reported expense');
+                    foreach (['platform'=>$platform,'metric_key'=>$metricKey,'baseline_business_date'=>$baselineDate,
+                        'review_business_date'=>$reviewDate,'source_readback_evidence_id'=>$sourceEvidenceId,
+                        'result_status'=>$resultStatus,'result_summary'=>$resultSummary,'approval_target_digest'=>$approvalTargetDigest] as $key=>$value) {
+                        if (($parent[$key] ?? null) != $value) throw new InvalidArgumentException('expense reassessment parent does not match the frozen revenue review');
+                    }
+                    $outcomePayload['roi_cost_reassessment_of'] = (int)$parent['id'];
+                }
+                $outcomePayload = $this->canonicalize($outcomePayload);
+            }
+
             $digestPayload = [
                 'tenant_id' => $tenantId,
                 'hotel_id' => $hotelId,
@@ -259,7 +279,8 @@ final class OperationEffectReviewService
                 ->where('content_digest', $contentDigest)
                 ->find();
             if (is_array($existing) && (int)($existing['id'] ?? 0) > 0) {
-                return ['id' => (int)$existing['id'], 'created' => false];
+                return ['id' => (int)$existing['id'], 'created' => false,
+                    'review' => $this->readVerified((int)$existing['id'], $tenantId, $hotelId, $intentId, $taskId)];
             }
 
             $id = (int)Db::name(self::TABLE)->insertGetId([
@@ -300,16 +321,12 @@ final class OperationEffectReviewService
                 throw new RuntimeException('效果复盘保存失败：未取得记录ID');
             }
 
-            return ['id' => $id, 'created' => true];
+            // Strict readback must succeed before the new review is committed.
+            return ['id' => $id, 'created' => true,
+                'review' => $this->readVerified($id, $tenantId, $hotelId, $intentId, $taskId)];
         });
 
-        $review = $this->readVerified(
-            (int)$write['id'],
-            $tenantId,
-            $hotelId,
-            $intentId,
-            $taskId
-        );
+        $review = $write['review'];
 
         return [
             'review' => $review,
@@ -715,6 +732,37 @@ final class OperationEffectReviewService
         return ['payload' => $payload, 'digest' => $digest];
     }
 
+    /** Recheck an existing source against the frozen review without saving or replacing either. */
+    public function assertFrozenSourceReadback(array $review, array $intent, array $task, array $source): void
+    {
+        if (($review['readback_verified'] ?? false) !== true
+            || ($review['approval_contract_verified'] ?? false) !== true
+            || ($review['active_eligible'] ?? false) !== true
+            || (int)($source['id'] ?? 0) <= 0
+            || (int)$source['id'] !== (int)($review['source_readback_evidence_id'] ?? 0)
+            || (int)($source['tenant_id'] ?? 0) !== (int)($review['tenant_id'] ?? 0)
+            || (int)($source['task_id'] ?? 0) !== (int)($review['task_id'] ?? 0)
+            || (int)($task['id'] ?? 0) !== (int)($review['task_id'] ?? 0)
+            || (int)($task['tenant_id'] ?? 0) !== (int)($review['tenant_id'] ?? 0)
+            || (int)($task['hotel_id'] ?? 0) !== (int)($review['hotel_id'] ?? 0)
+            || (int)($task['intent_id'] ?? 0) !== (int)($review['intent_id'] ?? 0)
+            || (int)($intent['id'] ?? 0) !== (int)($review['intent_id'] ?? 0)
+            || (int)($intent['tenant_id'] ?? 0) !== (int)($review['tenant_id'] ?? 0)
+            || (int)($intent['hotel_id'] ?? 0) !== (int)($review['hotel_id'] ?? 0)
+        ) {
+            throw new InvalidArgumentException('冻结复盘来源身份不匹配');
+        }
+        foreach (['before', 'after', 'platform_response'] as $key) {
+            $source[$key.'_json'] = $this->canonicalJson($source[$key] ?? $this->decodeJson($source[$key.'_json'] ?? null));
+        }
+        $this->verifiedSourceReadback(
+            $source, $intent, $task, (int)$review['tenant_id'], (int)$review['hotel_id'],
+            (string)$review['platform'], (string)$review['metric_key'],
+            (string)$review['baseline_business_date'], (string)$review['review_business_date'],
+            (string)$review['reviewed_at'], $review
+        );
+    }
+
     /** @return array<string, mixed> */
     private function verifiedSourceReadback(
         array $sourceEvidence,
@@ -978,6 +1026,14 @@ final class OperationEffectReviewService
             throw new RuntimeException('效果复盘严格回读校验失败');
         }
         $normalized['readback_verified'] = true;
+        // Legacy reviews keep their original signed outcome and historical eligibility.
+        if (array_key_exists('roi_cost_basis', $normalized['outcome'])
+            && !$this->outcomeService->validExecutionRoiCostBasis($normalized['outcome']['roi_cost_basis'])
+        ) {
+            throw new RuntimeException('效果复盘费用基础回读校验失败');
+        }
+        $normalized['roi_cost_validation_status'] = $normalized['outcome']['roi_cost_basis']['status']
+            ?? 'legacy_cost_not_frozen';
         unset(
             $normalized['metric_definition_json'],
             $normalized['baseline_refs_json'],
@@ -1240,7 +1296,23 @@ final class OperationEffectReviewService
         if (is_nan($number) || is_infinite($number) || abs($number) >= 100000000000000.0) {
             throw new InvalidArgumentException($label . '超出允许范围');
         }
-        return number_format($number, 6, '.', '');
+        $normalized = number_format($number, 6, '.', '');
+        if (is_string($value)
+            && preg_match('/^([+-]?)(\d*)(?:\.(\d*))?$/D', trim($value), $parts) === 1
+        ) {
+            $fraction = rtrim($parts[3] ?? '', '0');
+            if (strlen($fraction) <= 6) {
+                $whole = ltrim($parts[2], '0');
+                $whole = $whole === '' ? '0' : $whole;
+                $fraction = str_pad($fraction, 6, '0');
+                $negative = $parts[1] === '-' && ($whole !== '0' || $fraction !== '000000');
+                $declared = ($negative ? '-' : '') . $whole . '.' . $fraction;
+                if ($declared !== $normalized) {
+                    throw new InvalidArgumentException($label . '无法按六位小数精确回读；原始数值已保留，请核对来源精度');
+                }
+            }
+        }
+        return $normalized;
     }
 
     private function optionalDecimal(mixed $value, string $label): ?string

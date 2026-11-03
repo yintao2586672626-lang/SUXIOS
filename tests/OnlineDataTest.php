@@ -91,13 +91,15 @@ final class OnlineDataTest extends TestCase
             );
         }
 
-        self::assertSame(
-            ['code' => 'unverified', 'label' => '未回读验证'],
-            $this->invokeNonPublic($controller, 'buildOnlineDataStorageStatus', [[
-                'validation_status' => 'stale',
-                'readback_verified' => 1,
-            ]])
-        );
+        foreach (['stale', 'unverified'] as $status) {
+            self::assertSame(
+                ['code' => 'unverified', 'label' => '已回读，事实未验证'],
+                $this->invokeNonPublic($controller, 'buildOnlineDataStorageStatus', [[
+                    'validation_status' => $status,
+                    'readback_verified' => 1,
+                ]])
+            );
+        }
         self::assertSame(
             'unverified',
             $this->invokeNonPublic($controller, 'resolveHistoryStatus', [[

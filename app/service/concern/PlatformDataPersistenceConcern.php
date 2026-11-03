@@ -1291,6 +1291,11 @@ trait PlatformDataPersistenceConcern
         if (isset($this->columns[$table])) {
             return $this->columns[$table];
         }
+        if (strtolower((string)Db::connect()->getConfig('type')) === 'sqlite') {
+            $rows = Db::query('PRAGMA table_info(`' . str_replace('`', '``', $table) . '`)');
+            $this->columns[$table] = array_fill_keys(array_column($rows, 'name'), true);
+            return $this->columns[$table];
+        }
         $rows = Db::query('SHOW COLUMNS FROM `' . str_replace('`', '``', $table) . '`');
         $this->columns[$table] = array_fill_keys(array_column($rows, 'Field'), true);
         return $this->columns[$table];
@@ -1329,7 +1334,7 @@ trait PlatformDataPersistenceConcern
         if (method_exists($user, 'isSuperAdmin') && $user->isSuperAdmin()) {
             return;
         }
-        $hotelIds = method_exists($user, 'getPermittedHotelIds') ? array_values(array_map('intval', $user->getPermittedHotelIds())) : [];
+        $hotelIds = $this->viewablePlatformDataHotelIds($user);
         if (empty($hotelIds)) {
             $query->whereRaw('1=0');
             return;
@@ -1364,13 +1369,34 @@ trait PlatformDataPersistenceConcern
         if ($tenantId <= 0) {
             throw new RuntimeException('Authenticated tenant context is required.', 403);
         }
-        $hotelIds = method_exists($user, 'getPermittedHotelIds') ? array_values(array_map('intval', $user->getPermittedHotelIds())) : [];
+        $hotelIds = $this->viewablePlatformDataHotelIds($user);
         if (empty($hotelIds)) {
             $query->whereRaw('1=0');
             return;
         }
         $query->where('tenant_id', $tenantId);
         $query->whereIn('system_hotel_id', $hotelIds);
+    }
+
+    /** @return array<int, int> */
+    private function viewablePlatformDataHotelIds($user): array
+    {
+        // General hotel access does not grant access to its online-data lists.
+        if (!method_exists($user, 'getPermittedHotelIds') || !method_exists($user, 'hasHotelPermission')) {
+            return [];
+        }
+        try {
+            $hotelIds = array_values(array_unique(array_filter(
+                array_map('intval', $user->getPermittedHotelIds()),
+                static fn(int $hotelId): bool => $hotelId > 0
+            )));
+            return array_values(array_filter(
+                $hotelIds,
+                static fn(int $hotelId): bool => $user->hasHotelPermission($hotelId, 'can_view_online_data')
+            ));
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /** @param array<string, mixed> $source @return array{0:int,1:int} */

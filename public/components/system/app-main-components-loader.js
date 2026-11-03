@@ -1,7 +1,7 @@
 (() => {
     'use strict';
 
-    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-h907acda610';
+    const fullScript = 'components/system/app-main-components.js?v=20260830-operating-finance-h7e2f5db016';
     let fullScriptPromise = null;
 
     const loadFullScript = () => {
@@ -97,6 +97,11 @@
             onlineDataComponentScriptPromises.set(src, promise);
             return promise;
         };
+        // A downloaded script may still fail registration. Release it so the existing retry fetches it again.
+        loadOnlineDataComponentScript.invalidate = (src) => {
+            onlineDataComponentScriptPromises.delete(src);
+            document.querySelector(`script[data-suxi-online-data-component="${src}"]`)?.remove();
+        };
         const readOnlineDataComponent = key => (
             Object.prototype.hasOwnProperty.call(onlineDataComponents, key)
                 ? onlineDataComponents[key]
@@ -110,6 +115,19 @@
 
         const systemComponents = window.SUXI_SYSTEM_COMPONENTS
             || (window.SUXI_SYSTEM_COMPONENTS = {});
+        systemComponents.AutonomousMaintenanceWorkbench = Vue.defineAsyncComponent({
+            loader: () => loadOnlineDataComponentScript('components/system/autonomous-maintenance-workbench.min.js?v=maintenance-h9d2b00f70a')
+                .then(() => {
+                    if (!window.SUXI_MAINTENANCE_WORKBENCH?.create) throw new Error('维护组件未完成注册');
+                    return window.SUXI_MAINTENANCE_WORKBENCH.create({ Vue, h });
+                }).catch((error) => {
+                    loadOnlineDataComponentScript.invalidate('components/system/autonomous-maintenance-workbench.min.js?v=maintenance-h9d2b00f70a');
+                    throw error;
+                }),
+            loadingComponent: { render: () => h('p', { class: 'p-4 text-gray-600' }, '维护页面加载中…') },
+            errorComponent: { render: () => h('p', { role: 'alert', class: 'p-4 text-red-700' }, '维护组件加载失败，请刷新重试。') },
+            timeout: 15000,
+        });
         const requireSystemComponent = (key) => {
             const component = systemComponents[key];
             if (!component) throw new Error(`缺少系统管理本地组件：${key}`);
@@ -193,8 +211,8 @@
             systemComponents,
             CtripOrderAnalysisPanel: systemComponents.CtripOrderAnalysisPanel || lazyFullComponent('CtripOrderAnalysisPanel'),
             requireSystemComponent,
-            platformAutoPanelsScript: 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3',
-            ctripProfileFieldConfigPanelScript: 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split',
+            platformAutoPanelsScript: 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3-h1286721143',
+            ctripProfileFieldConfigPanelScript: 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split-hf777ce2a77',
             competitorDeviceManagementScript: 'components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3',
             dataConfigDialogsScript: 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1',
             automationCollectionContractScript: 'components/operations/automation-collection-contract.js?v=20260811-h80-binding-onboarding-v1',

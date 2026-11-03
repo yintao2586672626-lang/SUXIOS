@@ -3,6 +3,15 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+// A worktree can share vendor; bind app classes to this verifier's checkout.
+foreach (spl_autoload_functions() ?: [] as $autoloadFunction) {
+    $loader = is_array($autoloadFunction) ? ($autoloadFunction[0] ?? null) : null;
+    if ($loader instanceof \Composer\Autoload\ClassLoader) {
+        $loader->setPsr4('app\\', [dirname(__DIR__) . '/app']);
+    }
+}
+
+
 use app\controller\DailyReport;
 use app\controller\HolidayRevenue;
 use app\controller\OnlineData;
@@ -192,15 +201,18 @@ assert_contract_float(100.0, $transferSalableRooms, 'transfer analysis RevPAR/OC
 $holidayRevenue = call_service_private(HolidayRevenue::class, 'extractReportRevenue', [['revenue' => 0, 'report_data' => json_encode($downstreamReportData, JSON_UNESCAPED_UNICODE)]]);
 assert_contract_float(1150.0, $holidayRevenue, 'holiday revenue must include Booking/Agoda/Expedia/hourly revenue when derived from daily report fields');
 
-$strategySummary = call_service_private(StrategySimulation::class, 'summarizeDailyReports', [[[
-    'occupancy_rate' => 0,
-    'revenue' => 0,
-    'room_count' => 0,
-    'report_data' => json_encode(['day_revenue' => 1150, 'day_total_rooms' => 5, 'day_occ_rate' => 50], JSON_UNESCAPED_UNICODE),
-]]]);
-assert_contract_float(1150.0, $strategySummary['avg_revenue'] ?? 0, 'strategy simulation must fallback from zero row revenue to report_data day revenue');
-assert_contract_float(5.0, $strategySummary['avg_room_count'] ?? 0, 'strategy simulation must fallback from zero row room_count to report_data day total rooms');
-assert_contract_float(50.0, $strategySummary['avg_occupancy'] ?? 0, 'strategy simulation must fallback from zero row occupancy to report_data day occupancy');
+// Strategy generation is retired; verify the display of stored historical truth.
+$strategyRecord = call_service_private(StrategySimulation::class, 'formatRecord', [[
+    'id' => 37, 'tenant_id' => 9,
+    'input_json' => ['hotel_id' => 7, 'ota_target_date' => '2026-08-13'],
+    'score_json' => ['total_score' => 0, 'decision_ready' => false],
+    'data_snapshot_json' => ['hotel_id' => 7, 'data_date' => '2026-08-13', 'status' => 'unverified', 'avg_revenue' => null],
+], true]);
+assert_contract_same(0, $strategyRecord['total_score'], 'historical strategy zero must remain zero');
+assert_contract_same(null, $strategyRecord['data_snapshot']['avg_revenue'], 'unverified historical revenue must remain missing');
+assert_contract_same(false, $strategyRecord['decision_ready'], 'unverified historical record must not become a decision');
+assert_contract_same(7, $strategyRecord['input']['hotel_id'], 'historical strategy hotel must remain bound');
+assert_contract_same(9, $strategyRecord['_execution_source_tenant_id'], 'historical strategy tenant must remain bound');
 
 $onlineRanking = call_service_private(OnlineData::class, 'buildHotelRanking', [[
     ['system_hotel_id' => 7, 'hotel_id' => 'ota-a', 'hotel_name' => '同一酒店A', 'data_date' => '2026-05-10', 'amount' => 100, 'quantity' => 1, 'book_order_num' => 1],
@@ -236,7 +248,13 @@ assert_contract(!str_contains($dailySource, 'array_merge($existingData, $reportD
 assert_contract(!str_contains($monthlySource, 'array_merge($existingData, $taskData)'), 'monthly task update must replace submitted JSON fields so cleared values do not survive');
 assert_contract(str_contains($dailySource, 'month_task_key'), 'batch export must bind month task data per hotel/month report row');
 assert_contract(str_contains($authSource, "'can_view_online_data'"), 'auth user payload must include can_view_online_data');
-assert_contract(str_contains($operationSource, 'buildDailyFinancialKeys'), 'operation summary must not double count online financials when daily financials exist');
+assert_contract($operationRef->hasMethod('buildDailyFinancialKeys'), 'operation summary must retain its financial de-duplication boundary from the loaded concern');
+$dailyFinancialKeys = call_service_private(OperationManagementService::class, 'buildDailyFinancialKeys', [[
+    ['hotel_id' => 7, 'report_date' => '2026-08-13'],
+]]);
+assert_contract_same(true, call_service_private(OperationManagementService::class, 'hasDailyFinancialForOnlineRow', [$dailyFinancialKeys, ['system_hotel_id' => 7, 'data_date' => '2026-08-13']]), 'financial de-duplication must match the same hotel and date');
+assert_contract_same(false, call_service_private(OperationManagementService::class, 'hasDailyFinancialForOnlineRow', [$dailyFinancialKeys, ['system_hotel_id' => 8, 'data_date' => '2026-08-13']]), 'financial de-duplication must not match a different hotel');
+assert_contract_same(false, call_service_private(OperationManagementService::class, 'hasDailyFinancialForOnlineRow', [$dailyFinancialKeys, ['system_hotel_id' => 7, 'data_date' => '2026-08-14']]), 'financial de-duplication must not match a different date');
 assert_contract(str_contains($onlineDataSource, 'applyOnlineDailyDataHotelFilter'), 'online data list must filter selected system hotels by system_hotel_id');
 assert_contract(!str_contains($onlineDataSource, "where('system_hotel_id', intval(\$hotelId))->whereOr('hotel_id', \$hotelId)"), 'online history system hotel filter must not OR platform hotel_id because IDs can collide');
 assert_contract(!str_contains($onlineDataSource, "where('system_hotel_id', (int)\$hotelId)->whereOr('hotel_id', \$hotelId)"), 'Ctrip latest system hotel filter must not OR platform hotel_id because IDs can collide');

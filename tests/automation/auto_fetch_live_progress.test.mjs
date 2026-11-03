@@ -49,6 +49,7 @@ const createAutoFetchStatusHarness = () => {
   );
   const sandbox = {
     URLSearchParams,
+    autoFetchProgressGeneration: 0,
     AUTO_FETCH_PANEL_CACHE_TTL_MS: 45_000,
     ...refs,
     console: {

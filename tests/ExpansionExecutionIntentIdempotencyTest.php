@@ -355,20 +355,14 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
         $operation->createExecutionIntent([7], 7, $input, 3, true);
     }
 
-    public function testExpansionControllerDelegatesEveryLifecycleDecisionToTheOperationService(): void
+    public function testRetiredExpansionControllerCannotCreateAnotherExecutionIntent(): void
     {
-        $controller = (string)file_get_contents(__DIR__ . '/../app/controller/Expansion.php');
-        $start = strpos($controller, 'public function createExecutionIntent');
-        $end = strpos($controller, 'public function archive', $start);
-        self::assertNotFalse($start);
-        self::assertNotFalse($end);
-        $method = substr($controller, $start, $end - $start);
-
-        self::assertStringNotContainsString('$linkedIntentId', $method);
-        self::assertStringNotContainsString('readExecutionIntent(', $method);
-        self::assertStringContainsString('buildExecutionIntentInput(', $method);
-        self::assertStringContainsString('createExecutionIntent(', $method);
-        self::assertStringContainsString("(\$intent['idempotent_replay'] ?? false) === true", $method);
+        $controller = (new \ReflectionClass(\app\controller\Expansion::class))->newInstanceWithoutConstructor();
+        (new ReflectionProperty(\app\controller\Base::class, 'currentUser'))->setValue($controller, (object)['id' => 3]);
+        $response = $controller->createExecutionIntent(37);
+        self::assertSame(410, $response->getCode());
+        self::assertSame('retired_read_only', $response->getData()['data']['status']);
+        self::assertTrue($response->getData()['data']['history_preserved']);
     }
 
     public function testExpansionApprovalRejectsArchivedAndChangedBusinessSnapshotsWithoutWritingTasks(): void
@@ -1223,7 +1217,7 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
     public function testSourceControllersDelegateReplayToSnapshotIdempotency(): void
     {
         foreach ([
-            'StrategySimulation.php', 'Simulation.php', 'Opening.php', 'TransferDecision.php', 'Agent.php',
+            'Simulation.php', 'Opening.php',
         ] as $controllerFile) {
             $source = file_get_contents(__DIR__ . '/../app/controller/' . $controllerFile);
             self::assertIsString($source);
@@ -1237,13 +1231,8 @@ final class ExpansionExecutionIntentIdempotencyTest extends TestCase
             self::assertStringContainsString('createExecutionIntent(', $method, $controllerFile);
         }
 
-        $strategy = file_get_contents(__DIR__ . '/../app/controller/StrategySimulation.php');
-        self::assertIsString($strategy);
-        $methodStart = strpos($strategy, 'public function createExecutionIntent');
-        $methodEnd = strpos($strategy, "\n    public function ", $methodStart + 30);
-        $method = substr($strategy, $methodStart, $methodEnd - $methodStart);
-        self::assertLessThan(strpos($method, 'strategyExecutionHotelId('), strpos($method, 'formatRecord('));
-        self::assertLessThan(strpos($method, 'resolveExecutionHotelScope($hotelId)'), strpos($method, 'strategyExecutionHotelId('));
+        // Strategy new-intent writes are retired. Its stored-source approval
+        // identity, projections and row readback remain exercised below.
     }
 
     public function testOpeningIntentApprovalRejectsChangedTaskSnapshot(): void
@@ -2932,7 +2921,7 @@ SQL);
         self::assertSame(0, (int)Db::name('operation_execution_evidence')->count());
     }
 
-    public function testOpeningApprovalLocksTasksAndReplayControllersSkipDuplicateAttach(): void
+    public function testOpeningApprovalKeepsLocksAndRetiredTransferStopsNewBindings(): void
     {
         $approval = (string)file_get_contents(__DIR__ . '/../app/service/SourceBackedExecutionIntentApprovalService.php');
         $opening = (string)file_get_contents(__DIR__ . '/../app/service/OpeningService.php');
@@ -2943,27 +2932,12 @@ SQL);
         $agent = (string)file_get_contents(__DIR__ . '/../app/controller/Agent.php');
         self::assertStringContainsString("(\$intent['idempotent_replay'] ?? false) === true", $agent, 'Agent.php');
 
-        $method = new \ReflectionMethod(\app\controller\TransferDecision::class, 'createExecutionIntent');
-        $lines = file($method->getFileName()) ?: [];
-        $transfer = implode('', array_slice(
-            $lines,
-            $method->getStartLine() - 1,
-            $method->getEndLine() - $method->getStartLine() + 1
-        ));
-        $transactionOffset = strpos($transfer, '$result = Db::transaction');
-        self::assertNotFalse($transactionOffset, 'Transfer replay binding must run in the write transaction.');
-        $transaction = substr($transfer, (int)$transactionOffset);
-        self::assertStringContainsString('lockExecutionTrackingSource(', $transaction);
-        self::assertStringContainsString('buildExecutionIntentInput($record,', $transaction);
-        self::assertStringContainsString('createExecutionIntent(', $transaction);
-        self::assertStringContainsString('attachExecutionTracking(', $transaction);
-        self::assertStringNotContainsString('$this->service->detail(', $transaction);
-        self::assertStringNotContainsString('idempotent_replay', $transaction);
-        self::assertLessThan(
-            strpos($transaction, 'attachExecutionTracking('),
-            strpos($transaction, 'lockExecutionTrackingSource('),
-            'Transfer must lock the source before attaching both new and replayed intent identities.'
-        );
+        $controller = (new \ReflectionClass(\app\controller\TransferDecision::class))->newInstanceWithoutConstructor();
+        (new ReflectionProperty(\app\controller\Base::class, 'currentUser'))->setValue($controller, (object)['id' => 3]);
+        $response = $controller->createExecutionIntent(37);
+        self::assertSame(410, $response->getCode());
+        self::assertSame('retired_read_only', $response->getData()['data']['status']);
+        self::assertTrue($response->getData()['data']['history_preserved']);
     }
 
     public function testDifferentRecordGetsANewKeyButDifferentHotelCannotRelinkTheRecord(): void
@@ -3174,13 +3148,12 @@ SQL);
         self::assertSame($draft['idempotency_base_key'] . ':attempt:10', $latest['idempotency_key']);
     }
 
-    public function testSchemaAndControllerExposeTheConcurrencyContract(): void
+    public function testSchemaAndHistoricalSourcesPreserveTheConcurrencyContract(): void
     {
         $migration = file_get_contents(__DIR__ . '/../database/migrations/20260716_add_execution_intent_idempotency_key.sql');
         $priceSuggestionMigration = file_get_contents(__DIR__ . '/../database/migrations/20260722_backfill_price_suggestion_intent_idempotency.sql');
         $baseSchema = file_get_contents(__DIR__ . '/../database/migrations/20260526_create_operation_execution_loop_tables.sql');
         $initSchema = file_get_contents(__DIR__ . '/../database/init_full.sql');
-        $controller = file_get_contents(__DIR__ . '/../app/controller/Expansion.php');
         $expansionService = file_get_contents(__DIR__ . '/../app/service/ExpansionService.php');
 
         self::assertIsString($migration);
@@ -3196,23 +3169,10 @@ SQL);
         self::assertStringContainsString('UNIQUE KEY `uniq_operation_exec_intent_idempotency`', $baseSchema);
         self::assertIsString($initSchema);
         self::assertStringContainsString('20260716_add_execution_intent_idempotency_key.sql', $initSchema);
-        self::assertIsString($controller);
-        self::assertStringContainsString('$this->service->detail($id, $userId, $isSuperAdmin, true)', $controller);
-        self::assertStringContainsString("'idempotent_replay' => (\$intent['idempotent_replay'] ?? false) === true", $controller);
         self::assertIsString($expansionService);
         self::assertStringContainsString('if ($lockForUpdate) {', $expansionService);
         self::assertStringContainsString('$query->lock(true);', $expansionService);
 
-        $methodStart = strpos($controller, 'public function createExecutionIntent');
-        $methodEnd = strpos($controller, 'public function archive', $methodStart);
-        self::assertNotFalse($methodStart);
-        self::assertNotFalse($methodEnd);
-        $methodSource = substr($controller, $methodStart, $methodEnd - $methodStart);
-        self::assertLessThan(
-            strpos($methodSource, 'Db::transaction('),
-            strpos($methodSource, '$this->service->ensureTable();'),
-            'Schema DDL must run before the transaction so it cannot implicitly commit the row lock.'
-        );
     }
 
     public function testDatabaseUniqueConstraintRejectsDuplicateExpansionKey(): void

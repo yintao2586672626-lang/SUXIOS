@@ -1,4 +1,5 @@
                     <div v-if="currentPage === 'system-config'">
+                        <autonomous-maintenance-workbench v-if="user?.is_super_admin" :request="managerCapabilityRequest"></autonomous-maintenance-workbench>
                         <!-- 系统信息卡片 -->
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                             <div class="bg-white rounded-xl p-5 shadow-sm border border-gray-100">

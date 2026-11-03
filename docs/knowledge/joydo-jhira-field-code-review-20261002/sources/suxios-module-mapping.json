@@ -1,0 +1,673 @@
+{
+  "schema_version": "suxios.jhira.module-mapping.v1",
+  "observed_on": "2026-10-02",
+  "timezone": "Asia/Shanghai",
+  "workspace_root": "D:/桌面/SUXIOS/宿析OS初始版/.active-worktrees/HOTEL-clean-20260901",
+  "evidence_scope": {
+    "purpose": "用本子任务已有的宿析OS定向源码、资料和聚焦验证证据，为JHIRA字段/前端代码研究提供去重与承接边界。",
+    "path_resolution": "本文件的paths和carrying_paths相对workspace_root。",
+    "session_snapshot_only": true,
+    "concurrent_worktree_stability_verified": false,
+    "website_full_field_and_function_inventory_owned_by_root": true,
+    "source_frontend_visibility_does_not_prove_backend": true,
+    "no_current_deployment_claim": true,
+    "no_browser_or_database_access_by_this_subtask": true,
+    "reference_policy": "外部示例、价格、权重、评分和阈值保持reference_only；可吸纳增量均为候选，未自动成为酒店事实或经营规则。",
+    "this_document_write_scope": "仅docs/knowledge/joydo-jhira-field-code-review-20261002/sources/suxios-module-mapping.json；本轮整理没有再次修改业务代码、数据库或浏览器。"
+  },
+  "local_reference_inputs": [
+    "docs/knowledge/joydo-jhira-other-20261001/README.md",
+    "docs/knowledge/joydo-jhira-other-20261001/sources/observations.md",
+    "docs/knowledge/joydo-jhira-v28-20261001/README.md"
+  ],
+  "bounded_fix": {
+    "issue": "可研人工复核用肯定词子串识别状态，未通过、不同意和not approved均被当作通过。",
+    "affected_user_visible_contract": "buildFeasibilityReadiness()中的manual_review.passed；不等同于经营执行授权。",
+    "implementation_status": "已进行本地最小修复",
+    "changed_paths": [
+      "app/service/FeasibilityReportService.php",
+      "tests/FeasibilityReportServiceTest.php"
+    ],
+    "ownership_before_write": "两目标文件当时均无Git差异；写入前两次SHA256一致。保留所有无关与并发改动。",
+    "implementation": "替换无锚定子串匹配为明确肯定状态与完整正向历史表述。保留现有布尔和嵌套状态键处理，不新增审批工作流。",
+    "explicit_positive_states": [
+      true,
+      "approved",
+      "pass",
+      "passed",
+      "confirmed",
+      "reviewed",
+      "yes",
+      "true",
+      "通过",
+      "已通过",
+      "已审",
+      "批准",
+      "已批准",
+      "同意",
+      "已同意"
+    ],
+    "positive_legacy_examples": [
+      "人工复核通过",
+      "人工复核：通过",
+      "复核已通过",
+      "人工投决复核通过",
+      "已审核通过",
+      "review approved"
+    ],
+    "negative_pending_and_missing": "未通过、不同意、not approved、待复核、pending approval、approved pending review、缺失及未知文本不会计为肯定。普通备注不会变成复核状态。",
+    "verification": [
+      {
+        "command": "C:/xampp/php/php.exe vendor/bin/phpunit --colors=never --filter testHumanReview tests/FeasibilityReportServiceTest.php",
+        "stage": "实现修改前",
+        "result": "FAIL",
+        "tests": 3,
+        "assertions": 59,
+        "failures": 2
+      },
+      {
+        "command": "C:/xampp/php/php.exe vendor/bin/phpunit --colors=never --filter testHumanReview tests/FeasibilityReportServiceTest.php",
+        "stage": "实现修改后",
+        "result": "PASS",
+        "tests": 3,
+        "assertions": 105,
+        "failures": 0
+      },
+      {
+        "command": "C:/xampp/php/php.exe vendor/bin/phpunit --colors=never tests/FeasibilityReportServiceTest.php",
+        "result": "PASS",
+        "tests": 26,
+        "assertions": 293
+      },
+      {
+        "command": "C:/xampp/php/php.exe vendor/bin/phpunit --colors=never tests/InvestmentDecisionSupportServiceTest.php",
+        "result": "PASS",
+        "tests": 9,
+        "assertions": 130
+      },
+      {
+        "command": "C:/xampp/php/php.exe -l app/service/FeasibilityReportService.php",
+        "result": "PASS"
+      },
+      {
+        "command": "C:/xampp/php/php.exe -l tests/FeasibilityReportServiceTest.php",
+        "result": "PASS"
+      },
+      {
+        "command": "git diff --check -- app/service/FeasibilityReportService.php tests/FeasibilityReportServiceTest.php",
+        "result": "PASS"
+      }
+    ],
+    "captured_final_fingerprints": [
+      {
+        "path": "app/service/FeasibilityReportService.php",
+        "sha256": "1D50CF047D1B79EDB83360FACE1D7A2499D8FFCB5CEAF9AF9BAB73EC0024C064"
+      },
+      {
+        "path": "tests/FeasibilityReportServiceTest.php",
+        "sha256": "A8D7FD41E7A251DFBFE8055495968B71FBE4D00A0DF0DF7B8D4C55410E521073"
+      }
+    ],
+    "fingerprint_boundary": "以上为修复完成后捕获并对应测试的指纹，不能代替以后交付时的现场重新读回。",
+    "git_status_at_capture": "两个文件已修改、未提交；未推送、未创建PR。",
+    "actual_page": "NOT RUN",
+    "deployed_or_field_verified": false,
+    "stop_condition": "修复与直接测试结束后已停止业务代码写入。"
+  },
+  "modules": [
+    {
+      "id": "investment_calculation",
+      "title": "投资测算",
+      "existing_capabilities": [
+        {
+          "paths": [
+            "app/service/InvestmentScenarioCalculator.php"
+          ],
+          "evidence": "定向源码观察",
+          "capability": "固定/变动成本与可售/已售间夜成本基准；租金递增、免租、营建期、折旧、管理费；税前利润、税前经营现金代理、明确现金调整后的情景现金流；正向回本、保本及九格敏感性。"
+        },
+        {
+          "paths": [
+            "app/service/InvestmentScenarioService.php",
+            "tests/InvestmentScenarioPersistenceTest.php"
+          ],
+          "evidence": "源码及既有测试内容观察，未运行这些测试",
+          "capability": "preview/save/detail、输入和结果摘要、情景快照、版本控制和精确回读；测算不写实际投资资金台账。"
+        },
+        {
+          "paths": [
+            "app/service/InvestmentPaybackCalculator.php",
+            "app/service/InvestmentPaybackService.php"
+          ],
+          "evidence": "Calculator定向源码；Service承接由既有资料记录",
+          "capability": "真实投资者出资与净收回单独计量，并保持人工未核验和历史完整性边界。"
+        }
+      ],
+      "confirmed_absorption_candidates": [
+        {
+          "increment": "明确ADR是平台毛价还是已扣渠道费用净价，以及管理费/佣金包含范围，防止净价输入后重复扣除。",
+          "status": "absorption_candidate",
+          "carrying_paths": [
+            "app/service/InvestmentScenarioCalculator.php",
+            "app/service/InvestmentScenarioService.php"
+          ],
+          "key_fields": [
+            "adr_basis",
+            "cost_inclusion_scope",
+            "source_ref",
+            "as_of",
+            "model_version"
+          ],
+          "acceptance": "同一酒店/项目、时期和价格口径的前向计算、保存、编辑和精确回读一致；未确认费用不能默认为零。"
+        }
+      ],
+      "concurrent_candidates": {
+        "observed": true,
+        "paths": [
+          "app/service/InvestmentScenarioCalculator.php",
+          "app/service/InvestmentScenarioService.php"
+        ],
+        "stability_verified": false,
+        "details": "检查期间Calculator新增cash_plan/decision_constraints调用，Service新增library/history/version/copy/compare；内容及指纹曾变化，不能宣称当前稳定或已经交付。"
+      },
+      "evidence_ceiling": {
+        "implementation": "既有源码与并发候选观察",
+        "tests": "情景计算/持久化测试仅查看，未执行",
+        "actual_page": "NOT RUN",
+        "deployment": "未验证"
+      },
+      "risks_and_unknowns": [
+        "模型完整参数仍为scenario_assumption，不是会计事实。",
+        "新增候选是否已进入表单、版本库兼容测试及实际页面，本子任务未验收。",
+        "既有前向模型包含多种成本基准和爬坡，不能另造简化模型后混用利润口径。"
+      ],
+      "next_acceptance": "待候选文件稳定并明确负责人后，按一项目/酒店/时期验证输入、保存、旧快照兼容和回读；无新的默认样例。"
+    },
+    {
+      "id": "financing_cash",
+      "title": "融资现金",
+      "existing_capabilities": [
+        {
+          "paths": [
+            "app/service/InvestmentScenarioCalculator.php"
+          ],
+          "evidence": "定向源码观察",
+          "capability": "cash_adjustments.financing_net_cash已有按年输入；任一必要现金调整缺失时scenario_cashflow保持null。"
+        },
+        {
+          "paths": [
+            "app/service/InvestmentScenarioCashPlanner.php"
+          ],
+          "evidence": "检查期间发现的未提交并发候选及纯PHP合成执行",
+          "capability": "等额本金、等额本息、先息后本；新增提款/存量余额区分；整数分本金利息表；月末现金、首次缺资、最低现金余额、资金缺口、最低月DSCR。"
+        }
+      ],
+      "confirmed_absorption_candidates": [
+        {
+          "increment": "将当前月债务计划与年度融资净现金做同期间勾稽，而非新增一个已存在的年度融资字段。",
+          "status": "absorption_candidate",
+          "carrying_paths": [
+            "app/service/InvestmentScenarioCashPlanner.php",
+            "app/service/InvestmentScenarioCalculator.php",
+            "app/service/InvestmentScenarioService.php"
+          ],
+          "key_fields": [
+            "funding",
+            "principal",
+            "annual_rate",
+            "start_month",
+            "term_months",
+            "method",
+            "financing_fee_scope",
+            "operating_net_cash",
+            "opening_liquidity"
+          ],
+          "acceptance": "逐笔期初本金减还本等于期末本金；月提款减本金/利息/约定费用与年financing_net_cash一致；融资费用不得重复扣除；DSCR分子不能再次使用已经扣除同债务服务的剩余现金。"
+        },
+        {
+          "increment": "明确无债务、不适用、缺输入与已知零的展示状态，并保留期限以外的剩余债务。",
+          "status": "absorption_candidate",
+          "carrying_paths": [
+            "app/service/InvestmentScenarioCashPlanner.php",
+            "public/components/system/investment-scenario.js"
+          ],
+          "key_fields": [
+            "dscr_status",
+            "debt_service_fee_scope",
+            "within_plan",
+            "remaining_principal",
+            "missing_fields"
+          ],
+          "acceptance": "借款未知不能当无债务；先息后本不能用年均值掩盖到期还本；期末贷款余额与计划边界明示。"
+        }
+      ],
+      "concurrent_candidates": {
+        "observed": true,
+        "paths": [
+          "app/service/InvestmentScenarioCashPlanner.php",
+          "app/service/InvestmentScenarioCalculator.php"
+        ],
+        "stability_verified": false,
+        "details": "Planner已接入Calculator的cash_pressure输出。曾在前端与情景直接测试搜索中未命中新字段；该结果仅为当时观察，不断言当前仍缺。"
+      },
+      "synthetic_probe": {
+        "environment": "PHP 8.2.12；直接加载两个纯类；无数据库、浏览器或真实贷款",
+        "assumption": "60万元存量贷款，年利率12%，12个月先息后本，2026-10起；期初可用现金0，每月经营净现金5万元，capex/其他现金明确为0。",
+        "observed_result": {
+          "funding_gap": "72000.00",
+          "first_shortage_month": "2027-09",
+          "minimum_monthly_dscr": 0.08250825082508251,
+          "ending_liquidity": "-72000.00",
+          "final_principal": "600000.00",
+          "final_interest": "6000.00",
+          "final_debt_service": "606000.00"
+        },
+        "evidence_boundary": "只证明当时Planner候选的这一算术路径；不证明当前指纹、保存/UI、真实贷款合同或借款建议。"
+      },
+      "evidence_ceiling": {
+        "implementation": "并发候选源码及当时调用观察",
+        "tests": "一个纯PHP合成算术路径PASS；对应正式测试未运行",
+        "actual_page": "NOT RUN",
+        "deployment": "未验证"
+      },
+      "risks_and_unknowns": [
+        "候选未单列融资费用；其他净现金不能自动证明费用口径完整。",
+        "独立月度假设与年情景可能不一致，需要勾稽或明确不可比。",
+        "DSCR为本地情景口径，未核验为贷款契约CFADS口径。"
+      ],
+      "next_acceptance": "复用当前候选，先稳定所有权和指纹，再验证三种还款、零利率、尾差、缺输入、期外余额、年度勾稽及表单保存回读。"
+    },
+    {
+      "id": "payback_target",
+      "title": "回本目标与合同",
+      "existing_capabilities": [
+        {
+          "paths": [
+            "app/service/InvestmentScenarioCalculator.php",
+            "app/service/InvestmentPaybackCalculator.php"
+          ],
+          "evidence": "定向源码及测试内容观察",
+          "capability": "情景正向回本与投资者实际未回收金额/预计每月净收回分开；不可回本保持null，不把利润自行冲减真实投入。"
+        },
+        {
+          "paths": [
+            "app/service/InvestmentScenarioCashPlanner.php"
+          ],
+          "evidence": "并发候选定向源码及纯PHP边界执行",
+          "capability": "target_payback_months、合同起止与来源、用户核对标记、剩余合同月份以及预测是否在期限内；现金调整未完整时只允许trial_only。"
+        }
+      ],
+      "confirmed_absorption_candidates": [
+        {
+          "increment": "反推指定目标期限所需入住率/ADR，并显式呈现合同余量。",
+          "status": "absorption_candidate",
+          "carrying_paths": [
+            "app/service/InvestmentScenarioCalculator.php",
+            "app/service/InvestmentScenarioCashPlanner.php",
+            "app/service/InvestmentScenarioService.php"
+          ],
+          "key_fields": [
+            "target_payback_months",
+            "investment_basis",
+            "unrecovered_amount_source",
+            "required_occupancy",
+            "required_adr",
+            "contract_buffer",
+            "forecast_basis"
+          ],
+          "acceptance": "反推复用相同前向模型或明确限定稳定期简化压力测试；超过100%只表示指定期限不可达；项目经营现金与投资者实际收回不能混用。"
+        },
+        {
+          "increment": "统一自然月目标与合同截止日期的计量基准，避免月长不同导致相互矛盾。",
+          "status": "absorption_candidate",
+          "carrying_paths": [
+            "app/service/InvestmentScenarioCashPlanner.php"
+          ],
+          "key_fields": [
+            "as_of",
+            "contract_start_on",
+            "contract_end_on",
+            "period_measurement_basis"
+          ],
+          "acceptance": "以明确的自然月或日数合同处理月末、闰年、过期与边界相等；年内线性插值不能直接当精确回本日。"
+        }
+      ],
+      "concurrent_candidates": {
+        "observed": true,
+        "paths": [
+          "app/service/InvestmentScenarioCashPlanner.php",
+          "app/service/InvestmentScenarioCalculator.php"
+        ],
+        "stability_verified": false,
+        "details": "已观察到期限判断候选，不能再列为完全缺失。目标逆算及显式余量本子任务未见，但不声称当前版本没有。"
+      },
+      "synthetic_boundary_probe": {
+        "input": {
+          "as_of": "2026-02-01",
+          "contract_end_on": "2026-03-01",
+          "contract_confirmed": true,
+          "target_payback_months": 1,
+          "forecast_payback_months": 1
+        },
+        "observed_result": {
+          "contract_remaining_months": 0.92,
+          "target_status": "within_limit",
+          "contract_payback_status": "beyond_limit"
+        },
+        "cause_observed": "候选把日数按30.4375折算月份。",
+        "boundary": "若目标月数语义为自然月，这是可复现的口径边界；本子任务未修改该候选。"
+      },
+      "evidence_ceiling": {
+        "implementation": "已有正向模型与并发期限判断候选",
+        "tests": "合同期间纯PHP边界已复现；目标逆算未验证",
+        "actual_page": "NOT RUN",
+        "deployment": "未验证"
+      },
+      "risks_and_unknowns": [
+        "合同用户确认不是独立鉴真。",
+        "真实剩余合同期不能由lease_years或测算years替代。",
+        "指定投资者未回收金额须绑定台账截至日及现金分配范围，不能直接用全项目经营现金推个人回本。"
+      ],
+      "next_acceptance": "先确认自然月/日数语义及所选投资口径，再以同一保存模型验证逆算前后相等、不可达、缺合同、到期相等和旧快照兼容。"
+    },
+    {
+      "id": "ota_assets_market",
+      "title": "OTA数字资产与市场观察",
+      "existing_capabilities": [
+        {
+          "paths": [
+            "app/service/CtripOperatingRadarDiagnosisService.php",
+            "tests/CtripOperatingRadarDiagnosisServiceTest.php"
+          ],
+          "evidence": "定向源码及测试内容观察，未执行该测试",
+          "capability": "携程五维证据雷达、目标日期/最近历史区分、渠道根证据门禁与快照摘要；明确不推官方分数、权重或排名。"
+        },
+        {
+          "paths": [
+            "app/service/InvestmentDecisionSupportService.php",
+            "tests/InvestmentDecisionSupportServiceTest.php"
+          ],
+          "evidence": "严格竞品比较字段定向源码；直接测试实际9/130通过",
+          "capability": "投资市场证据按平台、入住日期、房型/价计划、早餐、取消、支付、币种、质量和回读条件约束可比性。"
+        }
+      ],
+      "confirmed_absorption_candidates": [
+        {
+          "increment": "在既有雷达侧增加可比搜索场景观察，保留区间排名、结果范围和数字资产证据，避免不透明综合评分。",
+          "status": "absorption_candidate",
+          "carrying_paths": [
+            "app/service/CtripOperatingRadarDiagnosisService.php"
+          ],
+          "key_fields": [
+            "search_keyword",
+            "observed_at",
+            "check_in_date",
+            "check_out_date",
+            "location_method",
+            "device",
+            "login_state",
+            "filter_sort",
+            "ad_position",
+            "result_page_capacity",
+            "rank_range",
+            "checked_range",
+            "evidence_ref"
+          ],
+          "acceptance": "人工观察明确manual_observation，不能伪装为online_daily_data根事实；未看到需要查阅范围；区间不得取中点当精确排名；跨平台及不同场景保持不可比。"
+        }
+      ],
+      "concurrent_candidates": {
+        "observed": "unknown",
+        "paths": [],
+        "stability_verified": false,
+        "details": "本子任务未承担OTA相关并发文件盘点。"
+      },
+      "evidence_ceiling": {
+        "implementation": "既有携程雷达与严格竞品契约源码观察",
+        "tests": "投决消费测试9/130通过；携程雷达测试仅查看",
+        "actual_page": "NOT RUN",
+        "deployment": "未验证"
+      },
+      "risks_and_unknowns": [
+        "排名不是曝光，曝光不是点击，点击不是订单；必须同范围分子分母。",
+        "不能把携程结构扩大为美团同口径事实。",
+        "源站表单进度、AI文本或截图不证明实际采集、核验、保存或整改因果。"
+      ],
+      "next_acceptance": "先确定同一酒店/平台/搜索场景/入住日的手工观察契约，再验证保存回读、缺证、历史、范围错配和竞店可比；保留既有根证据门禁。"
+    },
+    {
+      "id": "operating_review",
+      "title": "经营复盘",
+      "existing_capabilities": [
+        {
+          "paths": [
+            "app/service/MonthlyOperatingFinanceService.php"
+          ],
+          "evidence": "定向源码观察，未执行该服务测试",
+          "capability": "全酒店月财务计算/快照入口、GOP和扣租金/其他固定现金后的owner_cash_proxy；显式排除税、资本支出、融资、折旧、营运资金和债务服务的完整现金解释。"
+        }
+      ],
+      "confirmed_absorption_candidates": [],
+      "candidate_status": "本子任务已有JHIRA资料记录经营复盘未可访问；没有该来源模块的实际机制证据，不能把通用改进建议写成已证实吸纳增量。",
+      "carrying_paths_if_future_evidence_qualifies": [
+        "app/service/MonthlyOperatingFinanceService.php"
+      ],
+      "concurrent_candidates": {
+        "observed": "unknown",
+        "paths": [],
+        "stability_verified": false,
+        "details": "经营复盘的其他页面、效果复核服务和并发状态未定向检查，不能据此宣称不存在。"
+      },
+      "evidence_ceiling": {
+        "implementation": "仅月财务直接路径观察",
+        "tests": "NOT RUN",
+        "actual_page": "NOT RUN",
+        "deployment": "未验证"
+      },
+      "risks_and_unknowns": [
+        "OTA渠道财务不能扩大成全酒店利润。",
+        "owner_cash_proxy不等于可分配现金、税后利润或投资者实际收回。",
+        "本子任务未证明经营动作、效果复核和月财务已完成同范围闭环。"
+      ],
+      "next_acceptance": "根任务若取得来源经营复盘实际字段/代码，应先对照既有月财务与效果复核路径；没有来源机制证据时保留未知，不能泛化立项。"
+    },
+    {
+      "id": "reports",
+      "title": "报告",
+      "existing_capabilities": [
+        {
+          "paths": [
+            "app/service/FeasibilityReportService.php",
+            "tests/FeasibilityReportServiceTest.php"
+          ],
+          "evidence": "定向源码与本次26/293执行",
+          "capability": "可研八项证据准备度、三情景、真实样本/尽调/人工复核/投后跟踪分阶段。人工复核误判已进行本地最小修复，见bounded_fix。"
+        },
+        {
+          "paths": [
+            "app/service/AiDailyReportPresentationSpecService.php",
+            "app/service/AiDailyReportPresentationArtifactService.php",
+            "app/service/AiDailyReportPresentationRendererService.php",
+            "app/controller/AiDailyReport.php",
+            "tests/AiDailyReportPresentationSpecServiceTest.php"
+          ],
+          "evidence": "源码及既有测试内容观察；未执行报告制品测试",
+          "capability": "经营报告冻结规格与摘要、不可变制品、HTML/PPTX消费同规格、字节/摘要/精确回读、report.export权限、过期spec id/fingerprint拒绝。"
+        }
+      ],
+      "confirmed_absorption_candidates": [
+        {
+          "increment": "在现有规格与制品入口上补同版本人工复核收据及正式交付阶段合同，保留草稿预览。",
+          "status": "absorption_candidate",
+          "carrying_paths": [
+            "app/service/FeasibilityReportService.php",
+            "app/service/AiDailyReportPresentationSpecService.php",
+            "app/service/AiDailyReportPresentationArtifactService.php",
+            "app/controller/AiDailyReport.php"
+          ],
+          "key_fields": [
+            "spec_fingerprint",
+            "model_version",
+            "template_version",
+            "source_refs",
+            "data_gaps",
+            "audience",
+            "review_status",
+            "reviewed_by",
+            "reviewed_at",
+            "artifact_sha256",
+            "delivery_stage"
+          ],
+          "acceptance": "复核绑定同一酒店、业务期和规格摘要；改输入使旧复核失效；草稿可带缺口，正式交付另检证据、复核与权限；机器校验、投决批准和经营执行不混用。"
+        }
+      ],
+      "concurrent_candidates": {
+        "observed": true,
+        "paths": [
+          "app/service/FeasibilityReportService.php",
+          "tests/FeasibilityReportServiceTest.php"
+        ],
+        "stability_verified": "仅修复结束指纹已捕获，不保证未来当前状态",
+        "details": "本子任务的明确所有权仅覆盖既有复核判定和直接测试；其他报告候选状态未知。"
+      },
+      "evidence_ceiling": {
+        "implementation": "最小误判修复已完成；同版本复核收据仅候选",
+        "tests": "可研26/293、直接投决消费9/130通过；制品及实际格式文件验收未运行",
+        "actual_page": "NOT RUN",
+        "deployment": "未部署、未现场验证"
+      },
+      "risks_and_unknowns": [
+        "现有制品允许human_review_status=pending时生成本地导出，不能宣称已有正式交付禁用。",
+        "共用规格不证明实际文件关键数值、缺口、日期、字体/分页一致。",
+        "源站6项复核与宿析8项准备度定义不同，不直接替换。"
+      ],
+      "next_acceptance": "本次修复停止；若进一步授权正式交付合同，验证收据绑定、过期/撤销、跨酒店拒绝、正式与草稿权限，以及真实导出文件一致性。"
+    },
+    {
+      "id": "knowledge",
+      "title": "知识库",
+      "existing_capabilities": [
+        {
+          "paths": [
+            "docs/knowledge/joydo-jhira-other-20261001/README.md",
+            "docs/knowledge/joydo-jhira-v28-20261001/README.md",
+            "scripts/sync_joydo_jhira_knowledge.php"
+          ],
+          "evidence": "既有资料阅读；脚本命令由资料引用，本子任务未执行入库脚本",
+          "capability": "已有独立来源版本资料、参考知识包与保存/精确回读/检索/幂等命令；历史文档明确store_only/reference_only/absorption_candidate。"
+        },
+        {
+          "paths": [
+            "tests/GeoContentOperationsKnowledgeTest.php",
+            "tests/HotelGeoAndForecastKnowledgeTest.php"
+          ],
+          "evidence": "测试内容定向观察，未执行",
+          "capability": "参考资料可检索，同时保留decision_safe=false、无当前酒店事实、发布待审批和禁止自动经营任务等门禁。"
+        }
+      ],
+      "confirmed_absorption_candidates": [
+        {
+          "increment": "将字段/前端机制研究按来源版本、事实/假设/规则/未知分层关联现有资料，保持去重和可追溯，而非另建平行知识库。",
+          "status": "reference_only_absorption_candidate",
+          "carrying_paths": [
+            "scripts/sync_joydo_jhira_knowledge.php",
+            "docs/knowledge/joydo-jhira-field-code-review-20261002"
+          ],
+          "key_fields": [
+            "source_version",
+            "source_fingerprint",
+            "stable_key",
+            "scope",
+            "maturity",
+            "reference_only",
+            "known_limits",
+            "replay_evidence"
+          ],
+          "acceptance": "知识条目保存/回读、检索和稳定键冲突/幂等须实际执行验证；参考入库不得视为业务功能吸纳、真实数据连接或经营批准。"
+        }
+      ],
+      "concurrent_candidates": {
+        "observed": "unknown",
+        "paths": [
+          "docs/knowledge/joydo-jhira-field-code-review-20261002"
+        ],
+        "stability_verified": false,
+        "details": "根任务拥有新字段/函数资料和入库；本子任务不验证其完成状态。"
+      },
+      "evidence_ceiling": {
+        "implementation": "既有资料与测试门禁观察",
+        "tests": "本子任务未运行知识入库/回读/检索测试",
+        "actual_page": "NOT RUN",
+        "deployment": "未验证"
+      },
+      "risks_and_unknowns": [
+        "旧verification.json是历史证据，不能写成今天的运行结果。",
+        "可见前端代码不证明后台算法/鉴权/保存实现。",
+        "示例酒店、来源成本档位和风险阈值不得映射为用户酒店事实或默认规则。"
+      ],
+      "next_acceptance": "由根任务在授权资料范围内执行来源指纹、参考门禁、保存/回读、检索、隔离和幂等验证，并分别报告业务未吸纳项。"
+    },
+    {
+      "id": "geo",
+      "title": "GEO",
+      "existing_capabilities": [
+        {
+          "paths": [
+            "tests/GeoContentOperationsKnowledgeTest.php",
+            "tests/HotelGeoAndForecastKnowledgeTest.php"
+          ],
+          "evidence": "定向测试内容与服务/控制器/路由关键词检索观察",
+          "capability": "已有GEO内容资产/发布审核方法参考及检索门禁；本子任务在检查的服务/控制器/路由中未发现业务测量实现，此为有界检索结果，不是全仓不存在证明。"
+        }
+      ],
+      "confirmed_absorption_candidates": [
+        {
+          "increment": "只保留问题集组织和逐级计量合同：提及、有效引用、事实一致、动作/成交分别测量。",
+          "status": "reference_only_observed",
+          "carrying_paths": [
+            "docs/knowledge/joydo-jhira-other-20261001/README.md",
+            "tests/GeoContentOperationsKnowledgeTest.php",
+            "tests/HotelGeoAndForecastKnowledgeTest.php"
+          ],
+          "carrying_path_boundary": "仅既有参考资料和门禁测试；可用的业务测量服务未确认。",
+          "key_fields": [
+            "question_set_version",
+            "model_service_version",
+            "observed_at",
+            "region",
+            "search_network_state",
+            "response_ref",
+            "valid_citation",
+            "fact_consistency",
+            "conversion_scope"
+          ],
+          "acceptance": "缺响应为未知，明确未提及才为零；前后问题集/模型/环境不可比时拒绝效果结论；无同范围订单证据不能把提及提升说成获客增长。"
+        }
+      ],
+      "concurrent_candidates": {
+        "observed": "unknown",
+        "paths": [],
+        "stability_verified": false,
+        "details": "未调查GEO后台、企业账号或当前并发测量工作。"
+      },
+      "evidence_ceiling": {
+        "implementation": "参考知识；没有本子任务验证的实际GEO测量功能",
+        "tests": "知识测试仅查看；模型测量NOT RUN",
+        "actual_page": "NOT RUN",
+        "deployment": "未验证"
+      },
+      "risks_and_unknowns": [
+        "已有来源材料仅公开GEO介绍，没有可重放算法或优化因果。",
+        "模型回答序号不是OTA排名；单次响应不能证明长期可见度。",
+        "不得向外部模型发送账号、客户私密或未授权经营资料。"
+      ],
+      "next_acceptance": "保留参考；正式立项前取得合法测量来源及明确调用范围，再用公开酒店事实的问题集验证采样、保存、缺失、可比性和回读。"
+    }
+  ],
+  "final_limits": [
+    "所有并发候选均不得写成当前稳定、已上线或实际业务验收。",
+    "本次聚焦测试验证可研复核判定及直接投决消费，不覆盖八个模块的完整验收。",
+    "本子任务没有进行实际页面、真实OTA、真实贷款、导出文件、模型测量或现场经营效果验证。",
+    "本JSON只汇总已有观察；不扩大知识/代码/数据库/外部系统的写入授权。"
+  ]
+}

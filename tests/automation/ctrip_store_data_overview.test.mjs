@@ -22,8 +22,7 @@ const otaProfileStatic = readFileSync('public/ota-profile-static.js', 'utf8');
 const systemStatic = readFileSync('public/system-static.js', 'utf8');
 const autoFetchStatic = readFileSync('public/auto-fetch-static.js', 'utf8');
 const ctripFragment = readFileSync('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html', 'utf8');
-const ctripProfileFieldConfigPanel = readFileSync('public/components/online-data/ctrip-profile-field-config-panel.js', 'utf8')
-  .replace(/\\"/g, '"');
+const ctripProfileFieldConfigPanel = readFileSync('resources/frontend/templates/components/ctrip-profile-field-config-panel.html', 'utf8');
 const dataHealthOverviewSource = `${html}\n${dataHealthStatic}`;
 const backend = readBackendSource();
 const ctripPageStart = html.indexOf("currentPage === 'ctrip-ebooking'");

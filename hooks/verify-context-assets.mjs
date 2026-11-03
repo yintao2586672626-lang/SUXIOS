@@ -61,12 +61,12 @@ if (!exists('AGENTS.md', outerRoot)) {
 } else {
   const outerAgents = read('AGENTS.md', outerRoot);
   requireIncludes('outer AGENTS.md', outerAgents, 'SUXIOS Root Agent Instructions — Lean');
-  requireIncludes('outer AGENTS.md', outerAgents, 'Feature delivery gets roughly 80–90%');
+  requireIncludes('outer AGENTS.md', outerAgents, 'Prioritize accurate, complete user-visible outcomes');
   requireIncludes('outer AGENTS.md', outerAgents, 'Current clean implementation entrance');
   requireIncludes('outer AGENTS.md', outerAgents, 'Commit/push/PR/deploy remain explicit-only');
   requireIncludes('outer AGENTS.md', outerAgents, 'Preserve unrelated changes');
   requireIncludes('outer AGENTS.md', outerAgents, 'Passkey');
-  requireIncludes('outer AGENTS.md', outerAgents, 'After three targeted inspections');
+  requireIncludes('outer AGENTS.md', outerAgents, 'quality-completeness-and-issue-handling.md');
   requireIncludes('outer AGENTS.md', outerAgents, 'Use only a named Skill or the single Skill whose trigger directly matches');
   requireIncludes('outer AGENTS.md', outerAgents, 'HOTEL/hooks/');
   requireIncludes('outer AGENTS.md', outerAgents, 'untrusted packages and scripts');
@@ -84,7 +84,7 @@ if (!exists('AGENTS.md')) {
   requireIncludes('project AGENTS.md', projectAgents, '不作为 OTA 功能的默认前置门禁');
   requireIncludes('project AGENTS.md', projectAgents, '当前阶段交付主线');
   requireIncludes('project AGENTS.md', projectAgents, '工作树不要求全局干净');
-  requireIncludes('project AGENTS.md', projectAgents, '连续三轮定向检查');
+  requireIncludes('project AGENTS.md', projectAgents, '不按固定检查次数放弃');
   requireIncludes('project AGENTS.md', projectAgents, 'Passkey');
   requireIncludes('project AGENTS.md', projectAgents, '经营页面合同（适当严格执行）');
   requireIncludes('project AGENTS.md', projectAgents, 'rules/business-page-contract.md');
@@ -100,10 +100,10 @@ if (!exists(collaborationCharterPath)) {
     '功能实现是第一目标',
     '功能完整性补全',
     '用户可见的最短安全路径',
-    '最小验收与停止条件',
+    '完整验收与停止条件',
     '本次请求未明确包含的提交、推送、外部PR、部署、生产写入或正式外发',
     '工作树不要求全局干净',
-    '连续三轮定向检查',
+    '不按固定检查次数放弃',
     'Passkey',
   ]) {
     requireIncludes(collaborationCharterPath, charter, needle);

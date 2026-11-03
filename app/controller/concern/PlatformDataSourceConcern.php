@@ -570,6 +570,7 @@ trait PlatformDataSourceConcern
                     'orders' => null,
                     'gross_orders' => null,
                     'cancelled_orders' => null,
+                    'cancel_rate_missing_rows' => 0,
                     'room_nights' => null,
                     'amount' => null,
                     'bottom_price_adr' => null,
@@ -580,6 +581,15 @@ trait PlatformDataSourceConcern
                 ];
             }
             $channels[$channelKey]['row_count']++;
+            // A channel-wide rate needs a legal numerator/denominator pair
+            // from every source row; partial counts remain visible below.
+            if ($grossOrders === null || $cancelledOrders === null
+                || !is_finite($grossOrders) || !is_finite($cancelledOrders)
+                || $grossOrders < 0 || $cancelledOrders < 0
+                || floor($grossOrders) !== $grossOrders || floor($cancelledOrders) !== $cancelledOrders
+                || $cancelledOrders > $grossOrders) {
+                $channels[$channelKey]['cancel_rate_missing_rows']++;
+            }
             foreach ([
                 'orders' => $orders,
                 'gross_orders' => $grossOrders,
@@ -613,7 +623,12 @@ trait PlatformDataSourceConcern
 
         $channelList = array_values($channels);
         foreach ($channelList as &$channel) {
-            $channel['cancel_rate'] = $channel['gross_orders'] !== null && $channel['gross_orders'] > 0
+            $channel['cancel_rate_status'] = $channel['cancel_rate_missing_rows'] > 0
+                ? 'evidence_missing'
+                : ($channel['gross_orders'] !== null && $channel['cancelled_orders'] !== null
+                    && is_finite($channel['gross_orders']) && is_finite($channel['cancelled_orders'])
+                    && $channel['gross_orders'] > 0 ? 'available' : 'not_computable');
+            $channel['cancel_rate'] = $channel['cancel_rate_status'] === 'available'
                 ? $channel['cancelled_orders'] / $channel['gross_orders']
                 : null;
             $channel['avg_los'] = $channel['_los_weight'] > 0

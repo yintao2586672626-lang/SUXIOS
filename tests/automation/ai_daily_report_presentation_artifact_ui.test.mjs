@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import vm from 'node:vm';
 
@@ -280,7 +281,6 @@ test('one validated spec drives offline HTML and macro-free editable PPTX withou
     "'html_external_requests_allowed' => false",
     "'pptx_macro_enabled' => false",
     "'pptx_editable_text_and_shapes' => true",
-    "'human_review_status' => 'pending'",
     "'external_write_authorized' => false",
     "'presentation-spec.json'",
     "'manifest.json'",
@@ -288,6 +288,24 @@ test('one validated spec drives offline HTML and macro-free editable PPTX withou
   ]) {
     assert.ok(renderer.includes(marker), marker);
   }
+  // Keep the pending-by-default oracle while allowing a separately verified
+  // human review context. Execute the renderer with the existing synthetic
+  // PHPUnit report fixture instead of depending on a PHP literal's location.
+  const phpBinary = [process.env.PHP_BINARY,
+    process.platform === 'win32' ? 'C:\\xampp\\php\\php.exe' : null, 'php']
+    .find(candidate => candidate && (candidate === 'php' || existsSync(candidate)));
+  const contract = JSON.parse(execFileSync(phpBinary, ['-r', `
+    require 'tests/bootstrap.php';
+    require 'tests/AiDailyReportPresentationRendererServiceTest.php';
+    $fixture = new ReflectionClass(Tests\\AiDailyReportPresentationRendererServiceTest::class);
+    $report = $fixture->getMethod('trustedReport')->invoke($fixture->newInstanceWithoutConstructor());
+    $spec = (new app\\service\\AiDailyReportPresentationSpecService())->build($report, 'owner');
+    $artifact = (new app\\service\\AiDailyReportPresentationRendererService())->render($spec);
+    echo json_encode($artifact['manifest']['contract'], JSON_THROW_ON_ERROR);
+  `], { encoding: 'utf8', windowsHide: true, timeout: 20000 }));
+  assert.equal(contract.human_review_status, 'pending');
+  assert.equal(contract.external_write_authorized, false);
+  assert.equal(contract.recalculation_during_render, false);
   for (const marker of [
     'sourceRefIsVerified',
     '$dataSourceId <= 0',

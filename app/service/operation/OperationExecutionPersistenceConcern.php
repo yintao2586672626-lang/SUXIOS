@@ -691,6 +691,7 @@ trait OperationExecutionPersistenceConcern
             )
         ));
         $effectReviews = [];
+        $effectReadStatus = 'table_missing';
         if ($this->tableExists(OperationEffectReviewService::TABLE)) {
             $effectReviewResult = (new OperationEffectReviewService($this->executionOutcomeService))->listForTask(
                 (int)($task['tenant_id'] ?? $intent['tenant_id'] ?? 0),
@@ -701,75 +702,16 @@ trait OperationExecutionPersistenceConcern
             $effectReviews = is_array($effectReviewResult['list'] ?? null)
                 ? $effectReviewResult['list']
                 : [];
+            $effectReadStatus = 'readback_verified';
         }
-        $task['effect_reviews'] = $effectReviews;
-        $verifiedEffectReviews = array_values(array_filter(
-            $effectReviews,
-            static fn(array $review): bool => ($review['readback_verified'] ?? false) === true
-                && ($review['approval_contract_verified'] ?? false) === true
-                && ($review['active_eligible'] ?? false) === true
-                && ($review['outcome']['source_verified'] ?? false) === true
-                && ($review['outcome']['outcome_verified'] ?? false) === true
-                && ($review['causality_claimed'] ?? true) === false
-        ));
-        $approvalContractDrifted = count(array_filter(
-            $effectReviews,
-            static fn(array $review): bool => ($review['approval_contract_verified'] ?? false) !== true
-        )) > 0;
-        $activeEffectReview = null;
-        foreach ($verifiedEffectReviews as $review) {
-            if ((string)($review['result_status'] ?? '') === (string)($task['result_status'] ?? '')
-                && (string)($review['result_summary'] ?? '') === (string)($task['result_summary'] ?? '')
-            ) {
-                $activeEffectReview = $review;
-                break;
-            }
-        }
-        $task['active_effect_review'] = $activeEffectReview;
-        $task['effect_review_summary'] = [
-            'count' => count($effectReviews),
-            'verified_count' => count($verifiedEffectReviews),
-            'approval_contract_verified_count' => count(array_filter(
-                $effectReviews,
-                static fn(array $review): bool => ($review['approval_contract_verified'] ?? false) === true
-            )),
-            'latest_id' => (int)($effectReviews[0]['id'] ?? 0),
-            'active_id' => (int)($activeEffectReview['id'] ?? 0),
-            'active_content_digest' => (string)($activeEffectReview['content_digest'] ?? ''),
-            'current_result_bound' => $activeEffectReview !== null,
-            'persistence_status' => $activeEffectReview !== null
-                ? 'readback_verified'
-                : ($approvalContractDrifted
-                    ? 'approval_target_drifted'
-                    : ($effectReviews === [] ? 'missing' : 'current_result_mismatch')),
-            'execution_effect_storage_separated' => true,
-            'causality_claimed' => false,
-        ];
+        $effectProjection = $this->executionFlowReadService->projectEffectReviews($intent, $task, $effectReviews, $effectReadStatus);
+        $task['effect_reviews'] = $effectProjection['effect_reviews'];
+        $task['active_effect_review'] = $effectProjection['active_effect_review'];
+        $task['effect_review_summary'] = $effectProjection['effect_review_summary'];
         $task['evidence_summary'] = $this->buildSafeExecutionEvidenceSummary($task['evidence'], $task, $intent);
         $task['evidence_truth'] = $this->buildExecutionEvidenceTruth($intent, $task, $task['evidence']);
         $legacyOutcomeTruth = $this->buildExecutionOutcomeTruth($intent, $task, $task['evidence']);
-        $usesStrictEffectReview = in_array(strtolower(trim((string)($intent['source_module'] ?? ''))), [
-            'ota_diagnosis_saved',
-            OperatingQuestionExecutionBridgeService::SOURCE_MODULE,
-            RevenueCockpitActionContract::SOURCE_MODULE,
-            OperatingOpportunityLabService::DAILY_SOURCE_MODULE,
-        ], true);
-        $isTerminalReview = in_array((string)($task['result_status'] ?? ''), ['success', 'near_success', 'failed'], true);
-        $task['outcome_truth'] = $usesStrictEffectReview && $isTerminalReview
-            ? (is_array($activeEffectReview['outcome'] ?? null)
-                ? $activeEffectReview['outcome']
-                : [
-                    'status' => 'unverified',
-                    'source_verified' => false,
-                    'outcome_verified' => false,
-                    'positive_outcome_verified' => false,
-                    'metric_key' => (string)($intent['expected_metric'] ?? ''),
-                    'failure_reason' => $approvalContractDrifted
-                        ? 'approval_target_contract_drifted'
-                        : 'current_separate_effect_review_missing',
-                    'causality_claimed' => false,
-                ])
-            : $legacyOutcomeTruth;
+        $task['outcome_truth'] = $effectProjection['outcome_truth'] ?? $legacyOutcomeTruth;
         $task['truth_context'] = $this->buildExecutionTruthContext(
             $intent,
             $task,
@@ -795,23 +737,7 @@ trait OperationExecutionPersistenceConcern
             $task['outcome_truth'],
             (string)($task['result_status'] ?? 'observing')
         );
-        if ($usesStrictEffectReview
-            && $activeEffectReview === null
-        ) {
-            $reasonCodes = is_array($task['sop_candidate']['reason_codes'] ?? null)
-                ? $task['sop_candidate']['reason_codes']
-                : [];
-            $reasonCodes[] = $approvalContractDrifted
-                ? 'approval_target_contract_drifted'
-                : 'separate_effect_review_readback_missing';
-            $task['sop_candidate']['candidate_id'] = null;
-            $task['sop_candidate']['status'] = 'not_ready';
-            $task['sop_candidate']['approval_status'] = 'not_available';
-            $task['sop_candidate']['reason_codes'] = array_values(array_unique($reasonCodes));
-            $task['sop_candidate']['boundaries']['next_stage'] = $approvalContractDrifted
-                ? 'reapprove_target_and_repeat_effect_review'
-                : 'complete_separate_effect_review';
-        }
+        $task['sop_candidate'] = $this->executionFlowReadService->applyEffectReviewSopGate($task['sop_candidate'], $effectProjection);
 
         return (new OperationActionLifecycleService())->decorateTask($task, $intent);
     }

@@ -1,3 +1,4 @@
+* whitespace=trailing-space,space-before-tab,cr-at-eol
 database/backups/* export-ignore
 storage/db_backups/* export-ignore
 reports export-ignore
@@ -20,3 +21,6 @@ database/migrations/20260730_seed_hotel_revenue_success_practices_extension.sql 
 docs/knowledge/semantic-glossary/exports/*.csv whitespace=trailing-space,cr-at-eol
 database/migrations/20260825_add_wecom_inbound_processing_lease.sql whitespace=-blank-at-eof
 plugins/suxi-os-toolkit/.codex-plugin/plugin.json whitespace=trailing-space,cr-at-eol
+docs/knowledge/codex-execution-v32-20260930/source-extracted.redacted.txt whitespace=-blank-at-eol,cr-at-eol
+docs/knowledge/hkos-workbench/sources/controlled-source-policy.cjs.txt whitespace=-blank-at-eof,cr-at-eol
+docs/system-maintenance-plan-20260930.md whitespace=-blank-at-eol,cr-at-eol

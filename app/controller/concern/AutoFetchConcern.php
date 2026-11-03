@@ -28,6 +28,7 @@ trait AutoFetchConcern
     use AutoFetchProfileSyncConcern;
     use CtripAutoFetchExecutionConcern;
     use MeituanAutoFetchExecutionConcern;
+    use AutoFetchRecordSummaryConcern;
 
     public function autoFetch(): Response
     {
@@ -603,6 +604,16 @@ trait AutoFetchConcern
         $failedPlatforms = $normalizePlatforms($details['failed_platforms'] ?? []);
         $successfulPlatforms = $normalizePlatforms($details['successful_platforms'] ?? []);
         $statusCode = trim((string)($details['status'] ?? ($success ? 'success' : 'failed')));
+        // Terminal task receipts are immutable across duplicate and late delivery.
+        if ($taskId !== '') {
+            foreach (is_array($status['recent_runs'] ?? null) ? $status['recent_runs'] : [] as $existingRun) {
+                if (is_array($existingRun) && (string)($existingRun['task_id'] ?? '') === $taskId
+                    && (string)($existingRun['data_date'] ?? '') === $dataDate
+                    && !in_array((string)($existingRun['status'] ?? ''), ['running', 'queued', 'accepted'], true)) {
+                    return $status;
+                }
+            }
+        }
         if ($statusCode !== '') {
             $runRecord['status'] = $statusCode;
         }
@@ -1175,8 +1186,13 @@ trait AutoFetchConcern
 
     private function autoFetchCtripNodeId(array $config): string
     {
-        $nodeId = trim((string)($config['node_id'] ?? $config['nodeId'] ?? '24588'));
-        return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $nodeId) === 1 ? $nodeId : '';
+        foreach (['node_id', 'nodeId'] as $key) {
+            $nodeId = trim((string)($config[$key] ?? ''));
+            if ($nodeId !== '') {
+                return preg_match('/^[A-Za-z0-9._-]{1,100}$/D', $nodeId) === 1 ? $nodeId : '';
+            }
+        }
+        return \app\service\CtripManualFetchRequestService::normalizeNodeId('');
     }
 
     private function hasAnyPlatformFetchConfigForHotel(int $hotelId): bool
@@ -3142,31 +3158,12 @@ trait AutoFetchConcern
             'saved_count' => (int)($platformResult['saved_count'] ?? 0),
             'module_summary' => $moduleSummary !== '' ? $moduleSummary : '-',
             'message' => (string)($platformResult['message'] ?? $run['message'] ?? '-'),
+            'reason' => (string)($platformResult['reason'] ?? ''),
+            'stage' => (string)($platformResult['stage'] ?? ''),
             'run_message' => (string)($run['message'] ?? ''),
             'auto_fetch_mode' => (string)($platformResult['auto_fetch_mode'] ?? $run['auto_fetch_mode'] ?? ''),
             'mode_label' => (string)($platformResult['mode_label'] ?? $run['auto_fetch_mode_label'] ?? ''),
         ];
-    }
-
-    private function formatAutoFetchModuleSummary(array $modules): string
-    {
-        $parts = [];
-        foreach ($modules as $module) {
-            if (!is_array($module)) {
-                continue;
-            }
-            $name = trim((string)($module['module'] ?? ''));
-            if ($name === '') {
-                continue;
-            }
-            $savedCount = (int)($module['saved_count'] ?? 0);
-            $state = !empty($module['success']) ? 'ok' : (!empty($module['skipped']) ? 'skip' : 'fail');
-            $strategy = trim((string)($module['strategy'] ?? ''));
-            $strategyText = $strategy !== '' ? $strategy . ':' : '';
-            $parts[] = $name . '[' . $strategyText . $state . ':' . $savedCount . ']';
-        }
-
-        return implode(' / ', $parts);
     }
 
     private function matchesAutoFetchRecordFilters(array $record, array $filters): bool
@@ -3176,6 +3173,10 @@ trait AutoFetchConcern
         $source = trim((string)($filters['source'] ?? ''));
         $status = trim((string)($filters['status'] ?? ''));
         $dataDate = (string)($record['data_date_value'] ?? $record['data_date'] ?? '');
+
+        if (($startDate !== '' || $endDate !== '') && $dataDate === '') {
+            return false;
+        }
 
         if ($startDate !== '' && $dataDate !== '' && $dataDate < $startDate) {
             return false;
@@ -3961,6 +3962,12 @@ trait AutoFetchConcern
         $taskId = (int)($task['id'] ?? 0);
         $stats = json_decode((string)($task['stats_json'] ?? ''), true);
         $stats = is_array($stats) ? $stats : [];
+        $requestedDate = trim((string)($stats['data_date'] ?? ''));
+        if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $requestedDate, $dateParts)
+            || !checkdate((int)$dateParts[2], (int)$dateParts[3], (int)$dateParts[1])) {
+            $requestedDate = '';
+        }
+        $dataDate = (string)($taskData['data_date'] ?? '') ?: $requestedDate;
         $savedCount = (int)($stats['saved_count'] ?? $taskData['row_count'] ?? 0);
         $normalizedCount = (int)($stats['normalized_count'] ?? 0);
         $status = $this->normalizePlatformSyncTaskAutoFetchStatus((string)($task['status'] ?? ''), $savedCount);
@@ -3981,8 +3988,8 @@ trait AutoFetchConcern
             'hotel_id' => (int)($task['system_hotel_id'] ?? 0),
             'hotel_name' => $hotelName,
             'run_time' => $runTime,
-            'data_date' => (string)($taskData['data_date_label'] ?? $taskData['data_date'] ?? ''),
-            'data_date_value' => (string)($taskData['data_date'] ?? ''),
+            'data_date' => (string)($taskData['data_date_label'] ?? '') ?: $dataDate,
+            'data_date_value' => $dataDate,
             'platform' => strtolower((string)($task['platform'] ?? '')),
             'platform_label' => strtolower((string)($task['platform'] ?? '')) === 'meituan' ? '美团' : (strtolower((string)($task['platform'] ?? '')) === 'ctrip' ? '携程' : '其他'),
             'status' => $status,
@@ -3990,6 +3997,8 @@ trait AutoFetchConcern
             'saved_count' => $savedCount,
             'module_summary' => $moduleSummary !== '' ? $moduleSummary : '-',
             'message' => (string)($task['message'] ?? '-'),
+            'reason' => ($stats['reason'] ?? '') === \app\exception\MeituanHistoricalCaptureRejectedException::REASON ? $stats['reason'] : '',
+            'stage' => ($stats['stage'] ?? '') === \app\exception\MeituanHistoricalCaptureRejectedException::STAGE ? $stats['stage'] : '',
             'run_message' => (string)($task['message'] ?? ''),
             'auto_fetch_mode' => (string)($task['ingestion_method'] ?? ''),
             'mode_label' => (string)($task['ingestion_method'] ?? ''),
@@ -5103,6 +5112,11 @@ trait AutoFetchConcern
             } catch (\Throwable $e) {
                 \think\facade\Log::warning('Meituan auto-fetch failed', ['hotel_id' => $hotelId, 'exception_type' => get_debug_type($e)]);
                 $result = ['platform' => 'meituan', 'success' => false, 'message' => 'meituan_auto_fetch_failed', 'saved_count' => 0];
+                if ($e instanceof \app\exception\MeituanHistoricalCaptureRejectedException) {
+                    $result['message'] = $e->getMessage();
+                    $result['reason'] = $e::REASON;
+                    $result['stage'] = $e::STAGE;
+                }
             }
             $this->updateAutoFetchRunningPlatformProgress(
                 $hotelId,
@@ -5111,6 +5125,8 @@ trait AutoFetchConcern
                 [
                     'saved_count' => (int)($result['saved_count'] ?? 0),
                     'message' => (string)($result['message'] ?? ''),
+                    'reason' => (string)($result['reason'] ?? ''),
+                    'stage' => (string)($result['stage'] ?? ''),
                 ]
             );
             $platformResults[] = $result;

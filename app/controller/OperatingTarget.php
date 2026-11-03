@@ -43,7 +43,8 @@ final class OperatingTarget extends Base
                         ->history($tenantId, $hotelId, $targetDate, 20),
                     MeituanCloudPmsCaptureService::PROVIDER => $meituanCloudCaptures
                         ->history($tenantId, $hotelId, $targetDate, 20),
-                ]
+                ],
+                $tenantId
             );
             return $this->success($current);
         } catch (\InvalidArgumentException) {
@@ -744,6 +745,7 @@ final class OperatingTarget extends Base
     private function dingdandaoIntegrationInputError(string $code): string
     {
         return match ($code) {
+            'hotel_pms_other_provider_enabled' => '另一套 PMS 已启用，请到门店管理切换主 PMS',
             'dingdandao_pms_binding_required' => '启用接口前必须维护订单来了门店名称；门店ID可在首次可信采集回读后自动固化',
             'dingdandao_pms_push_binding_required' => '启用自动推送前必须先启用接口并选择共享机器人',
             'dingdandao_pms_robot_invalid' => '请选择当前门店已启用的企业微信共享机器人',
@@ -770,6 +772,7 @@ final class OperatingTarget extends Base
     private function meituanCloudIntegrationInputError(string $code): string
     {
         return match ($code) {
+            'hotel_pms_other_provider_enabled' => '另一套 PMS 已启用，请到门店管理切换主 PMS',
             'meituan_cloud_pms_binding_required' => '启用美团云 PMS 前必须维护对应门店名称',
             'meituan_cloud_pms_date_invalid' => '经营日期格式无效',
             default => '美团云 PMS 独立数据源维护参数无效',

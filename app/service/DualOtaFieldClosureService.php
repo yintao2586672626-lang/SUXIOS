@@ -103,11 +103,17 @@ final class DualOtaFieldClosureService
             $hotelId,
             $businessDate
         );
-        $trust = (new DualOtaContinuousTrustService())->inspectHotel(
-            $hotelId,
-            $businessDate,
-            $businessDate
-        );
+        try {
+            $trust = (new DualOtaContinuousTrustService())->inspectHotel(
+                $hotelId,
+                $businessDate,
+                $businessDate
+            );
+        } catch (\Throwable) {
+            // The primary scoped rows were read successfully. A supplemental
+            // evidence failure must not erase them or imply verified facts.
+            $trust = ['reason' => 'dual_ota_continuous_trust_read_failed'];
+        }
 
         return self::evaluate($hotel, $businessDate, $rows, $trust);
     }
@@ -153,7 +159,9 @@ final class DualOtaFieldClosureService
             $scopedRows[] = $row;
         }
 
+        $trustReadFailed = ($trust['reason'] ?? '') === 'dual_ota_continuous_trust_read_failed';
         $platforms = [];
+        $localSourceRecords = [];
         foreach (self::PLATFORMS as $platform) {
             $platformRows = array_values(array_filter(
                 $scopedRows,
@@ -165,7 +173,24 @@ final class DualOtaFieldClosureService
                 $hotelId,
                 $businessDate,
                 $platformRows,
-                self::trustPlatformDay($trust, $platform, $businessDate)
+                $trustReadFailed ? [] : self::trustPlatformDay($trust, $platform, $businessDate)
+            );
+            if ($trustReadFailed) {
+                $platforms[$platform]['latest_collection']['reason_codes'][] = 'dual_ota_continuous_trust_read_failed';
+                $platforms[$platform]['revenue_analysis']['blocked_reason'] = 'supplemental_evidence_read_failed';
+                foreach ($platforms[$platform]['fields'] as &$field) {
+                    $field['status'] = 'readback_failed';
+                    $field['status_label'] = self::STATUS_LABELS['readback_failed'];
+                    $field['value'] = null;
+                    $field['revenue_analysis_consumable'] = false;
+                    $field['note'] .= ' 补证记录读取失败；本地来源元数据已保留，请重新读取当前范围补证。';
+                    $field['revenue_analysis_blockers'][] = 'supplemental_evidence_read_failed';
+                }
+                unset($field);
+            }
+            $localSourceRecords[$platform] = self::projectLocalSourceRecords(
+                $platformRows,
+                $platforms[$platform]['latest_collection']
             );
         }
 
@@ -189,6 +214,15 @@ final class DualOtaFieldClosureService
             'business_date' => $businessDate,
             'platforms' => $platforms,
         ];
+        if ($trustReadFailed) {
+            $stable['supplemental_evidence_read'] = [
+                'status' => 'failed',
+                'reason' => 'dual_ota_continuous_trust_read_failed',
+                'tenant_id' => $tenantId,
+                'hotel_id' => $hotelId,
+                'business_date' => $businessDate,
+            ];
+        }
         $digest = hash('sha256', self::encodeStable($stable));
         $allReady = $analysisConsumableFields > 0
             && array_reduce(
@@ -199,6 +233,10 @@ final class DualOtaFieldClosureService
             );
 
         return $stable + [
+            // Diagnostic metadata is not part of the strict fact digest or a
+            // consumer's eligible field set. Existing unverified rows are not
+            // equivalent to an empty database query.
+            'local_source_records' => $localSourceRecords,
             'status' => $allReady ? 'ready' : 'partial',
             'metric_scope' => 'ota_channel_only',
             'status_labels' => self::STATUS_LABELS,
@@ -235,6 +273,63 @@ final class DualOtaFieldClosureService
         ];
     }
 
+    /** @param array<int,array<string,mixed>> $rows @return array<string,mixed> */
+    private static function projectLocalSourceRecords(array $rows, array $collection): array
+    {
+        $records = [];
+        foreach ($rows as $row) {
+            $validation = strtolower(trim((string)($row['validation_status'] ?? 'unknown')));
+            $history = strtolower(trim((string)($row['history_status'] ?? 'unknown')));
+            $validation = in_array($validation, array_merge(self::BLOCKING_VALIDATION_STATUSES, ['verified', 'partial']), true)
+                ? $validation : 'unknown';
+            $history = in_array($history, ['success', 'partial', 'failed', 'pending', 'running', 'unverified'], true)
+                ? $history : 'unknown';
+            $readback = !array_key_exists('readback_verified', $row) || $row['readback_verified'] === null
+                ? 'unknown' : ((int)$row['readback_verified'] === 1 ? 'verified' : 'unverified');
+            $requirements = [];
+            if ($readback !== 'verified') $requirements[] = 'record_readback_required';
+            if ($validation !== 'verified') $requirements[] = 'record_validation_required';
+            if ($history !== 'success') $requirements[] = 'history_finality_required';
+            if (!self::rowBelongsToCurrentReceipt($row, $collection)) $requirements[] = 'current_receipt_binding_required';
+            if (($collection['exact_run_readback_status'] ?? '') !== 'verified') $requirements[] = 'exact_scope_readback_required';
+            $id = (int)($row['id'] ?? 0);
+            $method = strtolower(trim((string)($row['ingestion_method'] ?? '')));
+            $originType = match ($method) {
+                'manual', 'import_json', 'import_csv', 'import_excel',
+                'manual_input', 'user_provided', 'user_provided_unverified', 'manual_override' => 'manual_import',
+                'browser_assist_dom' => 'browser_assisted_import',
+                'browser_profile', 'profile_browser', 'local_collector' => 'collection_registered',
+                'api' => 'interface_registered',
+                default => 'unknown',
+            };
+            $records[] = [
+                'record_ref' => $id > 0 ? 'online_daily_data#' . $id : null,
+                'source_origin' => [
+                    'type' => $originType,
+                    'method' => $originType === 'unknown' ? 'unknown' : $method,
+                    'recovery_code' => match ($originType) {
+                        'manual_import' => 'original_import_evidence_required',
+                        'browser_assisted_import' => 'structured_response_evidence_required',
+                        'collection_registered' => 'collection_receipt_identity_required',
+                        'interface_registered' => 'interface_origin_identity_required',
+                        default => 'origin_metadata_required',
+                    },
+                ],
+                'validation_status' => $validation,
+                'history_status' => $history,
+                'readback_status' => $readback,
+                'requirements' => $requirements,
+            ];
+        }
+        usort($records, static fn(array $a, array $b): int => strcmp((string)$a['record_ref'], (string)$b['record_ref']));
+        return [
+            'state' => $records === [] ? 'no_local_records' : 'local_records_present',
+            'record_count' => count($records),
+            'diagnostic_only' => true,
+            'records' => $records,
+        ];
+    }
+
     /**
      * @param array<int,array<string,mixed>> $rows
      * @param array<string,mixed> $trustDay
@@ -259,6 +354,8 @@ final class DualOtaFieldClosureService
             }
             $row['_closure_current_receipt_bound'] = true;
             $row['_closure_receipt_scope_status'] = (string)($collection['exact_run_readback_status'] ?? 'unverified');
+            $row['_closure_structured_source_verified'] = (new OtaStructuredCaptureEvidenceService())
+                ->classifyRow($row)['allowed'] === true;
             $currentReceiptEvidenceRows[] = $row;
             if (!self::rowFieldEligible($row)) {
                 continue;
@@ -1089,6 +1186,7 @@ final class DualOtaFieldClosureService
         }
 
         $readbackIdentityReady = self::rowReadbackIdentityReady($row);
+        $sourceEvidenceReady = ($row['_closure_structured_source_verified'] ?? false) === true;
         return self::field(
             $key,
             $readbackIdentityReady ? 'caliber_uncertain' : 'readback_failed',
@@ -1096,10 +1194,14 @@ final class DualOtaFieldClosureService
             [$row],
             $basis,
             $readbackIdentityReady
-                ? $note . ' 正式记录已回读，但历史最终态或字段校验尚未达到 verified；候选值只用于追溯。下一步：补充口径证据并重新校验该字段。'
+                ? ($sourceEvidenceReady
+                    ? $note . ' 正式记录已回读，但历史最终态或字段校验尚未达到 verified；候选值只用于追溯。下一步：补充口径证据并重新校验该字段。'
+                    : $note . ' 记录已回读，但可信结构化来源证据未闭合；人工导入、接口登记和 DOM 展示不能凭质量标记进入正式事实。下一步：补齐对应来源的结构化响应与身份溯源后重新校验。')
                 : $note . ' 正式记录存在，但当前采集回执或整批精确回读没有闭合。下一步：重新保存并按当前回执逐条精确回读。',
             self::observedValues([[$value, $basis . ' (candidate)', $row]]),
-            [$readbackIdentityReady ? 'validation_status_not_verified' : 'exact_readback_not_verified']
+            [$readbackIdentityReady
+                ? ($sourceEvidenceReady ? 'validation_status_not_verified' : 'structured_capture_evidence_unverified')
+                : 'exact_readback_not_verified']
         );
     }
 
@@ -1142,6 +1244,41 @@ final class DualOtaFieldClosureService
             static fn(array $row): bool => self::rowStrictFinalEligible($row)
         )) === count($rows);
         $statusAllowsConsumption = in_array($status, ['strict_readback', 'verified_calculation'], true);
+        $sourceEvidenceMissing = count(array_filter($rows, static fn(array $row): bool =>
+            self::rowReadbackIdentityReady($row)
+            && strtolower(trim((string)($row['history_status'] ?? ''))) === 'success'
+            && strtolower(trim((string)($row['validation_status'] ?? ''))) === 'verified'
+            && ($row['_closure_structured_source_verified'] ?? false) !== true
+        )) > 0;
+        if ($sourceEvidenceMissing) {
+            if ($statusAllowsConsumption) {
+                if ($value !== null && $observedValues === []) {
+                    $observedValues = self::observedValues([[$value, $basis . ' (candidate)', $rows[0]]]);
+                }
+                $status = 'caliber_uncertain';
+                $value = null;
+                $statusAllowsConsumption = false;
+            }
+            $qualityFlags[] = 'structured_capture_evidence_unverified';
+            if (!str_contains($note, '可信结构化来源证据未闭合')) {
+                $note .= ' 可信结构化来源证据未闭合；候选只作追溯。下一步：补齐对应来源的结构化响应与身份溯源后重新校验。';
+            }
+        }
+        if ($strictFinal && count(array_filter($rows, static fn(array $row): bool =>
+            !self::metricFieldEvidenceReady($key, $row)
+        )) > 0) {
+            $strictFinal = false;
+            if ($statusAllowsConsumption) {
+                if ($value !== null && $observedValues === []) {
+                    $observedValues = self::observedValues([[$value, $basis . ' (candidate)', $rows[0]]]);
+                }
+                $status = 'caliber_uncertain';
+                $value = null;
+                $statusAllowsConsumption = false;
+            }
+            $qualityFlags[] = 'metric_field_evidence_unverified';
+            $note .= ' 字段指标与入库溯源未闭合，结构化来源允许不代表该指标已验证。下一步：补齐对应指标、入库字段和同来源回读证据后重新校验。';
+        }
 
         return [
             'key' => $key,
@@ -1176,6 +1313,62 @@ final class DualOtaFieldClosureService
             'validation_statuses' => self::stringValues($rows, 'validation_status'),
             '_rows' => $rows,
         ];
+    }
+
+    /** Core business values and ADR must prove their own metric/storage tuple. */
+    private static function metricFieldEvidenceReady(string $key, array $row): bool
+    {
+        $requirements = match ($key) {
+            'revenue' => ['amount' => self::FIELD_FACT_METRIC_KEYS['revenue']],
+            'room_nights' => ['quantity' => self::FIELD_FACT_METRIC_KEYS['room_nights']],
+            'order_count' => ['book_order_num' => self::FIELD_FACT_METRIC_KEYS['order_count']],
+            'adr' => ['amount' => self::FIELD_FACT_METRIC_KEYS['revenue'],
+                'quantity' => self::FIELD_FACT_METRIC_KEYS['room_nights']],
+            default => [],
+        };
+        if ($requirements === []) {
+            return true;
+        }
+        $raw = self::decodeArray($row['raw_data'] ?? []);
+        $facts = [];
+        foreach ([$raw['field_facts'] ?? null, $raw['row']['field_facts'] ?? null,
+            $raw['raw_data']['field_facts'] ?? null, $raw['row']['raw_data']['field_facts'] ?? null,
+            $raw['facts'] ?? null, $raw['row']['facts'] ?? null, $raw['raw_data']['facts'] ?? null,
+            $raw['row']['raw_data']['facts'] ?? null] as $candidate) {
+            if (is_array($candidate) && ($facts = array_values(array_filter($candidate, 'is_array'))) !== []) {
+                break;
+            }
+        }
+        // Preserve the field-fact reader's nested aliases; never infer a core
+        // mapping from a scalar. Reuse its existing trace/hash/path checks.
+        foreach ($requirements as $column => $metricKeys) {
+            $verified = false;
+            foreach ($facts as $fact) {
+                $metricKey = strtolower(trim((string)($fact['metric_key'] ?? $fact['field_key'] ?? $fact['field'] ?? '')));
+                $storage = strtolower(trim((string)($fact['storage_field'] ?? $fact['storage_target'] ?? '')));
+                if (str_starts_with($storage, 'online_daily_data.')) {
+                    $storage = substr($storage, strlen('online_daily_data.'));
+                }
+                if (!in_array($metricKey, $metricKeys, true)
+                    || strtolower(trim((string)($fact['normalized_field'] ?? ''))) !== $column
+                    || $storage !== $column || strtolower(trim((string)($fact['status'] ?? ''))) !== 'captured'
+                    || ($fact['stored_value_present'] ?? false) !== true
+                ) {
+                    continue;
+                }
+                $metricStatus = OnlineDataFieldFactService::buildMetricStatus(
+                    $row, array_replace($raw, ['field_facts' => [$fact]]), [$metricKey]
+                );
+                if (($metricStatus['status'] ?? '') === 'ready') {
+                    $verified = true;
+                    break;
+                }
+            }
+            if (!$verified) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -1675,6 +1868,7 @@ final class DualOtaFieldClosureService
     private static function rowStrictFinalEligible(array $row): bool
     {
         return self::rowReadbackIdentityReady($row)
+            && ($row['_closure_structured_source_verified'] ?? false) === true
             && strtolower(trim((string)($row['history_status'] ?? ''))) === 'success'
             && strtolower(trim((string)($row['validation_status'] ?? ''))) === 'verified';
     }

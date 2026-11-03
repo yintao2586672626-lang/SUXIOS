@@ -76,6 +76,17 @@ final class OperatingQuestionToolCallingServiceTest extends TestCase
         self::assertSame('tool_planner_unavailable', $result['planner_meta']['error_code']);
     }
 
+    public function testPlannerFailureDoesNotExposeRawExceptionText(): void
+    {
+        $service = $this->service(static function (): array {
+            throw new RuntimeException('upstream debug: synthetic-private-request-content');
+        });
+        $result = $service->run($this->scope(), '测试问题', 'ollama_qwen3_8b');
+        self::assertSame('planner_unavailable', $result['selection_status']);
+        self::assertNull($result['planner_meta']['external_llm_called']);
+        self::assertStringNotContainsString('synthetic-private-request-content', json_encode($result));
+    }
+
     public function testUnknownToolIsRejectedAndCannotReplaceBaselineRetrieval(): void
     {
         $service = $this->service(static fn(array $payload): array => [

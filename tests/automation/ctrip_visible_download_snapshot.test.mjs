@@ -113,6 +113,24 @@ test('competition download fails closed instead of falling back to a second fiel
   );
 });
 
+test('clean numeric cells and source notice survive visible image download capture', () => {
+  const api = loadCtripStaticApi();
+  const table = fakeNode({ attrs: { 'data-download-title': '销售与订单' }, many: {
+    'thead tr': [fakeNode({ many: { th: [headerCell('携程APP订单', { width: 160 })] } })],
+    'tbody tr': [fakeNode({ many: { td: [fakeNode({ text: '2', width: 160 })] } })],
+  } });
+  const root = fakeNode({ one: {
+    '[data-download-table]': table,
+    '[data-testid="ctrip-unverified-derivation-notice"]': fakeNode({ text: '本次临时估算 未入库 仅供参考' }),
+    '[data-testid="ctrip-business-source-notice"]': fakeNode({ text: '来源业务日未核验' }),
+  } });
+  const snapshot = api.captureCtripBusinessDownloadSnapshot({ root });
+  // The oracle is the visible text; a single space is preserved by the existing capture formatter.
+  assert.equal(snapshot.sourceNotice, '本次临时估算 未入库 仅供参考；来源业务日未核验');
+  assert.equal(snapshot.table.rows[0][0], '2');
+  assert.equal(snapshot.cards.length, 0);
+});
+
 test('competition download adapter uses the rendered surface and removes the legacy export map', () => {
   assert.match(appMainSource, /requireCtripStatic\('captureCtripBusinessDownloadSnapshot'\)/);
   assert.match(appMainSource, /document\.querySelector\('\[data-download-target="ctrip-business"\]'\)/);

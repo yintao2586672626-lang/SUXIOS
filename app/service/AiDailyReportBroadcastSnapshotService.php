@@ -105,6 +105,9 @@ final class AiDailyReportBroadcastSnapshotService
         if (!is_array($closure)) {
             throw new RuntimeException('AI daily report broadcast strict facts unavailable', 422);
         }
+        if ((string)($closure['business_date'] ?? '') !== $businessDate) {
+            throw new RuntimeException('AI daily report broadcast strict fact business date mismatch', 422);
+        }
 
         return $this->buildDraft(
             $hotel,
@@ -382,20 +385,7 @@ final class AiDailyReportBroadcastSnapshotService
             }
         }
 
-        $preferred = array_values(array_filter(
-            $candidates,
-            static fn(array $fact): bool => ($fact['revenue_analysis_consumable'] ?? false) === true
-        ));
-        if ($preferred !== []) {
-            $facts = $preferred;
-        } else {
-            $moneyUncertain = $this->moneyCaliberUncertain($platforms);
-            $facts = array_values(array_filter(
-                $candidates,
-                static fn(array $fact): bool => !$moneyUncertain
-                    || !in_array((string)$fact['metric_key'], ['revenue', 'adr'], true)
-            ));
-        }
+        $facts = $candidates;
         usort($facts, fn(array $left, array $right): int =>
             $this->factPriority($left) <=> $this->factPriority($right));
         $facts = array_slice($facts, 0, 5);
@@ -614,7 +604,9 @@ final class AiDailyReportBroadcastSnapshotService
     private function fieldIsFact(array $field): bool
     {
         return in_array((string)($field['status'] ?? ''), self::FACT_STATUSES, true)
-            && $this->numericValue($field['value'] ?? null) !== null;
+            && $this->numericValue($field['value'] ?? null) !== null
+            && ($field['revenue_analysis_consumable'] ?? false) === true
+            && $this->sourceRefs($field['source_record_refs'] ?? []) !== [];
     }
 
     private function numericValue(mixed $value): int|float|null
@@ -739,7 +731,10 @@ final class AiDailyReportBroadcastSnapshotService
             $headlines[] = '收入口径未确认';
         }
         if ($headlines === []) {
-            $headlines[] = '当前未发现关键事实缺口';
+            $headlines = array_column($this->missingItems($platforms), 'message');
+            if ($headlines === []) {
+                $headlines[] = '当前未发现关键事实缺口';
+            }
         }
         $text = implode('、', array_values(array_unique($headlines)));
         if ($analysisStatus === 'analysis_blocked') {

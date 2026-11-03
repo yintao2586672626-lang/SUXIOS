@@ -24,7 +24,7 @@
                                     ? '已审批'
                                     : '待审批';
         return {
-            label,
+            label: intent.fact_integrity_status === 'drifted' ? '事实已变化 · 只读' : label,
             intentId: Number(intent?.id || 0),
             taskCount: tasks.length,
             latestTask,
@@ -104,6 +104,7 @@
                     type: 'button',
                     class: 'mt-1 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-50',
                     'data-testid': `revenue-cockpit-opportunity-open-${card.opportunityKey}`,
+                    disabled: this.intent?.fact_integrity_status === 'drifted',
                     onClick: () => this.$emit('open', this.intent),
                 }, `${lifecycleLabel} · 行动 #${intentId} · 任务 ${tasks.length} 个 · 进入查看`)
                 : h('button', {
@@ -118,7 +119,7 @@
                     busy
                         ? '保存快照并送审中…'
                         : (this.readbackBlocked
-                            ? '生命周期恢复失败，禁止重复送审'
+                            ? '回读尚未完成，禁止重复送审'
                             : (card.canCreatePendingApproval ? '转为 pending_approval' : '证据不足，暂不可送审')),
                 ]);
             return h('div', {
@@ -170,6 +171,65 @@
                 : null;
         },
     };
+    const RevenueCockpitSnapshotHistory = {
+        name: 'RevenueCockpitSnapshotHistory',
+        props: {
+            history: { type: Object, default: null },
+            snapshot: { type: Object, default: null },
+            loading: { type: Boolean, default: false },
+            error: { type: String, default: '' },
+            disabled: { type: Boolean, default: false },
+        },
+        emits: ['load', 'select'],
+        render() {
+            const button = (label, testId, click) => h('button', {
+                type: 'button', class: 'min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 disabled:opacity-50',
+                disabled: this.loading || this.disabled, 'data-testid': testId, onClick: click,
+            }, label);
+            const snapshot = this.snapshot, model = snapshot?.visible_model || {};
+            return h('section', { class: 'mt-4 rounded-xl border border-slate-200 bg-white p-4 text-slate-800',
+                'data-testid': 'revenue-cockpit-history', 'aria-label': '已保存收益版本' }, [
+                h('div', { class: 'flex flex-wrap items-center justify-between gap-2' }, [
+                    h('h3', { class: 'text-sm font-semibold' }, '已保存收益版本'),
+                    button(this.loading ? '读取保存版本中…' : (this.history ? '刷新保存版本' : '查看保存版本'),
+                        'revenue-cockpit-history-load', () => this.$emit('load', false)),
+                ]),
+                h('p', { class: 'mt-2 text-xs leading-5 text-slate-600' }, '按当前酒店查询已保存版本，各版本列出原营业日和平台。当前来源不可用时也可核对历史；历史仅供只读核对，不改变当前事实或运营行动。'),
+                this.error ? h('p', { role: 'alert', class: 'mt-2 text-sm text-red-700',
+                    'data-testid': 'revenue-cockpit-history-error' }, `历史回读失败：${this.error}`) : null,
+                this.history && !this.history.items.length ? h('p', { class: 'mt-3 text-sm',
+                    'data-testid': 'revenue-cockpit-history-empty' }, '当前酒店尚未保存收益版本。') : null,
+                this.history ? h('ul', { class: 'mt-3 space-y-2' }, this.history.items.map(item => h('li', {
+                    key: item.id, class: 'flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2',
+                }, [
+                    h('span', { class: 'text-xs break-words' }, `#${item.id} · ${item.created_at} · ${item.platform} · ${item.business_date} · 内容 ${item.content_digest.slice(0, 12)}`),
+                    button(`只读查看 #${item.id}`, `revenue-cockpit-history-select-${item.id}`, () => this.$emit('select', item.id)),
+                ]))) : null,
+                this.history?.next_before_id ? button('读取更早版本', 'revenue-cockpit-history-more', () => this.$emit('load', true)) : null,
+                snapshot ? h('article', { class: 'mt-4 space-y-3', 'data-testid': 'revenue-cockpit-history-readback' }, [
+                    h('h4', { class: 'font-semibold' }, `历史快照 #${snapshot.id} · 已精确回读 · 只读`),
+                    h('p', { class: 'break-words text-xs leading-5' }, `酒店 #${snapshot.system_hotel_id} · ${snapshot.platform} · 营业日 ${snapshot.business_date} · 保存时间 ${snapshot.created_at} · 截至日期 ${snapshot.as_of_date || '旧版本未记录'}`),
+                    h('p', { class: 'text-xs leading-5 text-amber-800' }, '以下为保存时的值、来源和质量；当前证据未重新核验，不能据此保存或送审运营行动。'),
+                    h('details', { class: 'text-xs break-all' }, [h('summary', { class: 'cursor-pointer' }, '核对完整摘要'),
+                        h('p', {}, `内容 ${snapshot.content_digest}`), h('p', {}, `模型 ${snapshot.visible_model_digest}`),
+                        h('p', {}, `证据 ${snapshot.evidence_digest}`)]),
+                    ...(model.visibleSections || []).map(section => h('section', { key: section.key }, [
+                        h('h5', { class: 'text-sm font-semibold' }, section.title),
+                        h('ul', { class: 'mt-2 space-y-2 text-xs leading-5' }, (section.cards || []).map(card => h('li', {
+                            key: card.key, class: 'break-words',
+                        }, [h('p', {}, `${card.label || card.key}：${card.display ?? '未记录'} · ${card.statusLabel || card.missingState || ''}`),
+                            card.reasonText ? h('p', { class: 'text-slate-600' }, card.reasonText) : null,
+                            ...(card.evidenceLines || []).map(line => h('p', { class: 'text-slate-600' }, line))]))),
+                    ])),
+                    h('section', {}, [h('h5', { class: 'text-sm font-semibold' }, '保存时的经营机会'),
+                        h('ul', { class: 'mt-2 space-y-2 text-xs leading-5' }, (model.opportunities || []).map(item => h('li', {
+                            key: item.opportunityKey,
+                        }, [h('p', {}, `${item.title || '旧版本未记录名称'} · ${item.statusLabel || '旧版本未记录状态'}`),
+                            h('p', {}, item.recommendedCheckAction || '旧版本未记录核查建议')])))]),
+                ]) : null,
+            ]);
+        },
+    };
     const RevenueCockpitActionRestoreStatus = {
         name: 'RevenueCockpitActionRestoreStatus',
         props: {
@@ -193,9 +253,12 @@
                         type: 'button',
                         class: 'shrink-0 rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-medium text-emerald-800 hover:bg-emerald-100',
                         'data-testid': 'revenue-cockpit-restored-action-open',
+                        disabled: this.intent.fact_integrity_status === 'drifted',
                         onClick: () => this.$emit('open', this.intent),
                     }, '进入运营管理'),
-                ])]);
+                ]), this.error || this.intent.restoration_warning || this.intent.fact_integrity_status === 'drifted'
+                    ? h('p', { class: 'mt-2 text-xs text-amber-800', 'data-testid': 'revenue-cockpit-restored-action-warning' },
+                        this.error || this.intent.restoration_warning || this.intent.fact_integrity_failure_reason || '历史事实已变化，只读核对，经营入口已关闭') : null]);
             }
             if (this.status === 'error') {
                 return h('section', {
@@ -512,7 +575,7 @@
     };
     const systemComponents = window.SUXI_SYSTEM_COMPONENTS || (window.SUXI_SYSTEM_COMPONENTS = {});
     const ctripOrderAnalysisPanelBodyKey = 'CtripOrderAnalysisPanelBody';
-    const ctripOrderAnalysisPanelBodyScript = 'components/online-data/ctrip-order-analysis-panel.js?v=20260813-order-analysis-h7ec5d31239';
+    const ctripOrderAnalysisPanelBodyScript = 'components/online-data/ctrip-order-analysis-panel.js?v=20260813-order-analysis-h13b6a5582e';
     let ctripOrderAnalysisPanelBodyPromise = null;
     const loadCtripOrderAnalysisPanelBody = () => {
         if (systemComponents[ctripOrderAnalysisPanelBodyKey]) {
@@ -522,34 +585,49 @@
         ctripOrderAnalysisPanelBodyPromise = new Promise((resolve, reject) => {
             const existing = document.querySelector(`script[data-suxi-ctrip-order-analysis-body="${ctripOrderAnalysisPanelBodyScript}"]`);
             const script = existing || document.createElement('script');
+            const cleanup = () => {
+                script.removeEventListener('load', finish);
+                script.removeEventListener('error', onError);
+            };
+            const fail = (message) => {
+                cleanup();
+                script.remove();
+                reject(new Error(message));
+            };
             const finish = () => {
                 const component = systemComponents[ctripOrderAnalysisPanelBodyKey];
                 if (component) {
+                    cleanup();
                     resolve(component);
                     return;
                 }
-                ctripOrderAnalysisPanelBodyPromise = null;
-                reject(new Error('订单分析组件未完成注册'));
+                fail('订单分析组件未完成注册');
             };
+            const onError = () => fail('订单分析组件加载失败');
             if (existing && systemComponents[ctripOrderAnalysisPanelBodyKey]) {
                 finish();
                 return;
             }
-            script.src = ctripOrderAnalysisPanelBodyScript;
-            script.async = true;
-            script.dataset.suxiCtripOrderAnalysisBody = ctripOrderAnalysisPanelBodyScript;
             script.addEventListener('load', finish, { once: true });
-            script.addEventListener('error', () => {
-                ctripOrderAnalysisPanelBodyPromise = null;
-                if (!existing) script.remove();
-                reject(new Error('订单分析组件加载失败'));
-            }, { once: true });
-            if (!existing) document.head.appendChild(script);
+            script.addEventListener('error', onError, { once: true });
+            if (!existing) {
+                script.src = ctripOrderAnalysisPanelBodyScript;
+                script.async = true;
+                script.dataset.suxiCtripOrderAnalysisBody = ctripOrderAnalysisPanelBodyScript;
+                document.head.appendChild(script);
+            }
+        }).catch((error) => {
+            ctripOrderAnalysisPanelBodyPromise = null;
+            throw error;
         });
         return ctripOrderAnalysisPanelBodyPromise;
     };
     const CtripOrderAnalysisPanel = systemComponents.CtripOrderAnalysisPanel || Vue.defineAsyncComponent({
         loader: loadCtripOrderAnalysisPanelBody,
+        onError(_error, retry, fail, attempts) {
+            if (attempts === 1) retry();
+            else fail();
+        },
         delay: 0,
         timeout: 15000,
         loadingComponent: {
@@ -620,9 +698,11 @@
             });
         },
     };
-    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h67105dd64e';
+    const operatingFinanceControlCenterScript = 'components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h905eaf7139';
     const OperatingFinanceControlCenterAsync = systemComponents.OperatingFinanceControlCenterBody || Vue.defineAsyncComponent({
-        loader: () => loadOnlineDataComponentScript(operatingFinanceControlCenterScript)
+        loader: () => loadOnlineDataComponentScript('components/system/operating-economics-workbench.min.js?v=economics-h11c131cac1')
+            .then(() => loadOnlineDataComponentScript('components/system/booking-monitoring-panel.js?v=booking-hbcadb40d32'))
+            .then(() => loadOnlineDataComponentScript(operatingFinanceControlCenterScript))
             .then(() => requireSystemComponent('OperatingFinanceControlCenterBody')),
         delay: 0,
         timeout: 15000,
@@ -660,8 +740,8 @@
             });
         },
     };
-    const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3';
-    const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split';
+    const platformAutoPanelsScript = 'components/online-data/platform-auto-settings-panels.js?v=20260811-windows-scheduler-h80-v3-h1286721143';
+    const ctripProfileFieldConfigPanelScript = 'components/online-data/ctrip-profile-field-config-panel.js?v=20260613-profile-template-split-hf777ce2a77';
     const competitorDeviceManagementScript = 'components/admin/competitor-device-management.js?v=20260719-device-lifecycle-v3';
     const dataConfigDialogsScript = 'components/system/data-config-dialogs.js?v=20260720-data-config-template-split-v1';
     const automationCollectionContractScript = 'components/operations/automation-collection-contract.js?v=20260811-h80-binding-onboarding-v1';
@@ -711,16 +791,28 @@
                 required: true,
             },
         },
-        template: `
-            <component
-                :is="ctx.ctripProfileFieldConfigPanelBody"
-                v-if="ctx.ctripProfileFieldConfigPanelReady && ctx.ctripProfileFieldConfigPanelBody"
-                :ctx="ctx">
-            </component>
-            <div v-else data-testid="ctrip-profile-field-config-loading" class="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-500">
-                加载中...
-            </div>
-        `,
+        render() {
+            const ctx = this.ctx;
+            return ctx.ctripProfileFieldConfigPanelReady && ctx.ctripProfileFieldConfigPanelBody
+                ? h(ctx.ctripProfileFieldConfigPanelBody, { ctx })
+                : ctx.ctripProfileFieldConfigPanelError
+                    ? h('div', {
+                        'data-testid': 'ctrip-profile-field-config-error',
+                        role: 'alert',
+                        class: 'rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700',
+                    }, [
+                        h('p', {}, ctx.ctripProfileFieldConfigPanelError),
+                        h('button', {
+                            type: 'button',
+                            class: 'mt-3 rounded border border-red-200 bg-white px-3 py-2 hover:bg-red-100',
+                            onClick: () => ctx.retryCtripProfileFieldConfigPanel(),
+                        }, '重试加载字段配置'),
+                    ])
+                : h('div', {
+                    'data-testid': 'ctrip-profile-field-config-loading',
+                    class: 'rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-500',
+                }, '加载中...');
+        },
     };
     const CompetitorDeviceManagement = {
         name: 'CompetitorDeviceManagement',
@@ -1663,6 +1755,12 @@
         ['execution_prevention', '执行与预防'],
         ['closure', '闭环能力'],
     ];
+    const managerCoachingScript = 'components/system/manager-coaching-panel.js?v=20260926-v1-ha33ad93de8';
+    const ManagerCoachingPanel = Vue.defineAsyncComponent({
+        loader: () => loadOnlineDataComponentScript(managerCoachingScript).then(() => requireSystemComponent('ManagerCoachingPanel')),
+        timeout: 15000,
+        errorComponent: { render: () => h('p', { role: 'alert' }, '带教组件加载失败，请刷新重试。') },
+    });
     const ManagerCapabilityPanel = {
         name: 'ManagerCapabilityPanel',
         props: {
@@ -1771,6 +1869,10 @@
                 const hotelId = this.normalizedHotelId;
                 const managerUserId = Number(this.selectedManagerId || 0);
                 const requestSeq = ++this.profileRequestSeq;
+                // Cases and permissions belong to the profile identity, not the selector.
+                this.profile = null;
+                this.queueRequestSeq++;
+                this.queueLoading = false;
                 this.selectedFollowupCaseId = '';
                 this.selectedCaseRecord = null;
                 this.followupForm = managerCapabilityFollowupForm();
@@ -1855,6 +1957,11 @@
                 const hotelId = this.normalizedHotelId;
                 const requestSeq = ++this.managerRequestSeq;
                 this.profileRequestSeq++;
+                this.queueRequestSeq++;
+                this.managers = [];
+                this.profile = null;
+                this.followupQueue = null;
+                this.queueLoading = false;
                 if (hotelId <= 0) {
                     this.managers = [];
                     this.selectedManagerId = '';
@@ -2363,17 +2470,25 @@
                                 h('i', { class: this.loading ? 'fas fa-spinner fa-spin' : (this.error ? 'fas fa-user-slash' : 'fas fa-user-shield') }),
                             ]),
                             h('div', { class: 'manager-capability-empty-copy' }, [
-                                h('p', { class: 'manager-capability-empty-kicker' }, this.loading ? '正在读取负责人范围' : '负责人授权待完成'),
+                                h('p', { class: 'manager-capability-empty-kicker' }, this.loading
+                                    ? '正在读取负责人范围'
+                                    : (this.error ? '系统读取异常' : '负责人授权待完成')),
                                 h('h4', this.loading ? '正在读取可评分负责人' : (this.error ? '负责人范围读取失败' : '当前酒店尚无可评分负责人')),
                                 h('p', this.loading
                                     ? '系统正在核对当前门店的用户身份与酒店授权。'
                                     : (this.error || '完成用户身份与酒店授权后，系统才会按个人生成六维证据分；无证据继续留空，不按 0 分。')),
                             ]),
-                            this.loading ? null : h('div', {
+                            this.loading || this.error ? null : h('div', {
                                 class: 'manager-capability-empty-dimensions',
                                 'aria-label': '授权后建立的六项能力证据',
                             }, managerCapabilityDefaultDimensions.map(([key, label]) => h('span', { key }, label))),
-                            this.loading ? null : h('div', { class: 'manager-capability-empty-action' }, [
+                            this.loading ? null : (this.error ? h('div', { class: 'manager-capability-empty-action' }, [
+                                h('p', '当前无法判断负责人授权状态，请先重新读取。'),
+                                h('button', {
+                                    type: 'button',
+                                    onClick: () => this.load(),
+                                }, [h('span', '重新读取'), h('i', { class: 'fas fa-rotate-right', 'aria-hidden': 'true' })]),
+                            ]) : h('div', { class: 'manager-capability-empty-action' }, [
                                 h('p', this.$root?.user?.is_super_admin
                                     ? '先配置当前门店的负责人，再回来录入三问案例。'
                                     : '请联系具备账号权限的管理员完成当前门店负责人授权。'),
@@ -2381,7 +2496,7 @@
                                     type: 'button',
                                     onClick: () => this.$root?.openHomeQuickEntry?.({ page: 'users' }),
                                 }, [h('span', '配置用户授权'), h('i', { class: 'fas fa-arrow-right', 'aria-hidden': 'true' })]) : null,
-                            ]),
+                            ])),
                         ])
                         : h('div', { class: 'grid gap-5 p-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.9fr)]' }, [
                         h('div', { class: 'space-y-4' }, [
@@ -2506,6 +2621,11 @@
                                     ]),
                                 ]),
                             ]) : null,
+                            this.canViewEvidenceDetail && this.profile ? h(ManagerCoachingPanel, {
+                                key: `${this.normalizedHotelId}:${this.selectedManagerId}`,
+                                hotelId: this.normalizedHotelId, managerId: this.selectedManagerId,
+                                request: this.request, cases: this.recentCases, canManage: this.canManageEvidence,
+                            }) : null,
                             h('div', { class: 'rounded-xl border border-slate-200 bg-slate-50 p-4' }, [
                                 h('div', { class: 'flex items-center justify-between gap-3' }, [h('h4', { class: 'text-sm font-semibold text-slate-800' }, '最近评分案例'), h('span', { class: 'text-xs text-slate-500' }, '按案例 ID 精确回读')]),
                                 !this.canViewEvidenceDetail && this.profile ? h('p', { class: 'mt-3 text-sm text-slate-500' }, '当前为汇总视图，案例与证据明细不展示。') : null,
@@ -2696,6 +2816,16 @@
         },
     };
 
+    const CommissionAcquisitionCalculatorPanel = Vue.defineAsyncComponent({
+        loader: () => loadOnlineDataComponentScript('components/revenue/commission-calculator-core.js?v=20260904-acquisition-v1')
+            .then(() => loadOnlineDataComponentScript('components/revenue/commission-paid-traffic-core.js?v=20260904-acquisition-v1'))
+            .then(() => loadOnlineDataComponentScript('components/revenue/commission-acquisition-panel.js?v=20260904-acquisition-v2'))
+            .then(() => requireSystemComponent('CommissionAcquisitionCalculatorPanel')),
+        loadingComponent: { render: () => h('p', { class: 'p-4 text-sm text-white', role: 'status' }, '正在加载佣金与付费流量测算…') },
+        errorComponent: { render: () => h('p', { class: 'rounded-lg bg-red-50 p-4 text-sm text-red-700', role: 'alert' }, '佣金测算组件加载失败，请刷新后重试；未生成测算结果。') },
+        delay: 80,
+        timeout: 15000,
+    });
     const SimulationHeroActions = {
         name: 'SimulationHeroActions',
         inheritAttrs: false,
@@ -2706,12 +2836,13 @@
             loading: { type: Boolean, default: false },
             hotelValid: { type: Boolean, default: false },
         },
+        data: () => ({ commissionCalculatorOpen: false, commissionCalculatorMounted: false }),
         render() {
             const options = [h('option', { value: '' }, '选择酒店'), ...this.hotels.map(hotel => h('option', {
                 key: hotel?.id,
                 value: hotel?.id,
             }, String(hotel?.name || hotel?.id || '未命名酒店')))];
-            return h('div', { class: 'flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between' }, [
+            return h('div', { class: 'space-y-5' }, [h('div', { class: 'flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between' }, [
                 h('div', [
                     h('h2', { class: 'text-2xl font-bold' }, '智算·量化模拟'),
                     h('p', { class: 'mt-1 text-sm text-cyan-100' }, '示例假设 · 未验证；预填值不是经营事实。'),
@@ -2733,11 +2864,24 @@
                     class: 'flex items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-white transition hover:bg-white/15 disabled:opacity-50',
                     onClick: () => this.$emit('refresh'),
                 }, [h('i', { class: 'fas fa-history' }), h('span', '刷新历史')]),
+                h('button', {
+                    type: 'button',
+                    'data-testid': 'open-commission-acquisition',
+                    'aria-expanded': String(this.commissionCalculatorOpen),
+                    class: 'rounded-lg border border-amber-200 bg-amber-100 px-4 py-2 text-sm font-semibold text-emerald-950',
+                    onClick: () => {
+                        this.commissionCalculatorMounted = true;
+                        this.commissionCalculatorOpen = !this.commissionCalculatorOpen;
+                    },
+                }, this.commissionCalculatorOpen ? '收起佣金与流量测算' : '佣金与付费流量测算'),
+            ]), this.commissionCalculatorMounted ? h('div', {
+                style: { display: this.commissionCalculatorOpen ? '' : 'none' },
+            }, [h(CommissionAcquisitionCalculatorPanel, { hotelId: this.hotelId, hotels: this.hotels })]) : null,
             ]);
         },
     };
 
-        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, operatingFinanceControlCenterScript, OperatingFinanceControlCenter, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions });
+        return Object.freeze({ AiDecisionQualityDetails, OnlineTruthSummary, DualOtaAcceptanceReceipt, DualOtaPageVerificationPanel, resolveRevenueCockpitIntentLifecycle, parseOperationEvidenceNumber, parseOptionalOperationEvidenceNumber, operationEvidenceFirstText, operationEvidenceCleanObject, operationEvidenceLocalTimestamp, normalizeOperationEvidenceDateTime, normalizeOperationReviewStatus, RevenueCockpitOpportunityDetails, RevenueCockpitSnapshotStatus, RevenueCockpitSnapshotHistory, RevenueCockpitActionRestoreStatus, onlineDataComponents, loadOnlineDataComponentScript, readOnlineDataComponent, requireOnlineDataComponent, systemComponents, CtripOrderAnalysisPanel, requireSystemComponent, operatingOpportunityLabScript, OperatingOpportunityLab, operatingFinanceControlCenterScript, OperatingFinanceControlCenter, platformAutoPanelsScript, ctripProfileFieldConfigPanelScript, competitorDeviceManagementScript, dataConfigDialogsScript, automationCollectionContractScript, PlatformAutoSettingsPanels, PlatformAutoSecondaryPanels, CtripProfileFieldConfigPanel, CompetitorDeviceManagement, DataConfigDialogs, aiDailyReportTaskPositiveInteger, aiDailyReportModelIsLimited, normalizeAiDailyReportGenerationTask, formatAiDailyReportGenerationStage, resolveAiDailyReportGenerationOutcome, pollAiDailyReportGenerationTask, SessionProofNotice, LocalCollectorLoginHandoff, PmsRealtimeSyncResult, HotelThreeSourceOnboardingPanel, OperatingLoopAuthority, ManagerCapabilityPanel, OperatingNetworkReplicationList, MeituanSearchKeywordWorkbench, SimulationHeroActions });
     };
 
     const exportedFactory = Object.freeze({ create });

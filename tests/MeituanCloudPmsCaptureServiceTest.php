@@ -49,6 +49,7 @@ final class MeituanCloudPmsCaptureServiceTest extends TestCase
         Db::name('meituan_cloud_pms_room_type_details')->delete(true);
         Db::name('meituan_cloud_pms_captures')->delete(true);
         Db::name('meituan_cloud_pms_integrations')->delete(true);
+        Db::name('dingdandao_pms_integrations')->delete(true);
     }
 
     public function testManualSubmissionCannotSelfAttestAsVerified(): void
@@ -296,6 +297,17 @@ final class MeituanCloudPmsCaptureServiceTest extends TestCase
 
     private static function createSchema(): void
     {
+        Db::execute(
+            'CREATE TABLE dingdandao_pms_integrations ('
+            . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, hotel_id INTEGER, provider TEXT, '
+            . 'provider_hotel_id TEXT NULL, provider_hotel_name TEXT NULL, source_url TEXT, '
+            . 'robot_id INTEGER NULL, status INTEGER, auto_push_enabled INTEGER, '
+            . 'last_capture_id INTEGER NULL, last_capture_business_date TEXT NULL, '
+            . 'last_capture_status TEXT NULL, last_readback_status TEXT NULL, '
+            . 'last_push_business_date TEXT NULL, last_push_status TEXT NULL, last_push_at TEXT NULL, '
+            . 'last_push_error TEXT NULL, created_by INTEGER NULL, updated_by INTEGER NULL, '
+            . 'create_time TEXT, update_time TEXT, UNIQUE(tenant_id, hotel_id, provider))'
+        );
         Db::execute(
             'CREATE TABLE meituan_cloud_pms_integrations ('
             . 'id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER, hotel_id INTEGER, provider TEXT, '

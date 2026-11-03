@@ -7,6 +7,63 @@ use app\service\OperatingNetworkService;
 
 trait OperationEffectReadbackConcern
 {
+    /** Explicitly append a cost version; never transition a terminal task or fetch new operating facts. */
+    private function refreshTerminalExecutionRoiCostReview(
+        array $task, array $intentRow, array $hotelIds, array $input, int $reviewerId
+    ): array {
+        $service = new OperationEffectReviewService($this->executionOutcomeService);
+        $tenantId = (int)$task['tenant_id'];
+        $hotelId = (int)$task['hotel_id'];
+        $intentId = (int)$task['intent_id'];
+        $taskId = (int)$task['id'];
+        if ($reviewerId <= 0) throw new \InvalidArgumentException('authenticated human reviewer is required for cost review');
+        $review = $service->readVerified((int)($input['effect_review_id'] ?? 0), $tenantId, $hotelId, $intentId, $taskId);
+        if (!hash_equals((string)$review['content_digest'], (string)($input['effect_review_content_digest'] ?? ''))
+            || $review['result_status'] !== $task['result_status']
+            || $review['result_summary'] !== $task['result_summary']
+            || !in_array($review['metric_key'], ['revenue', 'avg_revenue', 'amount', 'income'], true)
+        ) throw new \InvalidArgumentException('frozen revenue review identity changed; refresh before cost review');
+        $source = \think\facade\Db::name('operation_execution_evidence')
+            ->where('id', (int)$review['source_readback_evidence_id'])->where('task_id', $taskId)
+            ->where('tenant_id', $tenantId)->whereNull('deleted_at')->lock(true)->find();
+        if (!is_array($source)) throw new \InvalidArgumentException('frozen revenue source is unavailable');
+        $intent = $this->normalizeExecutionIntentRow($intentRow);
+        $normalizedTask = $this->normalizeExecutionTaskRow($task);
+        $normalizedSource = $this->normalizeExecutionEvidenceRow($source);
+        $service->assertFrozenSourceReadback($review, $intent, $normalizedTask, $normalizedSource);
+        $cost = $this->executionOutcomeService->executionRoiCostBasis($intent, $normalizedTask, $normalizedSource);
+        if ($cost['status'] !== 'finite' || $cost['measurement_kind'] !== 'source_reported_cost'
+            || !$this->executionOutcomeService->validExecutionRoiCostBasis($input['roi_cost_basis'] ?? null)
+            || $cost != $input['roi_cost_basis']
+        ) throw new \InvalidArgumentException('source expense is missing, unverified or changed; refresh before cost review');
+        $latest = $service->listForTask($tenantId, $hotelId, $intentId, $taskId)['list'][0] ?? null;
+        if ((int)($latest['id'] ?? 0) !== (int)$review['id']) {
+            // Replay the same explicit save independently of wall-clock time.
+            if ((int)($latest['outcome']['roi_cost_reassessment_of'] ?? 0) !== (int)$review['id']
+                || ($latest['outcome']['roi_cost_basis'] ?? null) != $cost
+                || ($latest['active_eligible'] ?? false) !== true
+            ) throw new \InvalidArgumentException('latest expense review changed; refresh before saving');
+            $saved = ['created'=>false, 'review'=>$latest];
+        } else $saved = $service->create($tenantId, $hotelId, $intentId, $taskId, [
+            'tenant_id'=>$tenantId, 'hotel_id'=>$hotelId, 'intent_id'=>$intentId, 'task_id'=>$taskId,
+            'platform'=>$review['platform'], 'metric_key'=>$review['metric_key'],
+            'baseline_business_date'=>$review['baseline_business_date'], 'review_business_date'=>$review['review_business_date'],
+            'source_readback_evidence_id'=>$review['source_readback_evidence_id'],
+            'result_status'=>$task['result_status'], 'result_summary'=>$task['result_summary'],
+            'reviewed_at'=>date('Y-m-d H:i:s'), 'causality_claimed'=>false,
+            'roi_cost_reassessment_of'=>$review['id'],
+        ], $reviewerId);
+        $detail = $this->executionTaskDetail($taskId, $hotelIds);
+        if ((int)($detail['active_effect_review']['id'] ?? 0) !== (int)$saved['review']['id']) {
+            throw new \RuntimeException('saved expense review did not become the current exact readback');
+        }
+        $detail['roi_cost_review_save'] = [
+            'created'=>$saved['created'], 'effect_review_id'=>$saved['review']['id'],
+            'content_digest'=>$saved['review']['content_digest'], 'roi_cost_basis'=>$cost,
+        ];
+        return $detail;
+    }
+
     /**
      * Persist the observed effect separately from action/execution evidence.
      * The effect service re-verifies every identity, date, metric, target and

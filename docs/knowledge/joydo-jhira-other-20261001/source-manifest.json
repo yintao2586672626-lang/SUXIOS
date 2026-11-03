@@ -1,0 +1,54 @@
+{
+  "source_url": "https://joydo.us.ci/index.full",
+  "version_label": "V2.8 / JHIRA-100",
+  "observed_at": "2026-10-01",
+  "timezone": "Asia/Shanghai",
+  "visible_role": "合作伙伴",
+  "scope": "authorized_visible_non_cost_sections_and_linked_public_geo",
+  "capture_type": "bounded_own_paraphrase_screenshots_and_locally_authored_replay",
+  "contains_credentials": false,
+  "contains_source_code": false,
+  "contains_current_hotel_facts": false,
+  "upstream_full_site_hash_available": false,
+  "source_nonzero_finance_verified": false,
+  "source_ota_live_collection_verified": false,
+  "source_exports_verified": false,
+  "governance_content_access": "not_verified_no_visible_entry",
+  "geo_access": "public_landing_only",
+  "retained_files": [
+    {
+      "file": "sources/observations.md",
+      "sha256": "CA970DEFF6B551ECCC6345DBC79465A6A9F536E424F0B4123EAA0CB8662FBE9D"
+    },
+    {
+      "file": "sources/report-readiness.jpg",
+      "sha256": "FCEA5A30ABF1D0EA5C440E9F28BB8803DC2113A24E914F2C91C59D9F5840E4E6"
+    },
+    {
+      "file": "sources/geo-public.jpg",
+      "sha256": "4BD03DF3ADFB33D643A4330745D17704F55B62CC37C0E769566658423EE88B82"
+    },
+    {
+      "file": "sources/replay-fixture.json",
+      "sha256": "2E897F8894B8AC35D655595A0EF77DCBBF95C332C8C95173B9EF2D63196D7A29"
+    },
+    {
+      "file": "README.md",
+      "sha256": "C1934453DDAB381E9D5A3F2E6046144ABB9776B878930EEA038912F5C246C379"
+    },
+    {
+      "file": "knowledge-pack.json",
+      "sha256": "1EA6B282387E0E96F08024E557481A84CEB5E75301A87A7344A8C84F991CECDB"
+    }
+  ],
+  "local_replay_script": {
+    "file": "scripts/verify_joydo_other_modules_reference.php",
+    "sha256": "6F68C092B087D1E65222644178BFD4DCD5848C21D892608DE3CD74171107C3AE"
+  },
+  "related_and_supporting_refs": [
+    "https://geo.joydorms.com/",
+    "https://www.spglobal.com/ratings/en/regulatory/article/-/view/sourceId/11884994/revId/1"
+  ],
+  "usage_policy": "reference_only",
+  "capability_disposition": "absorption_candidate"
+}

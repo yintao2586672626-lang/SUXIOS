@@ -12,7 +12,8 @@ param(
     [int]$MySqlWaitSeconds = 20,
     [int]$PhpWaitSeconds = 15,
     [switch]$DatabaseOnly,
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$SkipWecomAibot
 )
 
 $ErrorActionPreference = "Stop"
@@ -97,6 +98,7 @@ function Get-ProjectIdentity {
         PublicEntrySha256 = $publicDigest
         RuntimeAssetSha256 = $runtimeDigest
         RuntimeAssetCount = $runtimeAssetCount
+        OriginCodeSha256 = Get-Sha256FileDigest -LiteralPath $OriginServerPath
     }
 }
 
@@ -347,6 +349,16 @@ function Test-HttpHealth {
     }
 }
 
+function Test-OriginCodeIdentity {
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $HealthUrl -TimeoutSec 2
+        return $response.StatusCode -eq 200 `
+            -and [string]$response.Headers["X-SUXIOS-Origin-Code-SHA256"] -eq $ProjectIdentity.OriginCodeSha256
+    } catch {
+        return $false
+    }
+}
+
 function Test-BackendHttpHealth {
     param([int]$TargetPort)
 
@@ -396,6 +408,9 @@ function Test-PortListening {
 
 function Start-ThinkPhp {
     if ((Test-HttpHealth) -and (Test-StaticAsset)) {
+        if (-not (Test-OriginCodeIdentity)) {
+            throw "Local origin on $BaseUrl is running older gateway code. Restart only this local origin to load the current gateway."
+        }
         if (-not (Test-RuntimeIdentity)) {
             throw "Local origin on $BaseUrl is healthy but serves a different runtime asset manifest. Stop the stale stack before continuing."
         }
@@ -470,7 +485,7 @@ function Start-ThinkPhp {
         | Out-Null
 
     for ($i = 0; $i -lt $PhpWaitSeconds; $i++) {
-        if ((Test-HttpHealth) -and (Test-StaticAsset) -and (Test-RuntimeIdentity)) {
+        if ((Test-HttpHealth) -and (Test-StaticAsset) -and (Test-RuntimeIdentity) -and (Test-OriginCodeIdentity)) {
             Write-Host "[OK] Concurrent local origin started: $BaseUrl"
             return
         }
@@ -578,7 +593,11 @@ if (-not (Test-Path -LiteralPath $OriginServerPath)) {
 }
 Invoke-OtaRetentionPreview
 Start-ThinkPhp
-Start-WecomAibot
+if ($SkipWecomAibot) {
+    Write-Host "[SKIP] WeCom AI Bot agent was not requested for this local startup."
+} else {
+    Start-WecomAibot
+}
 
 if (-not $NoBrowser) {
     Start-Process $BaseUrl | Out-Null

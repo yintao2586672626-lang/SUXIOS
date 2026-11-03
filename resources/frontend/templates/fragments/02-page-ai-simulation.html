@@ -197,7 +197,7 @@
                                                     <td class="px-4 py-3 text-right font-semibold" :class="row.monthlyNetCashflow &gt; 0 ? 'text-green-600' : 'text-red-600'">{{ formatCurrency(row.monthlyNetCashflow) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ formatCurrency(row.revPAR) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ row.paybackMonths === null ? '不可回本' : row.paybackMonths.toFixed(1) + '个月' }}</td>
-                                                    <td class="px-4 py-3 text-right">{{ formatPercent(row.breakEvenOccupancy) }}</td>
+                                                    <td class="px-4 py-3 text-right">{{ row.breakEvenOccupancyStatus === 'unreachable' ? '当前条件无法保本' : formatPercent(row.breakEvenOccupancy) }}</td>
                                                     <td class="px-4 py-3 text-right">{{ formatPercent(row.rentRatio) }}</td>
                                                 </tr>
                                             </tbody>

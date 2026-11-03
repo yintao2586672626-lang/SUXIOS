@@ -153,6 +153,27 @@ test('execution review action stays unavailable until the recorded review date',
   assert.equal(api.operationCanReviewExecution(item), true);
 });
 
+test('legacy terminal claims cannot expose a review action after display truth is downgraded', () => {
+  const api = loadOperationStaticApi();
+  for (const reported_status of ['success', 'near_success', 'failed']) {
+    const item = {
+      recommendation: { source_module: 'operating_question' },
+      execution: { status: 'executed', task_id: 35 },
+      evidence_truth: { source_verified: false },
+      review: { status: 'unverified', reported_status, is_available: true },
+    };
+    assert.equal(api.operationCanReviewExecution(item), false);
+    assert.equal(api.operationCanReconcileExecution(item), false);
+  }
+});
+
+test('an absent or empty workflow cannot be described as having no bottleneck', () => {
+  const api = loadOperationStaticApi();
+  assert.match(api.operationExecutionBottleneckText({}), /尚未读取|暂不能判断/);
+  assert.match(api.operationExecutionBottleneckText({ total: 0 }), /暂无流程|暂不能判断/);
+  assert.equal(api.operationExecutionBottleneckText({ total: 2, bottleneck: { stage: 'evidence', count: 2, label: '执行证据' } }), '执行证据 2 单');
+});
+
 test('saved OTA task exposes source readback only after the exact review window', () => {
   const api = loadOperationStaticApi();
   const item = {

@@ -1,0 +1,60 @@
+{
+  "version": "joydo-jhira-v28-reference-20261001-v1",
+  "reviewed_at": "2026-10-01 19:25:06",
+  "review_due_at": "2026-11-01 23:59:59",
+  "task_mode": "classify",
+  "entries": [
+    {
+      "key": "cashflow_payback",
+      "title": "JHIRA网站参考：现金流与目标回本分层核对",
+      "summary": "拆分到手房价、经营保本、偿债现金与目标回本；所需出租率超过100%标不可达。与既有投资情景和实际现金台账去重。仅参考，未正式吸纳。",
+      "query": "JHIRA 目标回本 出租率 现金流",
+      "source_section": "#quick; #finance; #payback; #dashboard",
+      "maturity": "understood",
+      "method": [
+        "先标房价是平台成交价还是到手净价，净价测算不重复扣平台佣金。",
+        "使用同期间有效可售间夜与已售间夜，固定成本和每售出间夜耗用成本分别定义。",
+        "经营保本、偿债现金保本和目标回本所需出租率分别输出；条件算术不等于价格/出租率可实现。",
+        "目标回本出租率超过100%、贡献毛利非正或净现金流非正时输出不可达；缺输入保持缺失。",
+        "合同余量使用真实合同期限；实际投资者收回继续走真实现金台账。",
+        "优先复用InvestmentScenarioCalculator、InvestmentScenarioService和InvestmentPaybackCalculator，不新造同类模型。"
+      ],
+      "known_unknowns": ["非零债务的还款方式与实际保存未验证", "净房价转换和税费适用条件未验证", "来源风险阈值和耗用系数不适用为默认值"],
+      "gates": {"mechanism": "pass_bounded_simplified_model", "value": "pass_existing_investment_path", "reproduction": "partial_visible_sample_and_local_arithmetic_no_source_input_save", "integration": "not_done"}
+    },
+    {
+      "key": "ota_visibility",
+      "title": "JHIRA网站参考：OTA可见度检查与缺证边界",
+      "summary": "按平台和搜索场景组织排名，再检查列表、详情与预订路径，附截图和备注；没有排名或真实采集时维持未诊断。仅表单机制参考。",
+      "query": "JHIRA OTA可见度 搜索场景 缺证",
+      "source_section": "#digital-asset-audit; #otaRankDiagnosis; #otaRankLedgerPanel",
+      "maturity": "observed",
+      "method": [
+        "观察单元应同时保留酒店绑定、平台、搜索词、观察时间、入住日期、位置、设备/登录及排序条件。",
+        "搜索排名与列表展示、详情表达、预订政策分别记录，不混成真实曝光、订单或收益。",
+        "证据缺失时状态为未诊断；表单完整度不能冒充平台健康度或经营因果。",
+        "截图与备注用于人工核对；任何外部采集、保存或整改都需要实际入口、范围和回读证据。",
+        "来源明确说明采集审核锁定链路仍在设计阶段，因此仅保留检查组织方式。"
+      ],
+      "known_unknowns": ["评分权重及排名来源未知", "截图上传、采集、保存和台账回读未验证", "来源表单未充分呈现所有搜索上下文"],
+      "gates": {"mechanism": "partial_form_organization_only", "value": "potential_existing_ota_diagnosis", "reproduction": "not_passed", "integration": "not_done"}
+    },
+    {
+      "key": "report_readiness",
+      "title": "JHIRA网站参考：报告准备度与预览导出分离",
+      "summary": "预览可见与正式导出分别判断；复核未完成时保留缺口并锁定正式导出，多格式应复用同一字段和状态快照。已观察预览及禁用状态，未验证文件一致性。",
+      "query": "JHIRA 报告准备度 预览 导出锁定",
+      "source_section": "#report; #pre-investment-report; #htmlReportConsistencyPanel",
+      "maturity": "understood",
+      "method": [
+        "先形成有来源、日期、假设和未覆盖项的参数/证据快照，再预览报告。",
+        "预览成功不能证明人工复核完成或正式文件可交付。",
+        "证据、字段或复核缺失时回显缺口及停止条件；不同格式应消费同一快照。",
+        "只有实际导出并比较关键字段、日期、公式和证据边界，才能确认多格式一致。",
+        "复用既有InvestmentDecisionSupportService证据门禁，避免新造自评分批准链。"
+      ],
+      "known_unknowns": ["复核6项的完整定义及通过路径未验证", "HTML/Word/PDF实际导出与保存回读未验证", "页面与报告完整度口径存在差异待解释"],
+      "gates": {"mechanism": "pass_preview_review_export_states", "value": "pass_existing_report_and_decision_gate", "reproduction": "partial_preview_success_exports_disabled", "integration": "not_done"}
+    }
+  ]
+}

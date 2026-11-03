@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_at": "2026-07-16T10:40:32.252Z",
   "audit_date": "2026-07-15",
-  "source_matrix": "docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl",
+  "source_matrix": "docs/qa/hotel_system_4000_diagnostic_cases_2026-07-15.jsonl.gz",
   "source_evidence_ledger": "docs/qa/hotel_system_4000_execution_evidence_2026-07-15.json",
   "target": {
     "priority": "P0",

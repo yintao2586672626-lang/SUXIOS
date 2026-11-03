@@ -1,0 +1,121 @@
+{
+  "verified_on": "2026-10-01",
+  "timezone": "Asia/Shanghai",
+  "first_save": {
+    "status": "success",
+    "mode": "persist",
+    "entries": 3,
+    "retained_hashes_verified": 4,
+    "source_arithmetic": "matched_visible_simplified_sample",
+    "unreachable_target": "matched_171_79_percent",
+    "gate_cases_passed": 12,
+    "usage_policy": "reference_only",
+    "capability_disposition": "absorption_candidate",
+    "business_integration": false,
+    "actions": {
+      "cashflow_payback": "inserted",
+      "ota_visibility": "inserted",
+      "report_readiness": "inserted"
+    },
+    "readback": [
+      {
+        "key": "cashflow_payback",
+        "unit_id": 103,
+        "chunk_id": 960,
+        "content_digest": "c55ce5e31772a23d8f947afe13bb593e88be61c770f152ccd7d75296883f2c1f",
+        "readback": "exact",
+        "retrieval": "matched",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "external_write_authorized": false
+      },
+      {
+        "key": "ota_visibility",
+        "unit_id": 104,
+        "chunk_id": 961,
+        "content_digest": "473430f8f96dac79583467b578d6e7ebc4b74f9ec751c322185873f44ed69039",
+        "readback": "exact",
+        "retrieval": "matched",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "external_write_authorized": false
+      },
+      {
+        "key": "report_readiness",
+        "unit_id": 105,
+        "chunk_id": 962,
+        "content_digest": "cd99dd061fec7268c9918aae911ebf4e14a9805aab65d6893d5a96792d94372c",
+        "readback": "exact",
+        "retrieval": "matched",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "external_write_authorized": false
+      }
+    ],
+    "cross_hotel_cases_passed": 3,
+    "verification_scope": "local_reference_database_and_existing_retrieval_service_no_llm_or_ota_call"
+  },
+  "idempotent_repeat": {
+    "status": "success",
+    "mode": "persist",
+    "entries": 3,
+    "retained_hashes_verified": 4,
+    "source_arithmetic": "matched_visible_simplified_sample",
+    "unreachable_target": "matched_171_79_percent",
+    "gate_cases_passed": 12,
+    "usage_policy": "reference_only",
+    "capability_disposition": "absorption_candidate",
+    "business_integration": false,
+    "actions": {
+      "cashflow_payback": "unchanged",
+      "ota_visibility": "unchanged",
+      "report_readiness": "unchanged"
+    },
+    "readback": [
+      {
+        "key": "cashflow_payback",
+        "unit_id": 103,
+        "chunk_id": 960,
+        "content_digest": "c55ce5e31772a23d8f947afe13bb593e88be61c770f152ccd7d75296883f2c1f",
+        "readback": "exact",
+        "retrieval": "matched",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "external_write_authorized": false
+      },
+      {
+        "key": "ota_visibility",
+        "unit_id": 104,
+        "chunk_id": 961,
+        "content_digest": "473430f8f96dac79583467b578d6e7ebc4b74f9ec751c322185873f44ed69039",
+        "readback": "exact",
+        "retrieval": "matched",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "external_write_authorized": false
+      },
+      {
+        "key": "report_readiness",
+        "unit_id": 105,
+        "chunk_id": 962,
+        "content_digest": "cd99dd061fec7268c9918aae911ebf4e14a9805aab65d6893d5a96792d94372c",
+        "readback": "exact",
+        "retrieval": "matched",
+        "decision_safe": false,
+        "task_draft_safe": false,
+        "external_write_authorized": false
+      }
+    ],
+    "cross_hotel_cases_passed": 3,
+    "verification_scope": "local_reference_database_and_existing_retrieval_service_no_llm_or_ota_call"
+  },
+  "source_access": "authorized_account_visible_ui_verified",
+  "report_preview": "visible_confirmed_by_screenshot_and_dom",
+  "source_inputs_modified": false,
+  "source_report_exported": false,
+  "source_backend_verified": false,
+  "app_business_code_modified": false,
+  "app_page_validation": "not_run_reference_ingestion_only",
+  "git_delivery": "not_authorized_not_performed",
+  "deployment": "not_performed"
+}

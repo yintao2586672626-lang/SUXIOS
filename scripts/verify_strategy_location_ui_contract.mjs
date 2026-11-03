@@ -1,53 +1,12 @@
-import fs from 'node:fs';
-import path from 'node:path';
-
-const root = process.cwd();
-const file = 'public/index.html';
-const source = fs.readFileSync(path.join(root, file), 'utf8');
-const staticFile = 'public/expansion-static-options.js';
-const staticSource = fs.readFileSync(path.join(root, staticFile), 'utf8');
-const combinedSource = `${source}\n${staticSource}`;
-const failures = [];
-
-function requireText(needle, label) {
-  if (!combinedSource.includes(needle)) {
-    failures.push(`${file} and ${staticFile} missing ${label}: ${needle}`);
-  }
-}
-
-function requireIndexText(needle, label) {
-  if (!source.includes(needle)) {
-    failures.push(`${file} missing ${label}: ${needle}`);
-  }
-}
-
-function requireNoText(needle, label) {
-  if (combinedSource.includes(needle)) {
-    failures.push(`${file} or ${staticFile} contains forbidden ${label}: ${needle}`);
-  }
-}
-
-requireText("湘潭: ['雨湖区', '岳塘区', '湘潭县'", 'Xiangtan district options start with real districts');
-requireText("'湘乡市', '韶山市']", 'Xiangtan county-level city options');
-requireText("安庆: ['迎江区', '大观区', '宜秀区', '怀宁县'", 'Anqing district options start with real districts');
-requireText("'桐城市', '潜山市']", 'Anqing county-level city options');
-requireText("strategyLocationSuffixesByCityTier", 'city-tier address suffix mapping');
-requireText("strategyAddressKeywordOptionsForLocation", 'location-aware address option builder');
-requireText("strategyAddressKeywordOptionsForLocation(project.city, project.district, project.city_tier)", 'project address options use city, district, and tier together');
-requireText("strategyNextDistrictForProject", 'project district reset helper');
-requireText("strategyNextAddressForProject", 'project address reset helper');
-requireText("strategyCityOptionsForProject", 'project city option helper');
-requireIndexText("strategyAddressKeywordOptionsForProject(aiProject.value)", 'entry uses extracted project address options');
-requireIndexText("strategyNextDistrictForProject(aiProject.value)", 'entry uses extracted project district reset');
-requireIndexText("strategyNextAddressForProject(aiProject.value)", 'entry uses extracted project address reset');
-requireNoText("const strategyDistrictOptionsForCity = (city) => strategyDistrictOptionsByCity[city] || ['市辖区'];", 'generic district fallback for known city flow');
-
-if (failures.length) {
-  console.error('Strategy location UI contract verification failed:');
-  for (const failure of failures) {
-    console.error(`- ${failure}`);
-  }
-  process.exit(1);
-}
-
-console.log('Strategy location UI contract verification passed.');
+import assert from 'node:assert/strict';
+import { readFileSync, existsSync } from 'node:fs';
+const source = readFileSync('public/app-main.js', 'utf8');
+const start = source.indexOf('const normalizeCanonicalPage = (page) =>');
+const end = source.indexOf('const ACTIVE_DISCOVERABLE_PAGE_PATHS', start);
+assert.ok(start >= 0 && end > start, 'canonical page resolver missing');
+const resolve = Function(source.slice(start, end) + '\nreturn normalizeCanonicalPage;')();
+for (const page of ['ai-strategy', 'ai-feasibility', 'market-evaluation', 'market-eval', 'benchmark-model', 'collaboration-efficiency', 'sync-efficiency']) assert.equal(resolve(page), 'compass', page);
+for (const page of ['ai-simulation', 'investment-payback', 'opening-overview', 'ops-track']) assert.equal(resolve(page), page);
+assert.equal(existsSync('public/expansion-static-options.js'), false, 'retired expansion options remain in public');
+assert.doesNotMatch(source, /expansion-static-options\.js|loadExpansionStaticOptions|strategyAddressKeywordOptionsForProject|handleStrategy|handleFeasibility/);
+console.log('Retired strategy location UI contract passed: historical links resolve to compass and retired assets are absent.');

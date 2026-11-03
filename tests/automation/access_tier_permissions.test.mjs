@@ -87,8 +87,9 @@ const systemStaticSandbox = { window: {}, console, setTimeout, clearTimeout };
 vm.runInNewContext(systemStatic, systemStaticSandbox, { filename: 'public/system-static.js' });
 const systemStaticApi = systemStaticSandbox.window.SUXI_SYSTEM_STATIC;
 contract.equal(typeof systemStaticApi.hotelMergeFlowState, 'function', 'hotel merge UI must expose a testable step-state helper');
-contract.equal(systemStaticApi.isSimulationStaticPage('market-evaluation'), true, '市场评估页必须加载扩张历史筛选所依赖的模拟静态模块');
-contract.equal(systemStaticApi.isSimulationStaticPage('market-eval'), true, '市场评估兼容路由必须加载扩张历史筛选所依赖的模拟静态模块');
+contract.equal(systemStaticApi.isSimulationStaticPage('market-evaluation'), false, '退场市场评估页不得再加载活动量化模拟静态模块');
+contract.equal(systemStaticApi.isSimulationStaticPage('market-eval'), false, '退场市场评估兼容路由不得再加载活动量化模拟静态模块');
+contract.equal(systemStaticApi.isSimulationStaticPage('ai-simulation'), true, '活动量化模拟页必须继续加载自己的静态模块');
 const hotelMergeSelectState = systemStaticApi.hotelMergeFlowState({
   form: { source_hotel_id: '', target_hotel_id: '', confirmation_text: '' },
 });

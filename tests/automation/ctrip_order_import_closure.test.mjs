@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { readSourceAggregate } from '../../scripts/lib/source_aggregate.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -10,7 +11,7 @@ const read = (relativePath) => fs.readFileSync(path.join(repoRoot, relativePath)
 test('Ctrip legacy order upload closes through exact readback without revenue overclaim', () => {
   const importer = read('app/service/CtripOrderExportImportService.php');
   const controller = read('app/controller/concern/PlatformDataSourceConcern.php');
-  const overview = read('app/service/RevenueAiOverviewService.php');
+  const overview = readSourceAggregate('app/service/RevenueAiOverviewService.php', { repoRoot });
   const smoke = read('scripts/verify_ctrip_order_import_smoke.php');
   const ctripPage = read('resources/frontend/templates/fragments/24-page-ctrip-ebooking.html');
   const revenuePage = read('resources/frontend/templates/fragments/23c-page-compass-detail.html');

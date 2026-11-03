@@ -1,0 +1,896 @@
+{
+  "_provenance": {
+    "status": "synthetic_historical_fixture",
+    "captured_before_retirement": "2026-10-02",
+    "business_fact": false,
+    "external_generation": false
+  },
+  "expansion": {
+    "market": {
+      "market_heat_score": 100,
+      "market_heat_score_formula": {
+        "base_score": 62,
+        "raw_score": 133,
+        "final_score": 100,
+        "cap_rule": "0-100封顶/保底",
+        "semantics": "基于录入条件和预设阈值的规则初筛指数，不是真实市场热度或投资成功概率"
+      },
+      "score_type": "rule_screening_index",
+      "source": "user_input_and_rule_thresholds",
+      "decision_ready": false,
+      "manual_unverified": true,
+      "scope_note": "规则指数只反映当前录入条件；缺少竞品、OTA、租约或经营证据时不形成投资结论。",
+      "market_heat_score_breakdown": [
+        {
+          "label": "基础分",
+          "score_change": 62,
+          "raw_score_after": 62,
+          "reason": "按城市酒店扩张初筛模型给出基础可评估分。"
+        },
+        {
+          "label": "商圈信息",
+          "score_change": 8,
+          "raw_score_after": 70,
+          "reason": "已录入上海虹桥，可进入实地商圈复核"
+        },
+        {
+          "label": "房量与单房租金",
+          "score_change": 16,
+          "raw_score_after": 86,
+          "reason": "房量大于60且单房月租处于可控区间"
+        },
+        {
+          "label": "面积与房型效率",
+          "score_change": 8,
+          "raw_score_after": 94,
+          "reason": "单房建筑面积匹配常规中端酒店模型"
+        },
+        {
+          "label": "租金压力",
+          "score_change": 10,
+          "raw_score_after": 104,
+          "reason": "租金水平未触发高压阈值"
+        },
+        {
+          "label": "目标客群",
+          "score_change": 4,
+          "raw_score_after": 108,
+          "reason": "目标客群适合城市商旅型价格带"
+        },
+        {
+          "label": "租期条件",
+          "score_change": 4,
+          "raw_score_after": 112,
+          "reason": "租期具备中长期经营稳定性"
+        },
+        {
+          "label": "免租期",
+          "score_change": 4,
+          "raw_score_after": 116,
+          "reason": "免租期可覆盖部分筹建爬坡压力"
+        },
+        {
+          "label": "装修投入",
+          "score_change": 3,
+          "raw_score_after": 119,
+          "reason": "单房装修投入处于较可控区间"
+        },
+        {
+          "label": "ADR承压能力",
+          "score_change": 4,
+          "raw_score_after": 123,
+          "reason": "目标ADR对租金承压具备一定覆盖能力"
+        },
+        {
+          "label": "入住率假设",
+          "score_change": 3,
+          "raw_score_after": 126,
+          "reason": "目标入住率达到成熟门店经营区间"
+        },
+        {
+          "label": "OTA渗透率",
+          "score_change": 5,
+          "raw_score_after": 131,
+          "reason": "OTA平台市场渗透率较高，线上获客基础具备验证价值"
+        },
+        {
+          "label": "停车配比",
+          "score_change": 2,
+          "raw_score_after": 133,
+          "reason": "停车配比可增强自驾及商务客群承接"
+        }
+      ],
+      "supply_competition_strength": "中等竞争，可通过产品差异化切入",
+      "price_band_suggestion": "建议定位在220-320元",
+      "investment_risk_level": "低风险",
+      "recommended_property_type": "整栋或独立出入口中端商务酒店",
+      "ai_operation_suggestions": [
+        "可进入物业尽调和竞品实采，重点验证周边同档酒店ADR与出租率",
+        "用3公里竞品价格、评分、点评量校准价格带",
+        "将租金、免租期、装修单房投入拆成保守/基准/乐观三套现金流"
+      ],
+      "not_recommended_risks": [
+        "当前证据不足，未形成可判定的风险清单；需补充竞品、客流与租约证据"
+      ],
+      "metrics": {
+        "area_per_room": 40,
+        "rent_per_room": 1500,
+        "rent_per_square": 37.5
+      },
+      "investment_conditions": [
+        {
+          "label": "城市线级",
+          "value": "一线"
+        },
+        {
+          "label": "物业形态",
+          "value": "待补充"
+        },
+        {
+          "label": "经营模式",
+          "value": "待补充"
+        },
+        {
+          "label": "合同状态",
+          "value": "待补充"
+        },
+        {
+          "label": "主客群",
+          "value": "商务差旅"
+        },
+        {
+          "label": "辅助客群",
+          "value": "会议会展"
+        },
+        {
+          "label": "租期",
+          "value": "10年"
+        },
+        {
+          "label": "免租期",
+          "value": "4个月"
+        },
+        {
+          "label": "押金",
+          "value": "待补充"
+        },
+        {
+          "label": "转让费",
+          "value": "待补充"
+        },
+        {
+          "label": "装修预算",
+          "value": "420万元"
+        },
+        {
+          "label": "目标ADR",
+          "value": "320元"
+        },
+        {
+          "label": "目标入住率",
+          "value": "82%"
+        },
+        {
+          "label": "周边竞品",
+          "value": "待补充"
+        },
+        {
+          "label": "OTA平台市场渗透率",
+          "value": "65%"
+        }
+      ],
+      "decision": "数据不足，仅可规则初筛",
+      "data_status": {
+        "status": "待接入真实数据",
+        "real_data_used": false,
+        "missing_fields": [
+          "周边竞品数量",
+          "物业形态",
+          "经营模式",
+          "合同状态"
+        ],
+        "notice": "存在待补充字段，当前结果仅供初筛"
+      },
+      "rule_reasons": [
+        "已录入上海虹桥，可进入实地商圈复核",
+        "房量大于60且单房月租处于可控区间",
+        "单房建筑面积匹配常规中端酒店模型",
+        "租金水平未触发高压阈值",
+        "目标客群适合城市商旅型价格带",
+        "租期具备中长期经营稳定性",
+        "免租期可覆盖部分筹建爬坡压力",
+        "单房装修投入处于较可控区间",
+        "目标ADR对租金承压具备一定覆盖能力",
+        "目标入住率达到成熟门店经营区间",
+        "OTA平台市场渗透率较高，线上获客基础具备验证价值",
+        "停车配比可增强自驾及商务客群承接"
+      ]
+    },
+    "benchmark": {
+      "source": "user_provided_competitor_metrics",
+      "position": {
+        "city": "上海",
+        "business_area": "虹桥",
+        "target_price_band": "260-360",
+        "hotel_type": "中端商务",
+        "target_room_count": 80,
+        "detail_metrics": {
+          "competitor_count": 12,
+          "avg_competitor_price": 315,
+          "avg_competitor_score": 4.7,
+          "avg_review_count": 520,
+          "ota_heat_index": 82,
+          "traffic_radius_km": 3,
+          "data_completeness": "6/6",
+          "estimated_fields": [],
+          "source": "user_provided_competitor_metrics"
+        }
+      },
+      "recommended_benchmarks": [
+        {
+          "name": "标杆模型A",
+          "score": 4.8,
+          "price": 310,
+          "room_count": 80,
+          "heat": 91,
+          "selling_points": [
+            "核心房型少而清晰",
+            "商务客源转化稳定",
+            "点评关键词聚焦干净与便利"
+          ],
+          "learn_from": "学习房型结构、点评运营和主力价格带稳定性",
+          "source": "user_provided_competitor_metrics",
+          "distance_km": 1.8,
+          "review_count": 650,
+          "price_gap_to_market": -5,
+          "score_gap_to_market": 0.1,
+          "heat_gap_to_market": 9,
+          "model_fit_score": 96,
+          "sample_basis": "3公里内12家竞品样本"
+        },
+        {
+          "name": "标杆模型B",
+          "score": 4.7,
+          "price": 290,
+          "room_count": 72,
+          "heat": 86,
+          "selling_points": [
+            "低波动价格策略",
+            "渠道覆盖完整",
+            "图片展示统一"
+          ],
+          "learn_from": "学习渠道铺排、价格梯度和图片标准化",
+          "source": "user_provided_competitor_metrics",
+          "distance_km": 2.6,
+          "review_count": 520,
+          "price_gap_to_market": -25,
+          "score_gap_to_market": 0,
+          "heat_gap_to_market": 4,
+          "model_fit_score": 96,
+          "sample_basis": "3公里内12家竞品样本"
+        },
+        {
+          "name": "标杆模型C",
+          "score": 4.6,
+          "price": 335,
+          "room_count": 90,
+          "heat": 80,
+          "selling_points": [
+            "差异化房型",
+            "服务标签突出",
+            "适合拉高ADR"
+          ],
+          "learn_from": "学习服务标签和高价房型包装，不照搬成本结构",
+          "source": "user_provided_competitor_metrics",
+          "distance_km": 3.5,
+          "review_count": 390,
+          "price_gap_to_market": 20,
+          "score_gap_to_market": -0.1,
+          "heat_gap_to_market": -2,
+          "model_fit_score": 96,
+          "sample_basis": "3公里内12家竞品样本"
+        }
+      ],
+      "copyable_strategies": {
+        "room_type": "保留2-3个主力房型，减少低频主题房占比",
+        "price": "以260-360元作为挂牌主带，节假日上浮但保留低价引流房",
+        "channel": "携程/美团基础覆盖，重点维护高转化渠道的首图、权益和点评回复",
+        "review": "围绕卫生、隔音、交通、服务响应建立点评关键词",
+        "image": "首图突出房间真实尺度，补齐外立面、前台、卫浴和窗景",
+        "service": "强化发票、洗衣、延迟退房和安静楼层",
+        "data": "按3公里、12家竞品校准价格差、评分差和点评量，再确定主力标杆"
+      },
+      "differentiation_suggestions": [
+        "围绕虹桥的主要客源设计首图和权益",
+        "用标准化房型提升清扫、人效和收益管理效率",
+        "优先复核与竞品均价差在±30元、评分差在0.2分内的标杆样本",
+        "选择一个强标签作为差异点，不同时堆叠过多卖点"
+      ],
+      "avoid_copying_points": [
+        "不要照搬真实酒店名称、装修造价和供应商配置",
+        "不要复制超出自身房量承载能力的早餐、会议室或复杂服务",
+        "不要用标杆高分直接推导本项目ADR，需结合租金和爬坡周期复核"
+      ],
+      "data_status": {
+        "status": "待接入真实数据",
+        "real_data_used": false,
+        "missing_fields": [],
+        "notice": "当前竞品指标来自用户输入，仍需结合可追溯样本证据复核",
+        "source": "user_provided_competitor_metrics"
+      }
+    },
+    "collaboration": {
+      "project_overview": {
+        "project_name": "上海虹桥新店",
+        "city_area": "上海虹桥",
+        "current_stage": "上线",
+        "owner": "拓展负责人",
+        "expected_online_date": "2026-12-01",
+        "days_to_online": 60
+      },
+      "task_board": [
+        {
+          "name": "市场调研",
+          "status": "已完成",
+          "owner": "拓展负责人",
+          "due_date": "2026-11-01",
+          "risk_note": "",
+          "source": "operator_provided",
+          "evidence_status": "operator_provided",
+          "is_observed": true
+        },
+        {
+          "name": "物业评估",
+          "status": "已完成",
+          "owner": "拓展负责人",
+          "due_date": "2026-11-01",
+          "risk_note": "",
+          "source": "operator_provided",
+          "evidence_status": "operator_provided",
+          "is_observed": true
+        },
+        {
+          "name": "合同谈判",
+          "status": "已完成",
+          "owner": "拓展负责人",
+          "due_date": "2026-11-01",
+          "risk_note": "",
+          "source": "operator_provided",
+          "evidence_status": "operator_provided",
+          "is_observed": true
+        },
+        {
+          "name": "装修筹建",
+          "status": "已完成",
+          "owner": "拓展负责人",
+          "due_date": "2026-11-01",
+          "risk_note": "",
+          "source": "operator_provided",
+          "evidence_status": "operator_provided",
+          "is_observed": true
+        },
+        {
+          "name": "证照办理",
+          "status": "已完成",
+          "owner": "拓展负责人",
+          "due_date": "2026-11-01",
+          "risk_note": "",
+          "source": "operator_provided",
+          "evidence_status": "operator_provided",
+          "is_observed": true
+        },
+        {
+          "name": "OTA上线",
+          "status": "已完成",
+          "owner": "拓展负责人",
+          "due_date": "2026-11-01",
+          "risk_note": "",
+          "source": "operator_provided",
+          "evidence_status": "operator_provided",
+          "is_observed": true
+        },
+        {
+          "name": "运营交接",
+          "status": "已完成",
+          "owner": "拓展负责人",
+          "due_date": "2026-11-01",
+          "risk_note": "",
+          "source": "operator_provided",
+          "evidence_status": "operator_provided",
+          "is_observed": true
+        }
+      ],
+      "progress": {
+        "completed": 7,
+        "total": 7,
+        "confirmed_total": 7,
+        "template_pending_count": 0,
+        "percent": 100,
+        "status_text": "已确认完成7/7项；另有0项模板待确认"
+      },
+      "delay_risk": {
+        "level": "未发现明确延误风险",
+        "points": [
+          "基于已确认任务，当前未发现明确延误信号；不等于已完成全部风险核验"
+        ]
+      },
+      "next_actions": [
+        "全部任务已完成，进入上线复盘",
+        "保持周级节奏，更新风险说明和截止时间",
+        "所有风险任务需补充解决方案、截止时间和责任人"
+      ],
+      "data_status": {
+        "status": "待接入真实数据",
+        "real_data_used": false,
+        "missing_fields": [],
+        "notice": "当前为规则引擎结果，待接入真实市场、竞品和项目数据"
+      }
+    }
+  },
+  "transfer": {
+    "pricing": {
+      "status": "scenario_estimate",
+      "decision_ready": false,
+      "manual_unverified": true,
+      "missing_fields": [],
+      "basic_info": {
+        "hotel_name": "虹桥样板店",
+        "location": "上海虹桥",
+        "room_count": 80,
+        "adr": 320,
+        "rating": 4.8,
+        "order_count": 900
+      },
+      "costs": {
+        "monthly_total_cost": 17,
+        "monthly_rent": 8,
+        "labor_cost": 5,
+        "utility_cost": 1,
+        "ota_commission": 2,
+        "other_fixed_cost": 1
+      },
+      "profit": {
+        "monthly_revenue": 30,
+        "monthly_net_profit": 13,
+        "annual_net_profit": 156,
+        "payback_months": 13.8
+      },
+      "valuation": {
+        "valuation_multiple": 38,
+        "conservative_valuation": 385.32,
+        "reasonable_valuation": 494,
+        "optimistic_valuation": 546,
+        "expected_transfer_price": 180,
+        "quote_judgement": "报价偏低"
+      },
+      "risk_level": "低风险",
+      "risk_points": [
+        "暂无明显硬性风险",
+        "数据异常状态未核验"
+      ],
+      "main_reasons": [
+        "利润、租期和基础经营指标处于可评估区间"
+      ],
+      "suggestion": "可进入尽调，但需核验证照、租约和历史流水。",
+      "data_notice": "数据异常状态未核验；本结果仅为人工输入情景测算，不构成正式估值或接盘结论。",
+      "data_quality": {
+        "licenses_complete": true,
+        "has_data_anomaly": null,
+        "source": "manual_input_unverified"
+      },
+      "unit": "万元"
+    },
+    "timing": {
+      "status": "scenario_estimate",
+      "decision_ready": false,
+      "manual_unverified": true,
+      "missing_fields": [],
+      "timing_score": 100,
+      "decision": "适合转让",
+      "main_reasons": [
+        "基础分50分",
+        "营业额上涨，加15分",
+        "订单上涨，加15分",
+        "ADR上涨，加10分",
+        "入住率上涨，加10分",
+        "评分不低于4.8，加10分"
+      ],
+      "risk_points": [
+        "数据异常或断档状态未核验"
+      ],
+      "next_suggestions": [
+        "可准备挂牌材料，优先突出稳定利润、评分和旺季窗口"
+      ],
+      "suggested_action": "适合转让",
+      "data_quality": {
+        "has_data_anomaly": false,
+        "has_data_gap": false,
+        "suspected_collection_anomaly": false,
+        "notice": "数据异常或断档状态未核验"
+      }
+    },
+    "dashboard": {
+      "cards": [
+        {
+          "label": "建议估值区间",
+          "value": "385.32万元-546万元"
+        },
+        {
+          "label": "当前月净利润",
+          "value": "13万元"
+        },
+        {
+          "label": "投资回收周期",
+          "value": "13.8个月"
+        },
+        {
+          "label": "转让时机评分",
+          "value": "100分"
+        },
+        {
+          "label": "接盘风险等级",
+          "value": "低风险"
+        },
+        {
+          "label": "建议动作",
+          "value": "启动挂牌"
+        }
+      ],
+      "final_judgement": "当前估值、风险和时机条件相对匹配，可推进转让准备。",
+      "main_reasons": [
+        "利润、租期和基础经营指标处于可评估区间",
+        "基础分50分",
+        "营业额上涨，加15分",
+        "订单上涨，加15分",
+        "ADR上涨，加10分",
+        "入住率上涨，加10分",
+        "评分不低于4.8，加10分"
+      ],
+      "risk_points": [
+        "暂无明显硬性风险",
+        "数据异常状态未核验",
+        "数据异常或断档状态未核验"
+      ],
+      "next_suggestions": [
+        "可准备挂牌材料，优先突出稳定利润、评分和旺季窗口",
+        "可进入尽调，但需核验证照、租约和历史流水。"
+      ],
+      "suggested_action": "启动挂牌",
+      "unit": "万元"
+    }
+  },
+  "feasibility": {
+    "calculation": {
+      "decision_ready": true,
+      "evaluation_status": "可评估",
+      "data_gaps": [],
+      "area_per_room": 30,
+      "opening_cost": 50000,
+      "total_investment": 450000,
+      "scenarios": [
+        {
+          "name": "保守情景",
+          "adr": 270,
+          "occ": 0.65,
+          "revpar": 175.5,
+          "monthly_revenue": 105300,
+          "monthly_operating_cost": 100154,
+          "monthly_net_cashflow": 5146,
+          "payback_months": 87.4,
+          "rent_ratio": 0.3799,
+          "rent_ratio_status": "calculated",
+          "risk_level": "中",
+          "calculation_status": "rule_scenario_ready",
+          "cost_basis": "rule_scenario_assumption_not_actuals",
+          "data_gaps": []
+        },
+        {
+          "name": "基准情景",
+          "adr": 300,
+          "occ": 0.75,
+          "revpar": 225,
+          "monthly_revenue": 135000,
+          "monthly_operating_cost": 105500,
+          "monthly_net_cashflow": 29500,
+          "payback_months": 15.3,
+          "rent_ratio": 0.2963,
+          "rent_ratio_status": "calculated",
+          "risk_level": "低",
+          "calculation_status": "rule_scenario_ready",
+          "cost_basis": "rule_scenario_assumption_not_actuals",
+          "data_gaps": []
+        },
+        {
+          "name": "乐观情景",
+          "adr": 324,
+          "occ": 0.83,
+          "revpar": 268.92,
+          "monthly_revenue": 161352,
+          "monthly_operating_cost": 110243.36,
+          "monthly_net_cashflow": 51108.64,
+          "payback_months": 8.8,
+          "rent_ratio": 0.2479,
+          "rent_ratio_status": "calculated",
+          "risk_level": "低",
+          "calculation_status": "rule_scenario_ready",
+          "cost_basis": "rule_scenario_assumption_not_actuals",
+          "data_gaps": []
+        }
+      ],
+      "cost_model": {
+        "basis": "rule_scenario_assumption",
+        "is_actual_performance": false,
+        "variable_cost_ratio": 0.18,
+        "fixed_cost_formula": "monthly_rent + room_count * 900 + room_count * 260 + 18000"
+      },
+      "assumptions": [
+        "固定成本采用规则情景假设（非经营实绩）：月租金 + 900 元/间人工 + 260 元/间能耗 + 18,000 元其他固定成本。",
+        "变动成本采用规则情景假设（非经营实绩）：按情景营业收入的 18% 测算。"
+      ]
+    },
+    "manual_report": {
+      "decision_ready": true,
+      "evaluation_status": "可评估",
+      "data_gaps": [],
+      "report_source": "fallback",
+      "conclusion_grade": "A",
+      "conclusion_text": "可进入下一轮尽调，需继续校验租金、ADR和入住率假设。",
+      "core_reason": "本地规则测算显示基准情景回本周期为15.3个月，财务情景规则风险为低。",
+      "summary": {
+        "project_name": "Valid Project",
+        "location": "Shanghai Pudong No.1",
+        "room_count": 20,
+        "total_investment": 450000,
+        "payback_months": 15.3
+      },
+      "basic_info": [
+        {
+          "label": "项目名称",
+          "value": "Valid Project",
+          "source": "用户输入"
+        },
+        {
+          "label": "城市区域",
+          "value": "Shanghai Pudong",
+          "source": "用户输入"
+        },
+        {
+          "label": "物业面积",
+          "value": "600㎡",
+          "source": "用户输入"
+        },
+        {
+          "label": "计划房量",
+          "value": "20间",
+          "source": "用户输入"
+        },
+        {
+          "label": "单房面积",
+          "value": "30㎡/间",
+          "source": "本地测算"
+        },
+        {
+          "label": "总投资",
+          "value": 450000,
+          "source": "规则情景测算"
+        }
+      ],
+      "market_judgement": {
+        "market_score": null,
+        "competition_level": "未评估",
+        "recommended_model": "midscale",
+        "target_customer": "business",
+        "reasoning": "未读取到可追溯的市场或竞品记录，市场评分与竞争强度保持未评估；产品定位和目标客群仅回显用户输入。"
+      },
+      "financial_scenarios": [
+        {
+          "name": "保守情景",
+          "adr": 270,
+          "occ": 0.65,
+          "revpar": 175.5,
+          "monthly_revenue": 105300,
+          "monthly_operating_cost": 100154,
+          "monthly_net_cashflow": 5146,
+          "payback_months": 87.4,
+          "rent_ratio": 0.3799,
+          "rent_ratio_status": "calculated",
+          "risk_level": "中",
+          "calculation_status": "rule_scenario_ready",
+          "cost_basis": "rule_scenario_assumption_not_actuals",
+          "data_gaps": []
+        },
+        {
+          "name": "基准情景",
+          "adr": 300,
+          "occ": 0.75,
+          "revpar": 225,
+          "monthly_revenue": 135000,
+          "monthly_operating_cost": 105500,
+          "monthly_net_cashflow": 29500,
+          "payback_months": 15.3,
+          "rent_ratio": 0.2963,
+          "rent_ratio_status": "calculated",
+          "risk_level": "低",
+          "calculation_status": "rule_scenario_ready",
+          "cost_basis": "rule_scenario_assumption_not_actuals",
+          "data_gaps": []
+        },
+        {
+          "name": "乐观情景",
+          "adr": 324,
+          "occ": 0.83,
+          "revpar": 268.92,
+          "monthly_revenue": 161352,
+          "monthly_operating_cost": 110243.36,
+          "monthly_net_cashflow": 51108.64,
+          "payback_months": 8.8,
+          "rent_ratio": 0.2479,
+          "rent_ratio_status": "calculated",
+          "risk_level": "低",
+          "calculation_status": "rule_scenario_ready",
+          "cost_basis": "rule_scenario_assumption_not_actuals",
+          "data_gaps": []
+        }
+      ],
+      "risk_list": [
+        {
+          "risk": "回本周期",
+          "level": "低",
+          "reason": "基准情景回本周期为15.3个月。",
+          "action": "复核ADR、入住率、租金和单房装修投入。"
+        },
+        {
+          "risk": "数据来源",
+          "level": "待核验",
+          "reason": "缺少可追溯的经营、OTA和竞品记录。",
+          "action": "接入近期日报、OTA订单和竞对价格后重新生成。"
+        }
+      ],
+      "action_plan": [
+        {
+          "title": "复核核心假设",
+          "priority": "P0",
+          "detail": "校验ADR、入住率、月租金、装修预算和转让费。"
+        },
+        {
+          "title": "补齐外部样本",
+          "priority": "P1",
+          "detail": "补充竞对价格、评分、商圈客流和OTA转化数据。"
+        },
+        {
+          "title": "形成投决结论",
+          "priority": "P2",
+          "detail": "按保守、基准、乐观三情景确定是否立项。"
+        }
+      ],
+      "assumptions": [
+        "固定成本采用规则情景假设（非经营实绩）：月租金 + 900 元/间人工 + 260 元/间能耗 + 18,000 元其他固定成本。",
+        "变动成本采用规则情景假设（非经营实绩）：按情景营业收入的 18% 测算。",
+        "LLM报告生成失败，已启用本地测算兜底：synthetic retired-history fixture; external generation forbidden"
+      ],
+      "evidence": [
+        {
+          "source": "local_calculation",
+          "title": "宿析OS规则情景测算",
+          "url": "",
+          "summary": "仅基于用户输入和内置财务规则生成，未使用可追溯市场或竞品证据。"
+        }
+      ],
+      "cost_model": {
+        "basis": "rule_scenario_assumption",
+        "is_actual_performance": false,
+        "variable_cost_ratio": 0.18,
+        "fixed_cost_formula": "monthly_rent + room_count * 900 + room_count * 260 + 18000"
+      }
+    },
+    "manual_report_c": {
+      "conclusion_grade": "C",
+      "conclusion_text": "Needs review",
+      "core_reason": "Manual assumptions only",
+      "summary": {
+        "project_name": "Valid Project",
+        "location": "Shanghai Pudong No.1",
+        "room_count": 20,
+        "total_investment": 450000,
+        "payback_months": 15.3
+      },
+      "assumptions": [
+        "固定成本采用规则情景假设（非经营实绩）：月租金 + 900 元/间人工 + 260 元/间能耗 + 18,000 元其他固定成本。",
+        "变动成本采用规则情景假设（非经营实绩）：按情景营业收入的 18% 测算。"
+      ],
+      "financial_scenarios": [
+        {
+          "name": "保守情景",
+          "adr": 270,
+          "occ": 0.65,
+          "revpar": 175.5,
+          "monthly_revenue": 105300,
+          "monthly_operating_cost": 100154,
+          "monthly_net_cashflow": 5146,
+          "payback_months": 87.4,
+          "rent_ratio": 0.3799,
+          "rent_ratio_status": "calculated",
+          "risk_level": "中",
+          "calculation_status": "rule_scenario_ready",
+          "cost_basis": "rule_scenario_assumption_not_actuals",
+          "data_gaps": []
+        },
+        {
+          "name": "基准情景",
+          "adr": 300,
+          "occ": 0.75,
+          "revpar": 225,
+          "monthly_revenue": 135000,
+          "monthly_operating_cost": 105500,
+          "monthly_net_cashflow": 29500,
+          "payback_months": 15.3,
+          "rent_ratio": 0.2963,
+          "rent_ratio_status": "calculated",
+          "risk_level": "低",
+          "calculation_status": "rule_scenario_ready",
+          "cost_basis": "rule_scenario_assumption_not_actuals",
+          "data_gaps": []
+        },
+        {
+          "name": "乐观情景",
+          "adr": 324,
+          "occ": 0.83,
+          "revpar": 268.92,
+          "monthly_revenue": 161352,
+          "monthly_operating_cost": 110243.36,
+          "monthly_net_cashflow": 51108.64,
+          "payback_months": 8.8,
+          "rent_ratio": 0.2479,
+          "rent_ratio_status": "calculated",
+          "risk_level": "低",
+          "calculation_status": "rule_scenario_ready",
+          "cost_basis": "rule_scenario_assumption_not_actuals",
+          "data_gaps": []
+        }
+      ],
+      "risk_list": [],
+      "evidence": [],
+      "decision_ready": true,
+      "evaluation_status": "可评估",
+      "data_gaps": [],
+      "cost_model": {
+        "basis": "rule_scenario_assumption",
+        "is_actual_performance": false,
+        "variable_cost_ratio": 0.18,
+        "fixed_cost_formula": "monthly_rent + room_count * 900 + room_count * 260 + 18000"
+      },
+      "basic_info": [
+        {
+          "label": "项目名称",
+          "value": "Valid Project",
+          "source": "用户输入"
+        },
+        {
+          "label": "城市区域",
+          "value": "Shanghai Pudong",
+          "source": "用户输入"
+        },
+        {
+          "label": "物业面积",
+          "value": "600㎡",
+          "source": "用户输入"
+        },
+        {
+          "label": "计划房量",
+          "value": "20间",
+          "source": "用户输入"
+        },
+        {
+          "label": "单房面积",
+          "value": "30㎡/间",
+          "source": "本地测算"
+        },
+        {
+          "label": "总投资",
+          "value": 450000,
+          "source": "规则情景测算"
+        }
+      ]
+    }
+  }
+}

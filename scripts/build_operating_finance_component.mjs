@@ -11,7 +11,10 @@ import {
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourcePath = path.join(repoRoot, 'public/components/system/operating-finance-control-center.js');
 const artifactPath = path.join(repoRoot, 'public/components/system/operating-finance-control-center.min.js');
-const source = fs.readFileSync(sourcePath, 'utf8');
+const bridgePanelPath = path.join(repoRoot, 'public/components/system/investment-operating-bridge-panel.js');
+const workspacePaths = ['guest-feedback-qr.js', 'guest-operations-panel.js', 'campaign-operations-panel.js', 'business-feature-workspace.js']
+  .map(name => path.join(repoRoot, 'public/components/system', name));
+const source = [bridgePanelPath, ...workspacePaths, sourcePath].map(file => fs.readFileSync(file, 'utf8')).join('\n');
 const startMarker = '        template: `';
 const closingMarker = '\n        `,';
 const endMarker = `${closingMarker}\n    };`;
@@ -25,9 +28,11 @@ const compiled = compileFrontendTemplate(template);
 const compiledSource = source.slice(0, markerStart)
   + `        render: (function(Vue){${compiled}})(Vue),`
   + source.slice(templateEnd + closingMarker.length);
+const options = structuredClone(FRONTEND_TEMPLATE_MINIFY_OPTIONS);
+options.compress.booleans_as_integers = false;
 const result = await minify(
   { 'operating-finance-control-center.js': compiledSource },
-  structuredClone(FRONTEND_TEMPLATE_MINIFY_OPTIONS),
+  options,
 );
 if (!result.code) throw new Error('Operating-finance component minification returned empty output.');
 const artifact = `${result.code}\n`;
@@ -38,7 +43,10 @@ const loaderPath = path.join(repoRoot, 'public/components/system/app-main-compon
 const loaderSource = fs.readFileSync(loaderPath, 'utf8');
 const loaderPattern = /components\/system\/operating-finance-control-center\.min\.js\?v=20260830-operating-finance-h[0-9a-f]{10}/;
 if (!loaderPattern.test(loaderSource)) throw new Error('Operating-finance component cache identity is missing.');
-const nextLoaderSource = loaderSource.replace(
+const dependencyLoader = loaderSource
+  .replace(/components\/system\/operating-economics-workbench\.min\.js\?v=[A-Za-z0-9-]+/, `components/system/operating-economics-workbench.min.js?v=economics-h${crypto.createHash('sha256').update(fs.readFileSync(path.join(repoRoot,'public/components/system/operating-economics-workbench.min.js'))).digest('hex').slice(0,10)}`)
+  .replace(/components\/system\/booking-monitoring-panel\.js\?v=[A-Za-z0-9-]+/, `components/system/booking-monitoring-panel.js?v=booking-h${crypto.createHash('sha256').update(fs.readFileSync(path.join(repoRoot,'public/components/system/booking-monitoring-panel.js'))).digest('hex').slice(0,10)}`);
+const nextLoaderSource = dependencyLoader.replace(
   loaderPattern,
   `components/system/operating-finance-control-center.min.js?v=20260830-operating-finance-h${artifactSha256.slice(0, 10)}`,
 );

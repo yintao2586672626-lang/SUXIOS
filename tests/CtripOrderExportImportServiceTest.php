@@ -278,11 +278,14 @@ final class CtripOrderExportImportServiceTest extends TestCase
         );
     }
 
-    public function testRealHotelAliasMatchesSelectedSystemHotelAndWrongHotelFailsClosed(): void
+    public function testCityAndGenericHotelDescriptionMatchSelectedSystemHotelAndWrongHotelFailsClosed(): void
     {
         $row = [
             '城市' => '桂林',
-            '酒店名称' => '漓江望月•Quiet Holiday 湖畔酒店(桂林两江四湖象鼻山景区店)',
+            // Specific branch names require an explicit trusted mapping; the
+            // previous scenic-branch alias is retained as a rejection case in
+            // CtripOrderAuditRegressionTest under the corrected identity gate.
+            '酒店名称' => '漓江望月 湖畔酒店(桂林)',
             '订单号' => 'ANON-HOTEL-SCOPE-1',
             '订单类型' => '新订',
             '订单状态' => '已接单',

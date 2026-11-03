@@ -37,10 +37,6 @@ test('Ctrip competition circle reads a trusted today snapshot before automatical
     'const openCtripManualTab = (tab) => {',
     "if (tab === 'ctrip-public-profiles') {"
   );
-  const fetch = sliceFrom(
-    'const fetchCtripData = async (options = {}) => {',
-    '// 美团ebooking数据获取'
-  );
 
   assert.match(startup, /hydrateDisplay: false/);
   assert.match(startup, /returnSnapshot: true/);
@@ -54,10 +50,19 @@ test('Ctrip competition circle reads a trusted today snapshot before automatical
   assert.match(startup, /fetchCtripData\(\{ automatic: true \}\)/);
   assert.match(tabOpen, /clearCtripRankingDisplayState\(\);/);
   assert.match(tabOpen, /scheduleCtripEbookingDeferredStartupRefresh\(\);/);
-  assert.match(fetch, /if \(fetchingData\.value\) return \{ status: 'busy' \};/);
   assert.match(template, /fetchingData \? '获取中\.\.\.' : '重新获取'/);
-  assert.match(template, /进入本页后会自动获取当前门店/);
+  assert.match(template, /@click="fetchCtripData"/);
   assert.doesNotMatch(template, /选择门店并点击“获取数据”后/);
+});
+
+test('ranking fetch stays busy while either collection or stored-history read owns the page', async () => {
+  const source = sliceFrom('const fetchCtripData = async (options = {}) => {', '// 美团ebooking数据获取');
+  for (const [fetching, historyLoading] of [[true, false], [false, true], [true, true]]) {
+    const run = vm.runInNewContext(`${source}\nfetchCtripData`, {
+      fetchingData: { value: fetching }, ctripRankingHistoryLoading: { value: historyLoading },
+    });
+    assert.equal((await run()).status, 'busy');
+  }
 });
 
 const trustedPayload = () => ({
